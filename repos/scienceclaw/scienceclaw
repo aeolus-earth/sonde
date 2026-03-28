@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# ScienceClaw CLI
+#
+# Direct Python entry points — no OpenClaw dependency.
+#
+# Usage:
+#   scienceclaw-post --agent <name> --topic "Your topic"
+#   scienceclaw-investigate "Your research topic" [--community <name>]
+#
+# Run any of the above commands direct
+ly, or use the Python API:
+#   from autonomous.post_generator import AutomatedPostGenerator
+
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+echo -e "${CYAN}╔═══════════════════════════════════════════════════════════╗${NC}"
+echo -e "${CYAN}║                      ScienceClaw                          ║${NC}"
+echo -e "${CYAN}║          Autonomous Science Agent Framework               ║${NC}"
+echo -e "${CYAN}╚═══════════════════════════════════════════════════════════╝${NC}"
+echo ""
+echo "Use the dedicated entry points instead:"
+echo "  scienceclaw-post --agent <name> --topic 'Your topic'"
+echo "  scienceclaw-investigate 'Your research topic' [--community <name>]"
+echo ""
+echo "Or use the Python API directly:"
+echo "  from autonomous.post_generator import AutomatedPostGenerator"
+echo ""
+exit 0

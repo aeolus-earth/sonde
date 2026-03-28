@@ -1,0 +1,29 @@
+# Your data storage path(required)
+WORKING_DIRECTORY =./data/
+
+# Conda environment name(required)
+CONDA_ENV = datagen
+
+# ChromeDriver executable path(required)
+CHROMEDRIVER_PATH =./chromedriver-linux64/chromedriver
+
+# Firecrawl API key (optional)
+# Note: If this key is missing, query capabilities may be reduced
+FIRECRAWL_API_KEY = XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+# OpenAI API key (optional)
+OPENAI_API_KEY = XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+# Anthropic API key (optional)
+ANTHROPIC_API_KEY = XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+# Google API key (optional)
+GOOGLE_API_KEY = XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+# LangChain API key (optional)
+# Used for monitoring the processing
+LANGCHAIN_API_KEY = XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+# MCP (Model Context Protocol) Settings (optional)
+# Tavily API key for web-search MCP server
+TAVILY_API_KEY = XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+# GitHub token for github MCP server
+GITHUB_TOKEN = XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
