@@ -11,7 +11,7 @@ from sonde.config import get_settings
 from sonde.db import experiments as db
 from sonde.git import detect_git_context
 from sonde.models.experiment import ExperimentCreate
-from sonde.output import err, print_error, print_json, print_success, print_table
+from sonde.output import err, print_error, print_json, print_success, print_table, styled_status
 
 
 @click.group()
@@ -87,8 +87,12 @@ def log(
     resolved_source = source or settings.source or f"human/{os.environ.get('USER', 'unknown')}"
 
     # Parse JSON fields
-    parsed_params = json.loads(params) if params else {}
-    parsed_result = json.loads(result) if result else None
+    try:
+        parsed_params = json.loads(params) if params else {}
+        parsed_result = json.loads(result) if result else None
+    except json.JSONDecodeError as e:
+        print_error("Invalid JSON", str(e), "Check your --params and --result values")
+        raise SystemExit(2) from None
 
     # Status override for --open flag
     if open_exp:
@@ -210,32 +214,39 @@ def show(ctx: click.Context, experiment_id: str):
         from sonde.output import out
 
         lines = []
-        color = _status_color(exp.status)
-        lines.append(f"[bold]{exp.id}[/bold]  [{color}]{exp.status}[/]  {exp.program}")
-        lines.append(f"Source: {exp.source}  Created: {exp.created_at:%Y-%m-%d %H:%M}")
+        lines.append(f"[sonde.heading]{exp.id}[/]  {styled_status(exp.status)}  {exp.program}")
+        lines.append(
+            f"[sonde.muted]Source: {exp.source}  Created: {exp.created_at:%Y-%m-%d %H:%M}[/]"
+        )
         if exp.hypothesis:
-            lines.append(f"\n[bold]Hypothesis:[/bold]\n  {exp.hypothesis}")
+            lines.append(f"\n[sonde.heading]Hypothesis:[/sonde.heading]\n  {exp.hypothesis}")
         if exp.parameters:
             param_str = "\n".join(f"  {k}: {v}" for k, v in exp.parameters.items())
-            lines.append(f"\n[bold]Parameters:[/bold]\n{param_str}")
+            lines.append(f"\n[sonde.heading]Parameters:[/sonde.heading]\n{param_str}")
         if exp.results:
             result_str = "\n".join(f"  {k}: {v}" for k, v in exp.results.items())
-            lines.append(f"\n[bold]Results:[/bold]\n{result_str}")
+            lines.append(f"\n[sonde.heading]Results:[/sonde.heading]\n{result_str}")
         if exp.finding:
-            lines.append(f"\n[bold]Finding:[/bold]\n  {exp.finding}")
+            lines.append(f"\n[sonde.heading]Finding:[/sonde.heading]\n  {exp.finding}")
         if exp.git_commit:
-            lines.append("\n[bold]Provenance:[/bold]")
+            lines.append("\n[sonde.heading]Provenance:[/sonde.heading]")
             lines.append(f"  Commit: {exp.git_commit[:12]}")
             if exp.git_repo:
                 lines.append(f"  Repo: {exp.git_repo}")
             if exp.git_branch:
                 lines.append(f"  Branch: {exp.git_branch}")
         if exp.related:
-            lines.append(f"\n[bold]Related:[/bold] {', '.join(exp.related)}")
+            lines.append(f"\n[sonde.heading]Related:[/sonde.heading] {', '.join(exp.related)}")
         if exp.tags:
-            lines.append(f"[bold]Tags:[/bold] {', '.join(exp.tags)}")
+            lines.append(f"[sonde.heading]Tags:[/sonde.heading] {', '.join(exp.tags)}")
 
-        out.print(Panel("\n".join(lines), title=exp.id, border_style="blue"))
+        out.print(
+            Panel(
+                "\n".join(lines),
+                title=f"[sonde.brand]{exp.id}[/]",
+                border_style="sonde.brand.dim",
+            )
+        )
 
 
 @experiment.command()
@@ -305,13 +316,3 @@ def _truncate(text: str | None, length: int) -> str:
     if not text:
         return "—"
     return text[:length] + "..." if len(text) > length else text
-
-
-def _status_color(status: str) -> str:
-    return {
-        "open": "blue",
-        "running": "yellow",
-        "complete": "green",
-        "failed": "red",
-        "superseded": "dim",
-    }.get(status, "white")

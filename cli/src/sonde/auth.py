@@ -13,6 +13,7 @@ import socket
 import webbrowser
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from importlib import resources
 from threading import Event
 from typing import Any
 from urllib.parse import parse_qs, urlparse
@@ -24,6 +25,14 @@ from sonde.config import CONFIG_DIR, SESSION_FILE, SUPABASE_ANON_KEY, SUPABASE_U
 
 KEYRING_SERVICE = "sonde-cli"
 CALLBACK_TIMEOUT = 120
+
+
+def _load_callback_html() -> bytes:
+    """Load the OAuth callback page, inlining the wordmark SVG."""
+    assets = resources.files("sonde.assets")
+    html = (assets / "callback.html").read_text(encoding="utf-8")
+    wordmark = (assets / "aeolus-wordmark.svg").read_text(encoding="utf-8")
+    return html.replace("{{WORDMARK_SVG}}", wordmark).encode("utf-8")
 
 
 @dataclass
@@ -45,6 +54,7 @@ class NotAuthenticatedError(Exception):
 
 def _ensure_config_dir() -> None:
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    CONFIG_DIR.chmod(0o700)
 
 
 def save_session(session_data: dict[str, Any]) -> None:
@@ -250,6 +260,7 @@ def _wait_for_callback(port: int, auth_url: str) -> str:
     """Start a temporary HTTP server, open the browser, wait for the OAuth callback."""
     code_received = Event()
     auth_code: list[str] = []
+    callback_page = _load_callback_html()
 
     class CallbackHandler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:
@@ -257,12 +268,9 @@ def _wait_for_callback(port: int, auth_url: str) -> str:
             if "code" in query:
                 auth_code.append(query["code"][0])
                 self.send_response(200)
-                self.send_header("Content-Type", "text/html")
+                self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.end_headers()
-                self.wfile.write(
-                    b"<html><body><h2>Signed in to Sonde</h2>"
-                    b"<p>You can close this tab.</p></body></html>"
-                )
+                self.wfile.write(callback_page)
                 code_received.set()
             else:
                 self.send_response(400)

@@ -76,7 +76,9 @@ def search(
     if program:
         query = query.eq("program", program)
     if text:
-        query = query.or_(f"hypothesis.ilike.%{text}%,finding.ilike.%{text}%")
+        # Sanitize: escape PostgREST filter metacharacters to prevent injection
+        safe_text = text.replace("\\", "\\\\").replace("%", "\\%").replace(",", "").replace(".", "")
+        query = query.or_(f"hypothesis.ilike.%{safe_text}%,finding.ilike.%{safe_text}%")
     if tags:
         query = query.contains("tags", tags)
 

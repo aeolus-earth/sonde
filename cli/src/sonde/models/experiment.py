@@ -15,14 +15,14 @@ class ExperimentCreate(BaseModel):
     status: str = Field(default="open", pattern="^(open|running|complete|failed|superseded)$")
     source: str = Field(description="Who logged this (e.g., human/mlee, codex/task-abc)")
 
-    hypothesis: str | None = None
+    hypothesis: str | None = Field(default=None, max_length=5000)
     parameters: dict[str, Any] = Field(default_factory=dict)
     results: dict[str, Any] | None = None
-    finding: str | None = None
+    finding: str | None = Field(default=None, max_length=10000)
 
-    git_commit: str | None = None
-    git_repo: str | None = None
-    git_branch: str | None = None
+    git_commit: str | None = Field(default=None, max_length=255)
+    git_repo: str | None = Field(default=None, max_length=2048)
+    git_branch: str | None = Field(default=None, max_length=255)
     data_sources: list[str] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
 
