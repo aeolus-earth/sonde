@@ -15,9 +15,12 @@ from sonde import __version__
 # Load .env before anything else
 load_dotenv()
 
+# Commands that don't require authentication
+_NO_AUTH = {"login", "logout", "whoami", "setup"}
+
 
 class SondeCLI(click.Group):
-    """Custom group that allows 'sonde log' as shorthand for 'sonde experiment log'."""
+    """Custom group with shortcuts for common commands."""
 
     _shortcuts: ClassVar[dict[str, tuple[str, str]]] = {
         "log": ("experiment", "log"),
@@ -50,6 +53,7 @@ def cli(ctx: click.Context, use_json: bool, quiet: bool, verbose: bool, no_color
 
     \b
     Quick start:
+      sonde login
       sonde log --quick --params '{"ccn": 1200}' --result '{"delta": 6.3}'
       sonde list
       sonde show EXP-0001
@@ -57,8 +61,6 @@ def cli(ctx: click.Context, use_json: bool, quiet: bool, verbose: bool, no_color
     \b
     Learn more:
       sonde experiment --help
-      sonde finding --help
-      sonde question --help
     """
     ctx.ensure_object(dict)
     ctx.obj["json"] = use_json
@@ -67,7 +69,12 @@ def cli(ctx: click.Context, use_json: bool, quiet: bool, verbose: bool, no_color
     ctx.obj["no_color"] = no_color
 
 
-# Register command groups
+# -- Register commands --
+
+from sonde.commands.auth import login, logout, whoami  # noqa: E402
 from sonde.commands.experiment import experiment  # noqa: E402
 
+cli.add_command(login)
+cli.add_command(logout)
+cli.add_command(whoami)
 cli.add_command(experiment)

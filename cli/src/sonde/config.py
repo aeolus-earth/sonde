@@ -1,6 +1,9 @@
 """Configuration management.
 
-Priority: explicit flag > env var > project config (.aeolus.yaml) > user config > default.
+Supabase credentials are hardcoded — they're public values (anon key is designed
+for client-side use). Only user-specific settings are configurable.
+
+Priority: explicit flag > env var > project config (.aeolus.yaml) > default.
 """
 
 from __future__ import annotations
@@ -11,6 +14,14 @@ from typing import Any
 import yaml
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# -- Supabase project (public, hardcoded) --
+SUPABASE_URL = "https://utvmqjssbkzpumsdpgdy.supabase.co"
+SUPABASE_ANON_KEY = "sb_publishable_tWTyul-LMC9QDFYID8pOZA_wKM2e2AL"
+
+# -- User config paths --
+CONFIG_DIR = Path.home() / ".config" / "sonde"
+SESSION_FILE = CONFIG_DIR / "session.json"
 
 
 def _find_project_config() -> dict[str, Any]:
@@ -32,21 +43,11 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # Database
-    db_url: str = Field(default="", description="PostgreSQL connection string")
-    supabase_url: str = Field(default="", description="Supabase project URL")
-    supabase_key: str = Field(default="", description="Supabase API key")
-
-    # Defaults (overridable by .aeolus.yaml or flags)
     program: str = Field(default="", description="Default program namespace")
     source: str = Field(default="", description="Default source attribution")
 
     def with_project_config(self) -> Settings:
-        """Overlay project config (.aeolus.yaml) values onto settings.
-
-        Project config has lower priority than env vars / explicit flags,
-        but higher than defaults.
-        """
+        """Overlay .aeolus.yaml values where env/flags haven't set them."""
         project = _find_project_config()
         updates = {}
         for key, value in project.items():
