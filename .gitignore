@@ -7,3 +7,4 @@ repos/**/.git/
 vendor/**/.git/
 cli/.coverage
 .sonde/
+repos/claude-code/
