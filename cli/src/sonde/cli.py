@@ -60,6 +60,14 @@ class SondeCLI(click.Group):
             "list": "Research",
             "show": "Research",
             "search": "Research",
+            "pull": "Research",
+            "push": "Research",
+            "brief": "Research",
+            "note": "Research",
+            "attach": "Research",
+            "new": "Research",
+            "tag": "Research",
+            "tags": "Research",
             "login": "Auth & Setup",
             "logout": "Auth & Setup",
             "whoami": "Auth & Setup",
@@ -128,6 +136,18 @@ def cli(ctx: click.Context, use_json: bool, quiet: bool, verbose: bool, no_color
     ctx.obj["verbose"] = verbose
     ctx.obj["no_color"] = no_color
 
+    # Enforce auth for commands that require it
+    sub = ctx.invoked_subcommand
+    if sub and sub not in _NO_AUTH:
+        from sonde.auth import is_authenticated
+
+        if not is_authenticated():
+            raise SystemExit(
+                "Error: Not logged in.\n"
+                "  Run: sonde login\n\n"
+                "  For agents, set the SONDE_TOKEN environment variable."
+            )
+
     # Show help when invoked with no subcommand
     if ctx.invoked_subcommand is None:
         click.echo(ctx.get_help())
@@ -136,9 +156,16 @@ def cli(ctx: click.Context, use_json: bool, quiet: bool, verbose: bool, no_color
 # -- Register commands --
 
 from sonde.commands.admin import admin  # noqa: E402
+from sonde.commands.attach import attach  # noqa: E402
 from sonde.commands.auth import login, logout, whoami  # noqa: E402
+from sonde.commands.brief import brief  # noqa: E402
 from sonde.commands.experiment import experiment  # noqa: E402
+from sonde.commands.new import new  # noqa: E402
+from sonde.commands.note import note  # noqa: E402
+from sonde.commands.pull import pull  # noqa: E402
+from sonde.commands.push import push  # noqa: E402
 from sonde.commands.setup import setup  # noqa: E402
+from sonde.commands.tag import tag, tags_list  # noqa: E402
 
 cli.add_command(login)
 cli.add_command(logout)
@@ -146,3 +173,11 @@ cli.add_command(whoami)
 cli.add_command(setup)
 cli.add_command(experiment)
 cli.add_command(admin)
+cli.add_command(pull)
+cli.add_command(push)
+cli.add_command(new)
+cli.add_command(note)
+cli.add_command(attach)
+cli.add_command(brief)
+cli.add_command(tag)
+cli.add_command(tags_list)

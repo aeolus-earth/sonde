@@ -6,3 +6,4 @@
 repos/**/.git/
 vendor/**/.git/
 cli/.coverage
+.sonde/
