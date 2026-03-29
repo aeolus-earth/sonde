@@ -5,3 +5,4 @@
 # Upstream mirrors under repos/ and vendor/ keep their own clones locally; do not track nested .git
 repos/**/.git/
 vendor/**/.git/
+cli/.coverage

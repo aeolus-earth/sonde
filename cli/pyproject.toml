@@ -35,6 +35,9 @@ dev = [
     "ruff>=0.13",
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
+    "pytest-cov>=6.0",
+    "syrupy>=4.0",
+    "respx>=0.22",
     "ty>=0.0.26",
 ]
 
@@ -68,3 +71,28 @@ known-first-party = ["sonde"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "--cov=sonde",
+    "--cov-branch",
+    "--cov-report=term-missing:skip-covered",
+    "--tb=short",
+]
+markers = [
+    "integration: requires a running Supabase instance (deselect with '-m not integration')",
+]
+
+# --- Coverage ---
+[tool.coverage.run]
+source = ["sonde"]
+omit = ["src/sonde/assets/*"]
+
+[tool.coverage.report]
+exclude_also = [
+    "if __name__ == .__main__.",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+    "raise NotImplementedError",
+    "pass  # Keyring is best-effort",
+]
