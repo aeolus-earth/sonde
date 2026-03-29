@@ -8,6 +8,7 @@ Two auth paths, one interface:
 from __future__ import annotations
 
 import json
+import logging
 import os
 import socket
 import webbrowser
@@ -19,9 +20,12 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from supabase import Client, create_client
+from supabase_auth.errors import AuthApiError
 from supabase_auth.types import CodeExchangeParams
 
 from sonde.config import CONFIG_DIR, SESSION_FILE, SUPABASE_ANON_KEY, SUPABASE_URL
+
+logger = logging.getLogger(__name__)
 
 KEYRING_SERVICE = "sonde-cli"
 CALLBACK_TIMEOUT = 120
@@ -65,10 +69,14 @@ def save_session(session_data: dict[str, Any]) -> None:
 
     try:
         import keyring
-
-        keyring.set_password(KEYRING_SERVICE, "session", json.dumps(session_data, default=str))
-    except Exception:
-        pass  # Keyring is best-effort
+        import keyring.errors
+    except ImportError:
+        pass
+    else:
+        try:
+            keyring.set_password(KEYRING_SERVICE, "session", json.dumps(session_data, default=str))
+        except keyring.errors.KeyringError:
+            logger.debug("Keyring write failed — session stored in file only", exc_info=True)
 
 
 def load_session() -> dict[str, Any] | None:
@@ -76,12 +84,16 @@ def load_session() -> dict[str, Any] | None:
     # Try keyring first
     try:
         import keyring
-
-        data = keyring.get_password(KEYRING_SERVICE, "session")
-        if data:
-            return json.loads(data)
-    except Exception:
+        import keyring.errors
+    except ImportError:
         pass
+    else:
+        try:
+            data = keyring.get_password(KEYRING_SERVICE, "session")
+            if data:
+                return json.loads(data)
+        except keyring.errors.KeyringError:
+            logger.debug("Keyring read failed — falling back to file", exc_info=True)
 
     # Fall back to file
     if SESSION_FILE.exists():
@@ -100,10 +112,14 @@ def clear_session() -> None:
 
     try:
         import keyring
-
-        keyring.delete_password(KEYRING_SERVICE, "session")
-    except Exception:
+        import keyring.errors
+    except ImportError:
         pass
+    else:
+        try:
+            keyring.delete_password(KEYRING_SERVICE, "session")
+        except keyring.errors.KeyringError:
+            logger.debug("Keyring delete failed", exc_info=True)
 
 
 # ---------------------------------------------------------------------------
@@ -126,24 +142,25 @@ def get_token() -> str:
     if not session or "access_token" not in session:
         raise NotAuthenticatedError
 
-    # Refresh if needed
     access_token = session["access_token"]
-    refresh_token = session.get("refresh_token")
 
-    if refresh_token:
-        try:
-            client = _anon_client()
-            refreshed = client.auth.refresh_session(refresh_token)
-            if refreshed and refreshed.session:
-                new_session = {
-                    "access_token": refreshed.session.access_token,
-                    "refresh_token": refreshed.session.refresh_token,
-                    "user": _user_dict(refreshed.session.user),
-                }
-                save_session(new_session)
-                return refreshed.session.access_token
-        except Exception:
-            pass  # Use existing token — may still be valid
+    # Only refresh if token is expired (check exp claim)
+    if _is_expired(access_token):
+        refresh_token = session.get("refresh_token")
+        if refresh_token:
+            try:
+                client = _anon_client()
+                refreshed = client.auth.refresh_session(refresh_token)
+                if refreshed and refreshed.session:
+                    new_session = {
+                        "access_token": refreshed.session.access_token,
+                        "refresh_token": refreshed.session.refresh_token,
+                        "user": _user_dict(refreshed.session.user),
+                    }
+                    save_session(new_session)
+                    return refreshed.session.access_token
+            except AuthApiError:
+                logger.debug("Token refresh failed", exc_info=True)
 
     return access_token
 
@@ -175,6 +192,22 @@ def is_authenticated() -> bool:
     return session is not None and "access_token" in session
 
 
+def _is_expired(token: str) -> bool:
+    """Check if a JWT is expired (with 60s buffer)."""
+    import base64
+    import json as _json
+    import time
+
+    try:
+        payload = token.split(".")[1]
+        padding = "=" * (4 - len(payload) % 4)
+        decoded = _json.loads(base64.urlsafe_b64decode(payload + padding))
+        exp = decoded.get("exp", 0)
+        return time.time() > (exp - 60)  # 60s buffer
+    except Exception:
+        return True  # If we can't decode, assume expired
+
+
 # ---------------------------------------------------------------------------
 # OAuth PKCE login flow
 # ---------------------------------------------------------------------------
@@ -201,6 +234,8 @@ def login() -> UserInfo:
     auth_url = auth_response.url
     if not auth_url:
         raise RuntimeError("Failed to get OAuth URL from Supabase")
+    if not auth_url.startswith("https://"):
+        raise RuntimeError(f"Unexpected non-HTTPS OAuth URL: {auth_url[:80]}")
 
     # Wait for the browser callback
     code = _wait_for_callback(port, auth_url)
@@ -285,16 +320,16 @@ def _wait_for_callback(port: int, auth_url: str) -> str:
 
     webbrowser.open(auth_url)
 
-    while not code_received.is_set():
-        server.handle_request()
-        if not code_received.is_set():
-            # Timeout — handle_request returned without a callback
-            server.server_close()
-            raise TimeoutError(
-                f"Login timed out after {CALLBACK_TIMEOUT}s.\n"
-                "  If your browser didn't open, visit this URL manually:\n"
-                f"  {auth_url}"
-            )
+    try:
+        while not code_received.is_set():
+            server.handle_request()
+            if not code_received.is_set():
+                raise TimeoutError(
+                    f"Login timed out after {CALLBACK_TIMEOUT}s.\n"
+                    "  If your browser didn't open, visit this URL manually:\n"
+                    f"  {auth_url}"
+                )
+    finally:
+        server.server_close()
 
-    server.server_close()
     return auth_code[0]

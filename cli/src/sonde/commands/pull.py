@@ -246,14 +246,28 @@ def _download_artifacts(
     experiment_id: str,
     artifacts: list[dict[str, Any]],
 ) -> None:
-    """Download artifact files from Supabase Storage."""
+    """Download artifact files from Supabase Storage, preserving directory structure."""
+    exp_dir = sonde_dir / "experiments" / experiment_id
+
     for art in artifacts:
         storage_path = art.get("storage_path", "")
         if not storage_path:
             continue
 
-        filename = art.get("filename", Path(storage_path).name)
-        local_path = sonde_dir / "experiments" / experiment_id / filename
+        # Preserve path structure: storage_path is "{EXP-ID}/subdir/file.ext"
+        # Strip the experiment ID prefix to get the relative path
+        if storage_path.startswith(f"{experiment_id}/"):
+            relative = storage_path[len(experiment_id) + 1 :]
+        else:
+            relative = art.get("filename", Path(storage_path).name)
+
+        local_path = exp_dir / relative
+
+        # Skip if file exists and size matches
+        if local_path.exists():
+            size = art.get("size_bytes")
+            if size and local_path.stat().st_size == size:
+                continue
 
         try:
             data = client.storage.from_("artifacts").download(storage_path)
