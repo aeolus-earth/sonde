@@ -5,6 +5,7 @@ Scientific discovery management for the Aeolus research platform.
 
 from __future__ import annotations
 
+import sys
 from typing import ClassVar
 
 import click
@@ -20,7 +21,7 @@ _NO_AUTH = {"login", "logout", "whoami", "setup"}
 
 
 class SondeCLI(click.Group):
-    """Custom group with shortcuts for common commands."""
+    """Custom group with shortcuts and branded help."""
 
     _shortcuts: ClassVar[dict[str, tuple[str, str]]] = {
         "log": ("experiment", "log"),
@@ -37,8 +38,82 @@ class SondeCLI(click.Group):
                 return group.get_command(ctx, sub_name)
         return super().get_command(ctx, cmd_name)
 
+    def format_help(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
+        """Override help to show the branded banner with grouped panels."""
+        from rich.panel import Panel
+        from rich.table import Table
 
-@click.group(cls=SondeCLI)
+        from sonde.output import err, print_banner
+
+        if sys.stderr.isatty():
+            print_banner()
+
+        # Group commands by category
+        groups: dict[str, list[tuple[str, str]]] = {
+            "Research": [],
+            "Auth & Setup": [],
+            "Admin": [],
+        }
+        category_map = {
+            "experiment": "Research",
+            "log": "Research",
+            "list": "Research",
+            "show": "Research",
+            "search": "Research",
+            "login": "Auth & Setup",
+            "logout": "Auth & Setup",
+            "whoami": "Auth & Setup",
+            "setup": "Auth & Setup",
+            "admin": "Admin",
+        }
+
+        for name in self.list_commands(ctx):
+            cmd = self.get_command(ctx, name)
+            if cmd and not cmd.hidden:
+                cat = category_map.get(name, "Other")
+                help_text = cmd.get_short_help_str(limit=55)
+                groups.setdefault(cat, []).append((name, help_text))
+
+        for title, cmds in groups.items():
+            if not cmds:
+                continue
+            table = Table(
+                show_header=False,
+                box=None,
+                padding=(0, 2),
+                expand=True,
+            )
+            table.add_column(style="sonde.brand", min_width=12)
+            table.add_column(style="sonde.muted")
+            for name, help_text in cmds:
+                table.add_row(name, help_text)
+
+            err.print(
+                Panel(
+                    table,
+                    title=f"[sonde.heading]{title}[/]",
+                    border_style="sonde.brand.dim",
+                    padding=(0, 1),
+                )
+            )
+
+        # Quick start
+        err.print(
+            Panel(
+                "sonde login\n"
+                "sonde log --quick -p shared --params '{\"ccn\": 1200}'\n"
+                "sonde list\n"
+                "sonde show EXP-0001",
+                title="[sonde.heading]Quick start[/]",
+                border_style="sonde.brand.dim",
+                padding=(0, 1),
+            )
+        )
+
+        err.print(f"[sonde.muted]  v{__version__}[/]\n")
+
+
+@click.group(cls=SondeCLI, invoke_without_command=True)
 @click.version_option(version=__version__, prog_name="sonde")
 @click.option("--json", "use_json", is_flag=True, help="Output as JSON")
 @click.option("--quiet", "-q", is_flag=True, help="Suppress non-essential output")
@@ -46,27 +121,16 @@ class SondeCLI(click.Group):
 @click.option("--no-color", is_flag=True, help="Disable color output")
 @click.pass_context
 def cli(ctx: click.Context, use_json: bool, quiet: bool, verbose: bool, no_color: bool):
-    """Sonde — scientific discovery management.
-
-    Track experiments, findings, research directions, and open questions
-    across the Aeolus research platform.
-
-    \b
-    Quick start:
-      sonde login
-      sonde log --quick --params '{"ccn": 1200}' --result '{"delta": 6.3}'
-      sonde list
-      sonde show EXP-0001
-
-    \b
-    Learn more:
-      sonde experiment --help
-    """
+    """Sonde — scientific discovery management."""
     ctx.ensure_object(dict)
     ctx.obj["json"] = use_json
     ctx.obj["quiet"] = quiet
     ctx.obj["verbose"] = verbose
     ctx.obj["no_color"] = no_color
+
+    # Show help when invoked with no subcommand
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
 
 
 # -- Register commands --

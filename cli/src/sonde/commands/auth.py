@@ -5,7 +5,7 @@ from __future__ import annotations
 import click
 
 from sonde import auth
-from sonde.output import err, print_error, print_json, print_success
+from sonde.output import err, print_banner, print_error, print_json, print_success
 
 
 @click.command()
@@ -20,11 +20,12 @@ def login(ctx: click.Context) -> None:
     if auth.is_authenticated():
         user = auth.get_current_user()
         if user and not user.is_agent:
-            err.print(f"[dim]Already signed in as {user.email}[/dim]")
-            err.print("[dim]Run 'sonde logout' first to switch accounts.[/dim]")
+            err.print(f"[sonde.muted]Already signed in as {user.email}[/]")
+            err.print("[sonde.muted]Run 'sonde logout' first to switch accounts.[/]")
             return
 
-    err.print("Opening browser for Aeolus sign-in...")
+    print_banner()
+    err.print("[sonde.muted]Opening browser for Aeolus sign-in...[/]")
     try:
         user = auth.login()
     except TimeoutError as e:
@@ -37,7 +38,7 @@ def login(ctx: click.Context) -> None:
     if ctx.obj.get("json"):
         print_json({"email": user.email, "user_id": user.user_id})
     else:
-        print_success(f"Signed in as {user.email}")
+        print_success(f"Signed in as [bold]{user.email}[/bold]")
 
 
 @click.command()
@@ -62,7 +63,7 @@ def whoami(ctx: click.Context) -> None:
     \b
     Examples:
       sonde whoami
-      sonde whoami --json
+      sonde --json whoami
     """
     user = auth.get_current_user()
 
@@ -84,6 +85,6 @@ def whoami(ctx: click.Context) -> None:
         )
     else:
         if user.is_agent:
-            err.print("Agent token (SONDE_TOKEN)")
+            err.print("[sonde.accent]Agent token[/] (SONDE_TOKEN)")
         else:
-            err.print(f"{user.email}")
+            err.print(f"[sonde.brand]{user.email}[/]")

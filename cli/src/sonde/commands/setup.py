@@ -10,7 +10,7 @@ from pathlib import Path
 import click
 
 from sonde import auth
-from sonde.output import err, print_error, print_success
+from sonde.output import err, print_banner, print_error, print_success
 
 
 def _find_project_root() -> Path | None:
@@ -33,7 +33,7 @@ def _install_skills(target_dir: Path) -> int:
         if item.name.endswith(".md"):
             dest = skills_dir / item.name
             dest.write_text(item.read_text(encoding="utf-8"), encoding="utf-8")
-            err.print(f"  [dim]→ {dest.relative_to(target_dir.parent)}[/dim]")
+            err.print(f"  [sonde.muted]→ {dest.relative_to(target_dir.parent)}[/sonde.muted]")
             count += 1
     return count
 
@@ -87,7 +87,7 @@ def setup(ctx: click.Context, skip_skills: bool, skip_mcp: bool) -> None:
 
     # -- Step 1: Check auth --
     if not quiet:
-        err.print("\n[bold]Setting up Sonde[/bold]\n")
+        print_banner()
 
     if not auth.is_authenticated():
         print_error(
@@ -99,14 +99,14 @@ def setup(ctx: click.Context, skip_skills: bool, skip_mcp: bool) -> None:
 
     user = auth.get_current_user()
     if not quiet and user:
-        err.print(f"  [dim]Authenticated as {user.email}[/dim]\n")
+        err.print(f"  [sonde.muted]Authenticated as {user.email}[/]\n")
 
     project_root = _find_project_root()
 
     # -- Step 2: Install skills --
     if not skip_skills:
         if not quiet:
-            err.print("[bold]Installing skills...[/bold]")
+            err.print("[sonde.heading]Installing skills...[/sonde.heading]")
 
         # Project-level .claude/skills (preferred — scoped to this repo)
         if project_root:
@@ -124,7 +124,7 @@ def setup(ctx: click.Context, skip_skills: bool, skip_mcp: bool) -> None:
     # -- Step 3: Configure MCP server --
     if not skip_mcp:
         if not quiet:
-            err.print("\n[bold]Configuring MCP server...[/bold]")
+            err.print("\n[sonde.heading]Configuring MCP server...[/sonde.heading]")
 
         configured = False
 
@@ -135,7 +135,7 @@ def setup(ctx: click.Context, skip_skills: bool, skip_mcp: bool) -> None:
             claude_settings = Path.home() / ".claude" / "settings.json"
 
         if _configure_mcp(claude_settings):
-            err.print(f"  [dim]→ {claude_settings}[/dim]")
+            err.print(f"  [sonde.muted]→ {claude_settings}[/sonde.muted]")
             configured = True
 
         # Cursor: .cursor/mcp.json
@@ -143,17 +143,17 @@ def setup(ctx: click.Context, skip_skills: bool, skip_mcp: bool) -> None:
             cursor_config = project_root / ".cursor" / "mcp.json"
             has_cursor = cursor_config.parent.exists()
             if has_cursor and _configure_mcp(cursor_config):
-                err.print(f"  [dim]→ {cursor_config}[/dim]")
+                err.print(f"  [sonde.muted]→ {cursor_config}[/sonde.muted]")
                 configured = True
 
         if configured:
             print_success("MCP server configured")
         elif not quiet:
-            err.print("  [dim]Already configured (no changes)[/dim]")
+            err.print("  [sonde.muted]Already configured (no changes)[/sonde.muted]")
 
     # -- Step 4: Verify connectivity --
     if not quiet:
-        err.print("\n[bold]Verifying connectivity...[/bold]")
+        err.print("\n[sonde.heading]Verifying connectivity...[/sonde.heading]")
 
     try:
         from sonde.db import rows
@@ -173,7 +173,7 @@ def setup(ctx: click.Context, skip_skills: bool, skip_mcp: bool) -> None:
 
     # -- Summary --
     if not quiet:
-        err.print("\n[bold]Setup complete.[/bold]\n")
+        err.print("\n[sonde.heading]Setup complete.[/sonde.heading]\n")
         err.print("  Try:")
         err.print("    sonde list                    — see experiments")
         err.print("    sonde log --quick -p shared   — log a quick experiment")
