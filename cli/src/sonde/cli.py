@@ -71,10 +71,14 @@ def cli(ctx: click.Context, use_json: bool, quiet: bool, verbose: bool, no_color
 
 # -- Register commands --
 
+from sonde.commands.admin import admin  # noqa: E402
 from sonde.commands.auth import login, logout, whoami  # noqa: E402
 from sonde.commands.experiment import experiment  # noqa: E402
+from sonde.commands.setup import setup  # noqa: E402
 
 cli.add_command(login)
 cli.add_command(logout)
 cli.add_command(whoami)
+cli.add_command(setup)
 cli.add_command(experiment)
+cli.add_command(admin)

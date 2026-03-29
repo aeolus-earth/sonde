@@ -2,17 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any
 
+from sonde.db import rows as to_rows
 from sonde.db.client import get_client
 from sonde.models.experiment import Experiment, ExperimentCreate
-
-
-def _rows(data: Any) -> list[dict[str, Any]]:
-    """Safely cast Supabase result.data to a list of dicts."""
-    if isinstance(data, list):
-        return cast(list[dict[str, Any]], data)
-    return []
 
 
 def _next_id() -> str:
@@ -21,7 +15,7 @@ def _next_id() -> str:
     result = (
         client.table("experiments").select("id").order("created_at", desc=True).limit(1).execute()
     )
-    rows = _rows(result.data)
+    rows = to_rows(result.data)
     if rows:
         last_num = int(rows[0]["id"].split("-")[1])
         return f"EXP-{last_num + 1:04d}"
@@ -34,14 +28,14 @@ def create(data: ExperimentCreate) -> Experiment:
     exp_id = _next_id()
     row = {"id": exp_id, **data.model_dump(mode="json", exclude_none=True)}
     result = client.table("experiments").insert(row).execute()
-    return Experiment(**_rows(result.data)[0])
+    return Experiment(**to_rows(result.data)[0])
 
 
 def get(experiment_id: str) -> Experiment | None:
     """Get a single experiment by ID."""
     client = get_client()
     result = client.table("experiments").select("*").eq("id", experiment_id).execute()
-    rows = _rows(result.data)
+    rows = to_rows(result.data)
     if rows:
         return Experiment(**rows[0])
     return None
@@ -64,7 +58,7 @@ def list_experiments(
     if source:
         query = query.eq("source", source)
     result = query.execute()
-    return [Experiment(**row) for row in _rows(result.data)]
+    return [Experiment(**row) for row in to_rows(result.data)]
 
 
 def search(
@@ -89,7 +83,7 @@ def search(
     result = query.execute()
 
     # Client-side param filtering (Supabase REST doesn't support JSONB operators directly)
-    experiments = [Experiment(**row) for row in _rows(result.data)]
+    experiments = [Experiment(**row) for row in to_rows(result.data)]
     if param_filters:
         filtered = []
         for exp in experiments:
@@ -117,7 +111,7 @@ def update(experiment_id: str, updates: dict[str, Any]) -> Experiment | None:
     """Update an experiment by ID."""
     client = get_client()
     result = client.table("experiments").update(updates).eq("id", experiment_id).execute()
-    rows = _rows(result.data)
+    rows = to_rows(result.data)
     if rows:
         return Experiment(**rows[0])
     return None
