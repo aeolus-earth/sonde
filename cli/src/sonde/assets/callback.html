@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Signed in to Sonde</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(160deg, #f0f7ff 0%, #ffffff 40%, #f7fbff 100%);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            color: #1a2b3c;
+        }
+
+        .container {
+            text-align: center;
+            padding: 3rem;
+        }
+
+        .wordmark {
+            width: 200px;
+            height: auto;
+            color: #1a2b3c;
+            margin-bottom: 2.5rem;
+        }
+
+        .check {
+            width: 48px;
+            height: 48px;
+            margin: 0 auto 1.5rem;
+            border-radius: 50%;
+            background: #e8f4ec;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .check svg {
+            width: 24px;
+            height: 24px;
+            color: #2d8a4e;
+        }
+
+        h1 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            letter-spacing: -0.01em;
+        }
+
+        p {
+            font-size: 0.9rem;
+            color: #6b7c8d;
+            line-height: 1.5;
+        }
+
+        .fade-hint {
+            margin-top: 2rem;
+            font-size: 0.8rem;
+            color: #9baab8;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="wordmark">
+            {{WORDMARK_SVG}}
+        </div>
+        <div class="check">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+            </svg>
+        </div>
+        <h1>Signed in to Sonde</h1>
+        <p>You can close this tab and return to your terminal.</p>
+        <p class="fade-hint">This page will close automatically.</p>
+    </div>
+    <script>setTimeout(function() { window.close(); }, 3000);</script>
+</body>
+</html>

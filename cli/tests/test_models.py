@@ -1,0 +1,28 @@
+"""Test Pydantic models validate correctly."""
+
+from sonde.models.experiment import ExperimentCreate
+
+
+def test_experiment_create_minimal():
+    exp = ExperimentCreate(program="weather-intervention", source="human/test")
+    assert exp.program == "weather-intervention"
+    assert exp.status == "open"
+    assert exp.parameters == {}
+    assert exp.tags == []
+
+
+def test_experiment_create_full():
+    exp = ExperimentCreate(
+        program="weather-intervention",
+        source="codex/task-abc",
+        status="complete",
+        hypothesis="Test hypothesis",
+        parameters={"ccn": 1200, "scheme": "spectral_bin"},
+        results={"precip_delta_pct": 5.8},
+        finding="Some finding",
+        tags=["cloud-seeding", "spectral"],
+        related=["EXP-0001"],
+    )
+    assert exp.parameters["ccn"] == 1200
+    assert exp.status == "complete"
+    assert len(exp.tags) == 2

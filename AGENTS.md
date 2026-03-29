@@ -1,133 +1,272 @@
-# AGENTS.md — Sonde
+# AGENTS.md — Sonde CLI Development
 
-This repository is an **experimental workspace** for exploring open-source numerical weather and atmosphere modeling codebases, with the long-term goal of designing **automatic research agents** that sit on top of our NWP stack: literature-to-code mapping, experiment orchestration, parameter and configuration search, and reproducible workflows tied to model APIs.
+You are building **Sonde**, the Aeolus CLI. It is a scientific discovery management tool — the research memory of a 16-person atmospheric science company. Scientists and AI agents use it to log experiments, record findings, track research directions, store data, and query what the team knows.
 
-**Repo catalog and condensed summaries of every `notes/` deep dive:** [README.md](./README.md).
-
-Agents working here should treat upstream code as **read-mostly reference material** unless a task explicitly says to patch a vendored tree for a local experiment.
+The prior repo-exploration AGENTS.md is archived at `AGENTS-repo-exploration.md`.
 
 ---
 
-## What we want to understand (each repository)
+## Project structure
 
-For **every** repo we study—not only NWP solvers—we want comparable answers so we can later **line patterns up side by side** and see **where the ecosystem is converging** (shared orchestration idioms, tool contracts, evaluation loops) versus where projects diverge.
+```
+cli/
+  src/sonde/
+    __init__.py          # version
+    cli.py               # click entrypoint, SondeCLI group with shortcuts
+    config.py            # pydantic-settings, .aeolus.yaml discovery, Supabase creds
+    auth.py              # OAuth PKCE login, token resolution, session persistence
+    git.py               # git provenance auto-detection (commit, remote, branch)
+    output.py            # Rich console (stdout=data, stderr=status), table/json/error helpers
+    assets/              # static files (callback.html, aeolus-wordmark.svg)
+    models/              # pydantic models — ExperimentCreate, Experiment, etc.
+    db/                  # supabase client + per-entity CRUD modules
+      client.py          # auth-aware Supabase client singleton
+      experiments.py     # experiment CRUD + search
+    commands/            # click command groups
+      auth.py            # login, logout, whoami
+      experiment.py      # log, list, show, search
+      admin.py           # agent token management
+  tests/
+  pyproject.toml         # hatchling build, ruff + pytest config
+  uv.lock
 
-| Lens | What to capture |
-|------|------------------|
-| **Tools** | Concrete **stack**: languages, dependency managers, frameworks, SDKs, and services the repo uses for automation, agents, CLIs, evaluation, or HPC (name + role; pin versions in notes when relevant). Include how humans or scripts are expected to invoke the system. |
-| **Multi-agent coordination** | If the project implements or integrates **multi-agent** behavior: how **roles** are defined, how **control flow** works (sequential pipelines, graphs, debate, supervisor/worker, handoffs), how **state and artifacts** move between steps, and which **framework or library** (if any) coordinates agents. If there is **no** multi-agent layer—e.g. a pure numerical library—state that explicitly so we do not read coordination into it. |
-| **Domain / model layer** (when applicable) | For physics and NWP code: how simulations are built and run, prognostic state, extension hooks—see [Success criteria](#success-criteria-for-understanding-a-new-vendored-model). |
+supabase/
+  config.toml
+  migrations/            # numbered SQL migrations (programs, experiments, findings,
+                         #   directions, questions, artifacts, storage, views, RLS, auth RBAC)
 
-**Cross-repo comparison (future):** Notes should use **consistent headings** (tools, coordination, domain) so we can **diff patterns across repos** and track **convergence**: e.g. many projects settling on similar graph-based orchestration, similar tool-calling boundaries, or similar eval harnesses. Occasional synthesis can live in `notes/` as `notes/pattern-synthesis-*.md` only when the team asks for a rollup.
-
-**External compass for agent patterns:** [Tauric Research](https://github.com/TauricResearch) publishes multi-agent LLM-oriented work (e.g. **TradingAgents**—multi-agent LLM trading framework). We do **not** assume that stack matches our NWP product; we use orgs like this as **reference points** for how **multi-agent frameworks are coordinated in the wild**, to compare against patterns we extract from other repos.
-
----
-
-## Repository layout (conventions)
-
-| Path | Role |
-|------|------|
-| `vendor/` | Shallow clones or pinned snapshots of upstream repos for study and diffing. **Do not treat as the source of truth for our product code**—prefer linking to version pins (commit SHA, tag) in notes and experiments. |
-| `repos/` | Same idea as `vendor/`, for **non-NWP** or **agent-framework** mirrors (e.g. orchestration reference code). Treat as read-mostly; analyze under `notes/<name>/`. |
-| `experiments/` | (Optional) Small Julia/Python scripts or notebooks that *import* vendored or registered packages; keep these minimal and documented. |
-| `notes/` | **Primary place we organize our thoughts** — see [Notes folder](#notes--how-we-organize-thoughts) below. |
-
-If these folders do not exist yet, create them only when adding content that fits.
-
----
-
-## `notes/` — how we organize thoughts
-
-We use **`/notes`** to analyze **each vendored or referenced repository** in one place, aligned with [What we want to understand](#what-we-want-to-understand-each-repository): **tools**, **multi-agent coordination** (if any), and **domain/model** behavior when the repo is a simulator or library.
-
-**Conventions:**
-
-- **One focus per subtree** — e.g. `notes/breeze/`, `notes/<upstream-repo-name>/`, so analyses stay scoped and easy to diff over time.
-- **Per-repo notes should cover (use these as section titles when possible):**
-  - **Tools** — Stack, invocation paths, key dependencies; enough detail to reproduce or reason about automation.
-  - **Multi-agent coordination** — Roles, control flow, handoffs, frameworks used to coordinate agents; or a one-line **“none”** for pure numerical / non-agent codebases.
-  - **Domain / model** (if applicable) — Entry points, prognostics, extension hooks (as in [Success criteria](#success-criteria-for-understanding-a-new-vendored-model)).
-  - **Pins** — Commit SHA or tag of the tree the note refers to, plus links to upstream docs/issues that informed the writeup.
-  - **Comparison hooks** — Optional bullets: “**Similar to / unlike**” other repos we have notes for (e.g. orchestration style vs [Tauric Research](https://github.com/TauricResearch)-style multi-agent stacks)—helps future convergence analysis.
-- **Goal** — These notes are working memory for building **our** research agents on top of the NWP model: they are not product docs, but they should be **accurate enough** that another agent or teammate can continue from them without re-reading all of `vendor/`.
-
-When adding or editing notes, prefer **updating the existing repo-specific folder** over scattering one-off files at the root of `notes/`.
-
----
-
-## Vendored reference: Breeze.jl (`vendor/Breeze.jl`)
-
-**Upstream:** [NumericalEarth/Breeze.jl](https://github.com/NumericalEarth/Breeze.jl) — Julia library for atmospheric fluid dynamics (CPUs/GPUs), built on [Oceananigans.jl](https://github.com/CliMA/Oceananigans.jl).
-
-**What it provides (high level):**
-
-- **`AtmosphereModels/`** — Core `AtmosphereModel` type, interfaces for dynamics, thermodynamic formulations, microphysics, radiation hooks, diagnostics (potential temperature, static energy, precipitation-related fields).
-- **`AnelasticEquations/`** — Anelastic dynamics, pressure Poisson solve, buoyancy.
-- **`CompressibleEquations/`** — Compressible dynamics with split-explicit acoustic substepping.
-- **`Thermodynamics/`** — Reference states, saturation, Clausius–Clapeyron, constants.
-- **`PotentialTemperatureFormulations/`**, **`StaticEnergyFormulations/`** — Prognostic thermodynamic formulations and tendencies.
-- **`Microphysics/`** — Saturation adjustment, Kessler-style schemes, bulk microphysics integration with CloudMicrophysics.jl patterns.
-- **`BoundaryConditions/`** — Bulk drag, sensible/latent fluxes, thermodynamic BC helpers.
-- **`KinematicDriver/`** — Prescribed flows for testing physics columns.
-- **`ParcelModels/`** — Lagrangian parcel-style experiments.
-- **`TimeSteppers/`** — SSP-RK3 and acoustic-related steppers used by compressible paths.
-- **`Forcings/`**, **`TurbulenceClosures/`**, **`Advection.jl`**, **`VerticalGrids.jl`**, **`CelestialMechanics/`** — Supporting pieces.
-
-**Dependency mental model:** Breeze re-exports many Oceananigans symbols (`RectilinearGrid`, `Simulation`, `run!`, `WENO`, fields, grids, writers). Understanding a feature often requires **both** Breeze’s `src/` and Oceananigans docs for the underlying grid/operator/advection machinery.
-
-**Citing upstream:** Follow the citation block in the upstream README (Zenodo DOI) when publishing work that relies on Breeze.
-
----
-
-## How agents should work in this repo
-
-1. **Notes first for new repos** — When onboarding a vendored project or answering “how does X work / how is it orchestrated?”, **read or create** the matching material under `notes/<repo>/` so findings accumulate. Do not leave one-off conclusions only in chat.
-2. **Scope** — Prefer small, reviewable changes. Do not refactor entire vendored trees; fork or branch upstream if a change belongs there.
-3. **Truth source** — For behavior of Breeze/Oceananigans, trust the **checked-in `vendor/` snapshot** plus **upstream docs** for the matching version. If the snapshot is stale, update it with a recorded commit SHA in a note or `vendor/README` snippet (add only if the team wants version pins documented here).
-4. **Research-agent directions** (for future tooling, not mandatory in every PR):
-   - Map **paper equations / parameterizations** to **named types and functions** in Breeze (and later other vendored models).
-   - Define **experiment templates**: grid, dynamics choice, microphysics, outputs, and success metrics.
-   - Keep **reproducibility**: random seeds, package versions (`Project.toml`/`Manifest.toml` when Julia experiments appear), and explicit data paths.
-5. **Licensing** — Respect each vendored project’s license. Do not merge incompatible licenses into a single binary artifact without review.
-6. **Markdown policy** — Add or expand standalone `.md` files only when asked (this file is the exception as requested). **Exception:** team-authored analysis under `notes/` is encouraged when it follows the [notes conventions](#notes--how-we-organize-thoughts); avoid unrelated markdown elsewhere.
-
----
-
-## Updating the Breeze.jl vendor copy
-
-From the repo root (`Sonde`):
-
-```bash
-cd vendor/Breeze.jl && git fetch origin && git checkout main && git pull
+tickets/                 # feature tickets with motivation and implementation plans
+prd/                     # product requirements (overview, CLI PRD, GitHub integration)
 ```
 
-For a **clean pinned snapshot** (recommended before locking an experiment):
+---
 
-```bash
-cd vendor/Breeze.jl && git rev-parse HEAD
+## Stack
+
+| Tool | Version | Role |
+|------|---------|------|
+| **Python** | 3.12+ | Runtime |
+| **uv** | latest | Package management, virtual environments, tool installation |
+| **Click** | 8.1+ | CLI framework |
+| **Rich** | 13.0+ | Terminal formatting (tables, panels, spinners, progress bars) |
+| **Pydantic** | 2.0+ | Data validation — every model, every config, every API boundary |
+| **pydantic-settings** | 2.0+ | Settings with env var / .env / config file layering |
+| **Supabase** (Python SDK) | 2.0+ | Database client — Postgres via REST, auth, storage |
+| **GitPython** | 3.1+ | Git provenance auto-detection |
+| **Ruff** | 0.13+ | Linter + formatter (replaces black, isort, flake8, pyflakes) |
+| **ty** | 0.0.26+ | Type checker (from astral-sh, complements ruff) |
+| **pytest** | 8.0+ | Test runner |
+
+---
+
+## Code standards
+
+### Write production-quality Python
+
+This is a CLI that scientists and agents rely on. Every commit should be shippable.
+
+- **Type every function signature.** Use `str | None`, not `Optional[str]`. Use `list[str]`, not `List[str]`. Pydantic models handle runtime validation; type hints handle static analysis.
+- **Validate at boundaries, trust internally.** Pydantic models validate CLI input and API responses. Internal functions that receive already-validated data do not re-validate.
+- **Use `from __future__ import annotations`** at the top of every module. This is already established in the codebase — do not break the pattern.
+- **Keep modules small and focused.** One file per entity in `models/` and `db/`. One file per command group in `commands/`. If a module exceeds ~200 lines, it probably needs splitting.
+
+### Pydantic patterns
+
+The codebase uses a consistent create/read pattern:
+
+```python
+class ExperimentCreate(BaseModel):
+    """Input model — validated before database write."""
+    program: str = Field(description="Program namespace")
+    parameters: dict[str, Any] = Field(default_factory=dict)
+    # ...
+
+class Experiment(ExperimentCreate):
+    """Full record — includes database-generated fields."""
+    id: str
+    created_at: datetime
+    updated_at: datetime
 ```
 
-Record that SHA next to the experiment or in team notes.
+Follow this pattern for new entities. The `Create` model is what the CLI command builds; the full model is what the database returns.
+
+- Use `Field(description=...)` for fields that appear in auto-generated docs or error messages.
+- Use `Field(default_factory=...)` for mutable defaults, never bare `[]` or `{}`.
+- Use `model_dump(mode="json", exclude_none=True)` when serializing for Supabase inserts.
+- Use `model_dump(mode="json")` when serializing for `--json` output.
+
+### Supabase patterns
+
+The database client in `db/client.py` is a singleton that handles auth transparently:
+
+```python
+client = get_client()  # raises SystemExit if not authenticated
+result = client.table("experiments").select("*").eq("id", exp_id).execute()
+rows = to_rows(result.data)  # safely casts the loose union type
+```
+
+- Always use `from sonde.db import rows as to_rows` to handle Supabase's loose return types.
+- Build queries with method chaining: `.select()`, `.eq()`, `.order()`, `.limit()`.
+- For RPC calls (database functions), use `client.rpc("function_name", {params}).execute()`.
+- Never construct raw SQL in Python. Schema changes go in `supabase/migrations/`.
+
+### Output conventions
+
+The CLI separates data from status messages:
+
+```python
+from sonde.output import out, err, print_table, print_json, print_success, print_error
+
+# Data → stdout (pipeable)
+print_table(columns, rows)
+print_json(data)
+
+# Status → stderr (visible but not in pipes)
+err.print("[dim]Loading...[/dim]")
+print_success("Created EXP-0001")
+print_error("Not found", "No experiment with this ID.", "Try: sonde list")
+```
+
+- **stdout** is for data that another program might consume. Tables, JSON, plain text.
+- **stderr** is for human-oriented messages: progress, success confirmations, errors.
+- Every command must support `--json` via `ctx.obj.get("json")`. JSON output goes to stdout.
+- Use Rich markup (`[bold]`, `[green]`, `[dim]`) in stderr messages, never in stdout data.
+- `print_error` takes three arguments: what happened, why, and how to fix it. Always provide all three.
+
+### Click command patterns
+
+```python
+@experiment.command()
+@click.option("--program", "-p", help="Program namespace")
+@click.option("--limit", "-n", default=50, help="Max results")
+@click.pass_context
+def list_cmd(ctx: click.Context, program: str | None, limit: int):
+    """List experiments.
+
+    \b
+    Examples:
+      sonde experiment list
+      sonde experiment list -p weather-intervention
+    """
+```
+
+- Use `\b` before example blocks to prevent Click from rewrapping them.
+- Short flags (`-p`, `-n`, `-s`) for frequently-used options.
+- Always accept `--json` via the global context, never as a per-command flag.
+- Resolve defaults through the settings chain: explicit flag > env var > `.aeolus.yaml` > hardcoded default.
+- Use `raise SystemExit(1)` for errors, not `sys.exit()` or `click.Abort()`.
 
 ---
 
-## Related upstream reading
+## Running the toolchain
 
-- Breeze docs: [BreezeDocumentation](https://numericalearth.github.io/BreezeDocumentation/dev/)
-- Oceananigans docs (shared concepts): [OceananigansDocumentation](https://clima.github.io/OceananigansDocumentation/stable/)
+```bash
+cd cli/
+
+# Install in development mode
+uv sync
+
+# Run the CLI
+uv run sonde --help
+uv run sonde login
+uv run sonde list
+
+# Lint (must pass before any commit)
+uv run ruff check src/ tests/
+uv run ruff format --check src/ tests/
+
+# Type check
+uv run ty check src/
+
+# Format (auto-fix)
+uv run ruff format src/ tests/
+uv run ruff check --fix src/ tests/
+
+# Tests
+uv run pytest
+```
+
+### Ruff configuration (in pyproject.toml)
+
+```
+target-version = "py312"
+line-length = 100
+```
+
+Enabled rule sets: `E` (pycodestyle), `W` (warnings), `F` (pyflakes), `I` (isort), `N` (naming), `UP` (pyupgrade), `B` (bugbear), `SIM` (simplify), `T20` (print detection), `RUF` (ruff-specific). `T201` is ignored because this is a CLI — we print things.
+
+Ruff handles both linting and formatting. Do not add black, isort, or flake8 as separate tools.
+
+### ty configuration
+
+ty is the type checker from astral-sh (the ruff team). Run `uv run ty check src/` to catch type errors that ruff's lint rules miss. It understands pydantic models and generic types well.
 
 ---
 
-## Success criteria for “understanding” a new vendored model
+## Database conventions
 
-The [What we want to understand](#what-we-want-to-understand-each-repository) table applies to **all** repos (tools + coordination + domain). The checklist below is the **domain/model** slice for **numerical atmosphere and NWP** code. For repos that are primarily **agent frameworks**, prioritize **tools** and **multi-agent coordination** in notes; use this list only if they also embed a simulator or API you must call.
+### Migrations
 
-Before proposing agent automation on top of a new codebase, summarize:
+All schema changes go in `supabase/migrations/` with timestamps:
 
-1. **Entry point** — Main module and how a minimal simulation is constructed and run.
-2. **Prognostic state** — What fields are stepped; what closures/physics plug in.
-3. **Extension points** — Where new physics, forcings, or output hooks attach.
-4. **Compute story** — CPU vs GPU, MPI/distributed if any, and typical dependencies.
+```
+20260329000001_create_programs.sql
+20260329000002_create_experiments.sql
+...
+20260329000010_auth_rbac.sql
+```
 
-This keeps agent design grounded in real APIs rather than hand-wavy “NWP in general.”
+- One logical change per migration file.
+- Migrations are applied in order by Supabase CLI (`supabase db push`).
+- Always include RLS policies in the migration that creates the table.
+- Use `user_programs()` helper function (defined in migration 10) in RLS policies.
+
+### Row-Level Security
+
+Every table has RLS enabled. All queries flow through program-scoped policies:
+
+```sql
+CREATE POLICY "experiments_select" ON experiments
+    FOR SELECT USING (program = ANY(user_programs()));
+```
+
+`user_programs()` reads from the JWT's `app_metadata.programs` claim, which is injected by the custom access token hook on login. This means:
+
+- Humans see data in programs they're assigned to.
+- Agents see data in programs their token was scoped to.
+- The CLI code never filters by program — the database enforces it.
+
+---
+
+## Auth model
+
+Two paths, one interface:
+
+1. **Human login:** `sonde login` → Google OAuth PKCE → Supabase session → JWT with programs from `user_programs` table injected by custom access token hook → stored in `~/.config/sonde/session.json`
+2. **Agent token:** `SONDE_TOKEN` env var → JWT signed with `pgjwt` → programs baked into the token at creation time → flows through the same RLS policies
+
+Both paths produce a JWT that `get_client()` attaches as a Bearer token. The CLI code doesn't distinguish between human and agent after authentication.
+
+---
+
+## Design principles
+
+These are from the PRD. Internalize them.
+
+1. **One command to log, zero friction to query.** If logging takes more than 30 seconds, people won't do it. The CLI must be fast enough that logging is a side effect of working, not a separate task.
+2. **Human and agent records are indistinguishable.** The `source` field says `human/mlee` or `codex/task-abc`, but the record schema is identical. This is how institutional memory compounds.
+3. **Provenance is permanent.** Every record links to a git commit, data sources, and the human or agent who created it. Years from now, someone should be able to trace any finding back to the exact code and data that produced it.
+4. **Stdout is for data, stderr is for humans.** Data output (tables, JSON) goes to stdout and is pipeable. Status messages, progress, and errors go to stderr. Every command supports `--json`.
+5. **No LLM dependency.** The CLI is a data management tool. Intelligence comes from the agents that use it. The CLI never calls an LLM.
+
+---
+
+## What not to do
+
+- **Do not add an ORM.** Supabase's REST client is the database interface. SQLAlchemy, Tortoise, etc. add complexity without benefit for our query patterns.
+- **Do not add async.** The CLI is synchronous. Supabase's Python SDK is synchronous. Click is synchronous. Do not introduce `asyncio` unless a specific feature requires it (e.g., parallel uploads), and even then scope it tightly.
+- **Do not add a web framework.** The API server (`sonde serve`) is a future feature. Do not add FastAPI, Flask, or Django to the CLI package.
+- **Do not create documentation files** (README, CHANGELOG, etc.) unless explicitly asked.
+- **Do not add comments that restate the code.** The code should be clear enough on its own. Comments explain *why*, not *what*.
+- **Do not add error handling for impossible states.** If `get_client()` returns a client, it is authenticated. Do not wrap every Supabase call in a try/except "just in case."
+- **Do not use `Any` as a type annotation** unless the data genuinely has no known structure (e.g., Supabase's loose return types, user-provided JSON parameters). Prefer specific types.
