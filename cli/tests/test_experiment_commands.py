@@ -97,8 +97,8 @@ class TestList:
         assert "No experiments" in result.output
 
     def test_list_with_results(self, runner: CliRunner, patched_db: MagicMock):
-        patched_db.table("experiments").select("*").order("created_at", desc=True).limit(
-            50
+        patched_db.table("experiments").select("*").order("created_at", desc=True).range(
+            0, 50
         ).execute.return_value = MagicMock(data=[_EXPERIMENT_ROW])
 
         result = runner.invoke(cli, ["list", "-p", "weather-intervention"])
@@ -106,8 +106,8 @@ class TestList:
         assert "EXP-0001" in result.output
 
     def test_list_json(self, runner: CliRunner, patched_db: MagicMock):
-        patched_db.table("experiments").select("*").order("created_at", desc=True).limit(
-            50
+        patched_db.table("experiments").select("*").order("created_at", desc=True).range(
+            0, 50
         ).execute.return_value = MagicMock(data=[_EXPERIMENT_ROW])
 
         result = runner.invoke(cli, ["--json", "list", "-p", "weather-intervention"])
@@ -143,8 +143,8 @@ class TestShow:
 
 class TestSearch:
     def test_search_by_text(self, runner: CliRunner, patched_db: MagicMock):
-        patched_db.table("experiments").select("*").order("created_at", desc=True).limit(
-            50
+        patched_db.table("experiments").select("*").order("created_at", desc=True).range(
+            0, 50
         ).or_.return_value.execute.return_value = MagicMock(data=[_EXPERIMENT_ROW])
 
         result = runner.invoke(cli, ["search", "--text", "spectral"])
@@ -154,3 +154,40 @@ class TestSearch:
         result = runner.invoke(cli, ["search", "--text", "nonexistent"])
         assert result.exit_code == 0
         assert "No experiments" in result.output
+
+
+class TestLogEdgeCases:
+    def test_log_invalid_json_params(self, runner: CliRunner, patched_db: MagicMock):
+        result = runner.invoke(cli, ["log", "--quick", "-p", "shared", "--params", "not-json"])
+        assert result.exit_code == 2
+        assert "Invalid JSON" in result.output
+
+    def test_log_invalid_json_result(self, runner: CliRunner, patched_db: MagicMock):
+        result = runner.invoke(
+            cli,
+            ["log", "--quick", "-p", "shared", "--params", '{"a": 1}', "--result", "{bad}"],
+        )
+        assert result.exit_code == 2
+        assert "Invalid JSON" in result.output
+
+
+class TestSearchParamFilters:
+    def test_param_filter_missing_operator(self, runner: CliRunner, patched_db: MagicMock):
+        result = runner.invoke(cli, ["search", "--param", "ccn"])
+        assert result.exit_code == 2
+        assert "No operator" in result.output
+
+    def test_param_filter_empty_key(self, runner: CliRunner, patched_db: MagicMock):
+        result = runner.invoke(cli, ["search", "--param", "=1000"])
+        assert result.exit_code == 2
+        assert "empty" in result.output.lower()
+
+    def test_param_filter_empty_value(self, runner: CliRunner, patched_db: MagicMock):
+        result = runner.invoke(cli, ["search", "--param", "ccn="])
+        assert result.exit_code == 2
+        assert "empty" in result.output.lower()
+
+    def test_param_filter_non_numeric_gt(self, runner: CliRunner, patched_db: MagicMock):
+        result = runner.invoke(cli, ["search", "--param", "ccn>abc"])
+        assert result.exit_code == 2
+        assert "not a number" in result.output

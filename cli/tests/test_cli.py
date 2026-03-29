@@ -16,7 +16,9 @@ def test_version(runner: CliRunner):
 def test_help(runner: CliRunner):
     result = runner.invoke(cli, ["--help"])
     assert result.exit_code == 0
-    assert "scientific discovery management" in result.output.lower()
+    # Custom format_help uses Rich panels; check for key sections
+    assert "Research" in result.output or "research" in result.output.lower()
+    assert "Quick start" in result.output or "quick start" in result.output.lower()
 
 
 def test_unknown_command(runner: CliRunner):

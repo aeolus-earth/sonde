@@ -2,6 +2,17 @@
 
 Use the `sonde` CLI to log experiments, query research history, and find gaps in the knowledge base. Every experiment you help run should be logged so the team's institutional memory grows.
 
+## Starting a research session
+
+Before doing anything else, pull the current knowledge base and read the brief:
+
+```bash
+sonde pull -p <program>          # sync knowledge base to local .sonde/
+sonde brief -p <program>         # see what's been tried, what's open, what to work on
+```
+
+The brief shows experiment stats, active findings, open questions, parameter coverage, and gaps. Use it to decide what to work on next.
+
 ## When to log
 
 - After any simulation run that produces results
@@ -41,6 +52,28 @@ sonde search --param key>value            # filter by parameters
 sonde show EXP-0001                       # full detail on one experiment
 ```
 
+## Adding notes and attachments
+
+After logging, attach relevant outputs and add notes as you go:
+
+```bash
+sonde attach EXP-0001 figures/plot.png
+sonde attach EXP-0001 output/data.nc
+sonde note EXP-0001 "Retried with higher CCN, same saturation pattern"
+sonde note EXP-0001 --file analysis-notes.md
+```
+
+## Syncing with the knowledge base
+
+Use pull/push to work with local markdown files in `.sonde/`:
+
+```bash
+sonde pull -p <program>          # download experiments, findings, questions
+sonde push                       # sync local edits back to the database
+```
+
+After pulling, you can read and edit files in `.sonde/experiments/` directly. Push syncs your changes back.
+
 ## Programs
 
 Experiments are scoped to programs. Use the right one:
@@ -50,12 +83,3 @@ Experiments are scoped to programs. Use the right one:
 - `shared` — cross-cutting knowledge, methods, tools
 
 If `.aeolus.yaml` exists in the repo, the program is set automatically.
-
-## Attaching files
-
-After logging, attach relevant outputs:
-
-```bash
-sonde attach EXP-0001 figures/plot.png
-sonde attach EXP-0001 output/data.nc
-```

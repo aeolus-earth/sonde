@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Any, cast
 
 import click
+from postgrest.exceptions import APIError
 
 from sonde.db import rows
 from sonde.db.client import get_client
@@ -42,22 +43,25 @@ def create_token(ctx: click.Context, name: str, programs: str, expires: int) -> 
                 "expires_in_days": expires,
             },
         ).execute()
-    except Exception as e:
-        error_msg = str(e)
-        if "Only admins" in error_msg:
+    except APIError as e:
+        msg = e.message or ""
+        if "Only admins" in msg or e.code == "42501":
             print_error(
                 "Permission denied",
                 "Only admins can create agent tokens.",
                 "Ask an existing admin to grant you admin access.",
             )
-        elif "do not exist" in error_msg:
+        elif "do not exist" in msg:
             print_error(
                 "Invalid program",
                 f"One or more programs in '{programs}' do not exist.",
                 "Valid programs: sonde admin list-programs",
             )
         else:
-            print_error("Failed to create token", error_msg, "Check your permissions.")
+            print_error("Failed to create token", msg, "Check your permissions.")
+        raise SystemExit(1) from None
+    except Exception as e:
+        print_error("Failed to create token", str(e), "Check your permissions.")
         raise SystemExit(1) from None
 
     token_data = cast(dict[str, Any], result.data)

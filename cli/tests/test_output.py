@@ -6,7 +6,7 @@ from io import StringIO
 
 from rich.console import Console
 
-from sonde.output import print_table
+from sonde.output import print_json, print_table, styled_status
 
 
 def test_print_table(console: Console, capsys):
@@ -38,3 +38,36 @@ def test_print_error():
     output = buf.getvalue()
     assert "Not found" in output
     assert "sonde list" in output
+
+
+def test_styled_status_known():
+    result = styled_status("open")
+    assert "open" in result
+    assert "status.open" in result
+
+
+def test_styled_status_complete():
+    result = styled_status("complete")
+    assert "complete" in result
+    assert "status.complete" in result
+
+
+def test_styled_status_unknown():
+    result = styled_status("unknown-status")
+    assert result == "unknown-status"
+
+
+def test_print_json_dict(capsys):
+    print_json({"key": "value"})
+    captured = capsys.readouterr()
+    assert '"key"' in captured.out
+    assert '"value"' in captured.out
+
+
+def test_print_table_missing_column(capsys):
+    columns = ["id", "status", "missing_col"]
+    rows = [{"id": "EXP-0001", "status": "complete"}]
+    print_table(columns, rows)
+    captured = capsys.readouterr()
+    assert "EXP-0001" in captured.out
+    assert "\u2014" in captured.out

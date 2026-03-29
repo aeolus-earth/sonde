@@ -1,16 +1,20 @@
-"""Setup command — one-command onboarding for engineers."""
+"""Setup command — one-command onboarding for engineers and agents."""
 
 from __future__ import annotations
 
-import json
-import shutil
-from importlib import resources
 from pathlib import Path
 
 import click
 
 from sonde import auth
-from sonde.output import err, print_banner, print_error, print_success
+from sonde.output import err, print_banner, print_error, print_json, print_success
+from sonde.runtimes import configure_mcp_server, resolve_runtimes
+from sonde.skills import (
+    bundled_skills,
+    check_freshness,
+    deploy_skill,
+    save_manifest,
+)
 
 
 def _find_project_root() -> Path | None:
@@ -22,71 +26,40 @@ def _find_project_root() -> Path | None:
     return None
 
 
-def _install_skills(target_dir: Path) -> int:
-    """Copy bundled skills to target directory. Returns count installed."""
-    skills_dir = target_dir / "skills"
-    skills_dir.mkdir(parents=True, exist_ok=True)
-
-    source = resources.files("sonde.data.skills")
-    count = 0
-    for item in source.iterdir():
-        if item.name.endswith(".md"):
-            dest = skills_dir / item.name
-            dest.write_text(item.read_text(encoding="utf-8"), encoding="utf-8")
-            err.print(f"  [sonde.muted]→ {dest.relative_to(target_dir.parent)}[/sonde.muted]")
-            count += 1
-    return count
-
-
-def _configure_mcp(settings_path: Path) -> bool:
-    """Add sonde MCP server to a JSON settings file. Returns True if changed."""
-    sonde_path = shutil.which("sonde")
-    if not sonde_path:
-        return False
-
-    mcp_entry = {
-        "command": sonde_path,
-        "args": ["mcp", "serve"],
-    }
-
-    # Read existing settings or start fresh
-    if settings_path.exists():
-        try:
-            settings = json.loads(settings_path.read_text())
-        except (json.JSONDecodeError, OSError):
-            settings = {}
-    else:
-        settings_path.parent.mkdir(parents=True, exist_ok=True)
-        settings = {}
-
-    servers = settings.setdefault("mcpServers", {})
-    if "sonde" in servers and servers["sonde"] == mcp_entry:
-        return False  # Already configured
-
-    servers["sonde"] = mcp_entry
-    settings_path.write_text(json.dumps(settings, indent=2) + "\n")
-    return True
-
-
 @click.command()
-@click.option("--skip-skills", is_flag=True, help="Don't install Claude Code skills")
+@click.option("--skip-skills", is_flag=True, help="Don't install agent skills")
 @click.option("--skip-mcp", is_flag=True, help="Don't configure MCP server")
+@click.option(
+    "--runtime",
+    "runtime_names",
+    default=None,
+    help="Comma-separated runtimes (default: auto-detect). Options: claude-code, cursor, codex",
+)
+@click.option("--check", is_flag=True, help="Check if deployed skills are current (read-only)")
 @click.pass_context
-def setup(ctx: click.Context, skip_skills: bool, skip_mcp: bool) -> None:
+def setup(
+    ctx: click.Context,
+    skip_skills: bool,
+    skip_mcp: bool,
+    runtime_names: str | None,
+    check: bool,
+) -> None:
     """Set up Sonde for your development environment.
 
-    Installs Claude Code/Codex skills and configures the MCP server
-    so agents can use sonde automatically.
+    Installs agent skills and configures MCP servers for detected runtimes
+    (Claude Code, Cursor, Codex). Re-run after upgrading sonde to refresh skills.
 
     \b
     Examples:
-      sonde setup
-      sonde setup --skip-mcp
+      sonde setup                              # auto-detect runtimes
+      sonde setup --runtime claude-code,codex  # explicit runtimes
+      sonde setup --check                      # verify skills are current
     """
     quiet = ctx.obj.get("quiet", False)
+    use_json = ctx.obj.get("json", False)
 
     # -- Step 1: Check auth --
-    if not quiet:
+    if not quiet and not check:
         print_banner()
 
     if not auth.is_authenticated():
@@ -98,60 +71,89 @@ def setup(ctx: click.Context, skip_skills: bool, skip_mcp: bool) -> None:
         raise SystemExit(1)
 
     user = auth.get_current_user()
-    if not quiet and user:
+    if not quiet and not check and user:
         err.print(f"  [sonde.muted]Authenticated as {user.email}[/]\n")
 
+    # -- Step 2: Resolve project root and runtimes --
     project_root = _find_project_root()
+    root = project_root or Path.home()
 
-    # -- Step 2: Install skills --
+    runtimes = resolve_runtimes(root, runtime_names)
+    runtime_names_str = ", ".join(rt.name for rt in runtimes)
+
+    # -- Step 3: Check mode (read-only) --
+    if check:
+        results = check_freshness(root, runtimes)
+        if use_json:
+            print_json(results)
+        else:
+            stale = [r for r in results if r["status"] != "current"]
+            if not stale:
+                print_success(f"All skills current across {runtime_names_str}")
+            else:
+                err.print("[sonde.heading]Skill status:[/sonde.heading]")
+                for r in results:
+                    status_style = {
+                        "current": "[sonde.success]current[/]",
+                        "outdated": "[sonde.warning]outdated[/]",
+                        "missing": "[sonde.error]missing[/]",
+                    }
+                    styled = status_style.get(r["status"], r["status"])
+                    err.print(f"  {r['skill']:24s} {r['runtime']:14s} {styled}")
+                err.print("\n  Run [bold]sonde setup[/bold] to update.")
+        raise SystemExit(0 if all(r["status"] == "current" for r in results) else 1)
+
+    if not quiet:
+        err.print(f"[sonde.heading]Runtimes:[/sonde.heading] {runtime_names_str}\n")
+
+    # -- Step 4: Deploy skills --
     if not skip_skills:
         if not quiet:
             err.print("[sonde.heading]Installing skills...[/sonde.heading]")
 
-        # Project-level .claude/skills (preferred — scoped to this repo)
-        if project_root:
-            target = project_root / ".claude"
-            count = _install_skills(target)
-            if count:
-                print_success(f"{count} skill(s) installed to {target.relative_to(project_root)}/ ")
-        else:
-            # Fall back to home directory
-            target = Path.home() / ".claude"
-            count = _install_skills(target)
-            if count:
-                print_success(f"{count} skill(s) installed to ~/.claude/")
+        skills = bundled_skills()
+        total_changed = 0
+        for stem, content in skills:
+            for rt in runtimes:
+                deploy_root = root if project_root or rt.supports_home else None
+                if deploy_root is None:
+                    continue
+                dest, changed = deploy_skill(deploy_root, rt, stem, content)
+                if changed:
+                    total_changed += 1
+                    rel = dest.relative_to(deploy_root)
+                    err.print(f"  [sonde.muted]-> {rel}[/sonde.muted]")
 
-    # -- Step 3: Configure MCP server --
+        if total_changed:
+            print_success(f"{total_changed} skill file(s) deployed")
+        elif not quiet:
+            err.print("  [sonde.muted]All skills current (no changes)[/sonde.muted]")
+
+        save_manifest(root, skills, runtimes)
+
+    # -- Step 5: Configure MCP server --
     if not skip_mcp:
         if not quiet:
             err.print("\n[sonde.heading]Configuring MCP server...[/sonde.heading]")
 
-        configured = False
+        mcp_configured = False
+        for rt in runtimes:
+            if rt.mcp_config is None:
+                continue
+            config_root = root if project_root or rt.supports_home else None
+            if config_root is None:
+                continue
+            config_path = config_root / rt.mcp_config
+            if configure_mcp_server(config_path):
+                err.print(f"  [sonde.muted]-> {config_path}[/sonde.muted]")
+                mcp_configured = True
 
-        # Claude Code: .claude/settings.json
-        if project_root:
-            claude_settings = project_root / ".claude" / "settings.json"
-        else:
-            claude_settings = Path.home() / ".claude" / "settings.json"
-
-        if _configure_mcp(claude_settings):
-            err.print(f"  [sonde.muted]→ {claude_settings}[/sonde.muted]")
-            configured = True
-
-        # Cursor: .cursor/mcp.json
-        if project_root:
-            cursor_config = project_root / ".cursor" / "mcp.json"
-            has_cursor = cursor_config.parent.exists()
-            if has_cursor and _configure_mcp(cursor_config):
-                err.print(f"  [sonde.muted]→ {cursor_config}[/sonde.muted]")
-                configured = True
-
-        if configured:
+        if mcp_configured:
             print_success("MCP server configured")
         elif not quiet:
             err.print("  [sonde.muted]Already configured (no changes)[/sonde.muted]")
 
-    # -- Step 4: Verify connectivity --
+    # -- Step 6: Verify connectivity --
     if not quiet:
         err.print("\n[sonde.heading]Verifying connectivity...[/sonde.heading]")
 
@@ -179,7 +181,7 @@ def setup(ctx: click.Context, skip_skills: bool, skip_mcp: bool) -> None:
         err.print("    sonde log --quick -p shared   — log a quick experiment")
         err.print()
         if not skip_mcp:
-            err.print("  In Claude Code or Cursor, agents can now use sonde automatically.")
+            err.print("  Agents can now use sonde automatically via MCP.")
         err.print("  For headless agents (Codex), create a token:")
         err.print("    sonde admin create-token -n my-agent -p shared")
         err.print()

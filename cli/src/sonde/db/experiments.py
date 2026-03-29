@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
+
+from postgrest.exceptions import APIError
 
 from sonde.db import rows as to_rows
 from sonde.db.client import get_client
 from sonde.models.experiment import Experiment, ExperimentCreate
+
+_MAX_ID_RETRIES = 3
 
 
 def _next_id() -> str:
@@ -23,12 +28,24 @@ def _next_id() -> str:
 
 
 def create(data: ExperimentCreate) -> Experiment:
-    """Insert a new experiment and return the full record."""
+    """Insert a new experiment and return the full record.
+
+    Retries on unique-constraint violations to handle concurrent ID generation.
+    """
     client = get_client()
-    exp_id = _next_id()
-    row = {"id": exp_id, **data.model_dump(mode="json", exclude_none=True)}
-    result = client.table("experiments").insert(row).execute()
-    return Experiment(**to_rows(result.data)[0])
+    payload = data.model_dump(mode="json", exclude_none=True)
+    for attempt in range(_MAX_ID_RETRIES):
+        exp_id = _next_id()
+        row = {"id": exp_id, **payload}
+        try:
+            result = client.table("experiments").insert(row).execute()
+        except APIError as exc:
+            if exc.code == "23505" and attempt < _MAX_ID_RETRIES - 1:
+                continue
+            raise
+        return Experiment(**to_rows(result.data)[0])
+    msg = f"Failed to generate unique experiment ID after {_MAX_ID_RETRIES} attempts"
+    raise RuntimeError(msg)
 
 
 def get(experiment_id: str) -> Experiment | None:
@@ -47,10 +64,16 @@ def list_experiments(
     status: str | None = None,
     source: str | None = None,
     limit: int = 50,
+    offset: int = 0,
 ) -> list[Experiment]:
     """List experiments with optional filters."""
     client = get_client()
-    query = client.table("experiments").select("*").order("created_at", desc=True).limit(limit)
+    query = (
+        client.table("experiments")
+        .select("*")
+        .order("created_at", desc=True)
+        .range(offset, offset + limit)
+    )
     if program:
         query = query.eq("program", program)
     if status:
@@ -68,17 +91,23 @@ def search(
     param_filters: list[tuple[str, str, Any]] | None = None,
     tags: list[str] | None = None,
     limit: int = 50,
+    offset: int = 0,
 ) -> list[Experiment]:
     """Search experiments with text search and parameter filters."""
     client = get_client()
-    query = client.table("experiments").select("*").order("created_at", desc=True).limit(limit)
+    query = client.table("experiments").select("*").order("created_at", desc=True)
+
+    # Only apply DB-side limit when there's no client-side filtering
+    if not param_filters:
+        query = query.range(offset, offset + limit)
 
     if program:
         query = query.eq("program", program)
     if text:
-        # Sanitize: escape PostgREST filter metacharacters to prevent injection
-        safe_text = text.replace("\\", "\\\\").replace("%", "\\%").replace(",", "").replace(".", "")
-        query = query.or_(f"hypothesis.ilike.%{safe_text}%,finding.ilike.%{safe_text}%")
+        # Escape SQL LIKE metacharacters; preserve all other characters (dots, commas, etc.)
+        safe_text = re.sub(r"[%_\\]", "", text)
+        if safe_text.strip():
+            query = query.or_(f"hypothesis.ilike.%{safe_text}%,finding.ilike.%{safe_text}%")
     if tags:
         query = query.contains("tags", tags)
 
@@ -95,16 +124,20 @@ def search(
                 if exp_val is None:
                     match = False
                     break
-                mismatch = (
-                    (op == "=" and str(exp_val) != str(value))
-                    or (op == ">" and float(exp_val) <= float(value))
-                    or (op == "<" and float(exp_val) >= float(value))
-                )
+                try:
+                    mismatch = (
+                        (op == "=" and str(exp_val) != str(value))
+                        or (op == ">" and float(exp_val) <= float(value))
+                        or (op == "<" and float(exp_val) >= float(value))
+                    )
+                except (ValueError, TypeError):
+                    match = False
+                    break
                 if mismatch:
                     match = False
             if match:
                 filtered.append(exp)
-        return filtered
+        return filtered[: limit + 1]
 
     return experiments
 

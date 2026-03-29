@@ -139,6 +139,7 @@ def log(
 @click.option("--status", help="Filter by status")
 @click.option("--source", help="Filter by source")
 @click.option("--limit", "-n", default=50, help="Max results (default: 50)")
+@click.option("--offset", default=0, help="Skip first N results (for pagination)")
 @click.pass_context
 def list_cmd(
     ctx: click.Context,
@@ -146,6 +147,7 @@ def list_cmd(
     status: str | None,
     source: str | None,
     limit: int,
+    offset: int,
 ):
     """List experiments.
 
@@ -154,14 +156,17 @@ def list_cmd(
       sonde experiment list
       sonde experiment list -p weather-intervention
       sonde experiment list --status open
-      sonde experiment list --source human/mlee
+      sonde experiment list --offset 50
     """
     settings = get_settings()
     resolved_program = program or settings.program or None
 
     experiments = db.list_experiments(
-        program=resolved_program, status=status, source=source, limit=limit
+        program=resolved_program, status=status, source=source, limit=limit, offset=offset
     )
+
+    has_more = len(experiments) > limit
+    experiments = experiments[:limit]
 
     if ctx.obj.get("json"):
         print_json([e.model_dump(mode="json") for e in experiments])
@@ -182,7 +187,14 @@ def list_cmd(
                 }
             )
         print_table(columns, rows)
-        err.print(f"\n[dim]{len(experiments)} experiment(s)[/dim]")
+        if has_more:
+            next_offset = offset + limit
+            err.print(
+                f"\n[dim]{len(experiments)} experiment(s) shown."
+                f" More available: --offset {next_offset}[/dim]"
+            )
+        else:
+            err.print(f"\n[dim]{len(experiments)} experiment(s)[/dim]")
 
 
 @experiment.command()
@@ -255,6 +267,7 @@ def show(ctx: click.Context, experiment_id: str):
 @click.option("--param", multiple=True, help="Parameter filter (e.g., ccn>1000)")
 @click.option("--tag", multiple=True, help="Filter by tag")
 @click.option("--limit", "-n", default=50, help="Max results")
+@click.option("--offset", default=0, help="Skip first N results (for pagination)")
 @click.pass_context
 def search(
     ctx: click.Context,
@@ -263,6 +276,7 @@ def search(
     param: tuple[str, ...],
     tag: tuple[str, ...],
     limit: int,
+    offset: int,
 ):
     """Search experiments.
 
@@ -277,11 +291,45 @@ def search(
 
     param_filters = []
     for p in param:
+        matched = False
         for op in [">", "<", "="]:
             if op in p:
                 key, value = p.split(op, 1)
-                param_filters.append((key.strip(), op, value.strip()))
+                key, value = key.strip(), value.strip()
+                if not key:
+                    print_error(
+                        f"Invalid param filter: {p}",
+                        "Filter key cannot be empty.",
+                        "Use format: --param key=value or --param key>number",
+                    )
+                    raise SystemExit(2)
+                if not value:
+                    print_error(
+                        f"Invalid param filter: {p}",
+                        "Filter value cannot be empty.",
+                        "Use format: --param key=value or --param key>number",
+                    )
+                    raise SystemExit(2)
+                if op in (">", "<"):
+                    try:
+                        float(value)
+                    except ValueError:
+                        print_error(
+                            f"Invalid param filter: {p}",
+                            f"Value '{value}' is not a number (required for '{op}' operator).",
+                            "Use format: --param key>number (e.g., --param ccn>1000)",
+                        )
+                        raise SystemExit(2) from None
+                param_filters.append((key, op, value))
+                matched = True
                 break
+        if not matched:
+            print_error(
+                f"Invalid param filter: {p}",
+                "No operator found. Expected =, >, or <.",
+                "Use format: --param key=value or --param key>number",
+            )
+            raise SystemExit(2)
 
     experiments = db.search(
         program=resolved_program,
@@ -289,7 +337,11 @@ def search(
         param_filters=param_filters or None,
         tags=list(tag) or None,
         limit=limit,
+        offset=offset,
     )
+
+    has_more = len(experiments) > limit
+    experiments = experiments[:limit]
 
     if ctx.obj.get("json"):
         print_json([e.model_dump(mode="json") for e in experiments])
@@ -309,7 +361,14 @@ def search(
                 }
             )
         print_table(columns, rows)
-        err.print(f"\n[dim]{len(experiments)} result(s)[/dim]")
+        if has_more:
+            next_offset = offset + limit
+            err.print(
+                f"\n[dim]{len(experiments)} result(s) shown."
+                f" More available: --offset {next_offset}[/dim]"
+            )
+        else:
+            err.print(f"\n[dim]{len(experiments)} result(s)[/dim]")
 
 
 def _truncate(text: str | None, length: int) -> str:
