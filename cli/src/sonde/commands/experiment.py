@@ -1,0 +1,317 @@
+"""Experiment commands — log, list, show, search, update."""
+
+from __future__ import annotations
+
+import json
+import os
+
+import click
+
+from sonde.config import get_settings
+from sonde.db import experiments as db
+from sonde.git import detect_git_context
+from sonde.models.experiment import ExperimentCreate
+from sonde.output import err, print_error, print_json, print_success, print_table
+
+
+@click.group()
+def experiment():
+    """Manage experiments."""
+
+
+@experiment.command()
+@click.option("--program", "-p", help="Program namespace (e.g., weather-intervention)")
+@click.option("--hypothesis", help="What you expected to find")
+@click.option("--params", help="Parameters as JSON string")
+@click.option("--result", help="Results as JSON string")
+@click.option("--finding", help="What you learned")
+@click.option("--source", "-s", help="Who logged this (default: human/$USER)")
+@click.option("--direction", help="Parent research direction ID")
+@click.option("--related", help="Related experiment IDs (comma-separated)")
+@click.option("--tag", multiple=True, help="Tags (repeatable)")
+@click.option("--git-ref", help="Git commit ref (default: auto-detect HEAD)")
+@click.option("--status", default="complete", type=click.Choice(["open", "running", "complete"]))
+@click.option("--quick", is_flag=True, help="Minimal record — just params + result")
+@click.option("--open", "open_exp", is_flag=True, help="Log as open/backlog (not yet run)")
+@click.pass_context
+def log(
+    ctx: click.Context,
+    program: str | None,
+    hypothesis: str | None,
+    params: str | None,
+    result: str | None,
+    finding: str | None,
+    source: str | None,
+    direction: str | None,
+    related: str | None,
+    tag: tuple[str, ...],
+    git_ref: str | None,
+    status: str,
+    quick: bool,
+    open_exp: bool,
+):
+    """Log an experiment to the knowledge base.
+
+    \b
+    Examples:
+      # Quick log after a simulation run
+      sonde log --quick -p weather-intervention \\
+        --params '{"ccn": 1200, "scheme": "spectral_bin"}' \\
+        --result '{"precip_delta_pct": 5.8}'
+
+      # Full log with finding and tags
+      sonde log -p weather-intervention \\
+        --hypothesis "Spectral bin changes CCN response" \\
+        --params '{"ccn": 1200, "scheme": "spectral_bin"}' \\
+        --result '{"precip_delta_pct": 5.8}' \\
+        --finding "8% less enhancement than bulk at same CCN" \\
+        --tag cloud-seeding --tag spectral-bin
+
+      # Open an experiment (backlog item)
+      sonde log --open -p weather-intervention \\
+        --hypothesis "Combined BL heating + seeding is superlinear"
+    """
+    settings = get_settings()
+
+    # Resolve program
+    resolved_program = program or settings.program
+    if not resolved_program:
+        print_error(
+            "No program specified",
+            "Every experiment must belong to a program.",
+            "Use --program <name> or set 'program' in .aeolus.yaml",
+        )
+        raise SystemExit(2)
+
+    # Resolve source
+    resolved_source = source or settings.source or f"human/{os.environ.get('USER', 'unknown')}"
+
+    # Parse JSON fields
+    parsed_params = json.loads(params) if params else {}
+    parsed_result = json.loads(result) if result else None
+
+    # Status override for --open flag
+    if open_exp:
+        status = "open"
+
+    # Auto-detect git context
+    git_ctx = detect_git_context()
+
+    data = ExperimentCreate(
+        program=resolved_program,
+        status=status,
+        source=resolved_source,
+        hypothesis=hypothesis,
+        parameters=parsed_params,
+        results=parsed_result,
+        finding=finding,
+        git_commit=git_ref or (git_ctx.commit if git_ctx else None),
+        git_repo=git_ctx.repo if git_ctx else None,
+        git_branch=git_ctx.branch if git_ctx else None,
+        direction_id=direction,
+        related=[r.strip() for r in related.split(",")] if related else [],
+        tags=list(tag),
+    )
+
+    exp = db.create(data)
+
+    if ctx.obj.get("json"):
+        print_json(exp.model_dump(mode="json"))
+    else:
+        print_success(f"Created {exp.id} ({exp.program})")
+        if exp.hypothesis:
+            err.print(f"  Hypothesis: {exp.hypothesis[:80]}")
+        if exp.finding:
+            err.print(f"  Finding: {exp.finding[:80]}")
+        if exp.git_commit:
+            err.print(f"  Git: {exp.git_commit[:8]}")
+        err.print()
+        err.print(f"  View:    sonde show {exp.id}")
+        err.print(f"  Attach:  sonde attach {exp.id} <file>")
+
+
+@experiment.command("list")
+@click.option("--program", "-p", help="Filter by program")
+@click.option("--status", help="Filter by status")
+@click.option("--source", help="Filter by source")
+@click.option("--limit", "-n", default=50, help="Max results (default: 50)")
+@click.pass_context
+def list_cmd(
+    ctx: click.Context,
+    program: str | None,
+    status: str | None,
+    source: str | None,
+    limit: int,
+):
+    """List experiments.
+
+    \b
+    Examples:
+      sonde experiment list
+      sonde experiment list -p weather-intervention
+      sonde experiment list --status open
+      sonde experiment list --source human/mlee
+    """
+    settings = get_settings()
+    resolved_program = program or settings.program or None
+
+    experiments = db.list_experiments(
+        program=resolved_program, status=status, source=source, limit=limit
+    )
+
+    if ctx.obj.get("json"):
+        print_json([e.model_dump(mode="json") for e in experiments])
+    elif not experiments:
+        err.print("[dim]No experiments found.[/dim]")
+    else:
+        columns = ["id", "status", "program", "parameters", "finding"]
+        rows = []
+        for e in experiments:
+            param_str = ", ".join(f"{k}={v}" for k, v in e.parameters.items())[:40]
+            rows.append(
+                {
+                    "id": e.id,
+                    "status": e.status,
+                    "program": e.program,
+                    "parameters": param_str or "—",
+                    "finding": _truncate(e.finding, 50),
+                }
+            )
+        print_table(columns, rows)
+        err.print(f"\n[dim]{len(experiments)} experiment(s)[/dim]")
+
+
+@experiment.command()
+@click.argument("experiment_id")
+@click.pass_context
+def show(ctx: click.Context, experiment_id: str):
+    """Show full details for an experiment.
+
+    \b
+    Examples:
+      sonde experiment show EXP-0001
+      sonde show EXP-0001 --json
+    """
+    exp = db.get(experiment_id.upper())
+
+    if not exp:
+        print_error(
+            f"Experiment {experiment_id} not found",
+            "No experiment with this ID exists in the database.",
+            'List experiments: sonde list\n  Search: sonde search --text "your query"',
+        )
+        raise SystemExit(1)
+
+    if ctx.obj.get("json"):
+        print_json(exp.model_dump(mode="json"))
+    else:
+        from rich.panel import Panel
+
+        from sonde.output import out
+
+        lines = []
+        color = _status_color(exp.status)
+        lines.append(f"[bold]{exp.id}[/bold]  [{color}]{exp.status}[/]  {exp.program}")
+        lines.append(f"Source: {exp.source}  Created: {exp.created_at:%Y-%m-%d %H:%M}")
+        if exp.hypothesis:
+            lines.append(f"\n[bold]Hypothesis:[/bold]\n  {exp.hypothesis}")
+        if exp.parameters:
+            param_str = "\n".join(f"  {k}: {v}" for k, v in exp.parameters.items())
+            lines.append(f"\n[bold]Parameters:[/bold]\n{param_str}")
+        if exp.results:
+            result_str = "\n".join(f"  {k}: {v}" for k, v in exp.results.items())
+            lines.append(f"\n[bold]Results:[/bold]\n{result_str}")
+        if exp.finding:
+            lines.append(f"\n[bold]Finding:[/bold]\n  {exp.finding}")
+        if exp.git_commit:
+            lines.append("\n[bold]Provenance:[/bold]")
+            lines.append(f"  Commit: {exp.git_commit[:12]}")
+            if exp.git_repo:
+                lines.append(f"  Repo: {exp.git_repo}")
+            if exp.git_branch:
+                lines.append(f"  Branch: {exp.git_branch}")
+        if exp.related:
+            lines.append(f"\n[bold]Related:[/bold] {', '.join(exp.related)}")
+        if exp.tags:
+            lines.append(f"[bold]Tags:[/bold] {', '.join(exp.tags)}")
+
+        out.print(Panel("\n".join(lines), title=exp.id, border_style="blue"))
+
+
+@experiment.command()
+@click.option("--program", "-p", help="Filter by program")
+@click.option("--text", "-t", help="Full-text search across hypothesis and finding")
+@click.option("--param", multiple=True, help="Parameter filter (e.g., ccn>1000)")
+@click.option("--tag", multiple=True, help="Filter by tag")
+@click.option("--limit", "-n", default=50, help="Max results")
+@click.pass_context
+def search(
+    ctx: click.Context,
+    program: str | None,
+    text: str | None,
+    param: tuple[str, ...],
+    tag: tuple[str, ...],
+    limit: int,
+):
+    """Search experiments.
+
+    \b
+    Examples:
+      sonde experiment search --text "spectral bin"
+      sonde experiment search --param ccn>1000
+      sonde experiment search -p weather-intervention --tag cloud-seeding
+    """
+    settings = get_settings()
+    resolved_program = program or settings.program or None
+
+    param_filters = []
+    for p in param:
+        for op in [">", "<", "="]:
+            if op in p:
+                key, value = p.split(op, 1)
+                param_filters.append((key.strip(), op, value.strip()))
+                break
+
+    experiments = db.search(
+        program=resolved_program,
+        text=text,
+        param_filters=param_filters or None,
+        tags=list(tag) or None,
+        limit=limit,
+    )
+
+    if ctx.obj.get("json"):
+        print_json([e.model_dump(mode="json") for e in experiments])
+    elif not experiments:
+        err.print("[dim]No experiments found.[/dim]")
+    else:
+        columns = ["id", "status", "parameters", "finding"]
+        rows = []
+        for e in experiments:
+            param_str = ", ".join(f"{k}={v}" for k, v in e.parameters.items())[:40]
+            rows.append(
+                {
+                    "id": e.id,
+                    "status": e.status,
+                    "parameters": param_str or "—",
+                    "finding": _truncate(e.finding, 60),
+                }
+            )
+        print_table(columns, rows)
+        err.print(f"\n[dim]{len(experiments)} result(s)[/dim]")
+
+
+def _truncate(text: str | None, length: int) -> str:
+    if not text:
+        return "—"
+    return text[:length] + "..." if len(text) > length else text
+
+
+def _status_color(status: str) -> str:
+    return {
+        "open": "blue",
+        "running": "yellow",
+        "complete": "green",
+        "failed": "red",
+        "superseded": "dim",
+    }.get(status, "white")

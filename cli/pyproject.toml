@@ -1,0 +1,69 @@
+[project]
+name = "sonde"
+version = "0.1.0"
+description = "Scientific discovery management CLI for the Aeolus research platform"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.12"
+authors = [{ name = "Aeolus Team" }]
+
+dependencies = [
+    "click>=8.1",
+    "rich>=13.0",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "supabase>=2.0",
+    "python-dotenv>=1.0",
+    "gitpython>=3.1",
+    "pyyaml>=6.0",
+]
+
+[project.scripts]
+sonde = "sonde.cli:cli"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sonde"]
+
+# --- Development dependencies ---
+[dependency-groups]
+dev = [
+    "ruff>=0.13",
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "ty>=0.0.26",
+]
+
+# --- Ruff (linter + formatter) ---
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "N",    # pep8-naming
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "SIM",  # flake8-simplify
+    "T20",  # flake8-print (catch stray prints)
+    "RUF",  # ruff-specific rules
+]
+ignore = [
+    "T201",  # allow print() — we're a CLI, we print things
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["sonde"]
+
+# --- Pytest ---
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
