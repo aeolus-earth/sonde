@@ -94,6 +94,11 @@ def note(
         )
         raise SystemExit(1) from None
 
+    # Log activity
+    from sonde.db.activity import log_activity
+
+    log_activity(experiment_id, "experiment", "note_added", {"note_id": note_id})
+
     # Write locally too
     sonde_dir = find_sonde_dir()
     notes_dir = ensure_subdir(sonde_dir, f"experiments/{experiment_id}/notes")

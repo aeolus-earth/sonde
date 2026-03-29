@@ -68,10 +68,16 @@ class SondeCLI(click.Group):
             "new": "Research",
             "tag": "Research",
             "tags": "Research",
+            "close": "Research",
+            "open": "Research",
+            "start": "Research",
+            "recent": "Research",
+            "history": "Research",
             "login": "Auth & Setup",
             "logout": "Auth & Setup",
             "whoami": "Auth & Setup",
             "setup": "Auth & Setup",
+            "access": "Auth & Setup",
             "admin": "Admin",
         }
 
@@ -155,15 +161,23 @@ def cli(ctx: click.Context, use_json: bool, quiet: bool, verbose: bool, no_color
 
 # -- Register commands --
 
+from sonde.commands.access import access  # noqa: E402
 from sonde.commands.admin import admin  # noqa: E402
 from sonde.commands.attach import attach  # noqa: E402
 from sonde.commands.auth import login, logout, whoami  # noqa: E402
 from sonde.commands.brief import brief  # noqa: E402
 from sonde.commands.experiment import experiment  # noqa: E402
+from sonde.commands.history import history  # noqa: E402
+from sonde.commands.lifecycle import (  # noqa: E402
+    close_experiment,
+    open_experiment,
+    start_experiment,
+)
 from sonde.commands.new import new  # noqa: E402
 from sonde.commands.note import note  # noqa: E402
 from sonde.commands.pull import pull  # noqa: E402
 from sonde.commands.push import push  # noqa: E402
+from sonde.commands.recent import recent  # noqa: E402
 from sonde.commands.setup import setup  # noqa: E402
 from sonde.commands.tag import tag, tags_list  # noqa: E402
 
@@ -181,3 +195,9 @@ cli.add_command(attach)
 cli.add_command(brief)
 cli.add_command(tag)
 cli.add_command(tags_list)
+cli.add_command(access)
+cli.add_command(close_experiment)
+cli.add_command(open_experiment)
+cli.add_command(start_experiment)
+cli.add_command(recent)
+cli.add_command(history)

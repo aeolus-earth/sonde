@@ -53,6 +53,10 @@ def tag_add(ctx: click.Context, record_id: str, tag_name: str) -> None:
 
     current_tags.append(tag_name)
     client.table("experiments").update({"tags": current_tags}).eq("id", record_id).execute()
+
+    from sonde.db.activity import log_activity
+
+    log_activity(record_id, "experiment", "tag_added", {"tag": tag_name})
     print_success(f"Added '{tag_name}' to {record_id}")
 
 
@@ -83,6 +87,10 @@ def tag_remove(ctx: click.Context, record_id: str, tag_name: str) -> None:
 
     current_tags.remove(tag_name)
     client.table("experiments").update({"tags": current_tags}).eq("id", record_id).execute()
+
+    from sonde.db.activity import log_activity
+
+    log_activity(record_id, "experiment", "tag_removed", {"tag": tag_name})
     print_success(f"Removed '{tag_name}' from {record_id}")
 
 

@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 
 import click
 
 from sonde.config import get_settings
 from sonde.db import experiments as db
 from sonde.git import detect_git_context
+from sonde.local import _generate_body
 from sonde.models.experiment import ExperimentCreate
 from sonde.output import err, print_error, print_json, print_success, print_table, styled_status
 
@@ -20,11 +22,16 @@ def experiment():
 
 
 @experiment.command()
+@click.argument("content_text", required=False, default=None)
 @click.option("--program", "-p", help="Program namespace (e.g., weather-intervention)")
-@click.option("--hypothesis", help="What you expected to find")
-@click.option("--params", help="Parameters as JSON string")
-@click.option("--result", help="Results as JSON string")
-@click.option("--finding", help="What you learned")
+@click.option(
+    "--file", "-f", "content_file", type=click.Path(exists=True), help="Read content from file"
+)
+@click.option("--stdin", "read_stdin", is_flag=True, help="Read content from stdin")
+@click.option("--hypothesis", help="What you expected to find (legacy)")
+@click.option("--params", help="Parameters as JSON string (legacy)")
+@click.option("--result", help="Results as JSON string (legacy)")
+@click.option("--finding", help="What you learned (legacy)")
 @click.option("--source", "-s", help="Who logged this (default: human/$USER)")
 @click.option("--direction", help="Parent research direction ID")
 @click.option("--related", help="Related experiment IDs (comma-separated)")
@@ -36,7 +43,10 @@ def experiment():
 @click.pass_context
 def log(
     ctx: click.Context,
+    content_text: str | None,
     program: str | None,
+    content_file: str | None,
+    read_stdin: bool,
     hypothesis: str | None,
     params: str | None,
     result: str | None,
@@ -53,23 +63,27 @@ def log(
     """Log an experiment to the knowledge base.
 
     \b
+    Content can be provided as a positional argument, from a file, or via stdin.
+    The content is the experiment itself — write whatever is relevant.
+
+    \b
     Examples:
-      # Quick log after a simulation run
+      # Inline content
+      sonde log -p weather-intervention "Ran spectral bin at CCN=1200, 8% less enhancement"
+
+      # From a file
+      sonde log -p weather-intervention -f experiment-notes.md
+
+      # From stdin
+      echo "Quick observation about CCN response" | sonde log -p weather-intervention --stdin
+
+      # Legacy structured flags (still work)
       sonde log --quick -p weather-intervention \\
         --params '{"ccn": 1200, "scheme": "spectral_bin"}' \\
         --result '{"precip_delta_pct": 5.8}'
 
-      # Full log with finding and tags
-      sonde log -p weather-intervention \\
-        --hypothesis "Spectral bin changes CCN response" \\
-        --params '{"ccn": 1200, "scheme": "spectral_bin"}' \\
-        --result '{"precip_delta_pct": 5.8}' \\
-        --finding "8% less enhancement than bulk at same CCN" \\
-        --tag cloud-seeding --tag spectral-bin
-
       # Open an experiment (backlog item)
-      sonde log --open -p weather-intervention \\
-        --hypothesis "Combined BL heating + seeding is superlinear"
+      sonde log --open -p weather-intervention "Test combined BL heating + seeding"
     """
     settings = get_settings()
 
@@ -86,6 +100,16 @@ def log(
     # Resolve source
     resolved_source = source or settings.source or f"human/{os.environ.get('USER', 'unknown')}"
 
+    # Resolve content from the three possible sources
+    content = None
+    if content_file:
+        with open(content_file, encoding="utf-8") as fh:
+            content = fh.read().strip()
+    elif read_stdin and not sys.stdin.isatty():
+        content = sys.stdin.read().strip()
+    elif content_text:
+        content = content_text
+
     # Parse JSON fields
     try:
         parsed_params = json.loads(params) if params else {}
@@ -93,6 +117,17 @@ def log(
     except json.JSONDecodeError as e:
         print_error("Invalid JSON", str(e), "Check your --params and --result values")
         raise SystemExit(2) from None
+
+    # If legacy flags used without explicit content, generate content from them
+    if not content and (hypothesis or parsed_params or parsed_result or finding):
+        content = _generate_body(
+            {
+                "hypothesis": hypothesis,
+                "parameters": parsed_params,
+                "results": parsed_result,
+                "finding": finding,
+            }
+        )
 
     # Status override for --open flag
     if open_exp:
@@ -105,6 +140,7 @@ def log(
         program=resolved_program,
         status=status,
         source=resolved_source,
+        content=content or None,
         hypothesis=hypothesis,
         parameters=parsed_params,
         results=parsed_result,
@@ -119,14 +155,18 @@ def log(
 
     exp = db.create(data)
 
+    # Log activity
+    from sonde.db.activity import log_activity
+
+    log_activity(exp.id, "experiment", "created")
+
     if ctx.obj.get("json"):
         print_json(exp.model_dump(mode="json"))
     else:
         print_success(f"Created {exp.id} ({exp.program})")
-        if exp.hypothesis:
-            err.print(f"  Hypothesis: {exp.hypothesis[:80]}")
-        if exp.finding:
-            err.print(f"  Finding: {exp.finding[:80]}")
+        summary = _summary(exp, 80)
+        if summary != "—":
+            err.print(f"  {summary}")
         if exp.git_commit:
             err.print(f"  Git: {exp.git_commit[:8]}")
         err.print()
@@ -173,17 +213,17 @@ def list_cmd(
     elif not experiments:
         err.print("[dim]No experiments found.[/dim]")
     else:
-        columns = ["id", "status", "program", "parameters", "finding"]
+        columns = ["id", "status", "program", "tags", "summary"]
         rows = []
         for e in experiments:
-            param_str = ", ".join(f"{k}={v}" for k, v in e.parameters.items())[:40]
+            tag_str = ", ".join(e.tags)[:30] if e.tags else "—"
             rows.append(
                 {
                     "id": e.id,
                     "status": e.status,
                     "program": e.program,
-                    "parameters": param_str or "—",
-                    "finding": _truncate(e.finding, 50),
+                    "tags": tag_str,
+                    "summary": _summary(e, 50),
                 }
             )
         print_table(columns, rows)
@@ -221,44 +261,65 @@ def show(ctx: click.Context, experiment_id: str):
     if ctx.obj.get("json"):
         print_json(exp.model_dump(mode="json"))
     else:
+        from rich.markdown import Markdown
         from rich.panel import Panel
 
         from sonde.output import out
 
-        lines = []
-        lines.append(f"[sonde.heading]{exp.id}[/]  {styled_status(exp.status)}  {exp.program}")
-        lines.append(
+        # Metadata header (always shown)
+        header = []
+        header.append(f"[sonde.heading]{exp.id}[/]  {styled_status(exp.status)}  {exp.program}")
+        header.append(
             f"[sonde.muted]Source: {exp.source}  Created: {exp.created_at:%Y-%m-%d %H:%M}[/]"
         )
-        if exp.hypothesis:
-            lines.append(f"\n[sonde.heading]Hypothesis:[/sonde.heading]\n  {exp.hypothesis}")
-        if exp.parameters:
-            param_str = "\n".join(f"  {k}: {v}" for k, v in exp.parameters.items())
-            lines.append(f"\n[sonde.heading]Parameters:[/sonde.heading]\n{param_str}")
-        if exp.results:
-            result_str = "\n".join(f"  {k}: {v}" for k, v in exp.results.items())
-            lines.append(f"\n[sonde.heading]Results:[/sonde.heading]\n{result_str}")
-        if exp.finding:
-            lines.append(f"\n[sonde.heading]Finding:[/sonde.heading]\n  {exp.finding}")
-        if exp.git_commit:
-            lines.append("\n[sonde.heading]Provenance:[/sonde.heading]")
-            lines.append(f"  Commit: {exp.git_commit[:12]}")
-            if exp.git_repo:
-                lines.append(f"  Repo: {exp.git_repo}")
-            if exp.git_branch:
-                lines.append(f"  Branch: {exp.git_branch}")
-        if exp.related:
-            lines.append(f"\n[sonde.heading]Related:[/sonde.heading] {', '.join(exp.related)}")
         if exp.tags:
-            lines.append(f"[sonde.heading]Tags:[/sonde.heading] {', '.join(exp.tags)}")
+            header.append(f"[sonde.muted]Tags: {', '.join(exp.tags)}[/]")
+        if exp.git_commit:
+            git_info = f"Git: {exp.git_commit[:12]}"
+            if exp.git_branch:
+                git_info += f" ({exp.git_branch})"
+            header.append(f"[sonde.muted]{git_info}[/]")
+        if exp.related:
+            header.append(f"[sonde.muted]Related: {', '.join(exp.related)}[/]")
 
-        out.print(
-            Panel(
-                "\n".join(lines),
-                title=f"[sonde.brand]{exp.id}[/]",
-                border_style="sonde.brand.dim",
+        if exp.content:
+            # Content-first: render markdown body
+            header.append("")
+            out.print(
+                Panel(
+                    "\n".join(header),
+                    title=f"[sonde.brand]{exp.id}[/]",
+                    border_style="sonde.brand.dim",
+                )
             )
-        )
+            out.print(Markdown(exp.content))
+        else:
+            # Legacy: structured field display
+            if exp.hypothesis:
+                header.append(f"\n[sonde.heading]Hypothesis:[/sonde.heading]\n  {exp.hypothesis}")
+            if exp.parameters:
+                param_str = "\n".join(f"  {k}: {v}" for k, v in exp.parameters.items())
+                header.append(f"\n[sonde.heading]Parameters:[/sonde.heading]\n{param_str}")
+            if exp.results:
+                result_str = "\n".join(f"  {k}: {v}" for k, v in exp.results.items())
+                header.append(f"\n[sonde.heading]Results:[/sonde.heading]\n{result_str}")
+            if exp.finding:
+                header.append(f"\n[sonde.heading]Finding:[/sonde.heading]\n  {exp.finding}")
+            if exp.git_commit and not exp.content:
+                header.append("\n[sonde.heading]Provenance:[/sonde.heading]")
+                header.append(f"  Commit: {exp.git_commit[:12]}")
+                if exp.git_repo:
+                    header.append(f"  Repo: {exp.git_repo}")
+                if exp.git_branch:
+                    header.append(f"  Branch: {exp.git_branch}")
+
+            out.print(
+                Panel(
+                    "\n".join(header),
+                    title=f"[sonde.brand]{exp.id}[/]",
+                    border_style="sonde.brand.dim",
+                )
+            )
 
 
 @experiment.command()
@@ -348,16 +409,16 @@ def search(
     elif not experiments:
         err.print("[dim]No experiments found.[/dim]")
     else:
-        columns = ["id", "status", "parameters", "finding"]
+        columns = ["id", "status", "tags", "summary"]
         rows = []
         for e in experiments:
-            param_str = ", ".join(f"{k}={v}" for k, v in e.parameters.items())[:40]
+            tag_str = ", ".join(e.tags)[:30] if e.tags else "—"
             rows.append(
                 {
                     "id": e.id,
                     "status": e.status,
-                    "parameters": param_str or "—",
-                    "finding": _truncate(e.finding, 60),
+                    "tags": tag_str,
+                    "summary": _summary(e, 60),
                 }
             )
         print_table(columns, rows)
@@ -375,3 +436,17 @@ def _truncate(text: str | None, length: int) -> str:
     if not text:
         return "—"
     return text[:length] + "..." if len(text) > length else text
+
+
+def _summary(exp, length: int = 60) -> str:
+    """Extract a one-line summary from experiment content, falling back to legacy fields."""
+    if exp.content:
+        for line in exp.content.splitlines():
+            stripped = line.strip().lstrip("# ").strip()
+            if stripped:
+                return _truncate(stripped, length)
+    if exp.finding:
+        return _truncate(exp.finding, length)
+    if exp.hypothesis:
+        return _truncate(exp.hypothesis, length)
+    return "—"

@@ -43,6 +43,7 @@ def _load_callback_html() -> bytes:
 class UserInfo:
     email: str
     user_id: str
+    name: str = ""
     is_agent: bool = False
     programs: list[str] | None = None
 
@@ -178,9 +179,11 @@ def get_current_user() -> UserInfo | None:
         return None
 
     user = session.get("user", {})
+    user_meta = user.get("user_metadata", {})
     return UserInfo(
         email=user.get("email", "unknown"),
         user_id=user.get("id", "unknown"),
+        name=user_meta.get("full_name") or user_meta.get("name") or "",
     )
 
 
@@ -277,10 +280,12 @@ def _anon_client() -> Client:
 
 def _user_dict(user: Any) -> dict[str, Any]:
     """Extract serializable user info from a Supabase User object."""
+    user_meta = getattr(user, "user_metadata", {}) or {}
     return {
         "id": str(user.id),
         "email": user.email,
         "app_metadata": getattr(user, "app_metadata", {}),
+        "user_metadata": user_meta,
     }
 
 

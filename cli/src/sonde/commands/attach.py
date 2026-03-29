@@ -74,6 +74,18 @@ def attach(
         except Exception as e:
             print_error("Upload failed", str(e), f"Failed: {filepath.name}")
 
+    # Log activity
+    if results:
+        from sonde.db.activity import log_activity
+
+        filenames = [r["filename"] for r in results]
+        log_activity(
+            experiment_id,
+            "experiment",
+            "artifact_attached",
+            {"filenames": filenames, "count": len(filenames)},
+        )
+
     if ctx.obj.get("json"):
         print_json(results)
     else:

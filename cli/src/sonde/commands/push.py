@@ -71,6 +71,12 @@ def push_experiment(ctx: click.Context, name: str) -> None:
     result = _upsert_experiment(fm, body, filepath)
     exp_id = result["id"]
 
+    # Log activity
+    from sonde.db.activity import log_activity
+
+    action = "updated" if fm.get("id") else "created"
+    log_activity(exp_id, "experiment", action)
+
     # Auto-sync directory contents
     exp_dir = filepath.parent / exp_id
     if not exp_dir.exists():
