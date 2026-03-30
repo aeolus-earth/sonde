@@ -17,14 +17,35 @@ cli/
     auth.py              # OAuth PKCE login, token resolution, session persistence
     git.py               # git provenance auto-detection (commit, remote, branch)
     output.py            # Rich console (stdout=data, stderr=status), table/json/error helpers
+    skills.py            # skill bundling, deployment, version tracking
+    runtimes.py          # runtime adapters (Claude Code, Cursor, Codex)
+    local.py             # .sonde/ directory — render/parse markdown, templates
     assets/              # static files (callback.html, aeolus-wordmark.svg)
+    data/skills/         # bundled skill files deployed by `sonde setup`
     models/              # pydantic models — ExperimentCreate, Experiment, etc.
     db/                  # supabase client + per-entity CRUD modules
       client.py          # auth-aware Supabase client singleton
-      experiments.py     # experiment CRUD + search
-    commands/            # click command groups
+      experiments.py     # experiment CRUD + search + update
+      artifacts.py       # file upload to Supabase Storage
+      activity.py        # append-only activity log
+    commands/            # click command modules (see CLI architecture below)
+      experiment.py      # noun group: log, list, show, search, update + subcommand registration
+      lifecycle.py       # close, open, start (registered on experiment group)
+      note.py            # add notes (registered on experiment group)
+      attach.py          # attach files (registered on experiment group)
+      tag.py             # tag add/remove/list (registered on experiment group)
+      history.py         # activity timeline (registered on experiment group)
+      new.py             # scaffold templates (registered on experiment group for experiments)
+      sync.py            # sync group wrapping pull + push
+      pull.py            # pull from Supabase to .sonde/
+      push.py            # push .sonde/ to Supabase
+      brief.py           # program summary (top-level)
+      recent.py          # activity feed (top-level)
+      findings.py        # list findings (top-level)
+      questions.py       # list questions (top-level)
       auth.py            # login, logout, whoami
-      experiment.py      # log, list, show, search
+      setup.py           # onboarding, skill deployment, MCP config
+      access.py          # subsystem credential checks (S3, Icechunk, STAC)
       admin.py           # agent token management
   tests/
   pyproject.toml         # hatchling build, ruff + pytest config
@@ -132,6 +153,55 @@ print_error("Not found", "No experiment with this ID.", "Try: sonde list")
 - Every command must support `--json` via `ctx.obj.get("json")`. JSON output goes to stdout.
 - Use Rich markup (`[bold]`, `[green]`, `[dim]`) in stderr messages, never in stdout data.
 - `print_error` takes three arguments: what happened, why, and how to fix it. Always provide all three.
+
+### CLI architecture — noun-verb grammar
+
+The CLI follows a strict noun-verb pattern. **This is the most important structural rule.** It prevents the command namespace from bloating as features are added.
+
+**Structure:**
+
+```
+sonde <noun> <verb> [args]        # canonical form
+sonde <verb> [args]               # shortcut (common verbs only)
+```
+
+**Current noun groups:**
+
+| Noun | Verbs | File |
+|------|-------|------|
+| `experiment` | log, list, show, search, update, close, open, start, note, attach, tag, history, new | `experiment.py` + registered submodules |
+| `sync` | pull, push | `sync.py` (wraps `pull.py`, `push.py`) |
+| `admin` | create-token, list-tokens, revoke-token | `admin.py` |
+| `access` | s3, icechunk, stac | `access.py` |
+
+**Top-level cross-cutting views** (not noun groups — they span multiple record types):
+
+```
+brief, recent, findings, questions, tags
+```
+
+**Shortcuts** are defined in `SondeCLI._shortcuts` in `cli.py`. They map a bare verb to its noun group:
+
+```python
+"log"    → ("experiment", "log")
+"close"  → ("experiment", "close")
+"pull"   → ("sync", "pull")
+# etc.
+```
+
+### Rules for adding new commands
+
+1. **New verb on existing noun?** Add it to the noun's `click.Group` in the corresponding file. Register it on the group with `group.add_command()`. If the verb lives in its own file, import and register it at the bottom of the noun's file (see how `experiment.py` registers commands from `lifecycle.py`, `note.py`, etc.).
+
+2. **New noun group?** Create `commands/<noun>.py` with a `@click.group()`. Register it on `cli` in `cli.py`. Add it to `category_map` in `format_help`. Keep verbs consistent with existing nouns (prefer `list`, `show`, `create`/`log`, `update`, `search` over novel verbs).
+
+3. **New cross-cutting view?** Only if it genuinely spans multiple record types (like `brief` spans experiments + findings + questions). Otherwise it belongs under a noun. Register as a top-level command in `cli.py`.
+
+4. **Never add a new top-level command for something that operates on a single noun.** If it acts on an experiment, it goes under `sonde experiment <verb>`. Add a shortcut in `_shortcuts` if it's common enough.
+
+5. **Shortcuts are for ergonomics, not structure.** The canonical form is always `sonde <noun> <verb>`. Skills and docs should teach the canonical form. Shortcuts exist so `sonde close EXP-0001` works without typing `sonde experiment close EXP-0001`.
+
+6. **All write paths go through the DB abstraction layer** (`db/experiments.py`, etc.). Commands must not call `client.table(...).update(...)` directly — use `db.update()`, `db.create()`, etc. This keeps the data layer in one place.
 
 ### Click command patterns
 
@@ -270,3 +340,5 @@ These are from the PRD. Internalize them.
 - **Do not add comments that restate the code.** The code should be clear enough on its own. Comments explain *why*, not *what*.
 - **Do not add error handling for impossible states.** If `get_client()` returns a client, it is authenticated. Do not wrap every Supabase call in a try/except "just in case."
 - **Do not use `Any` as a type annotation** unless the data genuinely has no known structure (e.g., Supabase's loose return types, user-provided JSON parameters). Prefer specific types.
+- **Do not add top-level commands for single-noun operations.** If a command operates on experiments, it is a verb on the `experiment` group — not a new top-level command. Add a shortcut in `_shortcuts` if ergonomics demand it. See "CLI architecture" above.
+- **Do not bypass the DB abstraction layer.** Commands call `db.experiments.update()`, not `client.table("experiments").update(...)` directly. The `db/` modules are the single source of truth for data access patterns.
