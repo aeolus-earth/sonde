@@ -1,5 +1,30 @@
 # 006: STAC Integration and Data Workflow
 
+## Open problems
+
+### 1. STAC MCP server not tracked in this repo
+The STAC MCP server was created at `vendor/stac-db/mcp/` but `vendor/stac-db/` is its own git repository. The MCP package needs to be committed and managed in the stac-db repo, not here. Until then, engineers must manually `cd vendor/stac-db/mcp && uv tool install .` to get `stac-mcp` on their PATH.
+
+### 2. Single-login credential vending (S3 access)
+Engineers currently need separate AWS credentials to push data to S3. The ideal: `sonde login` (Google OAuth) also mints temporary S3 credentials via AWS STS AssumeRole. This requires:
+- A Supabase Edge Function (or Lambda) that validates the Supabase JWT and calls STS
+- An IAM role scoped to `s3://aeolus-data/` that the Edge Function can assume
+- Sonde stores the temporary creds in `~/.config/sonde/aws-session.json`
+- Credentials auto-refresh when expired (same pattern as Supabase token refresh)
+
+Not built yet. Current workaround: engineers configure AWS credentials manually (`aws sso login` or `AWS_PROFILE`). `sonde setup` checks for credentials and guides if missing.
+
+### 3. STAC collections not seeded
+Collection definitions exist at `vendor/stac-db/data/collections/` (nwp-simulations, observations, reanalysis) but haven't been seeded into the running STAC API. Need to run `seed_aeolus_collections.py` against the production STAC endpoint.
+
+### 4. End-to-end test not done
+No one has run the full workflow yet: experiment → S3 upload → STAC register → sonde link. The pieces exist (STAC MCP, skills, setup) but the integration hasn't been tested with real data.
+
+### 5. Skill deployment for STAC workflow
+The `stac-data-workflow.md` and `aeolus-conventions.md` skills are bundled in sonde but need `sonde setup` to be re-run to deploy them. Engineers who already ran setup before this ticket won't have the new skills. Need to communicate "re-run `sonde setup`" or auto-detect stale skills.
+
+---
+
 ## Problem
 
 Aeolus has a running STAC API (`vendor/stac-db/`) that catalogs geospatial data — NWP simulation output, ERA5 reanalysis, satellite products. Sonde tracks research knowledge — experiments, findings, questions. These are separate systems that need to work together seamlessly.

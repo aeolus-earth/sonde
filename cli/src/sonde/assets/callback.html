@@ -23,57 +23,86 @@
 
         .container {
             text-align: center;
-            padding: 3rem;
-            max-width: 400px;
+            padding: 3rem 3.5rem;
+            max-width: 420px;
         }
 
         .wordmark {
-            width: 180px;
+            width: 160px;
             height: auto;
             color: #1a1a1a;
-            margin-bottom: 3rem;
+            margin-bottom: 2.5rem;
         }
 
-        .wave {
-            font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-            color: #E07B39;
-            font-size: 0.75rem;
-            line-height: 1.4;
-            letter-spacing: 0.02em;
-            margin-bottom: 2rem;
-            white-space: pre;
+        .divider {
+            width: 48px;
+            height: 2px;
+            background: #E07B39;
+            margin: 0 auto 2rem;
+            border-radius: 1px;
         }
 
-        .status {
+        .success-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            background: #ECFDF5;
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 0.5rem;
-            margin-bottom: 0.75rem;
+            margin: 0 auto 1.25rem;
+            animation: fadeScale 0.4s ease-out;
         }
 
-        .status svg {
-            width: 18px;
-            height: 18px;
-            color: #4ADE80;
+        .success-icon svg {
+            width: 24px;
+            height: 24px;
+            color: #16A34A;
         }
 
-        .status span {
-            font-size: 0.95rem;
-            font-weight: 500;
+        @keyframes fadeScale {
+            from { opacity: 0; transform: scale(0.8); }
+            to   { opacity: 1; transform: scale(1); }
+        }
+
+        h1 {
+            font-size: 1.125rem;
+            font-weight: 600;
             color: #1a1a1a;
+            margin-bottom: 0.5rem;
         }
 
         p {
-            font-size: 0.85rem;
+            font-size: 0.875rem;
             color: #6B7280;
-            line-height: 1.5;
+            line-height: 1.6;
         }
 
         .fade-hint {
-            margin-top: 1.5rem;
+            margin-top: 1.75rem;
             font-size: 0.75rem;
             color: #9CA3AF;
+        }
+
+        .progress {
+            width: 100%;
+            height: 2px;
+            background: #E5E7EB;
+            border-radius: 1px;
+            margin-top: 2rem;
+            overflow: hidden;
+        }
+
+        .progress-bar {
+            height: 100%;
+            background: #E07B39;
+            border-radius: 1px;
+            animation: shrink 3s linear forwards;
+        }
+
+        @keyframes shrink {
+            from { width: 100%; }
+            to   { width: 0%; }
         }
     </style>
 </head>
@@ -82,17 +111,16 @@
         <div class="wordmark">
             {{WORDMARK_SVG}}
         </div>
-        <div class="wave">&#9472;&#9472;&#9472;&#9472;&#9472;&#9582;    &#9581;&#9472;&#9472;&#9472;&#9472;&#9582;    &#9581;&#9472;&#9472;&#9472;&#9472;&#9582;    &#9581;&#9472;&#9472;&#9472;&#9472;&#9472;
-        &#9474;    &#9474;    &#9474;    &#9474;    &#9474;    &#9474;
-        &#9584;&#9472;&#9472;&#9472;&#9472;&#9583;    &#9584;&#9472;&#9472;&#9472;&#9472;&#9583;    &#9584;&#9472;&#9472;&#9472;&#9472;&#9583;</div>
-        <div class="status">
+        <div class="divider"></div>
+        <div class="success-icon">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
             </svg>
-            <span>Signed in</span>
         </div>
+        <h1>Signed in</h1>
         <p>You can close this tab and return to your terminal.</p>
-        <p class="fade-hint">This page will close automatically.</p>
+        <p class="fade-hint">Closing automatically&hellip;</p>
+        <div class="progress"><div class="progress-bar"></div></div>
     </div>
     <script>setTimeout(function() { window.close(); }, 3000);</script>
 </body>

@@ -97,7 +97,9 @@ def questions_cmd(
         err.print(f"\n[dim]{len(questions_list)} question(s)[/dim]")
 
         prog = resolved or "<program>"
-        print_breadcrumbs([
-            "Promote: sonde question promote <Q-ID>",
-            f"Create:  sonde question create -p {prog} \"your question\"",
-        ])
+        print_breadcrumbs(
+            [
+                "Promote: sonde question promote <Q-ID>",
+                f'Create:  sonde question create -p {prog} "your question"',
+            ]
+        )

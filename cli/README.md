@@ -1,32 +1,78 @@
-# Aeolus CLI
+# Sonde CLI
 
 Scientific discovery management for the Aeolus research platform.
 
-## Setup
+## Prerequisites
+
+- **Python 3.12+** — check with `python3 --version`
+- **uv** (fast Python package manager) — install with:
+  ```bash
+  # macOS
+  brew install uv
+
+  # or any platform
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  ```
+- **Access to the private repo** — you need GitHub access to `aeolus-earth/sonde`
+
+## Install
+
+**Option A — Clone and develop (recommended for contributors):**
 
 ```bash
-cd cli
-uv sync          # install all dependencies
-uv run aeolus    # run the CLI
+git clone https://github.com/aeolus-earth/sonde.git
+cd sonde/cli
+uv sync
 ```
 
-## Development
+Then run commands with `uv run sonde <command>`, or activate the virtualenv:
 
 ```bash
-uv sync                          # install deps + dev deps
-uv run ruff check src/ tests/    # lint
-uv run ruff format src/ tests/   # format
-uv run pytest                    # test
+source .venv/bin/activate
+sonde <command>
+```
+
+**Option B — Install directly from the private repo:**
+
+```bash
+# HTTPS (will prompt for credentials or use a GitHub token)
+pip install "sonde @ git+https://github.com/aeolus-earth/sonde.git#subdirectory=cli"
+
+# SSH (if you have SSH keys configured)
+pip install "sonde @ git+ssh://git@github.com/aeolus-earth/sonde.git#subdirectory=cli"
+```
+
+**Option C — Install from a wheel:**
+
+If someone has shared a `.whl` file from `cli/dist/`:
+
+```bash
+pip install sonde-0.1.0-py3-none-any.whl
+```
+
+## Getting started
+
+```bash
+# 1. Authenticate (opens browser for Google OAuth)
+sonde login
+
+# 2. Set up IDE integration, skills, and MCP server
+sonde setup
+
+# 3. Browse existing research
+sonde list
+sonde show EXP-0001
+
+# 4. Log an experiment
+sonde log --quick -p weather-intervention \
+  --params '{"ccn": 1200}' --result '{"delta": 6.3}'
+
+# 5. Search
+sonde search --text "spectral bin"
+sonde search --param ccn>1000
 ```
 
 ## Configuration
-
-Set these environment variables (or create a `.env` file in the repo root):
-
-```
-AEOLUS_SUPABASE_URL=https://your-project.supabase.co
-AEOLUS_SUPABASE_KEY=your-api-key
-```
 
 For per-repo defaults, create `.aeolus.yaml` in your research repo:
 
@@ -35,20 +81,30 @@ program: weather-intervention
 source: human/yourname
 ```
 
-## Quick start
+Environment variables also work — prefix with `AEOLUS_`:
 
 ```bash
-# Log an experiment
-aeolus log --quick -p weather-intervention \
-  --params '{"ccn": 1200}' --result '{"delta": 6.3}'
+export AEOLUS_PROGRAM=weather-intervention
+```
 
-# List experiments
-aeolus list
+Precedence: explicit flag > environment variable > `.aeolus.yaml` > defaults.
 
-# Show details
-aeolus show EXP-0001
+## Development
 
-# Search
-aeolus search --text "spectral bin"
-aeolus search --param ccn>1000
+```bash
+make install    # uv sync
+make test       # pytest
+make lint       # ruff check
+make format     # ruff format
+make check      # lint + type-check + test
+```
+
+Or run directly:
+
+```bash
+uv sync                          # install deps + dev deps
+uv run ruff check src/ tests/    # lint
+uv run ruff format src/ tests/   # format
+uv run ty check src/             # type check
+uv run pytest                    # test
 ```

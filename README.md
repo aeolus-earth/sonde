@@ -12,6 +12,23 @@ Experimental workspace for exploring **open-source numerical weather / atmospher
 
 ---
 
+## Getting started with the Sonde CLI
+
+The **Sonde CLI** (`cli/`) is how humans and agents log experiments, track findings, and query the shared knowledge base. Full docs in [`cli/README.md`](./cli/README.md).
+
+**Quick install (3 commands):**
+
+```bash
+cd cli
+uv sync              # install (requires uv — brew install uv)
+uv run sonde login   # authenticate via Google OAuth
+uv run sonde setup   # configure IDE, deploy skills, check connectivity
+```
+
+After setup, `sonde list`, `sonde log`, `sonde show`, and `sonde search` are the main entry points. Run `sonde --help` for the full command reference.
+
+---
+
 ## Repository layout
 
 | Path | Role |

@@ -41,8 +41,6 @@ def infer_type(filepath: Path) -> str:
     return _TYPE_MAP.get(filepath.suffix.lower(), "other")
 
 
-
-
 def list_artifacts(experiment_id: str) -> list[dict[str, Any]]:
     """List all artifacts for an experiment."""
     client = get_client()
