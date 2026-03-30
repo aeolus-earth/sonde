@@ -403,6 +403,23 @@ def list_cmd(
             raise SystemExit(2)
         offset = (page - 1) * limit
 
+    # --count: issue a true count query, not limited by --limit
+    if show_count:
+        total = db.count_experiments(
+            program=resolved_program,
+            status=status,
+            source=source,
+            tags=list(tag) or None,
+            direction=direction,
+            since=since,
+            before=before,
+        )
+        if ctx.obj.get("json"):
+            print_json({"count": total})
+        else:
+            click.echo(total)
+        return
+
     experiments = db.list_experiments(
         program=resolved_program,
         status=status,
@@ -419,13 +436,6 @@ def list_cmd(
     has_more = len(experiments) > limit
     experiments = experiments[:limit]
 
-    if show_count:
-        if ctx.obj.get("json"):
-            print_json({"count": len(experiments)})
-        else:
-            click.echo(len(experiments))
-        return
-
     if ctx.obj.get("json"):
         print_json([e.model_dump(mode="json") for e in experiments])
     elif not experiments:
@@ -434,14 +444,16 @@ def list_cmd(
         columns, row_builder = _columns_for_status(status)
         table_rows = [row_builder(e) for e in experiments]
         print_table(columns, table_rows)
+
+        # Context-aware summary line
+        label = f"{status} experiment(s)" if status else "experiment(s)"
+        parts = [f"{len(experiments)} {label}"]
+        if resolved_program:
+            parts.append(f"in {resolved_program}")
         if has_more:
-            next_offset = offset + limit
-            err.print(
-                f"\n[dim]{len(experiments)} experiment(s) shown."
-                f" More available: --offset {next_offset}[/dim]"
-            )
-        else:
-            err.print(f"\n[dim]{len(experiments)} experiment(s)[/dim]")
+            parts.append(f"(more: --offset {offset + limit})")
+        err.print(f"\n[dim]{' '.join(parts)}[/dim]")
+
         if experiments:
             print_breadcrumbs([f"Show details: sonde show {experiments[0].id}"])
 

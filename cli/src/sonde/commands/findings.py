@@ -90,6 +90,10 @@ def findings_cmd(
         print_json(findings_list)
     elif not findings_list:
         err.print("[dim]No findings found.[/dim]")
+        print_breadcrumbs([
+            "Create: sonde finding create -p <program> --topic '...' --finding '...'",
+            "Experiment findings: sonde list --complete",
+        ])
     else:
         table_rows = []
         for f in findings_list:

@@ -55,3 +55,6 @@ AS $$
 $$;
 
 GRANT EXECUTE ON FUNCTION search_experiments TO authenticated;
+
+-- Ensure PostgREST discovers the new function immediately
+NOTIFY pgrst, 'reload schema';

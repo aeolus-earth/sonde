@@ -324,7 +324,18 @@ def show_dispatch(ctx: click.Context, record_id: str, graph: bool) -> None:
             graph=graph,
         )
     else:
-        # Try as experiment ID anyway
+        # Reject unknown prefixes with a clear error
+        if "-" in rid:
+            prefix = rid.split("-")[0]
+            from sonde.output import print_error
+
+            print_error(
+                f"Unknown record type: {prefix}",
+                "Recognized prefixes: EXP, FIND, Q, DIR.",
+                f"Try: sonde show EXP-{rid.split('-', 1)[1]}",
+            )
+            raise SystemExit(1)
+        # Bare ID without prefix — try as experiment
         ctx.invoke(
             _get_experiment_show(),
             experiment_id=rid,

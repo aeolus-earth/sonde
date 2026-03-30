@@ -126,15 +126,18 @@ def tag_show(ctx: click.Context, record_id: str) -> None:
 
 @tag.command("list")
 @click.option("--program", "-p", help="Filter by program")
+@click.option("--limit", "-n", default=25, help="Max tags to show (0 = all)")
 @pass_output_options
 @click.pass_context
-def tags_list(ctx: click.Context, program: str | None) -> None:
+def tags_list(ctx: click.Context, program: str | None, limit: int) -> None:
     """Show all tags with counts.
 
     \b
     Examples:
       sonde tag list
       sonde tag list -p weather-intervention
+      sonde tag list -n 10
+      sonde tag list -n 0              # show all
     """
     settings = get_settings()
     resolved = program or settings.program
@@ -157,5 +160,11 @@ def tags_list(ctx: click.Context, program: str | None) -> None:
         err.print("[sonde.muted]No tags found.[/]")
     else:
         sorted_tags = sorted(counts.items(), key=lambda x: -x[1])
-        tag_rows = [{"tag": t, "count": str(c)} for t, c in sorted_tags]
+        display = sorted_tags if not limit else sorted_tags[:limit]
+        tag_rows = [{"tag": t, "count": str(c)} for t, c in display]
         print_table(["tag", "count"], tag_rows)
+        if limit and len(sorted_tags) > limit:
+            err.print(
+                f"\n[dim]{len(sorted_tags)} total tags, "
+                f"showing top {limit}. Use -n 0 for all.[/dim]"
+            )

@@ -148,13 +148,21 @@ def _build_cross_coverage(
         for k, v in _merged_params(e).items():
             cov[k].add(str(v))
 
+    def _is_scalar(v: str) -> bool:
+        """Check if a stringified value looks like a scalar (not a list/dict)."""
+        return not (v.startswith("[") or v.startswith("{"))
+
     if param_names:
         # Use only the requested parameters
         selected = [p for p in param_names if p in cov]
     else:
-        # Auto-select: parameters with 2-10 distinct values (skip continuous/singleton)
+        # Auto-select: parameters with 2-10 distinct scalar values
         selected = sorted(
-            [k for k, v in cov.items() if 2 <= len(v) <= 10],
+            [
+                k
+                for k, v in cov.items()
+                if 2 <= len(v) <= 10 and all(_is_scalar(s) for s in v)
+            ],
             key=lambda k: len(cov[k]),
         )
 
@@ -308,7 +316,10 @@ def brief(
         print_json(data)
         return
 
-    _render_human(data, cross_coverage, gaps, resolved)
+    _render_human(
+        data, cross_coverage, gaps,
+        program=resolved, direction=direction, tag=tag, since=since,
+    )
 
     if save:
         _save_markdown(data)
@@ -405,7 +416,16 @@ def _brief_all(
         _save_markdown(data)
 
 
-def _render_human(data: dict, cross_coverage: dict | None, gaps: bool, program: str | None) -> None:
+def _render_human(
+    data: dict,
+    cross_coverage: dict | None,
+    gaps: bool,
+    *,
+    program: str | None = None,
+    direction: str | None = None,
+    tag: tuple[str, ...] = (),
+    since: str | None = None,
+) -> None:
     """Render brief data as human-readable output."""
     stats = data["stats"]
     err.print(f"\n[sonde.heading]{data['title']}[/]")
@@ -522,13 +542,17 @@ def _render_human(data: dict, cross_coverage: dict | None, gaps: bool, program: 
     elif gaps:
         err.print("\n[dim]Not enough multi-valued parameters for cross-coverage analysis.[/]")
 
-    # Breadcrumbs
+    # Breadcrumbs — reflect active filters
     breadcrumbs = []
     if program:
         breadcrumbs.append(f"Drill down: sonde list --open -p {program}")
         breadcrumbs.append(f"Findings:   sonde findings -p {program}")
-        breadcrumbs.append(f"Questions:  sonde questions -p {program}")
-    else:
+    if tag:
+        tag_flags = " ".join(f"--tag {t}" for t in tag)
+        breadcrumbs.append(f"Experiments: sonde list {tag_flags}")
+    if direction:
+        breadcrumbs.append(f"Experiments: sonde list -d {direction}")
+    if not breadcrumbs:
         breadcrumbs.append("Drill down: sonde brief -p <program>")
     print_breadcrumbs(breadcrumbs)
 

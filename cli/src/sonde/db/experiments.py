@@ -57,6 +57,40 @@ def get(experiment_id: str) -> Experiment | None:
     return None
 
 
+def count_experiments(
+    *,
+    program: str | None = None,
+    status: str | None = None,
+    source: str | None = None,
+    tags: list[str] | None = None,
+    direction: str | None = None,
+    since: str | None = None,
+    before: str | None = None,
+) -> int:
+    """Return the total count of experiments matching filters (no limit)."""
+    client = get_client()
+    query = client.table("experiments").select("id", count="exact")
+    if program:
+        query = query.eq("program", program)
+    if status:
+        query = query.eq("status", status)
+    if source:
+        if "/" not in source:
+            query = query.ilike("source", f"{source}%")
+        else:
+            query = query.eq("source", source)
+    if tags:
+        query = query.contains("tags", tags)
+    if direction:
+        query = query.eq("direction_id", direction)
+    if since:
+        query = query.gte("created_at", since)
+    if before:
+        query = query.lte("created_at", before)
+    result = query.execute()
+    return result.count or 0
+
+
 def list_experiments(
     *,
     program: str | None = None,
@@ -136,11 +170,12 @@ def search(
                 rpc_params["filter_tags"] = tags
             result = client.rpc("search_experiments", rpc_params).execute()
             experiments = [Experiment(**row) for row in to_rows(result.data)]
-        except APIError:
+        except APIError as exc:
             import sys
 
             print(
-                "Warning: Full-text search unavailable, using client-side filtering.",
+                f"Warning: Full-text search unavailable "
+                f"({exc.code}: {exc.message}), using client-side filtering.",
                 file=sys.stderr,
             )
             # Fall back: fetch experiments and filter client-side
