@@ -289,12 +289,12 @@ class TestPullCommands:
 
     def test_delete_reports_queued_blob_cleanup(self, runner, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.setattr(
-            "sonde.commands.experiment.db.get",
+            "sonde.commands.experiment_delete.db.get",
             lambda _exp_id: _experiment("EXP-0001"),
         )
-        monkeypatch.setattr("sonde.commands.experiment.db.get_children", lambda _exp_id: [])
+        monkeypatch.setattr("sonde.commands.experiment_delete.db.get_children", lambda _exp_id: [])
         monkeypatch.setattr(
-            "sonde.commands.experiment.db.delete",
+            "sonde.commands.experiment_delete.db.delete",
             lambda _exp_id: {
                 "notes": 1,
                 "artifacts": 1,

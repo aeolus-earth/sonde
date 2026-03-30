@@ -252,6 +252,6 @@ def show_dispatch(ctx: click.Context, record_id: str, graph: bool) -> None:
 
 def _get_experiment_show():
     """Lazy import to avoid circular dependency."""
-    from sonde.commands.experiment import show
+    from sonde.commands.experiment_show import show
 
     return show
