@@ -189,6 +189,7 @@ def close_experiment(
 
 @click.command("open")
 @click.argument("experiment_id")
+@pass_output_options
 @click.pass_context
 def open_experiment(ctx: click.Context, experiment_id: str) -> None:
     """Reopen an experiment.

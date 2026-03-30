@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
 import click
 import yaml
+from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn
 
 from sonde.auth import get_current_user, resolve_source
+from sonde.cli_options import pass_output_options
 from sonde.config import get_settings
 from sonde.db import directions as dir_db
 from sonde.db import experiments as exp_db
@@ -17,7 +20,7 @@ from sonde.db import notes as notes_db
 from sonde.db import questions as q_db
 from sonde.db.activity import log_activity
 from sonde.git import detect_git_context
-from sonde.local import extract_finding_text, find_sonde_dir, parse_markdown
+from sonde.local import extract_finding_text, find_sonde_dir, parse_markdown, resolve_record_path
 from sonde.models.direction import DirectionCreate
 from sonde.models.experiment import ExperimentCreate
 from sonde.models.finding import FindingCreate
@@ -27,7 +30,18 @@ from sonde.output import err, print_error, print_json, print_success
 _SKIP = {".DS_Store", "__pycache__"}
 
 
+@dataclass
+class ArtifactUploadStats:
+    """Summarize artifact uploads for one experiment directory."""
+
+    total: int = 0
+    uploaded: int = 0
+    skipped: int = 0
+    failed: int = 0
+
+
 @click.group(invoke_without_command=True)
+@pass_output_options
 @click.pass_context
 def push(ctx: click.Context) -> None:
     """Push local .sonde/ changes to Supabase.
@@ -43,6 +57,7 @@ def push(ctx: click.Context) -> None:
 
 
 @push.command("all")
+@pass_output_options
 @click.pass_context
 def push_all(ctx: click.Context) -> None:
     """Push all local core records."""
@@ -68,6 +83,7 @@ def push_all(ctx: click.Context) -> None:
 
 @push.command("experiment")
 @click.argument("name")
+@pass_output_options
 @click.pass_context
 def push_experiment(ctx: click.Context, name: str) -> None:
     """Push one experiment file and its local directory."""
@@ -79,6 +95,7 @@ def push_experiment(ctx: click.Context, name: str) -> None:
 
 
 @push.command("experiments")
+@pass_output_options
 @click.pass_context
 def push_experiments(ctx: click.Context) -> None:
     """Push all experiments."""
@@ -91,6 +108,7 @@ def push_experiments(ctx: click.Context) -> None:
 
 @push.command("finding")
 @click.argument("name")
+@pass_output_options
 @click.pass_context
 def push_finding(ctx: click.Context, name: str) -> None:
     """Push one finding."""
@@ -102,6 +120,7 @@ def push_finding(ctx: click.Context, name: str) -> None:
 
 
 @push.command("findings")
+@pass_output_options
 @click.pass_context
 def push_findings(ctx: click.Context) -> None:
     """Push all findings."""
@@ -114,6 +133,7 @@ def push_findings(ctx: click.Context) -> None:
 
 @push.command("question")
 @click.argument("name")
+@pass_output_options
 @click.pass_context
 def push_question(ctx: click.Context, name: str) -> None:
     """Push one question."""
@@ -125,6 +145,7 @@ def push_question(ctx: click.Context, name: str) -> None:
 
 
 @push.command("questions")
+@pass_output_options
 @click.pass_context
 def push_questions(ctx: click.Context) -> None:
     """Push all questions."""
@@ -137,6 +158,7 @@ def push_questions(ctx: click.Context) -> None:
 
 @push.command("direction")
 @click.argument("name")
+@pass_output_options
 @click.pass_context
 def push_direction(ctx: click.Context, name: str) -> None:
     """Push one direction."""
@@ -148,6 +170,7 @@ def push_direction(ctx: click.Context, name: str) -> None:
 
 
 @push.command("directions")
+@pass_output_options
 @click.pass_context
 def push_directions(ctx: click.Context) -> None:
     """Push all directions."""
@@ -173,7 +196,15 @@ def _push_directory(category: str) -> int:
 
 def _push_one(category: str, name: str) -> dict[str, Any]:
     sonde_dir = find_sonde_dir()
-    filepath = _find_file(sonde_dir / category, name)
+    try:
+        filepath = _find_file(sonde_dir / category, name)
+    except ValueError:
+        print_error(
+            f"Invalid local record path: {name}",
+            "Record names must stay within .sonde/ and must not be absolute paths.",
+            "Use the record ID or local filename stem.",
+        )
+        raise SystemExit(2) from None
     if not filepath:
         print_error(
             f"File not found: {name}",
@@ -202,11 +233,7 @@ def _push_file(category: str, filepath: Path) -> dict[str, Any]:
 
 
 def _find_file(directory: Path, name: str) -> Path | None:
-    for candidate in [f"{name}.md", f"{name.upper()}.md"]:
-        path = directory / candidate
-        if path.exists():
-            return path
-    return None
+    return resolve_record_path(directory.parent, directory.name, name)
 
 
 def _rename_local_record(filepath: Path, new_id: str) -> None:
@@ -302,11 +329,20 @@ def _upsert_experiment(frontmatter: dict[str, Any], body: str, filepath: Path) -
     exp_dir = filepath.parent / exp_id
     if not exp_dir.exists():
         exp_dir = filepath.parent / filepath.stem
-    file_count = _sync_directory(exp_id, exp_dir) if exp_dir.is_dir() else 0
+    artifact_stats = _sync_directory(exp_id, exp_dir) if exp_dir.is_dir() else ArtifactUploadStats()
     note_count = _sync_notes(exp_id, exp_dir) if exp_dir.is_dir() else 0
-    if file_count or note_count:
-        err.print(f"  [sonde.muted]{exp_id}: synced {file_count} file(s), {note_count} note(s)[/]")
-    return {"id": exp_id, "record_type": "experiment", "action": action}
+    if artifact_stats.total or note_count:
+        err.print(
+            f"  [sonde.muted]{exp_id}: uploaded {artifact_stats.uploaded}, "
+            f"skipped {artifact_stats.skipped}, failed {artifact_stats.failed}, "
+            f"notes {note_count}[/]"
+        )
+    return {
+        "id": exp_id,
+        "record_type": "experiment",
+        "action": action,
+        "_sync": {"artifacts": asdict(artifact_stats), "notes": note_count},
+    }
 
 
 def _upsert_finding(frontmatter: dict[str, Any], body: str, filepath: Path) -> dict[str, Any]:
@@ -414,30 +450,65 @@ def _upsert_direction(frontmatter: dict[str, Any], body: str, filepath: Path) ->
     return {"id": direction.id, "record_type": "direction", "action": "created"}
 
 
-def _sync_directory(experiment_id: str, exp_dir: Path) -> int:
-    from sonde.db.artifacts import find_by_path, upload_file
+def _sync_directory(experiment_id: str, exp_dir: Path) -> ArtifactUploadStats:
+    from sonde.db.artifacts import compute_checksum, find_by_path, upload_file
 
     user = get_current_user()
     source = resolve_source(user)
-    uploaded = 0
-    for path in sorted(exp_dir.rglob("*")):
-        if not path.is_file():
-            continue
-        if any(part in _SKIP or part == "notes" for part in path.parts):
-            continue
+    candidates = [
+        path
+        for path in sorted(exp_dir.rglob("*"))
+        if path.is_file() and not any(part in _SKIP or part == "notes" for part in path.parts)
+    ]
+    stats = ArtifactUploadStats(total=len(candidates))
+    if not candidates:
+        return stats
 
-        relative = path.relative_to(exp_dir)
-        storage_path = f"{experiment_id}/{relative}"
-        existing = find_by_path(experiment_id, storage_path)
-        if existing and existing.get("size_bytes") == path.stat().st_size:
-            continue
+    progress: Progress | None = None
+    task_id: int | None = None
+    if err.is_terminal:
+        progress = Progress(
+            SpinnerColumn(),
+            TextColumn("{task.description}"),
+            BarColumn(),
+            TaskProgressColumn(),
+            console=err,
+        )
+        progress.start()
+        task_id = progress.add_task(f"Uploading {experiment_id}", total=len(candidates))
 
-        try:
-            upload_file(experiment_id, path, source, storage_subpath=storage_path)
-            uploaded += 1
-        except Exception as exc:
-            err.print(f"  [sonde.warning]Failed: {relative} ({exc})[/]")
-    return uploaded
+    try:
+        for path in candidates:
+            relative = path.relative_to(exp_dir)
+            storage_path = f"{experiment_id}/{relative}"
+            existing = find_by_path(experiment_id, storage_path)
+            if progress and task_id is not None:
+                progress.update(task_id, description=f"Uploading {relative}")
+
+            if existing and existing.get("checksum_sha256"):
+                local_checksum = compute_checksum(path)
+                if (
+                    existing.get("checksum_sha256") == local_checksum
+                    and existing.get("size_bytes") == path.stat().st_size
+                ):
+                    stats.skipped += 1
+                    if progress and task_id is not None:
+                        progress.advance(task_id)
+                    continue
+
+            try:
+                upload_file(experiment_id, path, source, storage_subpath=storage_path)
+                stats.uploaded += 1
+            except Exception as exc:
+                stats.failed += 1
+                err.print(f"  [sonde.warning]Failed: {relative} ({exc})[/]")
+            if progress and task_id is not None:
+                progress.advance(task_id)
+    finally:
+        if progress:
+            progress.stop()
+
+    return stats
 
 
 def _sync_notes(experiment_id: str, exp_dir: Path) -> int:

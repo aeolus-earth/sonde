@@ -7,6 +7,7 @@ from pathlib import Path
 import click
 
 from sonde.auth import get_current_user, resolve_source
+from sonde.cli_options import pass_output_options
 from sonde.db import experiments as exp_db
 from sonde.db.artifacts import upload_file
 from sonde.local import ensure_subdir, find_sonde_dir
@@ -18,6 +19,7 @@ from sonde.output import err, print_error, print_json, print_success
 @click.argument("files", nargs=-1, required=True, type=click.Path(exists=True))
 @click.option("--type", "artifact_type", help="Override artifact type")
 @click.option("--description", "-d", help="Description of the artifact")
+@pass_output_options
 @click.pass_context
 def attach(
     ctx: click.Context,

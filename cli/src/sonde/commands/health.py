@@ -8,6 +8,7 @@ from pathlib import Path
 
 import click
 
+from sonde.cli_options import pass_output_options
 from sonde.config import get_settings
 from sonde.output import err, print_breadcrumbs, print_json, print_table
 
@@ -20,6 +21,7 @@ from sonde.output import err, print_breadcrumbs, print_json, print_table
     help="Filter to one category (experiment, finding, tag, direction, brief, coverage)",
 )
 @click.option("--fixable", is_flag=True, help="Show only issues with automatable fix commands")
+@pass_output_options
 @click.pass_context
 def health(
     ctx: click.Context,

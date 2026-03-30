@@ -215,11 +215,7 @@ def find_by_storage_path(storage_path: str) -> dict[str, Any] | None:
     """Find an existing artifact by storage path."""
     client = get_client()
     result = (
-        client.table("artifacts")
-        .select("*")
-        .eq("storage_path", storage_path)
-        .limit(1)
-        .execute()
+        client.table("artifacts").select("*").eq("storage_path", storage_path).limit(1).execute()
     )
     data = rows(result.data)
     return data[0] if data else None

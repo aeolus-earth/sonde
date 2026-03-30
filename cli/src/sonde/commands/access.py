@@ -11,6 +11,7 @@ import os
 
 import click
 
+from sonde.cli_options import pass_output_options
 from sonde.config import get_settings
 from sonde.output import err, print_error, print_json, print_success
 
@@ -21,6 +22,7 @@ def access():
 
 
 @access.command()
+@pass_output_options
 @click.pass_context
 def s3(ctx: click.Context) -> None:
     """Check S3 access configuration.
@@ -90,6 +92,7 @@ def s3(ctx: click.Context) -> None:
 
 
 @access.command()
+@pass_output_options
 @click.pass_context
 def icechunk(ctx: click.Context) -> None:
     """Check Icechunk access configuration.
@@ -116,6 +119,7 @@ def icechunk(ctx: click.Context) -> None:
 
 
 @access.command()
+@pass_output_options
 @click.pass_context
 def stac(ctx: click.Context) -> None:
     """Check STAC catalog configuration.

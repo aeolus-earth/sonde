@@ -5,10 +5,12 @@ from __future__ import annotations
 import click
 
 from sonde import auth
+from sonde.cli_options import pass_output_options
 from sonde.output import err, print_banner, print_error, print_json, print_success
 
 
 @click.command()
+@pass_output_options
 @click.pass_context
 def login(ctx: click.Context) -> None:
     """Sign in with your Aeolus Google Workspace account.
@@ -42,6 +44,7 @@ def login(ctx: click.Context) -> None:
 
 
 @click.command()
+@pass_output_options
 @click.pass_context
 def logout(ctx: click.Context) -> None:
     """Sign out and clear stored credentials.
@@ -51,11 +54,15 @@ def logout(ctx: click.Context) -> None:
       sonde logout
     """
     auth.clear_session()
+    if ctx.obj.get("json"):
+        print_json({"logged_out": True})
+        return
     if not ctx.obj.get("quiet"):
         print_success("Signed out")
 
 
 @click.command()
+@pass_output_options
 @click.pass_context
 def whoami(ctx: click.Context) -> None:
     """Show the current authenticated user.

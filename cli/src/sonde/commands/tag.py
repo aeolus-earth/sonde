@@ -24,9 +24,9 @@ def tag(ctx: click.Context) -> None:
 
     \b
     Examples:
-      sonde tag EXP-0001 add cloud-seeding
-      sonde tag EXP-0001 remove draft
-      sonde tag EXP-0001 list
+      sonde tag add EXP-0001 cloud-seeding
+      sonde tag remove EXP-0001 draft
+      sonde tag show EXP-0001
       sonde tags                           # all tags with counts
     """
     if ctx.invoked_subcommand is None:
@@ -49,6 +49,7 @@ def _get_tags_or_exit(record_id: str) -> list[str]:
 @tag.command("add")
 @click.argument("record_id")
 @click.argument("tag_name")
+@pass_output_options
 @click.pass_context
 def tag_add(ctx: click.Context, record_id: str, tag_name: str) -> None:
     """Add a tag to a record.
@@ -61,7 +62,10 @@ def tag_add(ctx: click.Context, record_id: str, tag_name: str) -> None:
     current_tags = _get_tags_or_exit(record_id)
 
     if tag_name in current_tags:
-        err.print(f"[sonde.muted]{record_id} already has tag '{tag_name}'[/]")
+        if ctx.obj.get("json"):
+            print_json({"record_id": record_id, "tag": tag_name, "changed": False})
+        else:
+            err.print(f"[sonde.muted]{record_id} already has tag '{tag_name}'[/]")
         return
 
     current_tags.append(tag_name)
@@ -70,12 +74,16 @@ def tag_add(ctx: click.Context, record_id: str, tag_name: str) -> None:
     from sonde.db.activity import log_activity
 
     log_activity(record_id, "experiment", "tag_added", {"tag": tag_name})
-    print_success(f"Added '{tag_name}' to {record_id}")
+    if ctx.obj.get("json"):
+        print_json({"record_id": record_id, "tag": tag_name, "changed": True})
+    else:
+        print_success(f"Added '{tag_name}' to {record_id}")
 
 
 @tag.command("remove")
 @click.argument("record_id")
 @click.argument("tag_name")
+@pass_output_options
 @click.pass_context
 def tag_remove(ctx: click.Context, record_id: str, tag_name: str) -> None:
     """Remove a tag from a record.
@@ -88,7 +96,10 @@ def tag_remove(ctx: click.Context, record_id: str, tag_name: str) -> None:
     current_tags = _get_tags_or_exit(record_id)
 
     if tag_name not in current_tags:
-        err.print(f"[sonde.muted]{record_id} doesn't have tag '{tag_name}'[/]")
+        if ctx.obj.get("json"):
+            print_json({"record_id": record_id, "tag": tag_name, "changed": False})
+        else:
+            err.print(f"[sonde.muted]{record_id} doesn't have tag '{tag_name}'[/]")
         return
 
     current_tags.remove(tag_name)
@@ -97,11 +108,15 @@ def tag_remove(ctx: click.Context, record_id: str, tag_name: str) -> None:
     from sonde.db.activity import log_activity
 
     log_activity(record_id, "experiment", "tag_removed", {"tag": tag_name})
-    print_success(f"Removed '{tag_name}' from {record_id}")
+    if ctx.obj.get("json"):
+        print_json({"record_id": record_id, "tag": tag_name, "changed": True})
+    else:
+        print_success(f"Removed '{tag_name}' from {record_id}")
 
 
 @tag.command("show")
 @click.argument("record_id")
+@pass_output_options
 @click.pass_context
 def tag_show(ctx: click.Context, record_id: str) -> None:
     """Show tags for a specific record.

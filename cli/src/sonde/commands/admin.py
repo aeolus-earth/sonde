@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, cast
 
 import click
 from postgrest.exceptions import APIError
 
-from sonde.db import rows
+from sonde.cli_options import pass_output_options
+from sonde.db import admin_tokens as db
 from sonde.db.client import get_client
 from sonde.output import err, print_error, print_json, print_success, print_table
+
+__all__ = ["admin", "get_client"]
 
 
 @click.group()
@@ -22,6 +24,7 @@ def admin():
 @click.option("--name", "-n", required=True, help="Token name (e.g., codex-weather)")
 @click.option("--programs", "-p", required=True, help="Comma-separated program access list")
 @click.option("--expires", default=365, type=int, help="Expiry in days (default: 365)")
+@pass_output_options
 @click.pass_context
 def create_token(ctx: click.Context, name: str, programs: str, expires: int) -> None:
     """Create a scoped agent token.
@@ -33,16 +36,8 @@ def create_token(ctx: click.Context, name: str, programs: str, expires: int) -> 
     """
     program_list = [p.strip() for p in programs.split(",")]
 
-    client = get_client()
     try:
-        result = client.rpc(
-            "create_agent_token",
-            {
-                "token_name": name,
-                "token_programs": program_list,
-                "expires_in_days": expires,
-            },
-        ).execute()
+        token_data = db.create_token(name, program_list, expires)
     except APIError as e:
         msg = e.message or ""
         if "Only admins" in msg or e.code == "42501":
@@ -55,7 +50,7 @@ def create_token(ctx: click.Context, name: str, programs: str, expires: int) -> 
             print_error(
                 "Invalid program",
                 f"One or more programs in '{programs}' do not exist.",
-                "Valid programs: sonde admin list-programs",
+                "Valid programs: sonde program list",
             )
         else:
             print_error("Failed to create token", msg, "Check your permissions.")
@@ -63,8 +58,6 @@ def create_token(ctx: click.Context, name: str, programs: str, expires: int) -> 
     except Exception as e:
         print_error("Failed to create token", str(e), "Check your permissions.")
         raise SystemExit(1) from None
-
-    token_data = cast(dict[str, Any], result.data)
 
     if ctx.obj.get("json"):
         print_json(token_data)
@@ -83,6 +76,7 @@ def create_token(ctx: click.Context, name: str, programs: str, expires: int) -> 
 
 
 @admin.command("list-tokens")
+@pass_output_options
 @click.pass_context
 def list_tokens(ctx: click.Context) -> None:
     """List all agent tokens.
@@ -91,15 +85,7 @@ def list_tokens(ctx: click.Context) -> None:
     Examples:
       sonde admin list-tokens
     """
-    client = get_client()
-    result = (
-        client.table("agent_tokens")
-        .select("id,name,programs,expires_at,revoked_at,created_at")
-        .order("created_at", desc=True)
-        .execute()
-    )
-
-    token_rows = rows(result.data)
+    token_rows = db.list_tokens()
 
     if ctx.obj.get("json"):
         print_json(token_rows)
@@ -135,6 +121,7 @@ def list_tokens(ctx: click.Context) -> None:
 @admin.command("revoke-token")
 @click.argument("token_name")
 @click.option("--force", "-f", is_flag=True, help="Skip confirmation")
+@pass_output_options
 @click.pass_context
 def revoke_token(ctx: click.Context, token_name: str, force: bool) -> None:
     """Revoke an agent token by name.
@@ -143,20 +130,8 @@ def revoke_token(ctx: click.Context, token_name: str, force: bool) -> None:
     Examples:
       sonde admin revoke-token codex-weather
     """
-    client = get_client()
-
-    # Find the token
-    result = (
-        client.table("agent_tokens")
-        .select("id,name,revoked_at")
-        .eq("name", token_name)
-        .is_("revoked_at", "null")
-        .limit(1)
-        .execute()
-    )
-
-    found = rows(result.data)
-    if not found:
+    found = db.get_active_token_by_name(token_name)
+    if found is None:
         print_error(
             f'No active token named "{token_name}"',
             "The token may not exist or may already be revoked.",
@@ -167,10 +142,8 @@ def revoke_token(ctx: click.Context, token_name: str, force: bool) -> None:
     if not force:
         click.confirm(f'Revoke token "{token_name}"?', abort=True)
 
-    token_id = found[0]["id"]
-    client.table("agent_tokens").update({"revoked_at": datetime.now().astimezone().isoformat()}).eq(
-        "id", token_id
-    ).execute()
+    token_id = found["id"]
+    db.revoke_token(token_id)
 
     if ctx.obj.get("json"):
         print_json({"revoked": token_name, "id": token_id})

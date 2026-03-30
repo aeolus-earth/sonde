@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import click
 
+from sonde.cli_options import pass_output_options
 from sonde.db.activity import get_history
 from sonde.output import err, print_error, print_json
 
 
 @click.command()
 @click.argument("record_id")
+@pass_output_options
 @click.pass_context
 def history(ctx: click.Context, record_id: str) -> None:
     """Show the full activity timeline for a record.

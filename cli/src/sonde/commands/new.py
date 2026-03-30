@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from pathlib import Path
 
 import click
 
+from sonde.cli_options import pass_output_options
 from sonde.config import get_settings
 from sonde.local import TEMPLATES, ensure_subdir, find_sonde_dir
-from sonde.output import err, print_error, print_success
+from sonde.output import err, print_error, print_json, print_success
 
 
 def _slugify(title: str) -> str:
@@ -21,7 +23,7 @@ def _slugify(title: str) -> str:
     return slug[:60]
 
 
-def _create_new(record_type: str, title: str | None, program: str | None) -> None:
+def _create_new(record_type: str, title: str | None, program: str | None) -> tuple[str, str]:
     """Core logic for creating a new record file from a template."""
     settings = get_settings()
     resolved_program = program or settings.program
@@ -65,14 +67,7 @@ def _create_new(record_type: str, title: str | None, program: str | None) -> Non
         raise SystemExit(1)
 
     filepath.write_text(content, encoding="utf-8")
-
-    print_success(f"Created {filepath.relative_to(sonde_dir.parent)}")
-    if record_type == "note":
-        err.print("  [sonde.muted]Attach it to an experiment notes directory before pushing.[/]")
-    else:
-        err.print(
-            f"  [sonde.muted]Edit the file, then: sonde {record_type} push {filepath.stem}[/]"
-        )
+    return str(filepath.relative_to(sonde_dir.parent)), resolved_program
 
 
 @click.command("new")
@@ -82,6 +77,7 @@ def _create_new(record_type: str, title: str | None, program: str | None) -> Non
 )
 @click.option("--title", "-t", help="Title (used for filename)")
 @click.option("--program", "-p", help="Program namespace")
+@pass_output_options
 @click.pass_context
 def new(ctx: click.Context, record_type: str, title: str | None, program: str | None) -> None:
     """Create a new record file from a template.
@@ -94,12 +90,22 @@ def new(ctx: click.Context, record_type: str, title: str | None, program: str | 
       sonde new question
       sonde new note --title "Literature review"
     """
-    _create_new(record_type, title, program)
+    path, resolved_program = _create_new(record_type, title, program)
+    if ctx.obj.get("json"):
+        print_json({"record_type": record_type, "path": path, "program": resolved_program})
+        return
+    print_success(f"Created {path}")
+    if record_type == "note":
+        err.print("  [sonde.muted]Attach it to an experiment notes directory before pushing.[/]")
+    else:
+        push_hint = f"sonde {record_type} push {Path(path).stem}"
+        err.print(f"  [sonde.muted]Edit the file, then: {push_hint}[/]")
 
 
 @click.command("new")
 @click.option("--title", "-t", help="Title (used for filename)")
 @click.option("--program", "-p", help="Program namespace")
+@pass_output_options
 @click.pass_context
 def new_experiment(ctx: click.Context, title: str | None, program: str | None) -> None:
     """Scaffold a new experiment file from a template.
@@ -109,31 +115,54 @@ def new_experiment(ctx: click.Context, title: str | None, program: str | None) -
       sonde experiment new
       sonde experiment new --title "CCN sweep subtropical"
     """
-    _create_new("experiment", title, program)
+    path, resolved_program = _create_new("experiment", title, program)
+    if ctx.obj.get("json"):
+        print_json({"record_type": "experiment", "path": path, "program": resolved_program})
+        return
+    print_success(f"Created {path}")
+    err.print(f"  [sonde.muted]Edit the file, then: sonde experiment push {Path(path).stem}[/]")
 
 
 @click.command("new")
 @click.option("--title", "-t", help="Title (used for filename)")
 @click.option("--program", "-p", help="Program namespace")
+@pass_output_options
 @click.pass_context
 def new_direction(ctx: click.Context, title: str | None, program: str | None) -> None:
     """Scaffold a new direction file from a template."""
-    _create_new("direction", title, program)
+    path, resolved_program = _create_new("direction", title, program)
+    if ctx.obj.get("json"):
+        print_json({"record_type": "direction", "path": path, "program": resolved_program})
+        return
+    print_success(f"Created {path}")
+    err.print(f"  [sonde.muted]Edit the file, then: sonde direction push {Path(path).stem}[/]")
 
 
 @click.command("new")
 @click.option("--title", "-t", help="Title (used for filename)")
 @click.option("--program", "-p", help="Program namespace")
+@pass_output_options
 @click.pass_context
 def new_finding(ctx: click.Context, title: str | None, program: str | None) -> None:
     """Scaffold a new finding file from a template."""
-    _create_new("finding", title, program)
+    path, resolved_program = _create_new("finding", title, program)
+    if ctx.obj.get("json"):
+        print_json({"record_type": "finding", "path": path, "program": resolved_program})
+        return
+    print_success(f"Created {path}")
+    err.print(f"  [sonde.muted]Edit the file, then: sonde finding push {Path(path).stem}[/]")
 
 
 @click.command("new")
 @click.option("--title", "-t", help="Title (used for filename)")
 @click.option("--program", "-p", help="Program namespace")
+@pass_output_options
 @click.pass_context
 def new_question(ctx: click.Context, title: str | None, program: str | None) -> None:
     """Scaffold a new question file from a template."""
-    _create_new("question", title, program)
+    path, resolved_program = _create_new("question", title, program)
+    if ctx.obj.get("json"):
+        print_json({"record_type": "question", "path": path, "program": resolved_program})
+        return
+    print_success(f"Created {path}")
+    err.print(f"  [sonde.muted]Edit the file, then: sonde question push {Path(path).stem}[/]")

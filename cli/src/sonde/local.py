@@ -92,7 +92,7 @@ def resolve_record_path(sonde_dir: Path, category: str, name: str) -> Path | Non
         try:
             path = contained_path(base_dir, candidate)
         except ValueError:
-            return None
+            raise ValueError(f"Unsafe local record path: {name!r}") from None
         if path.exists():
             return path
     return None
@@ -225,7 +225,10 @@ def write_record(sonde_dir: Path, category: str, record_id: str, content: str) -
 
 def read_record(sonde_dir: Path, category: str, filename: str) -> tuple[dict[str, Any], str]:
     """Read and parse a record from .sonde/. Returns (frontmatter, body)."""
-    filepath = resolve_record_path(sonde_dir, category, filename)
+    try:
+        filepath = resolve_record_path(sonde_dir, category, filename)
+    except ValueError:
+        return {}, ""
     if filepath is None:
         return {}, ""
     return parse_markdown(filepath.read_text(encoding="utf-8"))

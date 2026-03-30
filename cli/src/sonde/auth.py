@@ -184,7 +184,10 @@ def get_current_user() -> UserInfo | None:
     # Agent token
     env_token = os.environ.get("SONDE_TOKEN", "")
     if env_token:
-        claims = _token_claims(env_token.removeprefix("sonde_at_"))
+        try:
+            claims = _token_claims(env_token.removeprefix("sonde_at_"))
+        except Exception:
+            claims = {}
         identity = _agent_identity(claims)
         app_meta = claims.get("app_metadata", {})
         return UserInfo(

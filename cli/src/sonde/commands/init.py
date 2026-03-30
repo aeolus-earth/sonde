@@ -44,7 +44,7 @@ def init_cmd(
 ) -> None:
     """Initialize repo-local Sonde config for a research project."""
     settings = get_settings()
-    available_programs = [row["id"] for row in prog_db.list_programs()]
+    available_programs = [program.id for program in prog_db.list_programs()]
     resolved_program = program or settings.program
     if not resolved_program:
         print_error(

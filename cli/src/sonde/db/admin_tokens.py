@@ -3,15 +3,26 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
+from sonde.db import client as db_client
 from sonde.db import rows as to_rows
-from sonde.db.client import get_client
+
+
+def _result_dict(data: object) -> dict[str, Any]:
+    """Coerce one RPC or select result row into a dict."""
+    if isinstance(data, dict):
+        return cast(dict[str, Any], data)
+
+    rows = to_rows(data)
+    if not rows:
+        raise ValueError("Expected a result row from agent token operation.")
+    return rows[0]
 
 
 def create_token(name: str, programs: list[str], expires_days: int) -> dict[str, Any]:
     """Create a scoped agent token via RPC."""
-    client = get_client()
+    client = db_client.get_client()
     result = client.rpc(
         "create_agent_token",
         {
@@ -20,12 +31,12 @@ def create_token(name: str, programs: list[str], expires_days: int) -> dict[str,
             "expires_in_days": expires_days,
         },
     ).execute()
-    return result.data if isinstance(result.data, dict) else to_rows(result.data)[0]
+    return _result_dict(result.data)
 
 
 def list_tokens() -> list[dict[str, Any]]:
     """List stored agent tokens."""
-    client = get_client()
+    client = db_client.get_client()
     result = (
         client.table("agent_tokens")
         .select("id,name,programs,expires_at,revoked_at,created_at")
@@ -37,7 +48,7 @@ def list_tokens() -> list[dict[str, Any]]:
 
 def get_active_token_by_name(name: str) -> dict[str, Any] | None:
     """Fetch one active token by name."""
-    client = get_client()
+    client = db_client.get_client()
     result = (
         client.table("agent_tokens")
         .select("id,name,revoked_at")
@@ -52,7 +63,7 @@ def get_active_token_by_name(name: str) -> dict[str, Any] | None:
 
 def revoke_token(token_id: str) -> None:
     """Revoke an agent token by ID."""
-    client = get_client()
+    client = db_client.get_client()
     client.table("agent_tokens").update({"revoked_at": datetime.now().astimezone().isoformat()}).eq(
         "id", token_id
     ).execute()

@@ -8,6 +8,7 @@ from pathlib import Path
 import click
 
 from sonde import auth
+from sonde.cli_options import pass_output_options
 from sonde.output import err, print_banner, print_error, print_json, print_success
 from sonde.runtimes import configure_mcp_server, resolve_runtimes
 from sonde.skills import (
@@ -37,6 +38,7 @@ def _find_project_root() -> Path | None:
     help="Comma-separated runtimes (default: auto-detect). Options: claude-code, cursor, codex",
 )
 @click.option("--check", is_flag=True, help="Check if deployed skills are current (read-only)")
+@pass_output_options
 @click.pass_context
 def setup(
     ctx: click.Context,
@@ -58,12 +60,17 @@ def setup(
     """
     quiet = ctx.obj.get("quiet", False)
     use_json = ctx.obj.get("json", False)
+    summary: dict[str, object] = {
+        "check": check,
+        "skip_skills": skip_skills,
+        "skip_mcp": skip_mcp,
+    }
 
     # -- Step 1: Check auth --
     if not quiet and not check:
         print_banner()
 
-    if not auth.is_authenticated():
+    if not check and not auth.is_authenticated():
         print_error(
             "Not signed in",
             "Setup requires authentication to verify connectivity.",
@@ -71,7 +78,9 @@ def setup(
         )
         raise SystemExit(1)
 
-    user = auth.get_current_user()
+    user = auth.get_current_user() if not check else None
+    if user is not None:
+        summary["user"] = user.email
     if not quiet and not check and user:
         err.print(f"  [sonde.muted]Authenticated as {user.email}[/]\n")
 
@@ -81,6 +90,8 @@ def setup(
 
     runtimes = resolve_runtimes(root, runtime_names)
     runtime_names_str = ", ".join(rt.name for rt in runtimes)
+    summary["project_root"] = str(project_root) if project_root is not None else None
+    summary["runtimes"] = [rt.name for rt in runtimes]
 
     # -- Step 3: Check mode (read-only) --
     if check:
@@ -131,6 +142,10 @@ def setup(
             err.print("  [sonde.muted]All skills current (no changes)[/sonde.muted]")
 
         save_manifest(root, skills, runtimes)
+        summary["skills"] = {
+            "bundled": len(skills),
+            "deployed_changes": total_changed,
+        }
 
     # -- Step 5: Configure MCP server --
     if not skip_mcp:
@@ -153,6 +168,7 @@ def setup(
             print_success("MCP server configured")
         elif not quiet:
             err.print("  [sonde.muted]Already configured (no changes)[/sonde.muted]")
+        summary["mcp_configured"] = mcp_configured
 
     # -- Step 6: STAC MCP --
     if not skip_mcp:
@@ -168,6 +184,12 @@ def setup(
                 "command": stac_mcp_path,
                 "args": ["--api-url", stac_api_url],
             }
+            stac_summary: dict[str, object] = {
+                "installed": True,
+                "api_url": stac_api_url,
+                "registered": False,
+                "api_reachable": False,
+            }
             stac_configured = False
             for rt in runtimes:
                 if rt.mcp_config is None:
@@ -181,6 +203,7 @@ def setup(
 
             if stac_configured:
                 print_success("STAC MCP registered")
+            stac_summary["registered"] = stac_configured
 
             # Check STAC API health
             try:
@@ -189,17 +212,22 @@ def setup(
                 resp = httpx.get(f"{stac_api_url}/collections", timeout=5)
                 if resp.status_code == 200:
                     collections = [c["id"] for c in resp.json().get("collections", [])]
+                    stac_summary["api_reachable"] = True
+                    stac_summary["collections"] = collections
                     if collections:
                         print_success(f"STAC API reachable — {', '.join(collections)}")
                     else:
                         print_success("STAC API reachable (no collections yet)")
                 else:
+                    stac_summary["status_code"] = resp.status_code
                     err.print(f"  [sonde.warning]STAC API returned {resp.status_code}[/]")
             except Exception:
                 err.print("  [sonde.muted]STAC API not reachable (sonde works without it)[/]")
+            summary["stac"] = stac_summary
         else:
             err.print("  [sonde.muted]stac-mcp not found — install for data catalog tools[/]")
             err.print("  [sonde.muted]  cd vendor/stac-db/mcp && uv tool install .[/]")
+            summary["stac"] = {"installed": False}
 
     # -- Step 7: S3 access --
     if not quiet:
@@ -213,9 +241,11 @@ def setup(
     if has_s3:
         profile = os.environ.get("AWS_PROFILE", "default")
         print_success(f"AWS credentials found (profile: {profile})")
+        summary["s3"] = {"available": True, "profile": profile}
     else:
         err.print("  [sonde.muted]No AWS credentials found (optional — for data upload)[/]")
         err.print("  [sonde.muted]  Set AWS_PROFILE or AWS_ACCESS_KEY_ID to enable S3 uploads[/]")
+        summary["s3"] = {"available": False}
 
     # -- Step 8: Verify connectivity --
     if not quiet:
@@ -225,8 +255,9 @@ def setup(
         from sonde.db import programs as prog_db
 
         programs = prog_db.list_programs()
-        program_ids = [p["id"] for p in programs]
+        program_ids = [program.id for program in programs]
         print_success(f"Connected — programs: {', '.join(program_ids)}")
+        summary["programs"] = program_ids
     except SystemExit:
         print_error(
             "Connection failed",
@@ -247,3 +278,6 @@ def setup(
         err.print("  For headless agents (Codex), create a token:")
         err.print("    sonde admin create-token -n my-agent -p shared")
         err.print()
+
+    if use_json:
+        print_json(summary)

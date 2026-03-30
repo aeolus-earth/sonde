@@ -8,6 +8,7 @@ import click
 from postgrest.exceptions import APIError
 
 from sonde.auth import resolve_source
+from sonde.cli_options import pass_output_options
 from sonde.db import notes as db
 from sonde.local import ensure_subdir, find_sonde_dir
 from sonde.output import err, print_error, print_json, print_nudge, print_success
@@ -17,6 +18,7 @@ from sonde.output import err, print_error, print_json, print_nudge, print_succes
 @click.argument("experiment_id")
 @click.argument("content", required=False)
 @click.option("--file", "-f", "note_file", type=click.Path(exists=True), help="Note from file")
+@pass_output_options
 @click.pass_context
 def note(
     ctx: click.Context,
