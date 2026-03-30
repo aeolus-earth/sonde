@@ -111,7 +111,6 @@ class TestParseIso:
 
     def test_naive_timestamp_gets_utc(self):
         """Naive timestamps (no tz) should be treated as UTC, not crash."""
-        from datetime import UTC
 
         result = _parse_iso("2026-03-30T14:00:00")
         assert result is not None

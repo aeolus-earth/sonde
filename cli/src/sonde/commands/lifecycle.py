@@ -18,13 +18,18 @@ from sonde.output import err, print_error, print_json, print_success
 # ---------------------------------------------------------------------------
 
 
-def _suggest_next(exp: Experiment, children: list[Experiment]) -> list[dict[str, str]]:
+def _suggest_next(
+    exp: Experiment,
+    children: list[Experiment],
+    siblings: list[Experiment] | None = None,
+) -> list[dict[str, str]]:
     """Return a list of suggested next commands based on experiment state.
 
     Each suggestion is a dict with 'command' and 'reason' keys.
     Pure function: takes data in, returns suggestions out.
     """
     suggestions: list[dict[str, str]] = []
+    siblings = siblings or []
     is_leaf = len(children) == 0
 
     if exp.status == "failed" and is_leaf:
@@ -53,7 +58,24 @@ def _suggest_next(exp: Experiment, children: list[Experiment]) -> list[dict[str,
                 "reason": "Record what you learned",
             })
 
-    if exp.parent_id is not None:
+    # Sibling-aware suggestions
+    if siblings and exp.parent_id:
+        running_sibs = [s for s in siblings if s.status == "running"]
+        all_terminal = all(s.status in ("complete", "failed", "superseded") for s in siblings)
+
+        if running_sibs:
+            sib_ids = ", ".join(s.id for s in running_sibs[:3])
+            suggestions.append({
+                "command": f"sonde show {running_sibs[0].id}",
+                "reason": f"Sibling(s) still running: {sib_ids}",
+            })
+        elif all_terminal:
+            suggestions.append({
+                "command": f"sonde show {exp.parent_id}",
+                "reason": "All branches from parent are done — review results",
+            })
+
+    if exp.parent_id is not None and not siblings:
         suggestions.append({
             "command": f"sonde fork {exp.parent_id} --type refinement",
             "reason": "Branch from the parent experiment",
@@ -245,7 +267,8 @@ def _change_status(
         suggested: list[dict[str, str]] = []
         if exp_after and exp_after.parent_id:
             children = db.get_children(experiment_id)
-            suggested = _suggest_next(exp_after, children)
+            siblings = db.get_siblings(experiment_id)
+            suggested = _suggest_next(exp_after, children, siblings)
         print_json({
             "closed": {"id": experiment_id, "status": new_status},
             "suggested_next": suggested,
@@ -258,7 +281,8 @@ def _change_status(
     # Show suggestions after close/fail for tree nodes
     if new_status in ("complete", "failed") and exp_after and exp_after.parent_id:
         children = db.get_children(experiment_id)
-        suggestions = _suggest_next(exp_after, children)
+        siblings = db.get_siblings(experiment_id)
+        suggestions = _suggest_next(exp_after, children, siblings)
         if suggestions:
             err.print("\n[sonde.heading]Suggested next:[/]")
             for s in suggestions:

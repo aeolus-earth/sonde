@@ -96,6 +96,20 @@ class TestSuggestNext:
         commands = [s["command"] for s in suggestions]
         assert any("EXP-0000" in c for c in commands)
 
+    def test_all_siblings_done_suggests_review_parent(self):
+        exp = _make_experiment(status="complete", parent_id="EXP-0000")
+        sib = _make_experiment(id="EXP-0002", status="complete", parent_id="EXP-0000")
+        suggestions = _suggest_next(exp, children=[], siblings=[sib])
+        reasons = [s["reason"] for s in suggestions]
+        assert any("All branches" in r for r in reasons)
+
+    def test_running_sibling_mentioned(self):
+        exp = _make_experiment(status="complete", parent_id="EXP-0000")
+        sib = _make_experiment(id="EXP-0002", status="running", parent_id="EXP-0000")
+        suggestions = _suggest_next(exp, children=[], siblings=[sib])
+        reasons = [s["reason"] for s in suggestions]
+        assert any("still running" in r for r in reasons)
+
 
 # ---------------------------------------------------------------------------
 # start command — claim mechanism

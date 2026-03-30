@@ -519,6 +519,7 @@ def show(ctx: click.Context, experiment_id: str, graph: bool) -> None:
     activity = get_history(exp.id)[-5:]  # last 5 entries
     parent = db.get(exp.parent_id) if exp.parent_id else None
     children = db.get_children(exp.id)
+    siblings = db.get_siblings(exp.id) if exp.parent_id else []
 
     if ctx.obj.get("json"):
         data = exp.model_dump(mode="json")
@@ -527,6 +528,7 @@ def show(ctx: click.Context, experiment_id: str, graph: bool) -> None:
         data["_activity"] = activity
         data["_parent"] = parent.model_dump(mode="json") if parent else None
         data["_children"] = [c.model_dump(mode="json") for c in children]
+        data["_siblings"] = [s.model_dump(mode="json") for s in siblings]
         if graph:
             graph_data = db.get_graph_neighborhood(exp)
             data["_graph"] = _serialize_graph(graph_data)
@@ -561,6 +563,9 @@ def show(ctx: click.Context, experiment_id: str, graph: bool) -> None:
             header.append(f"[sonde.muted]Branch: {exp.branch_type}[/]")
         if exp.claimed_by:
             header.append(f"[sonde.muted]Claimed by: {exp.claimed_by}[/]")
+        if siblings:
+            sib_parts = [f"{s.id} [{s.status}]" for s in siblings[:5]]
+            header.append(f"[sonde.muted]Siblings: {', '.join(sib_parts)}[/]")
 
         if exp.content:
             header.append("")

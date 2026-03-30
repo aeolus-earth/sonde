@@ -84,36 +84,81 @@ sonde close EXP-0001 --finding "..."  # complete with finding
 sonde open EXP-0001                   # reopen
 ```
 
-## Experiment branching
+## Working with experiment trees
 
-Fork experiments to explore variants, refine approaches, or replicate:
+The research tree tracks how experiments branch and evolve. Every command
+you already use — brief, show, start, close, fork — includes tree context
+to guide your next decision. Follow this loop:
+
+### 1. Read the brief to find work
 
 ```bash
-sonde fork EXP-0001 "Try Morrison microphysics"                    # variant (default)
-sonde fork EXP-0001 --type refinement "Tighten CCN to 1200"        # refinement
-sonde fork EXP-0001 --type alternative "Bulk scheme instead"        # alternative
-sonde fork EXP-0007 --type debug "Investigate CFL violation"        # debug
-sonde fork EXP-0005 --type replication "Verify on different domain" # replication
+sonde brief -p <program> --json
 ```
 
-The fork command shows existing siblings so you can see what's already being explored.
-When you close an experiment, the CLI suggests next steps (fork, record finding, etc.).
+The `tree_summary` tells you what needs attention: unclaimed experiments,
+dead-end branches, stale claims. Pick something to investigate.
 
-View the research tree:
+### 2. Show the experiment to understand context
+
+```bash
+sonde show EXP-0009 --json
+```
+
+Check `_parent` (where this came from), `_children` (what branched from it),
+and `_siblings` (what else is happening at this level). If a sibling is
+already running the same kind of work, pick something else.
+
+### 3. Claim and start
+
+```bash
+sonde start EXP-0009 --json
+```
+
+If `conflict` is non-null, someone else claimed it — back off and pick
+different work. If null, you own it.
+
+### 4. Do the work, then close with a finding
+
+```bash
+sonde close EXP-0009 --finding "Domain doubling causes CFL violation" --json
+```
+
+The `suggested_next` array tells you what to do: fork a refinement, try
+an alternative, record a formal finding, or review the parent.
+
+### 5. Fork to continue
+
+```bash
+sonde fork EXP-0009 --type refinement "Apply 2x time step fix" --json
+```
+
+The response includes `siblings` so you can verify you're not duplicating
+work. Then `sonde start` the new experiment and repeat from step 4.
+
+### Branch types
+
+- **exploratory** — trying something new
+- **refinement** — improving what worked
+- **alternative** — different approach to the same problem
+- **debug** — diagnosing a failure
+- **replication** — re-running to verify
+
+### Tree navigation
 
 ```bash
 sonde tree DIR-001                    # full picture for a direction
-sonde tree EXP-0001                   # subtree from this root
-sonde tree -p weather-intervention    # all trees in the program
-sonde tree DIR-001 --active           # only active branches
-sonde tree DIR-001 --mine             # only my work
+sonde tree EXP-0001                   # subtree from one root
+sonde tree -p <program> --active      # only branches being worked on
+sonde tree -p <program> --mine        # only my branches
 ```
 
-Claiming work:
+### Housekeeping
 
 ```bash
-sonde start EXP-0009                  # claim and mark as running
-sonde close EXP-0009 --finding "..."  # complete (shows next-step hints)
+sonde release EXP-0009                # release a stale claim
+sonde archive EXP-0001                # mark a done subtree as superseded
+sonde health -p <program>             # check for stale claims, dead ends
 ```
 
 ## Adding notes and attachments
