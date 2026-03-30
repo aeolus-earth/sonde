@@ -156,6 +156,13 @@ sonde note EXP-XXXX "Motivated by Q-003: does spectral bin change CCN response?"
 sonde note EXP-XXXX "Supports FIND-001 (CCN saturation) — consistent threshold at 1200-1500"
 ```
 
+### parent_id vs related
+
+- **parent_id**: Set automatically by `sonde fork`. This experiment is a branch (variant/refinement/etc.) of the parent. Forms a navigable tree.
+- **related**: Set manually via `--related`. A loose "see also" cross-reference. Flat, not hierarchical.
+
+Don't set parent_id manually — use `sonde fork` to create branches.
+
 ### 6. Verify the record
 
 After formatting, verify everything looks right:

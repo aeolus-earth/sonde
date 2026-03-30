@@ -49,6 +49,14 @@ class ExperimentCreate(BaseModel):
     direction_id: str | None = None
     related: list[str] = Field(default_factory=list)
 
+    # Tree branching (set by fork, nullable for legacy experiments)
+    parent_id: str | None = None
+    branch_type: str | None = None
+
+    # Claim mechanism (set by start, cleared by close/open)
+    claimed_by: str | None = None
+    claimed_at: datetime | None = None
+
     run_at: datetime | None = None
 
     @field_validator("tags", "data_sources", "related", mode="before")

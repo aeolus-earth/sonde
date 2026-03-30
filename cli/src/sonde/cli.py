@@ -83,6 +83,7 @@ class SondeCLI(click.Group):
             "brief": "Research",
             "recent": "Research",
             "health": "Research",
+            "tree": "Research",
             "login": "Auth & Setup",
             "logout": "Auth & Setup",
             "whoami": "Auth & Setup",
@@ -205,6 +206,7 @@ from sonde.commands.setup import setup  # noqa: E402
 from sonde.commands.status import status  # noqa: E402
 from sonde.commands.sync import sync  # noqa: E402
 from sonde.commands.tag import tag  # noqa: E402
+from sonde.commands.tree import tree_cmd  # noqa: E402
 
 # Auth & Setup
 cli.add_command(login)
@@ -225,6 +227,7 @@ cli.add_command(recent)
 cli.add_command(tag)
 cli.add_command(status)
 cli.add_command(health)
+cli.add_command(tree_cmd)
 
 
 # -- Polymorphic show (works with EXP-, FIND-, Q-, DIR- prefixes) --

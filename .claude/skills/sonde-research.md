@@ -17,6 +17,7 @@ sonde brief -p <program> --json       # structured output for programmatic use
 sonde list --open -p <program>        # what's queued up
 sonde list --running                  # what's in progress
 sonde list --complete                 # what's done (shows findings)
+sonde tree -p <program>               # visualize experiment trees
 
 # 3. Explore knowledge
 sonde findings -p <program>           # current research findings
@@ -81,6 +82,38 @@ sonde start EXP-0001                  # mark as running
 sonde close EXP-0001                  # mark as complete
 sonde close EXP-0001 --finding "..."  # complete with finding
 sonde open EXP-0001                   # reopen
+```
+
+## Experiment branching
+
+Fork experiments to explore variants, refine approaches, or replicate:
+
+```bash
+sonde fork EXP-0001 "Try Morrison microphysics"                    # variant (default)
+sonde fork EXP-0001 --type refinement "Tighten CCN to 1200"        # refinement
+sonde fork EXP-0001 --type alternative "Bulk scheme instead"        # alternative
+sonde fork EXP-0007 --type debug "Investigate CFL violation"        # debug
+sonde fork EXP-0005 --type replication "Verify on different domain" # replication
+```
+
+The fork command shows existing siblings so you can see what's already being explored.
+When you close an experiment, the CLI suggests next steps (fork, record finding, etc.).
+
+View the research tree:
+
+```bash
+sonde tree DIR-001                    # full picture for a direction
+sonde tree EXP-0001                   # subtree from this root
+sonde tree -p weather-intervention    # all trees in the program
+sonde tree DIR-001 --active           # only active branches
+sonde tree DIR-001 --mine             # only my work
+```
+
+Claiming work:
+
+```bash
+sonde start EXP-0009                  # claim and mark as running
+sonde close EXP-0009 --finding "..."  # complete (shows next-step hints)
 ```
 
 ## Adding notes and attachments

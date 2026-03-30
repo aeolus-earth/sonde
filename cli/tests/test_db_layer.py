@@ -5,8 +5,6 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
-import pytest
-
 # ---------------------------------------------------------------------------
 # Shared fixtures
 # ---------------------------------------------------------------------------
@@ -73,6 +71,10 @@ _EXPERIMENT_ROW = {
     "tags": ["cloud-seeding"],
     "direction_id": None,
     "related": [],
+    "parent_id": None,
+    "branch_type": None,
+    "claimed_by": None,
+    "claimed_at": None,
     "run_at": None,
     "created_at": _NOW.isoformat(),
     "updated_at": _NOW.isoformat(),
@@ -223,6 +225,71 @@ class TestExperiments:
         from sonde.db import experiments as db
 
         assert db.get_by_ids([]) == []
+
+    def test_get_subtree(self, patched_db: MagicMock):
+        subtree_row = {**_EXPERIMENT_ROW, "depth": 0}
+        patched_db.rpc.return_value.execute.return_value = MagicMock(data=[subtree_row])
+        from sonde.db import experiments as db
+
+        results = db.get_subtree("EXP-0001")
+        assert len(results) == 1
+        assert results[0]["depth"] == 0
+
+    def test_get_ancestors(self, patched_db: MagicMock):
+        ancestor_row = {**_EXPERIMENT_ROW, "depth": 1}
+        patched_db.rpc.return_value.execute.return_value = MagicMock(data=[ancestor_row])
+        from sonde.db import experiments as db
+
+        results = db.get_ancestors("EXP-0002")
+        assert len(results) == 1
+
+    def test_get_siblings(self, patched_db: MagicMock):
+        sibling = {**_EXPERIMENT_ROW, "id": "EXP-0002", "parent_id": "EXP-0001"}
+        patched_db.rpc.return_value.execute.return_value = MagicMock(data=[sibling])
+        from sonde.db import experiments as db
+
+        results = db.get_siblings("EXP-0003")
+        assert len(results) == 1
+
+    def test_get_children(self, patched_db: MagicMock):
+        child = {**_EXPERIMENT_ROW, "id": "EXP-0002", "parent_id": "EXP-0001"}
+        patched_db.table("experiments").execute.return_value = MagicMock(data=[child])
+        from sonde.db import experiments as db
+
+        results = db.get_children("EXP-0001")
+        assert len(results) == 1
+
+    def test_get_tree_summary(self, patched_db: MagicMock):
+        rows = [
+            {
+                "id": "EXP-0001",
+                "parent_id": None,
+                "status": "complete",
+                "branch_type": None,
+                "source": "human/mason",
+                "content": "Baseline",
+                "claimed_by": None,
+                "claimed_at": None,
+                "updated_at": "2026-03-30T10:00:00Z",
+            },
+            {
+                "id": "EXP-0002",
+                "parent_id": "EXP-0001",
+                "status": "running",
+                "branch_type": "refinement",
+                "source": "agent",
+                "content": "Refinement",
+                "claimed_by": "agent",
+                "claimed_at": "2026-03-30T14:00:00Z",
+                "updated_at": "2026-03-30T14:00:00Z",
+            },
+        ]
+        patched_db.table("experiments").execute.return_value = MagicMock(data=rows)
+        from sonde.db import experiments as db
+
+        result = db.get_tree_summary(program="test")
+        assert result["total_roots"] == 1
+        assert result["active_branches"] == 1
 
 
 # ---------------------------------------------------------------------------

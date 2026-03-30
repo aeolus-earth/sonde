@@ -31,6 +31,10 @@ _EXPERIMENT_ROW: dict[str, Any] = {
     "tags": ["cloud-seeding", "spectral-bin"],
     "direction_id": None,
     "related": [],
+    "parent_id": None,
+    "branch_type": None,
+    "claimed_by": None,
+    "claimed_at": None,
     "run_at": None,
     "created_at": datetime(2026, 3, 29, 14, 0, 0, tzinfo=UTC).isoformat(),
     "updated_at": datetime(2026, 3, 29, 14, 0, 0, tzinfo=UTC).isoformat(),
@@ -55,6 +59,10 @@ _CONTENT_ONLY_ROW: dict[str, Any] = {
     "tags": ["maritime-cu"],
     "direction_id": None,
     "related": [],
+    "parent_id": None,
+    "branch_type": None,
+    "claimed_by": None,
+    "claimed_at": None,
     "run_at": None,
     "created_at": datetime(2026, 3, 29, 15, 0, 0, tzinfo=UTC).isoformat(),
     "updated_at": datetime(2026, 3, 29, 15, 0, 0, tzinfo=UTC).isoformat(),
@@ -507,3 +515,169 @@ class TestCanonicalPaths:
             cli, ["experiment", "update", "EXP-0001", "--finding", "New finding"]
         )
         assert result.exit_code == 0
+
+
+# ---------------------------------------------------------------------------
+# Fork / Tree integration
+# ---------------------------------------------------------------------------
+
+_FORKED_ROW: dict[str, Any] = {
+    **_EXPERIMENT_ROW,
+    "id": "EXP-0002",
+    "parent_id": "EXP-0001",
+    "branch_type": "refinement",
+    "status": "open",
+    "related": ["EXP-0001"],
+}
+
+
+def _fork_table_factory(
+    source_row: dict[str, Any],
+    forked_row: dict[str, Any],
+    sibling_rows: list[dict[str, Any]] | None = None,
+) -> Any:
+    """Return a table factory for fork tests.
+
+    Fork flow: get source -> next_sequential_id -> insert -> get_children.
+    Each call to table("experiments") returns a fresh mock, so we use a shared
+    counter to sequence the execute() return values across all mock instances.
+    """
+    exp_results = [
+        MagicMock(data=[source_row]),           # get source experiment
+        MagicMock(data=[]),                     # ID generation query (next_sequential_id)
+        MagicMock(data=[forked_row]),           # insert
+        MagicMock(data=sibling_rows or []),     # get_children for siblings
+    ]
+    exp_call_idx = [0]
+
+    def factory(name: str) -> MagicMock:
+        tbl = MagicMock()
+        for method in (
+            "select", "insert", "update", "delete", "eq", "neq",
+            "gt", "lt", "gte", "lte", "like", "ilike", "is_",
+            "in_", "contains", "or_", "order", "limit", "range", "single",
+        ):
+            getattr(tbl, method).return_value = tbl
+        if name == "experiments":
+            def _exp_execute():
+                idx = exp_call_idx[0]
+                exp_call_idx[0] += 1
+                if idx < len(exp_results):
+                    return exp_results[idx]
+                return MagicMock(data=[])
+            tbl.execute.side_effect = lambda: _exp_execute()
+        elif name == "activity":
+            tbl.execute.return_value = MagicMock(data=[])
+        else:
+            tbl.execute.return_value = MagicMock(data=[])
+        return tbl
+
+    return factory
+
+
+class TestForkTree:
+    def test_fork_sets_parent_id(self, runner: CliRunner, patched_db: MagicMock):
+        patched_db.table.side_effect = _fork_table_factory(_EXPERIMENT_ROW, _FORKED_ROW)
+
+        result = runner.invoke(
+            cli,
+            ["experiment", "fork", "EXP-0001", "--type", "refinement", "Tighten CCN"],
+        )
+        assert result.exit_code == 0
+        assert "EXP-0002" in result.output
+
+    def test_fork_json_includes_siblings(self, runner: CliRunner, patched_db: MagicMock):
+        sibling = {**_EXPERIMENT_ROW, "id": "EXP-0003", "parent_id": "EXP-0001"}
+        patched_db.table.side_effect = _fork_table_factory(
+            _EXPERIMENT_ROW, _FORKED_ROW, sibling_rows=[sibling]
+        )
+
+        result = runner.invoke(
+            cli,
+            ["--json", "experiment", "fork", "EXP-0001", "Try something"],
+        )
+        assert result.exit_code == 0
+        import json
+
+        data = json.loads(result.output)
+        assert "created" in data
+        assert "siblings" in data
+        assert "parent" in data
+
+
+class TestShowTree:
+    def _setup_show_tree_mock(
+        self,
+        patched_db: MagicMock,
+        exp_data: dict,
+        children: list[dict] | None = None,
+    ):
+        """Set up mocks for show command with tree context."""
+
+        def table_factory(name):
+            tbl = MagicMock()
+            for method in (
+                "select", "insert", "update", "delete", "eq", "neq",
+                "gt", "lt", "gte", "lte", "like", "ilike", "is_",
+                "in_", "contains", "or_", "order", "limit", "range", "single",
+            ):
+                getattr(tbl, method).return_value = tbl
+            if name == "experiments":
+                # Show calls: get(), then potentially get_children via eq("parent_id", ...)
+                results = [MagicMock(data=[exp_data] if exp_data else [])]
+                if children is not None:
+                    results.append(MagicMock(data=children))
+                # Add fallback empty results for additional queries
+                results.extend([MagicMock(data=[]) for _ in range(5)])
+                tbl.execute.side_effect = results
+            else:
+                tbl.execute.return_value = MagicMock(data=[])
+            return tbl
+
+        patched_db.table.side_effect = table_factory
+
+    def test_show_experiment_with_parent(self, runner: CliRunner, patched_db: MagicMock):
+        exp_with_parent = {
+            **_EXPERIMENT_ROW,
+            "parent_id": "EXP-0000",
+            "branch_type": "refinement",
+        }
+        self._setup_show_tree_mock(patched_db, exp_with_parent)
+
+        result = runner.invoke(cli, ["show", "EXP-0001"])
+        assert result.exit_code == 0
+        assert "EXP-0001" in result.output
+
+    def test_show_json_includes_tree_fields(self, runner: CliRunner, patched_db: MagicMock):
+        exp_with_parent = {
+            **_EXPERIMENT_ROW,
+            "parent_id": "EXP-0000",
+            "branch_type": "refinement",
+        }
+        self._setup_show_tree_mock(patched_db, exp_with_parent)
+
+        result = runner.invoke(cli, ["--json", "show", "EXP-0001"])
+        assert result.exit_code == 0
+        import json
+
+        data = json.loads(result.output)
+        assert data["parent_id"] == "EXP-0000"
+        assert data["branch_type"] == "refinement"
+
+
+class TestListTree:
+    def test_list_returns_tree_fields_in_json(self, runner: CliRunner, patched_db: MagicMock):
+        """JSON list output includes parent_id and branch_type fields."""
+        row_with_parent = {**_EXPERIMENT_ROW, "parent_id": "EXP-0000", "branch_type": "variant"}
+        patched_db.table("experiments").select("*").order("created_at", desc=True).range(
+            0, 50
+        ).execute.return_value = MagicMock(data=[row_with_parent])
+
+        result = runner.invoke(cli, ["--json", "list", "-p", "weather-intervention"])
+        assert result.exit_code == 0
+        import json
+
+        data = json.loads(result.output)
+        assert len(data) == 1
+        assert data[0]["parent_id"] == "EXP-0000"
+        assert data[0]["branch_type"] == "variant"

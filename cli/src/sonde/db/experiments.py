@@ -77,6 +77,7 @@ def list_experiments(
     sort: str = "created",
     limit: int = 50,
     offset: int = 0,
+    roots: bool = False,
 ) -> list[Experiment]:
     """List experiments with optional filters."""
     client = get_client()
@@ -96,6 +97,7 @@ def list_experiments(
         direction=direction,
         since=since,
         before=before,
+        roots=roots,
     )
     return [Experiment(**row) for row in to_rows(query.execute().data)]
 
@@ -316,6 +318,123 @@ def get_graph_neighborhood(exp: Experiment) -> dict[str, Any]:
     return graph
 
 
+# ---------------------------------------------------------------------------
+# Tree operations
+# ---------------------------------------------------------------------------
+
+
+def get_subtree(root_id: str, *, max_depth: int = 10) -> list[dict[str, Any]]:
+    """Get all descendants of an experiment as flat rows with a depth column.
+
+    Returns dicts (not Experiment models) because the RPC adds a `depth` field.
+    """
+    from sonde.db.validate import validate_id
+
+    validate_id(root_id)
+    client = get_client()
+    result = client.rpc(
+        "get_experiment_subtree", {"root_id": root_id, "max_depth": max_depth}
+    ).execute()
+    return to_rows(result.data)
+
+
+def get_ancestors(experiment_id: str) -> list[dict[str, Any]]:
+    """Get the ancestry chain from this experiment to the root (leaf-to-root order).
+
+    Returns dicts with a `depth` field (0 = the experiment itself, 1 = parent, etc.).
+    """
+    from sonde.db.validate import validate_id
+
+    validate_id(experiment_id)
+    client = get_client()
+    result = client.rpc("get_experiment_ancestors", {"exp_id": experiment_id}).execute()
+    return to_rows(result.data)
+
+
+def get_siblings(experiment_id: str) -> list[Experiment]:
+    """Get experiments sharing the same parent_id, excluding self."""
+    from sonde.db.validate import validate_id
+
+    validate_id(experiment_id)
+    client = get_client()
+    result = client.rpc("get_experiment_siblings", {"exp_id": experiment_id}).execute()
+    return [Experiment(**row) for row in to_rows(result.data)]
+
+
+def get_children(experiment_id: str) -> list[Experiment]:
+    """Get direct children of an experiment."""
+    client = get_client()
+    result = (
+        client.table("experiments")
+        .select("*")
+        .eq("parent_id", experiment_id)
+        .order("created_at")
+        .execute()
+    )
+    return [Experiment(**row) for row in to_rows(result.data)]
+
+
+def get_tree_summary(program: str | None = None) -> dict[str, Any]:
+    """Compute tree statistics for the brief command.
+
+    Lightweight columnar query + Python computation — no extra RPC.
+    """
+    from datetime import UTC, datetime
+
+    client = get_client()
+    query = client.table("experiments").select(
+        "id,parent_id,status,branch_type,source,content,claimed_by,claimed_at,updated_at"
+    )
+    if program:
+        query = query.eq("program", program)
+    all_rows = to_rows(query.execute().data)
+
+    # Build sets for efficient lookups
+    ids_with_children = {r["parent_id"] for r in all_rows if r.get("parent_id")}
+    now = datetime.now(UTC)
+
+    roots = [r for r in all_rows if not r.get("parent_id")]
+    branches = [r for r in all_rows if r.get("parent_id")]
+    active = [r for r in branches if r.get("status") in ("open", "running")]
+    dead_ends = [
+        r for r in all_rows
+        if r.get("status") == "failed" and r["id"] not in ids_with_children
+    ]
+    unclaimed = [
+        {
+            "id": r["id"],
+            "parent_id": r.get("parent_id"),
+            "branch_type": r.get("branch_type"),
+            "content_summary": (r.get("content") or "")[:80] or None,
+            "status": r.get("status"),
+        }
+        for r in all_rows
+        if r.get("status") == "open" and not r.get("claimed_by")
+    ]
+    stale_claims = []
+    for r in all_rows:
+        if r.get("status") == "running" and r.get("claimed_at"):
+            try:
+                claimed = datetime.fromisoformat(r["claimed_at"].replace("Z", "+00:00"))
+                hours = (now - claimed).total_seconds() / 3600
+                if hours > 2:
+                    stale_claims.append({
+                        "id": r["id"],
+                        "claimed_by": r["claimed_by"],
+                        "claimed_hours_ago": round(hours, 1),
+                    })
+            except (ValueError, TypeError):
+                pass
+
+    return {
+        "total_roots": len(roots),
+        "active_branches": len(active),
+        "dead_ends": len(dead_ends),
+        "unclaimed": unclaimed[:10],
+        "stale_claims": stale_claims,
+    }
+
+
 def _apply_filters(
     query: Any,
     *,
@@ -326,6 +445,7 @@ def _apply_filters(
     direction: str | None = None,
     since: str | None = None,
     before: str | None = None,
+    roots: bool = False,
 ) -> Any:
     """Apply experiment-specific filters to a query."""
     if program:
@@ -342,4 +462,6 @@ def _apply_filters(
         query = query.gte("created_at", since)
     if before:
         query = query.lte("created_at", before)
+    if roots:
+        query = query.is_("parent_id", "null")
     return query

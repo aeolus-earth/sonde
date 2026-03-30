@@ -324,6 +324,8 @@ def log(
 @click.option("--limit", "-n", default=50, help="Max results (default: 50)")
 @click.option("--offset", default=0, help="Skip first N results (for pagination)")
 @click.option("--page", type=int, help="Page number (1-based, combines with --limit)")
+@click.option("--roots", is_flag=True, help="Show only root experiments (no parent)")
+@click.option("--children-of", "children_of", help="List children of this experiment")
 @pass_output_options
 @click.pass_context
 def list_cmd(
@@ -345,6 +347,8 @@ def list_cmd(
     limit: int,
     offset: int,
     page: int | None,
+    roots: bool,
+    children_of: str | None,
 ):
     """List experiments.
 
@@ -403,6 +407,18 @@ def list_cmd(
             raise SystemExit(2)
         offset = (page - 1) * limit
 
+    # --children-of: short-circuit to direct children query
+    if children_of:
+        experiments = db.get_children(children_of.upper())
+        if ctx.obj.get("json"):
+            print_json([e.model_dump(mode="json") for e in experiments])
+        elif not experiments:
+            err.print(f"[dim]No children found for {children_of.upper()}.[/dim]")
+        else:
+            columns, row_builder = _columns_for_status(status)
+            print_table(columns, [row_builder(e) for e in experiments])
+        return
+
     # --count: issue a true count query, not limited by --limit
     if show_count:
         total = db.count_experiments(
@@ -431,6 +447,7 @@ def list_cmd(
         sort=sort,
         limit=limit,
         offset=offset,
+        roots=roots,
     )
 
     has_more = len(experiments) > limit
@@ -490,12 +507,16 @@ def show(ctx: click.Context, experiment_id: str, graph: bool) -> None:
     related_findings = find_db.find_by_evidence(exp.id)
     artifacts = list_artifacts(exp.id)
     activity = get_history(exp.id)[-5:]  # last 5 entries
+    parent = db.get(exp.parent_id) if exp.parent_id else None
+    children = db.get_children(exp.id)
 
     if ctx.obj.get("json"):
         data = exp.model_dump(mode="json")
         data["_findings"] = [f.model_dump(mode="json") for f in related_findings]
         data["_artifacts"] = artifacts
         data["_activity"] = activity
+        data["_parent"] = parent.model_dump(mode="json") if parent else None
+        data["_children"] = [c.model_dump(mode="json") for c in children]
         if graph:
             graph_data = db.get_graph_neighborhood(exp)
             data["_graph"] = _serialize_graph(graph_data)
@@ -521,6 +542,15 @@ def show(ctx: click.Context, experiment_id: str, graph: bool) -> None:
             header.append(f"[sonde.muted]{git_info}[/]")
         if exp.related:
             header.append(f"[sonde.muted]Related: {', '.join(exp.related)}[/]")
+        if exp.parent_id:
+            parent_label = f"Parent: {exp.parent_id}"
+            if parent:
+                parent_label += f" [{parent.status}]"
+            header.append(f"[sonde.muted]{parent_label}[/]")
+        if exp.branch_type:
+            header.append(f"[sonde.muted]Branch: {exp.branch_type}[/]")
+        if exp.claimed_by:
+            header.append(f"[sonde.muted]Claimed by: {exp.claimed_by}[/]")
 
         if exp.content:
             header.append("")
@@ -581,6 +611,22 @@ def show(ctx: click.Context, experiment_id: str, graph: bool) -> None:
                 size_str = f" ({_format_size(size)})" if size else ""
                 err.print(f"  [sonde.muted]{a.get('type', 'file')}[/]  {a['filename']}{size_str}")
 
+        # Children
+        if children:
+            print_table(
+                ["id", "status", "type", "summary"],
+                [
+                    {
+                        "id": c.id,
+                        "status": c.status,
+                        "type": c.branch_type or "—",
+                        "summary": record_summary(c, 45),
+                    }
+                    for c in children
+                ],
+                title="Child Experiments",
+            )
+
         # Recent activity
         if activity:
             err.print("\n[sonde.heading]Activity[/]")
@@ -595,12 +641,13 @@ def show(ctx: click.Context, experiment_id: str, graph: bool) -> None:
         if graph:
             _render_graph(exp)
 
-        print_breadcrumbs(
-            [
-                f"History: sonde history {exp.id}",
-                f'Note:    sonde note {exp.id} "observation"',
-            ]
-        )
+        breadcrumbs = [
+            f"History: sonde history {exp.id}",
+            f'Note:    sonde note {exp.id} "observation"',
+        ]
+        if children or parent:
+            breadcrumbs.append(f"Tree:    sonde tree {exp.id}")
+        print_breadcrumbs(breadcrumbs)
 
 
 @experiment.command()
@@ -1019,6 +1066,13 @@ def _format_size(size_bytes: int | None) -> str:
 )
 @click.option("--tag", multiple=True, help="Override tags (replaces source tags if provided)")
 @click.option("--status", default="open", type=click.Choice(["open", "running"]))
+@click.option(
+    "--type",
+    "branch_type",
+    type=click.Choice(["exploratory", "refinement", "alternative", "debug", "replication"]),
+    help="Branch type",
+)
+@click.argument("intent", required=False, default=None)
 @pass_output_options
 @click.pass_context
 def fork(
@@ -1028,15 +1082,19 @@ def fork(
     params_file: str | None,
     tag: tuple[str, ...],
     status: str,
+    branch_type: str | None,
+    intent: str | None,
 ):
     """Create a new experiment based on an existing one.
 
     Copies program, tags, parameters, direction, and data_sources from the
-    source experiment. The new experiment links back via 'related'.
+    source experiment. The new experiment links back via 'related' and sets
+    parent_id for tree branching.
 
     \b
     Examples:
       sonde fork EXP-0001
+      sonde fork EXP-0001 --type refinement "Increase CCN to 1800"
       sonde fork EXP-0001 --params '{"ccn": 1800}'
       sonde fork EXP-0001 --tag subtropical --tag high-ccn
     """
@@ -1082,6 +1140,9 @@ def fork(
         direction_id=source_exp.direction_id,
         data_sources=list(source_exp.data_sources),
         related=[source_exp.id],
+        parent_id=source_exp.id,
+        branch_type=branch_type,
+        content=intent if intent else None,
         git_commit=git_ctx.commit if git_ctx else None,
         git_repo=git_ctx.repo if git_ctx else None,
         git_branch=git_ctx.branch if git_ctx else None,
@@ -1089,20 +1150,37 @@ def fork(
 
     new_exp = db.create(data)
 
+    # Fetch siblings (other children of the same parent, excluding this new one)
+    siblings = db.get_children(source_exp.id)
+    siblings = [s for s in siblings if s.id != new_exp.id]
+
     from sonde.db.activity import log_activity
 
-    log_activity(new_exp.id, "experiment", "created", {"forked_from": source_exp.id})
+    log_activity(
+        new_exp.id,
+        "experiment",
+        "created",
+        {"forked_from": source_exp.id, "branch_type": branch_type},
+    )
 
     if ctx.obj.get("json"):
-        print_json(new_exp.model_dump(mode="json"))
+        print_json({
+            "created": new_exp.model_dump(mode="json"),
+            "siblings": [s.model_dump(mode="json") for s in siblings],
+            "parent": source_exp.model_dump(mode="json"),
+        })
     else:
-        print_success(f"Forked {source_exp.id} → {new_exp.id}")
+        type_label = f" ({branch_type})" if branch_type else ""
+        print_success(f"Forked {source_exp.id} → {new_exp.id}{type_label}")
         if override_params != source_exp.parameters:
             changed = {
                 k: v for k, v in override_params.items() if source_exp.parameters.get(k) != v
             }
             if changed:
                 err.print(f"  Changed: {', '.join(f'{k}={v}' for k, v in changed.items())}")
+        if siblings:
+            sibling_strs = [f"{s.id} [{s.status}]" for s in siblings]
+            err.print(f"  Siblings: {', '.join(sibling_strs)}")
         err.print(f"\n  View:    sonde show {new_exp.id}")
         err.print(f"  Start:   sonde start {new_exp.id}")
 

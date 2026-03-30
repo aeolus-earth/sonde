@@ -122,6 +122,9 @@ def _build_brief_data(
         ],
         "coverage": coverage,
         "gaps": gaps,
+        "tree_summary": exp_db.get_tree_summary(
+            program=experiments[0].program if experiments else None
+        ),
     }
 
 
@@ -467,6 +470,17 @@ def _render_human(
                 err.print(f"    [dim]... and {len(cross_coverage['untested']) - 20} more[/]")
     elif gaps:
         err.print("\n[dim]Not enough multi-valued parameters for cross-coverage analysis.[/]")
+
+    # Research Tree summary
+    ts = data.get("tree_summary")
+    if ts and (ts.get("active_branches", 0) > 0 or ts.get("dead_ends", 0) > 0):
+        err.print("\n[sonde.heading]Research Tree[/]")
+        err.print(f"  Active branches:  {ts['active_branches']}")
+        err.print(f"  Dead ends:        {ts['dead_ends']}")
+        if ts.get("unclaimed"):
+            err.print(f"  Unclaimed work:   {len(ts['unclaimed'])} open experiment(s)")
+        if ts.get("stale_claims"):
+            err.print(f"  Stale claims:     {len(ts['stale_claims'])} running >2h")
 
     breadcrumbs = []
     if program and tag:
