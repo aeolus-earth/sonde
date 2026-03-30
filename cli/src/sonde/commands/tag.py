@@ -6,9 +6,15 @@ import click
 
 from sonde.cli_options import pass_output_options
 from sonde.config import get_settings
-from sonde.db import rows
-from sonde.db.client import get_client
-from sonde.output import err, print_error, print_json, print_success, print_table
+from sonde.db import tags as db
+from sonde.output import (
+    err,
+    print_breadcrumbs,
+    print_error,
+    print_json,
+    print_success,
+    print_table,
+)
 
 
 @click.group(invoke_without_command=True)
@@ -27,6 +33,19 @@ def tag(ctx: click.Context) -> None:
         ctx.invoke(tags_list)
 
 
+def _get_tags_or_exit(record_id: str) -> list[str]:
+    """Fetch tags for a record, exiting with error if not found."""
+    current_tags = db.get_tags(record_id)
+    if current_tags is None:
+        print_error(
+            f"{record_id} not found",
+            "No experiment with this ID exists.",
+            "List experiments: sonde list",
+        )
+        raise SystemExit(1)
+    return current_tags
+
+
 @tag.command("add")
 @click.argument("record_id")
 @click.argument("tag_name")
@@ -39,21 +58,14 @@ def tag_add(ctx: click.Context, record_id: str, tag_name: str) -> None:
       sonde tag add EXP-0001 subtropical
     """
     record_id = record_id.upper()
-    client = get_client()
+    current_tags = _get_tags_or_exit(record_id)
 
-    result = client.table("experiments").select("tags").eq("id", record_id).execute()
-    data = rows(result.data)
-    if not data:
-        print_error(f"{record_id} not found", "", "sonde list")
-        raise SystemExit(1)
-
-    current_tags = data[0].get("tags", [])
     if tag_name in current_tags:
         err.print(f"[sonde.muted]{record_id} already has tag '{tag_name}'[/]")
         return
 
     current_tags.append(tag_name)
-    client.table("experiments").update({"tags": current_tags}).eq("id", record_id).execute()
+    db.set_tags(record_id, current_tags)
 
     from sonde.db.activity import log_activity
 
@@ -73,21 +85,14 @@ def tag_remove(ctx: click.Context, record_id: str, tag_name: str) -> None:
       sonde tag remove EXP-0001 draft
     """
     record_id = record_id.upper()
-    client = get_client()
+    current_tags = _get_tags_or_exit(record_id)
 
-    result = client.table("experiments").select("tags").eq("id", record_id).execute()
-    data = rows(result.data)
-    if not data:
-        print_error(f"{record_id} not found", "", "sonde list")
-        raise SystemExit(1)
-
-    current_tags = data[0].get("tags", [])
     if tag_name not in current_tags:
         err.print(f"[sonde.muted]{record_id} doesn't have tag '{tag_name}'[/]")
         return
 
     current_tags.remove(tag_name)
-    client.table("experiments").update({"tags": current_tags}).eq("id", record_id).execute()
+    db.set_tags(record_id, current_tags)
 
     from sonde.db.activity import log_activity
 
@@ -106,15 +111,8 @@ def tag_show(ctx: click.Context, record_id: str) -> None:
       sonde tag show EXP-0001
     """
     record_id = record_id.upper()
-    client = get_client()
+    tags = _get_tags_or_exit(record_id)
 
-    result = client.table("experiments").select("tags").eq("id", record_id).execute()
-    data = rows(result.data)
-    if not data:
-        print_error(f"{record_id} not found", "", "sonde list")
-        raise SystemExit(1)
-
-    tags = data[0].get("tags", [])
     if ctx.obj.get("json"):
         print_json(tags)
     elif tags:
@@ -141,18 +139,7 @@ def tags_list(ctx: click.Context, program: str | None, limit: int) -> None:
     """
     settings = get_settings()
     resolved = program or settings.program
-    client = get_client()
-
-    query = client.table("experiments").select("tags")
-    if resolved:
-        query = query.eq("program", resolved)
-    data = rows(query.execute().data)
-
-    # Count tag occurrences
-    counts: dict[str, int] = {}
-    for row in data:
-        for t in row.get("tags", []):
-            counts[t] = counts.get(t, 0) + 1
+    counts = db.list_tags_with_counts(resolved)
 
     if ctx.obj.get("json"):
         print_json(counts)
@@ -168,3 +155,147 @@ def tags_list(ctx: click.Context, program: str | None, limit: int) -> None:
                 f"\n[dim]{len(sorted_tags)} total tags, "
                 f"showing top {limit}. Use -n 0 for all.[/dim]"
             )
+
+
+def _normalize_tag(t: str) -> str:
+    """Normalize a tag: lowercase, underscores/spaces → hyphens."""
+    return t.lower().replace("_", "-").replace(" ", "-")
+
+
+@tag.command("normalize")
+@click.option("--program", "-p", help="Scope to a program")
+@click.option("--force", is_flag=True, help="Apply changes (default is dry-run)")
+@pass_output_options
+@click.pass_context
+def tag_normalize(
+    ctx: click.Context, program: str | None, force: bool
+) -> None:
+    """Normalize duplicate tags (case, underscores, spaces).
+
+    By default shows a preview. Use --force to apply.
+
+    \b
+    Examples:
+      sonde tag normalize                    # dry-run preview
+      sonde tag normalize --force            # apply changes
+      sonde tag normalize -p weather-intervention
+      sonde tag normalize --json             # machine-readable plan
+    """
+    settings = get_settings()
+    resolved = program or settings.program
+
+    experiments = db.list_experiments_with_tags(resolved)
+
+    # Build normalization groups from all tags across experiments
+    tag_counts: dict[str, int] = {}
+    for exp in experiments:
+        for t in exp.get("tags") or []:
+            tag_counts[t] = tag_counts.get(t, 0) + 1
+
+    groups: dict[str, list[str]] = {}
+    for t in tag_counts:
+        key = _normalize_tag(t)
+        groups.setdefault(key, []).append(t)
+
+    # Filter to groups with duplicates
+    dup_groups = {
+        k: variants for k, variants in groups.items() if len(variants) > 1
+    }
+
+    if not dup_groups:
+        if ctx.obj.get("json"):
+            print_json({"groups": [], "total_affected": 0})
+        else:
+            err.print("[dim]No duplicate tags found.[/dim]")
+        return
+
+    # Select canonical form: most frequent variant, tie-break with normalized
+    canonicals: dict[str, str] = {}
+    for key, variants in dup_groups.items():
+        best = max(variants, key=lambda v: (tag_counts[v], v == key))
+        canonicals[key] = best
+
+    # Build change plan: (exp_id, old_tags, new_tags)
+    changes: list[tuple[str, list[str], list[str]]] = []
+    for exp in experiments:
+        exp_tags = exp.get("tags") or []
+        new_tags = []
+        changed = False
+        for t in exp_tags:
+            key = _normalize_tag(t)
+            if key in canonicals and t != canonicals[key]:
+                new_tags.append(canonicals[key])
+                changed = True
+            else:
+                new_tags.append(t)
+        if changed:
+            changes.append((exp["id"], exp_tags, new_tags))
+
+    # JSON output
+    if ctx.obj.get("json"):
+        print_json({
+            "groups": [
+                {
+                    "canonical": canonicals[k],
+                    "variants": sorted(v),
+                    "affected_experiments": sum(
+                        1
+                        for exp_id, old, _new in changes
+                        if any(_normalize_tag(t) == k for t in old)
+                    ),
+                }
+                for k, v in sorted(dup_groups.items())
+            ],
+            "total_affected": len(changes),
+            "dry_run": not force,
+        })
+        if not force:
+            return
+    elif not force:
+        # Dry-run preview
+        rows = []
+        for key in sorted(dup_groups):
+            canonical = canonicals[key]
+            variants = [v for v in sorted(dup_groups[key]) if v != canonical]
+            affected = sum(
+                1
+                for _eid, old, _new in changes
+                if any(_normalize_tag(t) == key for t in old)
+            )
+            for v in variants:
+                rows.append({
+                    "from": v,
+                    "to": canonical,
+                    "experiments": str(affected),
+                })
+        print_table(["from", "to", "experiments"], rows, title="Tag normalization preview")
+        err.print(
+            f"\n[dim]{len(dup_groups)} group(s), "
+            f"{len(changes)} experiment(s) affected.[/dim]"
+        )
+        print_breadcrumbs(["Apply: sonde tag normalize --force"])
+        return
+
+    # Apply changes
+    from sonde.db.activity import log_activity
+
+    for exp_id, old_tags, new_tags in changes:
+        db.set_tags(exp_id, new_tags)
+        # Log which tags changed
+        changed_tags = {
+            old: new
+            for old, new in zip(old_tags, new_tags, strict=True)
+            if old != new
+        }
+        log_activity(
+            exp_id, "experiment", "tag_normalized", {"changes": changed_tags}
+        )
+
+    if not ctx.obj.get("json"):
+        print_success(
+            f"Normalized {len(changes)} experiment(s)",
+            details=[
+                f"{', '.join(sorted(dup_groups[k]))} → {canonicals[k]}"
+                for k in sorted(dup_groups)
+            ],
+        )

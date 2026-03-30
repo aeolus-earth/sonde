@@ -8,22 +8,8 @@ from postgrest.exceptions import APIError
 
 from sonde.db import rows as to_rows
 from sonde.db.client import get_client
+from sonde.db.ids import create_with_retry
 from sonde.models.experiment import Experiment, ExperimentCreate
-
-_MAX_ID_RETRIES = 3
-
-
-def _next_id() -> str:
-    """Generate the next experiment ID (EXP-0001 format)."""
-    client = get_client()
-    result = (
-        client.table("experiments").select("id").order("created_at", desc=True).limit(1).execute()
-    )
-    rows = to_rows(result.data)
-    if rows:
-        last_num = int(rows[0]["id"].split("-")[1])
-        return f"EXP-{last_num + 1:04d}"
-    return "EXP-0001"
 
 
 def create(data: ExperimentCreate) -> Experiment:
@@ -31,20 +17,9 @@ def create(data: ExperimentCreate) -> Experiment:
 
     Retries on unique-constraint violations to handle concurrent ID generation.
     """
-    client = get_client()
     payload = data.model_dump(mode="json", exclude_none=True)
-    for attempt in range(_MAX_ID_RETRIES):
-        exp_id = _next_id()
-        row = {"id": exp_id, **payload}
-        try:
-            result = client.table("experiments").insert(row).execute()
-        except APIError as exc:
-            if exc.code == "23505" and attempt < _MAX_ID_RETRIES - 1:
-                continue
-            raise
-        return Experiment(**to_rows(result.data)[0])
-    msg = f"Failed to generate unique experiment ID after {_MAX_ID_RETRIES} attempts"
-    raise RuntimeError(msg)
+    row = create_with_retry("experiments", "EXP", 4, payload)
+    return Experiment(**row)
 
 
 def get(experiment_id: str) -> Experiment | None:
@@ -157,17 +132,16 @@ def search(
     if text:
         # Try RPC for ranked full-text search; fall back to client-side filtering
         try:
+            # Send ALL 6 params — PostgREST requires exact name matching
+            # and won't resolve SQL DEFAULT values for omitted params.
             rpc_params: dict[str, Any] = {
                 "search_query": text,
+                "filter_program": program,
+                "filter_status": status,
+                "filter_tags": tags,
                 "result_limit": limit + 1,  # +1 for has_more detection
                 "result_offset": offset,
             }
-            if program:
-                rpc_params["filter_program"] = program
-            if status:
-                rpc_params["filter_status"] = status
-            if tags:
-                rpc_params["filter_tags"] = tags
             result = client.rpc("search_experiments", rpc_params).execute()
             experiments = [Experiment(**row) for row in to_rows(result.data)]
         except APIError as exc:

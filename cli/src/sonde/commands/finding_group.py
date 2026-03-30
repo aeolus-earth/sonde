@@ -6,12 +6,14 @@ from typing import Literal, cast
 
 import click
 
+from sonde.auth import resolve_source
 from sonde.cli_options import pass_output_options
 from sonde.commands.findings import findings_cmd
+from sonde.db import experiments as exp_db
 from sonde.db import findings as db
 from sonde.db.activity import log_activity
 from sonde.models.finding import FindingCreate
-from sonde.output import print_json, print_success
+from sonde.output import print_error, print_json, print_success
 
 
 @click.group(invoke_without_command=True)
@@ -91,14 +93,8 @@ def finding_create(
         --finding "Saturation at ~1200 with spectral bin" \\
         --supersedes FIND-001
     """
-    from sonde.auth import get_current_user
 
-    user = get_current_user()
-    resolved_source = source or (
-        "agent"
-        if (user and user.is_agent)
-        else (f"human/{user.email.split('@')[0]}" if user else "unknown")
-    )
+    resolved_source = source or resolve_source()
 
     data = FindingCreate(
         program=program,
@@ -124,4 +120,81 @@ def finding_create(
             f"Created {result.id} ({program})",
             details=[f"Topic: {topic}", f"Confidence: {confidence}"],
             breadcrumbs=[f"View: sonde finding show {result.id}"],
+        )
+
+
+@finding.command("extract")
+@click.argument("experiment_id")
+@click.option("--topic", "-t", required=True, help="Topic for the finding")
+@click.option(
+    "--confidence",
+    type=click.Choice(["low", "medium", "high"]),
+    default="medium",
+    help="Confidence level (default: medium)",
+)
+@click.option("--source", "-s", help="Override source attribution")
+@pass_output_options
+@click.pass_context
+def finding_extract(
+    ctx: click.Context,
+    experiment_id: str,
+    topic: str,
+    confidence: str,
+    source: str | None,
+) -> None:
+    """Extract an experiment's finding into a curated Finding record.
+
+    Reads the experiment's finding field and creates a Finding entity
+    linked back via evidence.
+
+    \b
+    Examples:
+      sonde finding extract EXP-0001 --topic "CCN saturation"
+      sonde finding extract EXP-0001 -t "CCN saturation" --confidence high
+    """
+    exp = exp_db.get(experiment_id.upper())
+    if not exp:
+        print_error(
+            f"Experiment {experiment_id} not found",
+            "No experiment with this ID.",
+            "List experiments: sonde list",
+        )
+        raise SystemExit(1)
+
+    finding_text = exp.finding
+    if not finding_text or not finding_text.strip():
+        print_error(
+            f"Experiment {experiment_id.upper()} has no finding",
+            "The finding field is empty.",
+            f"Add one: sonde update {experiment_id.upper()} --finding '...'",
+        )
+        raise SystemExit(1)
+
+    resolved_source = source or resolve_source()
+
+    data = FindingCreate(
+        program=exp.program,
+        topic=topic,
+        finding=finding_text,
+        confidence=cast(Literal["low", "medium", "high"], confidence),
+        evidence=[experiment_id.upper()],
+        source=resolved_source,
+    )
+
+    result = db.create(data)
+    log_activity(result.id, "finding", "created")
+
+    if ctx.obj.get("json"):
+        print_json(result.model_dump(mode="json"))
+    else:
+        print_success(
+            f"Extracted {result.id} from {experiment_id.upper()}",
+            details=[
+                f"Topic: {topic}",
+                f"Finding: {finding_text[:80]}",
+            ],
+            breadcrumbs=[
+                f"View: sonde finding show {result.id}",
+                f"Evidence: sonde show {experiment_id.upper()}",
+            ],
         )
