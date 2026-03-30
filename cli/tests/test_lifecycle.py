@@ -110,6 +110,20 @@ class TestSuggestNext:
         reasons = [s["reason"] for s in suggestions]
         assert any("still running" in r for r in reasons)
 
+    def test_non_leaf_with_open_siblings_still_suggests_parent(self):
+        """Bug fix: closing a non-leaf node with non-terminal siblings should
+        still suggest branching from parent, not return empty."""
+        exp = _make_experiment(
+            status="complete", parent_id="EXP-0000", finding="Some finding"
+        )
+        child = _make_experiment(id="EXP-0010", parent_id="EXP-0001")
+        sib = _make_experiment(id="EXP-0002", status="open", parent_id="EXP-0000")
+        suggestions = _suggest_next(exp, children=[child], siblings=[sib])
+        commands = [s["command"] for s in suggestions]
+        # Should always suggest branching from parent when parent exists
+        assert any("EXP-0000" in c for c in commands)
+        assert len(suggestions) > 0
+
 
 # ---------------------------------------------------------------------------
 # start command — claim mechanism

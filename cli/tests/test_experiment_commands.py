@@ -604,6 +604,29 @@ class TestForkTree:
         assert "siblings" in data
         assert "parent" in data
 
+    def test_fork_status_running_sets_claim(self, runner: CliRunner, patched_db: MagicMock):
+        """Bug fix: fork --status running should set claimed_by/claimed_at."""
+        running_fork = {
+            **_FORKED_ROW,
+            "status": "running",
+            "claimed_by": "human/test",
+            "claimed_at": "2026-03-30T14:00:00+00:00",
+        }
+        patched_db.table.side_effect = _fork_table_factory(
+            _EXPERIMENT_ROW, running_fork
+        )
+
+        result = runner.invoke(
+            cli,
+            ["--json", "experiment", "fork", "EXP-0001", "--status", "running"],
+        )
+        assert result.exit_code == 0
+        import json
+
+        data = json.loads(result.output)
+        assert data["created"]["status"] == "running"
+        assert data["created"]["claimed_by"] is not None
+
 
 class TestShowTree:
     def _setup_show_tree_mock(

@@ -146,7 +146,7 @@ def _render_rich_tree(
     frontier = {n for n in active if not any(c["id"] in active for c in node_map.get(n, []))}
 
     def _add(parent: Tree, pid: str, d: int) -> None:
-        if depth_limit is not None and d >= depth_limit:
+        if depth_limit is not None and d > depth_limit:
             return
         for ch in node_map.get(pid, []):
             b = parent.add(_format_node_label(ch, frontier=ch["id"] in frontier))
@@ -299,7 +299,8 @@ def tree_cmd(
     resolved_program = program or settings.program
     source_filter = resolve_source() if filter_mine else None
 
-    rows = _collect_tree_rows(root_id, resolved_program, max_depth=depth or 10)
+    max_depth = depth if depth is not None else 10
+    rows = _collect_tree_rows(root_id, resolved_program, max_depth=max_depth)
     if not rows:
         err.print("[sonde.muted]No experiments found.[/]")
         return
@@ -311,6 +312,14 @@ def tree_cmd(
         leaves=filter_leaves, stale_hours=48 if filter_stale else None,
     )
 
+    # When a specific EXP- root was requested, always include it for context
+    if root_id and root_id.startswith("EXP-"):
+        fids_set = {r["id"] for r in filtered}
+        if root_id not in fids_set:
+            root_row = next((r for r in rows if r["id"] == root_id), None)
+            if root_row:
+                filtered.insert(0, root_row)
+
     if ctx.obj.get("json"):
         print_json({
             "root": root_id,
@@ -321,6 +330,10 @@ def tree_cmd(
     if not filtered:
         err.print("[sonde.muted]No experiments match the active filters.[/]")
         return
+
+    # Clip to depth limit so counts reflect what's actually rendered
+    if depth is not None:
+        filtered = [r for r in filtered if r.get("depth", 0) <= depth]
 
     # Render Rich trees
     node_map = _build_node_map(filtered)

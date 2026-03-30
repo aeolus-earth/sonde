@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -1161,6 +1162,8 @@ def fork(
         git_commit=git_ctx.commit if git_ctx else None,
         git_repo=git_ctx.repo if git_ctx else None,
         git_branch=git_ctx.branch if git_ctx else None,
+        claimed_by=resolved_source if status == "running" else None,
+        claimed_at=datetime.now(UTC) if status == "running" else None,
     )
 
     new_exp = db.create(data)

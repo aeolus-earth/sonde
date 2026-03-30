@@ -75,7 +75,7 @@ def _suggest_next(
                 "reason": "All branches from parent are done — review results",
             })
 
-    if exp.parent_id is not None and not siblings:
+    if exp.parent_id is not None:
         suggestions.append({
             "command": f"sonde fork {exp.parent_id} --type refinement",
             "reason": "Branch from the parent experiment",
