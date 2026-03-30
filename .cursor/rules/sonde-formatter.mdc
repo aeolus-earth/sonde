@@ -90,16 +90,28 @@ sonde tag add EXP-XXXX cloud-seeding
 sonde tag add EXP-XXXX spectral-bin
 ```
 
-**Finding** — if the experiment is complete, extract the key insight as a single sentence:
+**Finding** — record what you learned in enough detail that someone grepping for this topic in six months gets the full story without opening the experiment. Write as much as you need — a few sentences, a couple paragraphs, whatever captures the result, the context, and what it means:
 
 ```bash
-sonde update EXP-XXXX --finding "Spectral bin produces 8% less precipitation enhancement than bulk at CCN=1200 over maritime Cu domain"
+sonde update EXP-XXXX --finding "Spectral bin microphysics produces 8% less precipitation enhancement than bulk two-moment at CCN=1200 over the North Atlantic maritime Cu domain (5.8% vs 13.6% baseline). The difference is concentrated in the first 24 hours of simulation and diminishes as the domain equilibrates — by hour 48 the schemes converge to within 2%.
+
+This suggests microphysics scheme choice matters more than CCN concentration once you're above the ~1000 CCN threshold. Below 1000, CCN dominates; above it, the scheme's treatment of droplet activation becomes the controlling factor. The implication for the seeding program is that we need to validate scheme sensitivity before interpreting any CCN sweep results — bulk and spectral give qualitatively different answers in the enhancement regime we care about.
+
+Next steps: replicate with Morrison scheme to see if the pattern holds across a third microphysics option, and test at 3km resolution to check if the convergence timescale changes."
 ```
 
-A good finding is:
-- One sentence, self-contained (makes sense without reading the full experiment)
-- Quantitative when possible ("8% less" not "less")
-- Specific about conditions ("at CCN=1200 over maritime Cu" not "in some cases")
+A good finding:
+- Self-contained — makes sense without reading the full experiment
+- Quantitative — includes numbers, baselines, and conditions
+- Includes interpretation — what this means for the research direction
+- Includes context — when/where the result holds and when it doesn't
+- Suggests what to do next — what questions remain
+
+Bad: "it worked" / "CCN looked good" / "results as expected" / "see experiment for details"
+
+Good (kernel optimization): "Tiling at 32x32 gives 12.4 GFLOPS on A100 — 3x improvement over the naive implementation. L2 cache miss rate dropped from 0.31 to 0.08, which accounts for most of the speedup. Above 32x32, diminishing returns set in due to register pressure: 64x64 causes register spill and a 40% regression back to 7.5 GFLOPS. Register blocking partially recovers the 64x64 case (9.1 GFLOPS) but still underperforms 32x32. The 32x32 sweet spot holds on both A100 and H100 — this appears to be an architectural constant for this kernel shape rather than a hardware-specific artifact."
+
+Good (trading): "The momentum signal decays to noise after 4 hours on BTC/USD across 2024-2025 data (Sharpe drops from 1.8 at 1h to 0.3 at 4h, below transaction costs at 0.15% maker fee). Signal is strongest during US market hours (14:00-21:00 UTC) and nearly absent during Asian session. The decay rate is faster during high-volatility regimes (VIX > 25) — the 1h Sharpe drops to 1.1 and the useful window shrinks to 2h. This means the strategy needs sub-4h execution and should either scale position size inversely with volatility or shut off entirely above VIX 30."
 
 **Parameters** — if the experiment used specific configuration values, capture them as structured data so `sonde search --param` works:
 

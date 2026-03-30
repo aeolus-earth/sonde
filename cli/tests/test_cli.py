@@ -36,6 +36,12 @@ def test_help_shows_direction_and_workspace(runner: CliRunner):
     assert "push" in output
 
 
+def test_help_shows_doctor(runner: CliRunner):
+    result = runner.invoke(cli, ["--help"])
+    assert result.exit_code == 0
+    assert "doctor" in result.output.lower()
+
+
 def test_unknown_command(runner: CliRunner):
     result = runner.invoke(cli, ["nonexistent"])
     assert result.exit_code != 0

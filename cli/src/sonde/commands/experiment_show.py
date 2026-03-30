@@ -227,13 +227,14 @@ def show(ctx: click.Context, experiment_id: str, graph: bool) -> None:
         # Research hygiene nudge (max 1, only for non-JSON)
         if exp.status in ("complete", "failed") and not exp.finding:
             print_nudge(
-                "This experiment is complete but has no finding recorded.",
-                f'sonde update {exp.id} --finding "What you learned"',
+                "No finding recorded — state the result with numbers and conditions:",
+                f"sonde update {exp.id} --finding"
+                f' "32x32 tiling: 12.4 GFLOPS (3x naive), L2 miss 0.08"',
             )
         elif exp.status in ("open", "running") and not artifacts:
             print_nudge(
-                f"Stage result files under .sonde/experiments/{exp.id}/results/, then sync them.",
-                f"sonde experiment push {exp.id}",
+                f"Put files anywhere under .sonde/experiments/{exp.id}/, then sync them.",
+                f"sonde push experiment {exp.id}",
             )
         elif exp.status in ("open", "running") and not exp.direction_id:
             print_nudge(

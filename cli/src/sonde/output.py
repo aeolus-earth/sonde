@@ -70,6 +70,14 @@ STATUS_STYLE: dict[str, str] = {
     "superseded": "sonde.muted",
 }
 
+DOCTOR_STATUS_STYLE: dict[str, str] = {
+    "ok": "sonde.success",
+    "info": "sonde.muted",
+    "warn": "sonde.warning",
+    "error": "sonde.error",
+    "skipped": "sonde.muted",
+}
+
 CONFIDENCE_STYLE: dict[str, str] = {
     "high": "sonde.success",
     "medium": "sonde.warning",
@@ -87,6 +95,12 @@ def styled_confidence(confidence: str) -> str:
     """Return a Rich-styled confidence string."""
     style = CONFIDENCE_STYLE.get(confidence, "")
     return f"[{style}]{confidence}[/]" if style else confidence
+
+
+def styled_doctor_status(status: str) -> str:
+    """Return a Rich-styled doctor status string."""
+    style = DOCTOR_STATUS_STYLE.get(status, "")
+    return f"[{style}]{status}[/]" if style else status
 
 
 def print_table(columns: list[str], rows: list[dict[str, Any]], *, title: str | None = None):

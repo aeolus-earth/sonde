@@ -9,14 +9,14 @@ from typing import Any
 
 import click
 from postgrest.exceptions import APIError
-from rich.progress import (
-    BarColumn,
-    Progress,
-    SpinnerColumn,
-    TaskProgressColumn,
-    TextColumn,
-)
 
+from sonde.artifact_sync import (
+    SyncCandidate,
+    SyncJournal,
+    SyncProgress,
+    build_fingerprint,
+    build_plan,
+)
 from sonde.cli_options import pass_output_options
 from sonde.config import get_settings
 from sonde.db import directions as dir_db
@@ -45,10 +45,15 @@ class ArtifactSyncSummary:
     text_total: int = 0
     media_total: int = 0
     downloaded: int = 0
+    updated: int = 0
     skipped: int = 0
     failed: int = 0
     selected_bytes: int = 0
     downloaded_bytes: int = 0
+    elapsed_seconds: float = 0.0
+    plan: dict[str, Any] | None = None
+    resume: dict[str, Any] | None = None
+    next_steps: list[str] | None = None
 
 
 def _artifact_mode_option(default: str | None = None):
@@ -310,10 +315,13 @@ def _run_experiment_pull(
     sync = _sync_experiments(
         sonde_dir,
         experiments,
+        selector=selector_summary,
         artifact_mode=mode,
         use_json=bool(ctx.obj.get("json")),
         follow_up_command=_media_follow_up(selector_summary, program),
     )
+    if selector_kind == "single":
+        sync.next_steps = _pull_next_steps(experiments[0]["id"], sync)
 
     if ctx.obj.get("json"):
         if selector_kind == "single":
@@ -337,9 +345,13 @@ def _run_experiment_pull(
         print_success(f"Pulled {len(experiments)} experiment(s)")
     if sync.mode != "none":
         err.print(
-            f"  [sonde.muted]Artifacts: downloaded {sync.downloaded}, skipped {sync.skipped}, "
-            f"failed {sync.failed}[/]"
+            f"  [sonde.muted]Artifacts: downloaded {sync.downloaded}, "
+            f"updated {sync.updated}, skipped {sync.skipped}, failed {sync.failed}[/]"
         )
+    if sync.next_steps:
+        err.print("\n[sonde.heading]Suggested next[/]")
+        for command in sync.next_steps[:3]:
+            err.print(f"  {command}")
 
 
 def _selector_kind(
@@ -465,6 +477,7 @@ def _pull_all(ctx: click.Context) -> None:
     sync = _sync_experiments(
         sonde_dir,
         experiments,
+        selector={"kind": "program", "program": program},
         artifact_mode=ctx.obj.get("pull_artifacts", "text"),
         use_json=bool(ctx.obj.get("json")),
         follow_up_command=f"sonde pull -p {program} --artifacts media",
@@ -502,8 +515,8 @@ def _pull_all(ctx: click.Context) -> None:
     err.print("  [sonde.muted]→ .sonde/[/]")
     if sync.mode != "none":
         err.print(
-            f"  [sonde.muted]Artifacts: downloaded {sync.downloaded}, skipped {sync.skipped}, "
-            f"failed {sync.failed}[/]"
+            f"  [sonde.muted]Artifacts: downloaded {sync.downloaded}, "
+            f"updated {sync.updated}, skipped {sync.skipped}, failed {sync.failed}[/]"
         )
 
 
@@ -511,6 +524,7 @@ def _sync_experiments(
     sonde_dir: Path,
     experiments: list[dict[str, Any]],
     *,
+    selector: dict[str, Any],
     artifact_mode: str,
     use_json: bool,
     follow_up_command: str | None,
@@ -528,6 +542,7 @@ def _sync_experiments(
     return _download_selected_artifacts(
         sonde_dir,
         experiments,
+        selector=selector,
         mode=artifact_mode,
         use_json=use_json,
         follow_up_command=follow_up_command,
@@ -538,6 +553,7 @@ def _download_selected_artifacts(
     sonde_dir: Path,
     experiments: list[dict[str, Any]],
     *,
+    selector: dict[str, Any],
     mode: str,
     use_json: bool,
     follow_up_command: str | None,
@@ -550,22 +566,59 @@ def _download_selected_artifacts(
     if not artifacts:
         return summary
 
-    selected: list[dict[str, Any]] = []
+    planned: list[SyncCandidate] = []
     for artifact in artifacts:
+        storage_path = str(artifact.get("storage_path") or "")
+        if not storage_path:
+            continue
         is_text = is_text_artifact(
-            str(artifact.get("filename") or Path(str(artifact.get("storage_path") or "")).name),
+            str(artifact.get("filename") or Path(storage_path).name),
             artifact.get("mime_type"),
         )
         if is_text:
             summary.text_total += 1
         else:
             summary.media_total += 1
-        if mode == "all" or (mode == "text" and is_text) or (mode == "media" and not is_text):
-            selected.append(artifact)
 
-    summary.selected = len(selected)
-    summary.selected_bytes = sum(int(artifact.get("size_bytes") or 0) for artifact in selected)
-    if not selected:
+        should_select = (
+            mode == "all" or (mode == "text" and is_text) or (mode == "media" and not is_text)
+        )
+        if not should_select:
+            continue
+
+        local_path, local_action = _planned_pull_target(sonde_dir, artifact)
+        fingerprint = build_fingerprint(
+            storage_path,
+            local_action,
+            artifact.get("checksum_sha256"),
+            artifact.get("size_bytes"),
+        )
+        planned.append(
+            SyncCandidate(
+                key=storage_path,
+                label=str(local_path.relative_to(sonde_dir)),
+                size_bytes=int(artifact.get("size_bytes") or 0),
+                kind="text" if is_text else "media",
+                action=local_action,
+                fingerprint=fingerprint,
+                local_path=str(local_path),
+                storage_path=storage_path,
+                metadata=artifact,
+            )
+        )
+
+    plan = build_plan(planned)
+    summary.selected = plan.total
+    summary.selected_bytes = plan.total_bytes
+    summary.plan = asdict(plan)
+    journal = SyncJournal(
+        sonde_dir,
+        operation="pull-experiment",
+        selector={"selector": selector, "mode": mode},
+        candidates=planned,
+    )
+    summary.resume = asdict(journal.resume)
+    if not planned:
         if mode == "text" and summary.media_total and follow_up_command and not use_json:
             err.print(
                 f"  [sonde.muted]Skipped {summary.media_total} media artifact(s). "
@@ -573,65 +626,50 @@ def _download_selected_artifacts(
             )
         return summary
 
-    show_progress = err.is_terminal and not use_json
-    if show_progress:
-        err.print(
-            f"  [sonde.muted]Artifacts: {summary.selected} selected "
-            f"({summary.text_total} text, {summary.media_total} media) "
-            f"• {_format_bytes(summary.selected_bytes)}[/]"
-        )
-
-    progress: Progress | None = None
-    task_id: int | None = None
-    if show_progress:
-        progress = Progress(
-            SpinnerColumn(),
-            TextColumn("{task.description}"),
-            BarColumn(),
-            TaskProgressColumn(),
-            TextColumn("{task.fields[bytes_label]}"),
-            console=err,
-        )
-        progress.start()
-        task_id = progress.add_task(
-            "Downloading artifacts",
-            total=len(selected),
-            bytes_label=f"0 / {_format_bytes(summary.selected_bytes)}",
-        )
+    progress = SyncProgress(
+        title="Pulling artifacts",
+        verb="download",
+        plan=plan,
+        resume=journal.resume,
+        use_json=use_json,
+    )
+    progress.print_preflight()
+    progress.start()
 
     try:
-        for artifact in selected:
-            storage_path = str(artifact.get("storage_path") or "")
-            if not storage_path:
-                summary.failed += 1
+        for candidate in planned:
+            if candidate.action == "skip":
+                summary.skipped += 1
+                journal.record(candidate, status="skipped", bytes_transferred=candidate.size_bytes)
+                progress.advance_file(bytes_transferred=candidate.size_bytes)
                 continue
-            if progress and task_id is not None:
-                progress.update(
-                    task_id,
-                    description=(
-                        f"Downloading {artifact.get('filename') or Path(storage_path).name}"
-                    ),
-                    bytes_label=f"{_format_bytes(summary.downloaded_bytes)} / "
-                    f"{_format_bytes(summary.selected_bytes)}",
-                )
-            result = _download_one_artifact(sonde_dir, artifact)
+
+            progress.set_current(candidate.label)
+            result = _download_one_artifact(Path(candidate.local_path or ""), candidate.metadata)
             if result == "downloaded":
                 summary.downloaded += 1
-                summary.downloaded_bytes += int(artifact.get("size_bytes") or 0)
+                summary.downloaded_bytes += candidate.size_bytes
+                journal.record(
+                    candidate, status="downloaded", bytes_transferred=candidate.size_bytes
+                )
+                progress.advance_file(bytes_transferred=candidate.size_bytes)
+            elif result == "updated":
+                summary.updated += 1
+                summary.downloaded_bytes += candidate.size_bytes
+                journal.record(candidate, status="updated", bytes_transferred=candidate.size_bytes)
+                progress.advance_file(bytes_transferred=candidate.size_bytes)
             elif result == "skipped":
                 summary.skipped += 1
+                journal.record(candidate, status="skipped", bytes_transferred=candidate.size_bytes)
+                progress.advance_file(bytes_transferred=candidate.size_bytes)
             else:
                 summary.failed += 1
-            if progress and task_id is not None:
-                progress.advance(task_id)
-                progress.update(
-                    task_id,
-                    bytes_label=f"{_format_bytes(summary.downloaded_bytes)} / "
-                    f"{_format_bytes(summary.selected_bytes)}",
-                )
+                journal.record(candidate, status="failed", bytes_transferred=0)
+                progress.advance_file(bytes_transferred=0)
     finally:
-        if progress:
-            progress.stop()
+        summary.elapsed_seconds = progress.stop()
+
+    journal.finish(keep=summary.failed > 0)
 
     if mode == "text" and summary.media_total and follow_up_command and not use_json:
         err.print(
@@ -641,7 +679,7 @@ def _download_selected_artifacts(
     return summary
 
 
-def _download_one_artifact(sonde_dir: Path, artifact: dict[str, Any]) -> str:
+def _planned_pull_target(sonde_dir: Path, artifact: dict[str, Any]) -> tuple[Path, str]:
     from sonde.db.validate import contained_path
 
     experiment_id = str(artifact.get("experiment_id") or "")
@@ -655,11 +693,19 @@ def _download_one_artifact(sonde_dir: Path, artifact: dict[str, Any]) -> str:
     try:
         local_path = contained_path(exp_dir, relative)
     except ValueError:
-        err.print(f"  [sonde.warning]Skipping artifact with unsafe path: {storage_path}[/]")
+        return exp_dir / Path(relative).name, "download"
+
+    if local_path.exists():
+        return local_path, "skip" if _matches_local_artifact(local_path, artifact) else "update"
+    return local_path, "download"
+
+
+def _download_one_artifact(local_path: Path, artifact: dict[str, Any]) -> str:
+    storage_path = str(artifact.get("storage_path") or "")
+    if not storage_path:
         return "failed"
 
-    if local_path.exists() and _matches_local_artifact(local_path, artifact):
-        return "skipped"
+    already_exists = local_path.exists()
 
     try:
         data = download_file(storage_path)
@@ -668,7 +714,7 @@ def _download_one_artifact(sonde_dir: Path, artifact: dict[str, Any]) -> str:
     except Exception as exc:
         err.print(f"  [sonde.warning]Failed to download {storage_path}: {exc}[/]")
         return "failed"
-    return "downloaded"
+    return "updated" if already_exists else "downloaded"
 
 
 def _matches_local_artifact(local_path: Path, artifact: dict[str, Any]) -> bool:
@@ -716,6 +762,39 @@ def _media_follow_up(selector: dict[str, Any], program: str | None) -> str | Non
         parts.append("--roots")
     parts.extend(["--artifacts", "media"])
     return " ".join(parts)
+
+
+def _pull_next_steps(experiment_id: str, sync: ArtifactSyncSummary) -> list[str]:
+    if sync.failed:
+        return []
+
+    exp = exp_db.get(experiment_id)
+    if not exp:
+        return []
+
+    suggestions: list[str] = [f"sonde show {experiment_id}"]
+    if (sync.downloaded or sync.updated) and exp.status in ("open", "running") and not exp.finding:
+        suggestions.append(f'sonde note {experiment_id} "What changed after this pull"')
+
+    from sonde.commands.lifecycle import _suggest_next
+
+    try:
+        children = exp_db.get_children(experiment_id)
+        siblings = exp_db.get_siblings(experiment_id) if exp.parent_id else []
+    except SystemExit:
+        children = []
+        siblings = []
+    for suggestion in _suggest_next(exp, children, siblings):
+        suggestions.append(suggestion["command"])
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for command in suggestions:
+        if command in seen:
+            continue
+        seen.add(command)
+        deduped.append(command)
+    return deduped[:3]
 
 
 def _format_bytes(value: int) -> str:

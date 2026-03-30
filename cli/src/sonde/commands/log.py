@@ -207,8 +207,9 @@ def log(
         # Research hygiene nudge (max 1, only for non-JSON)
         if not exp.content and not exp.hypothesis:
             print_nudge(
-                "Add what you expect to happen:",
-                f'sonde update {exp.id} "Hypothesis: ..."',
+                "Describe what you're testing and why — be specific for grepability:",
+                f'sonde update {exp.id} "## Objective\\n'
+                f'Test CCN=1500 saturation\\n\\n## Method\\nSpectral bin, 25km"',
             )
         elif not exp.direction_id:
             print_nudge(

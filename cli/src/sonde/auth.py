@@ -11,6 +11,7 @@ import base64
 import json
 import logging
 import os
+import secrets
 import socket
 import webbrowser
 from dataclasses import dataclass
@@ -30,6 +31,8 @@ logger = logging.getLogger(__name__)
 
 KEYRING_SERVICE = "sonde-cli"
 CALLBACK_TIMEOUT = 120
+AGENT_TOKEN_PREFIX = "sonde_at_"
+BOT_TOKEN_PREFIX = "sonde_bt_"
 
 
 def _load_callback_html() -> bytes:
@@ -143,7 +146,9 @@ def get_token() -> str:
     # Path 1: Agent token from environment
     env_token = os.environ.get("SONDE_TOKEN", "")
     if env_token:
-        return env_token.removeprefix("sonde_at_")
+        if env_token.startswith(BOT_TOKEN_PREFIX):
+            return _bot_session_token(_decode_bot_token(env_token))
+        return env_token.removeprefix(AGENT_TOKEN_PREFIX)
 
     # Path 2: Human session from storage
     session = load_session()
@@ -184,8 +189,20 @@ def get_current_user() -> UserInfo | None:
     # Agent token
     env_token = os.environ.get("SONDE_TOKEN", "")
     if env_token:
+        if env_token.startswith(BOT_TOKEN_PREFIX):
+            bundle = _decode_bot_token(env_token)
+            name = str(bundle.get("name") or bundle.get("email") or "agent")
+            email = str(bundle.get("email") or f"{name}@aeolus.earth")
+            return UserInfo(
+                email=email,
+                user_id=str(bundle.get("token_id") or email),
+                name=name,
+                is_agent=True,
+                is_admin=False,
+                programs=_bundle_programs(bundle),
+            )
         try:
-            claims = _token_claims(env_token.removeprefix("sonde_at_"))
+            claims = _token_claims(env_token.removeprefix(AGENT_TOKEN_PREFIX))
         except Exception:
             claims = {}
         identity = _agent_identity(claims)
@@ -327,6 +344,55 @@ def login() -> UserInfo:
 def _anon_client() -> Client:
     """Create an unauthenticated Supabase client for auth operations."""
     return create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+
+
+def encode_bot_token(bundle: dict[str, Any]) -> str:
+    """Encode bot credentials for non-interactive agent auth."""
+    payload = json.dumps(bundle, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    encoded = base64.urlsafe_b64encode(payload).decode("utf-8").rstrip("=")
+    return f"{BOT_TOKEN_PREFIX}{encoded}"
+
+
+def generate_bot_password() -> str:
+    """Generate a high-entropy password for bot auth users."""
+    return secrets.token_urlsafe(32)
+
+
+def _decode_bot_token(token: str) -> dict[str, Any]:
+    payload = token.removeprefix(BOT_TOKEN_PREFIX)
+    padding = "=" * (-len(payload) % 4)
+    decoded = json.loads(base64.urlsafe_b64decode(payload + padding))
+    return decoded if isinstance(decoded, dict) else {}
+
+
+def _bundle_programs(bundle: dict[str, Any]) -> list[str] | None:
+    programs = bundle.get("programs")
+    if isinstance(programs, list) and all(isinstance(program, str) for program in programs):
+        return programs
+    return None
+
+
+def _bot_session_token(bundle: dict[str, Any]) -> str:
+    email = str(bundle.get("email") or "")
+    password = str(bundle.get("password") or "")
+    if not email or not password:
+        raise NotAuthenticatedError("Malformed bot token")
+
+    client = _anon_client()
+    try:
+        session_response = client.auth.sign_in_with_password(
+            {
+                "email": email,
+                "password": password,
+            }
+        )
+    except AuthApiError as exc:
+        raise NotAuthenticatedError(f"Bot token authentication failed: {exc}") from None
+
+    session = getattr(session_response, "session", None)
+    if not session or not session.access_token:
+        raise NotAuthenticatedError("Bot token authentication failed")
+    return session.access_token
 
 
 def _token_claims(token: str) -> dict[str, Any]:

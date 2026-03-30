@@ -22,6 +22,7 @@ SUPABASE_ANON_KEY = "sb_publishable_tWTyul-LMC9QDFYID8pOZA_wKM2e2AL"
 # -- User config paths --
 CONFIG_DIR = Path.home() / ".config" / "sonde"
 SESSION_FILE = CONFIG_DIR / "session.json"
+_ENV_ONLY_FIELDS = {"supabase_service_role_key"}
 
 
 def _find_project_config() -> dict[str, Any]:
@@ -71,10 +72,14 @@ class Settings(BaseSettings):
                 # Flatten nested: s3: {bucket: bar} → s3_bucket: bar
                 for sub_key, sub_value in value.items():
                     field_name = f"{key}_{sub_key}".replace("-", "_")
+                    if field_name in _ENV_ONLY_FIELDS:
+                        continue
                     if field_name in self.__class__.model_fields and not getattr(self, field_name):
                         updates[field_name] = sub_value
             else:
                 field_name = key.replace("-", "_")
+                if field_name in _ENV_ONLY_FIELDS:
+                    continue
                 if field_name in self.__class__.model_fields and not getattr(self, field_name):
                     updates[field_name] = value
         if updates:

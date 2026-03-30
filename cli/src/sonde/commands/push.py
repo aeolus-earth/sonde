@@ -2,14 +2,20 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
 import click
 import yaml
-from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn
 
+from sonde.artifact_sync import (
+    SyncCandidate,
+    SyncJournal,
+    SyncProgress,
+    build_fingerprint,
+    build_plan,
+)
 from sonde.auth import get_current_user, resolve_source
 from sonde.cli_options import pass_output_options
 from sonde.config import get_settings
@@ -35,9 +41,19 @@ class ArtifactUploadStats:
     """Summarize artifact uploads for one experiment directory."""
 
     total: int = 0
+    text_total: int = 0
+    media_total: int = 0
+    total_bytes: int = 0
     uploaded: int = 0
+    updated: int = 0
     skipped: int = 0
     failed: int = 0
+    oversized: int = 0
+    transferred_bytes: int = 0
+    elapsed_seconds: float = 0.0
+    plan: dict[str, Any] = field(default_factory=dict)
+    resume: dict[str, Any] = field(default_factory=dict)
+    next_steps: list[str] = field(default_factory=list)
 
 
 @click.group(invoke_without_command=True)
@@ -88,11 +104,22 @@ def push_all(ctx: click.Context) -> None:
 def push_experiment(ctx: click.Context, name: str) -> None:
     """Push one experiment file and its local directory."""
     result = _push_one("experiments", name)
+    sync = result.get("_sync", {}).get("artifacts", {})
+    has_errors = int(sync.get("failed") or 0) > 0 or int(sync.get("oversized") or 0) > 0
     if ctx.obj.get("json"):
         print_json(result)
     else:
-        print_success(f"{result['action'].title()} {result['id']}")
-        _print_experiment_push_guidance(result)
+        if has_errors:
+            print_error(
+                f"Artifact sync was only partially successful for {result['id']}",
+                "One or more artifact uploads failed or exceeded the Supabase limit.",
+                "Fix the reported paths or use the guided large-file fallback, then retry.",
+            )
+        else:
+            print_success(f"{result['action'].title()} {result['id']}")
+            _print_experiment_push_guidance(result)
+    if has_errors:
+        raise SystemExit(1)
 
 
 @push.command("experiments")
@@ -182,7 +209,10 @@ def push_directions(ctx: click.Context) -> None:
         print_success(f"Pushed {count} direction(s)")
 
 
-def _push_directory(category: str) -> int:
+def _push_directory(category: str, *, use_json: bool | None = None) -> int:
+    if use_json is None:
+        ctx = click.get_current_context(silent=True)
+        use_json = bool(ctx and ctx.obj and ctx.obj.get("json"))
     sonde_dir = find_sonde_dir()
     directory = sonde_dir / category
     if not directory.exists():
@@ -190,12 +220,15 @@ def _push_directory(category: str) -> int:
 
     count = 0
     for filepath in sorted(directory.glob("*.md")):
-        _push_file(category, filepath)
+        _push_file(category, filepath, use_json=use_json)
         count += 1
     return count
 
 
-def _push_one(category: str, name: str) -> dict[str, Any]:
+def _push_one(category: str, name: str, *, use_json: bool | None = None) -> dict[str, Any]:
+    if use_json is None:
+        ctx = click.get_current_context(silent=True)
+        use_json = bool(ctx and ctx.obj and ctx.obj.get("json"))
     sonde_dir = find_sonde_dir()
     try:
         filepath = _find_file(sonde_dir / category, name)
@@ -213,13 +246,16 @@ def _push_one(category: str, name: str) -> dict[str, Any]:
             f"Create one first: sonde {category[:-1]} new",
         )
         raise SystemExit(1)
-    return _push_file(category, filepath)
+    return _push_file(category, filepath, use_json=use_json)
 
 
-def _push_file(category: str, filepath: Path) -> dict[str, Any]:
+def _push_file(category: str, filepath: Path, *, use_json: bool | None = None) -> dict[str, Any]:
+    if use_json is None:
+        ctx = click.get_current_context(silent=True)
+        use_json = bool(ctx and ctx.obj and ctx.obj.get("json"))
     frontmatter, body = parse_markdown(filepath.read_text(encoding="utf-8"))
     if category == "experiments":
-        result = _upsert_experiment(frontmatter, body, filepath)
+        result = _upsert_experiment(frontmatter, body, filepath, use_json=use_json)
     elif category == "findings":
         result = _upsert_finding(frontmatter, body, filepath)
     elif category == "questions":
@@ -260,25 +296,28 @@ def _print_experiment_push_guidance(result: dict[str, Any]) -> None:
     artifact_sync = sync.get("artifacts") or {}
     artifact_total = int(artifact_sync.get("total") or 0)
     artifact_uploaded = int(artifact_sync.get("uploaded") or 0)
+    artifact_updated = int(artifact_sync.get("updated") or 0)
     artifact_skipped = int(artifact_sync.get("skipped") or 0)
+    next_steps = [str(step) for step in artifact_sync.get("next_steps") or []]
 
     if artifact_total == 0:
         print_nudge(
-            f"No local result files were found. Stage outputs under "
-            f".sonde/experiments/{exp_id}/results/ before the next push.",
-            f"mkdir -p .sonde/experiments/{exp_id}/results",
+            f"Put files anywhere under .sonde/experiments/{exp_id}/, then push again.",
+            f"mkdir -p .sonde/experiments/{exp_id}",
         )
         return
 
-    exp = exp_db.get(exp_id)
-    if (
-        exp
-        and exp.status in ("open", "running")
-        and (artifact_uploaded > 0 or artifact_skipped > 0)
-    ):
+    if next_steps:
+        err.print("\n[sonde.heading]Suggested next[/]")
+        for command in next_steps[:3]:
+            err.print(f"  {command}")
+        return
+
+    if artifact_uploaded > 0 or artifact_updated > 0 or artifact_skipped > 0:
         print_nudge(
-            "Artifacts are synced. If this run is done, record the takeaway and close it.",
-            f'sonde close {exp_id} --finding "..."',
+            "Artifacts are synced. The normal workflow is to keep working under the "
+            "experiment tree, then push again.",
+            f"sonde show {exp_id}",
         )
 
 
@@ -310,7 +349,13 @@ def _extract_context(body: str) -> str | None:
     return text or None
 
 
-def _upsert_experiment(frontmatter: dict[str, Any], body: str, filepath: Path) -> dict[str, Any]:
+def _upsert_experiment(
+    frontmatter: dict[str, Any],
+    body: str,
+    filepath: Path,
+    *,
+    use_json: bool,
+) -> dict[str, Any]:
     program = _resolve_program(frontmatter)
     source = _resolve_source(frontmatter)
     git_ctx = detect_git_context()
@@ -358,12 +403,17 @@ def _upsert_experiment(frontmatter: dict[str, Any], body: str, filepath: Path) -
     exp_dir = filepath.parent / exp_id
     if not exp_dir.exists():
         exp_dir = filepath.parent / filepath.stem
-    artifact_stats = _sync_directory(exp_id, exp_dir) if exp_dir.is_dir() else ArtifactUploadStats()
+    artifact_stats = (
+        _sync_directory(exp_id, exp_dir, source=source, use_json=use_json)
+        if exp_dir.is_dir()
+        else ArtifactUploadStats()
+    )
     note_count = _sync_notes(exp_id, exp_dir) if exp_dir.is_dir() else 0
-    if artifact_stats.total or note_count:
+    if (artifact_stats.total or note_count) and not use_json:
         err.print(
             f"  [sonde.muted]{exp_id}: uploaded {artifact_stats.uploaded}, "
-            f"skipped {artifact_stats.skipped}, failed {artifact_stats.failed}, "
+            f"updated {artifact_stats.updated}, skipped {artifact_stats.skipped}, "
+            f"failed {artifact_stats.failed}, oversized {artifact_stats.oversized}, "
             f"notes {note_count}[/]"
         )
     return {
@@ -479,65 +529,227 @@ def _upsert_direction(frontmatter: dict[str, Any], body: str, filepath: Path) ->
     return {"id": direction.id, "record_type": "direction", "action": "created"}
 
 
-def _sync_directory(experiment_id: str, exp_dir: Path) -> ArtifactUploadStats:
-    from sonde.db.artifacts import compute_checksum, find_by_path, upload_file
+def _sync_directory(
+    experiment_id: str,
+    exp_dir: Path,
+    *,
+    source: str,
+    use_json: bool,
+    only_relative_paths: set[str] | None = None,
+) -> ArtifactUploadStats:
+    from sonde.db.artifacts import (
+        MAX_ARTIFACT_SIZE_BYTES,
+        ArtifactTooLargeError,
+        compute_checksum,
+        is_text_artifact,
+        list_artifacts,
+        upload_file,
+    )
 
-    user = get_current_user()
-    source = resolve_source(user)
     candidates = [
         path
         for path in sorted(exp_dir.rglob("*"))
         if path.is_file() and not any(part in _SKIP or part == "notes" for part in path.parts)
     ]
+    if only_relative_paths is not None:
+        candidates = [
+            path
+            for path in candidates
+            if path.relative_to(exp_dir).as_posix() in only_relative_paths
+        ]
+
     stats = ArtifactUploadStats(total=len(candidates))
     if not candidates:
         return stats
 
-    progress: Progress | None = None
-    task_id: int | None = None
-    if err.is_terminal:
-        progress = Progress(
-            SpinnerColumn(),
-            TextColumn("{task.description}"),
-            BarColumn(),
-            TaskProgressColumn(),
-            console=err,
+    existing_rows = {
+        str(row.get("storage_path")): row
+        for row in list_artifacts(experiment_id)
+        if row.get("storage_path")
+    }
+    planned: list[SyncCandidate] = []
+    for path in candidates:
+        relative = path.relative_to(exp_dir).as_posix()
+        storage_path = f"{experiment_id}/{relative}"
+        existing = existing_rows.get(storage_path)
+        size_bytes = path.stat().st_size
+        kind = "text" if is_text_artifact(path.name) else "media"
+        checksum: str | None = None
+
+        if size_bytes > MAX_ARTIFACT_SIZE_BYTES:
+            action = "oversized"
+        elif existing:
+            if existing.get("checksum_sha256") and existing.get("size_bytes") == size_bytes:
+                checksum = compute_checksum(path)
+                action = "skip" if existing.get("checksum_sha256") == checksum else "update"
+            else:
+                action = "update"
+        else:
+            action = "upload"
+
+        fingerprint = build_fingerprint(
+            storage_path,
+            action,
+            size_bytes,
+            checksum or path.stat().st_mtime_ns,
         )
-        progress.start()
-        task_id = progress.add_task(f"Uploading {experiment_id}", total=len(candidates))
+        planned.append(
+            SyncCandidate(
+                key=storage_path,
+                label=relative,
+                size_bytes=size_bytes,
+                kind=kind,
+                action=action,
+                fingerprint=fingerprint,
+                local_path=str(path),
+                storage_path=storage_path,
+            )
+        )
+
+    plan = build_plan(planned)
+    journal = SyncJournal(
+        find_sonde_dir(),
+        operation="push-experiment",
+        selector={"kind": "experiment", "experiment_id": experiment_id, "scope": "push"},
+        candidates=planned,
+    )
+    progress = SyncProgress(
+        title=f"Syncing {experiment_id}",
+        verb="upload",
+        plan=plan,
+        resume=journal.resume,
+        use_json=use_json,
+    )
+    progress.print_preflight()
+    progress.start()
+
+    stats.total = plan.total
+    stats.text_total = plan.text
+    stats.media_total = plan.media
+    stats.total_bytes = plan.total_bytes
+    stats.plan = asdict(plan)
+    stats.resume = asdict(journal.resume)
+
+    progress_callback = progress.advance_bytes if err.is_terminal and not use_json else None
 
     try:
-        for path in candidates:
-            relative = path.relative_to(exp_dir)
-            storage_path = f"{experiment_id}/{relative}"
-            existing = find_by_path(experiment_id, storage_path)
-            if progress and task_id is not None:
-                progress.update(task_id, description=f"Uploading {relative}")
+        for candidate in planned:
+            if candidate.action == "skip":
+                stats.skipped += 1
+                journal.record(candidate, status="skipped", bytes_transferred=candidate.size_bytes)
+                progress.advance_file(bytes_transferred=candidate.size_bytes)
+                continue
 
-            if existing and existing.get("checksum_sha256"):
-                local_checksum = compute_checksum(path)
-                if (
-                    existing.get("checksum_sha256") == local_checksum
-                    and existing.get("size_bytes") == path.stat().st_size
-                ):
-                    stats.skipped += 1
-                    if progress and task_id is not None:
-                        progress.advance(task_id)
-                    continue
+            if candidate.action == "oversized":
+                stats.oversized += 1
+                journal.record(candidate, status="oversized", bytes_transferred=0)
+                if not use_json:
+                    err.print(f"  [sonde.warning]Oversized: {candidate.label}[/]")
+                    err.print(f"  [sonde.muted]{_large_artifact_fix()}[/]")
+                progress.advance_file(bytes_transferred=0)
+                continue
 
+            local_path = Path(candidate.local_path or "")
+            progress.set_current(candidate.label)
             try:
-                upload_file(experiment_id, path, source, storage_subpath=storage_path)
-                stats.uploaded += 1
+                upload_file(
+                    experiment_id,
+                    local_path,
+                    source,
+                    storage_subpath=candidate.storage_path,
+                    progress_callback=progress_callback,
+                )
+                if candidate.action == "update":
+                    stats.updated += 1
+                    status = "updated"
+                else:
+                    stats.uploaded += 1
+                    status = "uploaded"
+                stats.transferred_bytes += candidate.size_bytes
+                journal.record(candidate, status=status, bytes_transferred=candidate.size_bytes)
+                progress.advance_file(
+                    bytes_transferred=0 if progress_callback else candidate.size_bytes
+                )
+            except ArtifactTooLargeError as exc:
+                stats.oversized += 1
+                journal.record(candidate, status="oversized", bytes_transferred=0)
+                if not use_json:
+                    err.print(f"  [sonde.warning]Oversized: {candidate.label} ({exc})[/]")
+                    err.print(f"  [sonde.muted]{_large_artifact_fix()}[/]")
+                progress.advance_file(bytes_transferred=0)
             except Exception as exc:
                 stats.failed += 1
-                err.print(f"  [sonde.warning]Failed: {relative} ({exc})[/]")
-            if progress and task_id is not None:
-                progress.advance(task_id)
+                journal.record(candidate, status="failed", bytes_transferred=0)
+                if not use_json:
+                    err.print(f"  [sonde.warning]Failed: {candidate.label} ({exc})[/]")
+                progress.advance_file(bytes_transferred=0)
     finally:
-        if progress:
-            progress.stop()
+        stats.elapsed_seconds = progress.stop()
 
+    journal.finish(keep=stats.failed > 0 or stats.oversized > 0)
+    stats.next_steps = _artifact_sync_next_steps(experiment_id, stats)
     return stats
+
+
+def _large_artifact_fix() -> str:
+    settings = get_settings()
+    if settings.s3_bucket:
+        prefix = settings.s3_prefix.strip("/")
+        location = f"s3://{settings.s3_bucket}/{prefix}" if prefix else f"s3://{settings.s3_bucket}"
+        return (
+            f"Store the large output under {location} and record that location in the experiment."
+        )
+    if settings.icechunk_repo:
+        return (
+            f"Store the large output in the configured Icechunk repo ({settings.icechunk_repo}) "
+            "and record that location in the experiment."
+        )
+    return (
+        "Configure .aeolus.yaml with s3.bucket/s3.prefix or icechunk.repo, "
+        "then store the large output there instead of Supabase Storage."
+    )
+
+
+def _artifact_sync_next_steps(experiment_id: str, stats: ArtifactUploadStats) -> list[str]:
+    if stats.failed or stats.oversized:
+        return []
+    if stats.total == 0:
+        return [f"mkdir -p .sonde/experiments/{experiment_id}"]
+
+    exp = exp_db.get(experiment_id)
+    if not exp:
+        return []
+
+    suggestions: list[str] = []
+    if (stats.uploaded or stats.updated) and not exp.finding:
+        try:
+            related_findings = find_db.find_by_evidence(experiment_id)
+        except SystemExit:
+            related_findings = []
+        if exp.status in ("open", "running"):
+            suggestions.append(f'sonde note {experiment_id} "What changed after this sync"')
+        elif not related_findings:
+            suggestions.append(f'sonde finding extract {experiment_id} --topic "..."')
+
+    from sonde.commands.lifecycle import _suggest_next
+
+    try:
+        children = exp_db.get_children(experiment_id)
+        siblings = exp_db.get_siblings(experiment_id) if exp.parent_id else []
+    except SystemExit:
+        children = []
+        siblings = []
+    for suggestion in _suggest_next(exp, children, siblings):
+        suggestions.append(suggestion["command"])
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for command in suggestions:
+        if command in seen:
+            continue
+        seen.add(command)
+        deduped.append(command)
+    return deduped[:3]
 
 
 def _sync_notes(experiment_id: str, exp_dir: Path) -> int:

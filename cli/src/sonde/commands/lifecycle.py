@@ -415,8 +415,9 @@ def _change_status(
         from sonde.output import print_nudge
 
         print_nudge(
-            "Document your approach before diving in:",
-            f'sonde update {experiment_id} "Method: ..."',
+            "Document your approach — method, parameters, expected outcome:",
+            f'sonde update {experiment_id} "## Method\\n'
+            f'Spectral bin, CCN=1500, 25km\\n\\n## Expected\\nSaturation"',
         )
 
     # Nudge: no finding recorded at close
@@ -430,8 +431,9 @@ def _change_status(
         from sonde.output import print_nudge
 
         print_nudge(
-            "Record what you learned:",
-            f'sonde update {experiment_id} --finding "..."',
+            "Record what you learned — be quantitative and specific:",
+            f"sonde update {experiment_id} --finding"
+            f' "CCN=1500 shows 8% less enhancement (5.8% vs 13.6%)"',
         )
 
     # Show suggestions after close/fail for tree nodes
