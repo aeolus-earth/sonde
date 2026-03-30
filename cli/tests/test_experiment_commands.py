@@ -289,3 +289,158 @@ class TestSearchParamFilters:
         result = runner.invoke(cli, ["search", "--param", "ccn>abc"])
         assert result.exit_code == 2
         assert "not a number" in result.output
+
+
+class TestUpdate:
+    def _setup_update_mock(
+        self, patched_db: MagicMock, exp_data: dict | None, updated_data: dict | None = None,
+    ):
+        """Set up mocks for update command which calls get() then update()."""
+        from unittest.mock import MagicMock as MM
+
+        def table_factory(name):
+            tbl = MM()
+            for method in (
+                "select", "insert", "update", "delete", "eq", "neq",
+                "gt", "lt", "gte", "lte", "like", "ilike", "is_", "in_",
+                "contains", "or_", "order", "limit", "range", "single",
+            ):
+                getattr(tbl, method).return_value = tbl
+            if name == "experiments":
+                # First execute = get(), second = update()
+                results = []
+                if exp_data:
+                    results.append(MM(data=[exp_data]))
+                else:
+                    results.append(MM(data=[]))
+                if updated_data:
+                    results.append(MM(data=[updated_data]))
+                else:
+                    results.append(MM(data=[exp_data] if exp_data else []))
+                tbl.execute.side_effect = results
+            else:
+                tbl.execute.return_value = MM(data=[])
+            return tbl
+
+        patched_db.table.side_effect = table_factory
+
+    def test_update_status(self, runner: CliRunner, patched_db: MagicMock):
+        updated_row = {**_EXPERIMENT_ROW, "status": "failed"}
+        self._setup_update_mock(patched_db, _EXPERIMENT_ROW, updated_row)
+
+        result = runner.invoke(cli, ["update", "EXP-0001", "--status", "failed"])
+        assert result.exit_code == 0
+        assert "Updated" in result.output
+
+    def test_update_not_found(self, runner: CliRunner, patched_db: MagicMock):
+        self._setup_update_mock(patched_db, None)
+
+        result = runner.invoke(cli, ["update", "EXP-9999", "--status", "complete"])
+        assert result.exit_code == 1
+        assert "not found" in result.output
+
+    def test_update_nothing(self, runner: CliRunner, patched_db: MagicMock):
+        self._setup_update_mock(patched_db, _EXPERIMENT_ROW)
+
+        result = runner.invoke(cli, ["update", "EXP-0001"])
+        assert result.exit_code == 0
+        assert "Nothing to update" in result.output
+
+
+class TestParamsFile:
+    def test_log_with_params_file(self, runner: CliRunner, patched_db: MagicMock, tmp_path):
+        # Mock ID gen + insert
+        patched_db.table("experiments").select("id").order("created_at", desc=True).limit(
+            1
+        ).execute.return_value = MagicMock(data=[])
+        patched_db.table("experiments").insert.return_value.execute.return_value = MagicMock(
+            data=[_EXPERIMENT_ROW]
+        )
+
+        params_file = tmp_path / "params.yaml"
+        params_file.write_text("ccn: 1200\nscheme: spectral_bin\n")
+
+        result = runner.invoke(
+            cli,
+            ["log", "--quick", "-p", "weather-intervention", "--params-file", str(params_file)],
+        )
+        assert result.exit_code == 0
+        assert "EXP-0001" in result.output
+
+    def test_log_params_file_merge_with_inline(
+        self, runner: CliRunner, patched_db: MagicMock, tmp_path,
+    ):
+        patched_db.table("experiments").select("id").order("created_at", desc=True).limit(
+            1
+        ).execute.return_value = MagicMock(data=[])
+        patched_db.table("experiments").insert.return_value.execute.return_value = MagicMock(
+            data=[_EXPERIMENT_ROW]
+        )
+
+        params_file = tmp_path / "params.json"
+        params_file.write_text('{"ccn": 1200}')
+
+        result = runner.invoke(
+            cli,
+            [
+                "log", "--quick", "-p", "weather-intervention",
+                "--params-file", str(params_file),
+                "--params", '{"scheme": "bulk"}',
+            ],
+        )
+        assert result.exit_code == 0
+
+
+class TestCanonicalPaths:
+    """Verify that full noun-verb paths work alongside shortcuts."""
+
+    def test_experiment_log(self, runner: CliRunner, patched_db: MagicMock):
+        patched_db.table("experiments").select("id").order("created_at", desc=True).limit(
+            1
+        ).execute.return_value = MagicMock(data=[])
+        patched_db.table("experiments").insert.return_value.execute.return_value = MagicMock(
+            data=[_EXPERIMENT_ROW]
+        )
+
+        result = runner.invoke(
+            cli,
+            [
+                "experiment", "log", "--quick",
+                "-p", "weather-intervention", "--params", '{"ccn": 1200}',
+            ],
+        )
+        assert result.exit_code == 0
+        assert "EXP-0001" in result.output
+
+    def test_experiment_list(self, runner: CliRunner, patched_db: MagicMock):
+        result = runner.invoke(cli, ["experiment", "list", "-p", "weather-intervention"])
+        assert result.exit_code == 0
+
+    def test_experiment_update(self, runner: CliRunner, patched_db: MagicMock):
+        updated_row = {**_EXPERIMENT_ROW, "finding": "New finding"}
+
+        from unittest.mock import MagicMock as MM
+
+        def table_factory(name):
+            tbl = MM()
+            for method in (
+                "select", "insert", "update", "delete", "eq", "neq",
+                "gt", "lt", "gte", "lte", "like", "ilike", "is_", "in_",
+                "contains", "or_", "order", "limit", "range", "single",
+            ):
+                getattr(tbl, method).return_value = tbl
+            if name == "experiments":
+                tbl.execute.side_effect = [
+                    MM(data=[_EXPERIMENT_ROW]),  # get
+                    MM(data=[updated_row]),      # update
+                ]
+            else:
+                tbl.execute.return_value = MM(data=[])
+            return tbl
+
+        patched_db.table.side_effect = table_factory
+
+        result = runner.invoke(
+            cli, ["experiment", "update", "EXP-0001", "--finding", "New finding"]
+        )
+        assert result.exit_code == 0

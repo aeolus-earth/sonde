@@ -2,6 +2,8 @@
 
 Use the `sonde` CLI to log experiments, query research history, and find gaps in the knowledge base. Every experiment you help run should be logged so the team's institutional memory grows.
 
+The CLI follows a noun-verb pattern: `sonde experiment <verb>`. Common verbs have shortcuts: `sonde log` = `sonde experiment log`.
+
 ## Discovery workflow
 
 Start broad, then drill down:
@@ -46,6 +48,10 @@ sonde log -p <program> "Ran spectral bin at CCN=1200, saw 8% less enhancement"
 sonde log -p <program> -f experiment-notes.md
 echo "detailed analysis" | sonde log -p <program> --stdin
 
+# With parameters from a YAML/JSON file
+sonde log -p <program> --params-file run_config.yaml
+sonde log -p <program> --params-file config.yaml --result '{"rmse": 2.3}'
+
 # Quick structured log (still works)
 sonde log --quick -p <program> \
   --params '{"ccn": 1200, "scheme": "spectral_bin"}' \
@@ -56,6 +62,17 @@ sonde log --open -p <program> "Test combined BL heating + seeding"
 ```
 
 The `--source` is set automatically. Git commit, repo, and branch are auto-detected.
+
+## Updating experiments
+
+Use `sonde update` to modify existing experiments without the pull/edit/push cycle:
+
+```bash
+sonde update EXP-0001 --status complete --result '{"rmse": 2.3}'
+sonde update EXP-0001 --finding "CCN saturates at 1500"
+sonde update EXP-0001 --params-file new_config.yaml   # merges with existing params
+sonde update EXP-0001 --tag cloud-seeding --tag subtropical
+```
 
 ## Lifecycle
 

@@ -21,22 +21,8 @@ def _slugify(title: str) -> str:
     return slug[:60]
 
 
-@click.command("new")
-@click.argument("record_type", type=click.Choice(["experiment", "finding", "question", "note"]))
-@click.option("--title", "-t", help="Title (used for filename)")
-@click.option("--program", "-p", help="Program namespace")
-@click.pass_context
-def new(ctx: click.Context, record_type: str, title: str | None, program: str | None) -> None:
-    """Create a new record file from a template.
-
-    \b
-    Examples:
-      sonde new experiment
-      sonde new experiment --title "CCN sweep subtropical"
-      sonde new finding --title "CCN saturation threshold"
-      sonde new question
-      sonde new note --title "Literature review"
-    """
+def _create_new(record_type: str, title: str | None, program: str | None) -> None:
+    """Core logic for creating a new record file from a template."""
     settings = get_settings()
     resolved_program = program or settings.program
     if not resolved_program:
@@ -81,3 +67,36 @@ def new(ctx: click.Context, record_type: str, title: str | None, program: str | 
 
     print_success(f"Created {filepath.relative_to(sonde_dir.parent)}")
     err.print(f"  [sonde.muted]Edit the file, then: sonde push {record_type} {filepath.stem}[/]")
+
+
+@click.command("new")
+@click.argument("record_type", type=click.Choice(["experiment", "finding", "question", "note"]))
+@click.option("--title", "-t", help="Title (used for filename)")
+@click.option("--program", "-p", help="Program namespace")
+@click.pass_context
+def new(ctx: click.Context, record_type: str, title: str | None, program: str | None) -> None:
+    """Create a new record file from a template.
+
+    \b
+    Examples:
+      sonde new experiment
+      sonde new finding --title "CCN saturation threshold"
+      sonde new question
+      sonde new note --title "Literature review"
+    """
+    _create_new(record_type, title, program)
+
+
+@click.command("new")
+@click.option("--title", "-t", help="Title (used for filename)")
+@click.option("--program", "-p", help="Program namespace")
+@click.pass_context
+def new_experiment(ctx: click.Context, title: str | None, program: str | None) -> None:
+    """Scaffold a new experiment file from a template.
+
+    \b
+    Examples:
+      sonde experiment new
+      sonde experiment new --title "CCN sweep subtropical"
+    """
+    _create_new("experiment", title, program)

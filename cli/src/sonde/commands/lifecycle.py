@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import click
 
-from sonde.db import rows
+from sonde.db import experiments as db
 from sonde.db.activity import log_activity
-from sonde.db.client import get_client
 from sonde.output import print_error, print_success
 
 
@@ -59,15 +58,13 @@ def _change_status(
     ctx: click.Context,
 ) -> None:
     experiment_id = experiment_id.upper()
-    client = get_client()
 
-    result = client.table("experiments").select("id,status").eq("id", experiment_id).execute()
-    data = rows(result.data)
-    if not data:
+    exp = db.get(experiment_id)
+    if not exp:
         print_error(f"{experiment_id} not found", "", "sonde list")
         raise SystemExit(1)
 
-    old_status = data[0]["status"]
+    old_status = exp.status
     if old_status == new_status:
         print_success(f"{experiment_id} is already {new_status}")
         return
@@ -76,7 +73,7 @@ def _change_status(
     if finding:
         updates["finding"] = finding
 
-    client.table("experiments").update(updates).eq("id", experiment_id).execute()
+    db.update(experiment_id, updates)
 
     log_activity(
         experiment_id,

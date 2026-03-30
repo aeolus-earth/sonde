@@ -21,6 +21,18 @@ def test_help(runner: CliRunner):
     assert "Quick start" in result.output or "quick start" in result.output.lower()
 
 
+def test_help_shows_shortcuts(runner: CliRunner):
+    result = runner.invoke(cli, ["--help"])
+    assert result.exit_code == 0
+    assert "Shortcuts" in result.output or "shortcuts" in result.output.lower()
+
+
+def test_help_shows_sync(runner: CliRunner):
+    result = runner.invoke(cli, ["--help"])
+    assert result.exit_code == 0
+    assert "sync" in result.output.lower()
+
+
 def test_unknown_command(runner: CliRunner):
     result = runner.invoke(cli, ["nonexistent"])
     assert result.exit_code != 0

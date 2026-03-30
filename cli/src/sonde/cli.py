@@ -24,10 +24,22 @@ class SondeCLI(click.Group):
     """Custom group with shortcuts and branded help."""
 
     _shortcuts: ClassVar[dict[str, tuple[str, str]]] = {
+        # Existing
         "log": ("experiment", "log"),
         "list": ("experiment", "list"),
         "show": ("experiment", "show"),
         "search": ("experiment", "search"),
+        # Newly consolidated
+        "update": ("experiment", "update"),
+        "close": ("experiment", "close"),
+        "open": ("experiment", "open"),
+        "start": ("experiment", "start"),
+        "note": ("experiment", "note"),
+        "attach": ("experiment", "attach"),
+        "history": ("experiment", "history"),
+        "pull": ("sync", "pull"),
+        "push": ("sync", "push"),
+        "new": ("experiment", "new"),
     }
 
     def get_command(self, ctx: click.Context, cmd_name: str) -> click.Command | None:
@@ -56,25 +68,12 @@ class SondeCLI(click.Group):
         }
         category_map = {
             "experiment": "Research",
-            "log": "Research",
-            "list": "Research",
-            "show": "Research",
-            "search": "Research",
-            "pull": "Research",
-            "push": "Research",
+            "sync": "Research",
             "brief": "Research",
-            "note": "Research",
-            "attach": "Research",
-            "new": "Research",
-            "tag": "Research",
-            "tags": "Research",
-            "close": "Research",
-            "open": "Research",
-            "start": "Research",
             "recent": "Research",
-            "history": "Research",
             "findings": "Research",
             "questions": "Research",
+            "tags": "Research",
             "login": "Auth & Setup",
             "logout": "Auth & Setup",
             "whoami": "Auth & Setup",
@@ -113,11 +112,28 @@ class SondeCLI(click.Group):
                 )
             )
 
+        # Shortcuts panel
+        shortcut_lines = (
+            "log, show, list, search, update    experiment shortcuts\n"
+            "close, open, start                  lifecycle shortcuts\n"
+            "note, attach, history               record management\n"
+            "pull, push                          sync shortcuts\n"
+            "new                                 scaffold a new experiment"
+        )
+        err.print(
+            Panel(
+                shortcut_lines,
+                title="[sonde.heading]Shortcuts[/]",
+                border_style="sonde.brand.dim",
+                padding=(0, 1),
+            )
+        )
+
         # Quick start
         err.print(
             Panel(
                 "sonde login\n"
-                "sonde log --quick -p shared --params '{\"ccn\": 1200}'\n"
+                'sonde log -p shared "Ran CCN sweep at 1200, saw 8% less enhancement"\n'
                 "sonde list\n"
                 "sonde show EXP-0001",
                 title="[sonde.heading]Quick start[/]",
@@ -162,48 +178,37 @@ def cli(ctx: click.Context, use_json: bool, quiet: bool, verbose: bool, no_color
 
 
 # -- Register commands --
+# Top-level: noun groups, cross-cutting views, auth, admin
 
 from sonde.commands.access import access  # noqa: E402
 from sonde.commands.admin import admin  # noqa: E402
-from sonde.commands.attach import attach  # noqa: E402
 from sonde.commands.auth import login, logout, whoami  # noqa: E402
 from sonde.commands.brief import brief  # noqa: E402
 from sonde.commands.experiment import experiment  # noqa: E402
 from sonde.commands.findings import findings_cmd  # noqa: E402
-from sonde.commands.history import history  # noqa: E402
-from sonde.commands.lifecycle import (  # noqa: E402
-    close_experiment,
-    open_experiment,
-    start_experiment,
-)
-from sonde.commands.new import new  # noqa: E402
-from sonde.commands.note import note  # noqa: E402
-from sonde.commands.pull import pull  # noqa: E402
-from sonde.commands.push import push  # noqa: E402
 from sonde.commands.questions import questions_cmd  # noqa: E402
 from sonde.commands.recent import recent  # noqa: E402
 from sonde.commands.setup import setup  # noqa: E402
-from sonde.commands.tag import tag, tags_list  # noqa: E402
+from sonde.commands.sync import sync  # noqa: E402
+from sonde.commands.tag import tags_list  # noqa: E402
 
+# Auth & Setup
 cli.add_command(login)
 cli.add_command(logout)
 cli.add_command(whoami)
 cli.add_command(setup)
-cli.add_command(experiment)
-cli.add_command(admin)
-cli.add_command(pull)
-cli.add_command(push)
-cli.add_command(new)
-cli.add_command(note)
-cli.add_command(attach)
-cli.add_command(brief)
-cli.add_command(tag)
-cli.add_command(tags_list)
 cli.add_command(access)
-cli.add_command(close_experiment)
-cli.add_command(open_experiment)
-cli.add_command(start_experiment)
+
+# Research — noun groups
+cli.add_command(experiment)
+cli.add_command(sync)
+
+# Research — cross-cutting views
+cli.add_command(brief)
 cli.add_command(recent)
-cli.add_command(history)
 cli.add_command(findings_cmd)
 cli.add_command(questions_cmd)
+cli.add_command(tags_list)
+
+# Admin
+cli.add_command(admin)

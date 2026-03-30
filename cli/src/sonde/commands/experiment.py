@@ -5,8 +5,10 @@ from __future__ import annotations
 import json
 import os
 import sys
+from pathlib import Path
 
 import click
+import yaml
 
 from sonde.config import get_settings
 from sonde.db import experiments as db
@@ -24,6 +26,28 @@ from sonde.output import (
     record_summary,
     styled_status,
 )
+
+
+def _load_dict_file(path: str) -> dict:
+    """Load a YAML or JSON file and return a dict.
+
+    Detects format by extension: .json → json, .yaml/.yml → yaml.
+    Other extensions: try JSON first, then YAML.
+    """
+    p = Path(path)
+    content = p.read_text(encoding="utf-8")
+    ext = p.suffix.lower()
+
+    if ext == ".json":
+        return json.loads(content)
+    if ext in (".yaml", ".yml"):
+        return yaml.safe_load(content) or {}
+
+    # Unknown extension: try JSON first, then YAML
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        return yaml.safe_load(content) or {}
 
 
 def _columns_for_status(status: str | None):
@@ -96,7 +120,13 @@ def experiment():
 @click.option("--stdin", "read_stdin", is_flag=True, help="Read content from stdin")
 @click.option("--hypothesis", help="What you expected to find (legacy)")
 @click.option("--params", help="Parameters as JSON string (legacy)")
+@click.option(
+    "--params-file", "params_file", type=click.Path(exists=True), help="Params from YAML/JSON file"
+)
 @click.option("--result", help="Results as JSON string (legacy)")
+@click.option(
+    "--result-file", "result_file", type=click.Path(exists=True), help="Results from YAML/JSON file"
+)
 @click.option("--finding", help="What you learned (legacy)")
 @click.option("--source", "-s", help="Who logged this (default: human/$USER)")
 @click.option("--direction", help="Parent research direction ID")
@@ -115,7 +145,9 @@ def log(
     read_stdin: bool,
     hypothesis: str | None,
     params: str | None,
+    params_file: str | None,
     result: str | None,
+    result_file: str | None,
     finding: str | None,
     source: str | None,
     direction: str | None,
@@ -176,12 +208,28 @@ def log(
     elif content_text:
         content = content_text
 
-    # Parse JSON fields
+    # Parse params/result from flags and/or files
     try:
-        parsed_params = json.loads(params) if params else {}
-        parsed_result = json.loads(result) if result else None
+        parsed_params = {}
+        if params_file:
+            parsed_params = _load_dict_file(params_file)
+        if params:
+            parsed_params = {**parsed_params, **json.loads(params)}
+
+        parsed_result = None
+        if result_file:
+            parsed_result = _load_dict_file(result_file)
+        if result:
+            file_result = parsed_result or {}
+            parsed_result = {**file_result, **json.loads(result)}
     except json.JSONDecodeError as e:
         print_error("Invalid JSON", str(e), "Check your --params and --result values")
+        raise SystemExit(2) from None
+    except (yaml.YAMLError, OSError) as e:
+        print_error(
+            "Failed to read file", str(e),
+            "Check your --params-file and --result-file paths",
+        )
         raise SystemExit(2) from None
 
     # If legacy flags used without explicit content, generate content from them
@@ -598,6 +646,131 @@ def search(
             err.print(f"\n[dim]{len(experiments)} result(s)[/dim]")
 
 
+@experiment.command()
+@click.argument("experiment_id")
+@click.option(
+    "--status", type=click.Choice(["open", "running", "complete", "failed", "superseded"])
+)
+@click.option("--hypothesis", help="Update hypothesis")
+@click.option("--params", help="Parameters as JSON (merges with existing)")
+@click.option(
+    "--params-file", "params_file", type=click.Path(exists=True), help="Params from YAML/JSON file"
+)
+@click.option("--result", help="Results as JSON")
+@click.option(
+    "--result-file", "result_file", type=click.Path(exists=True), help="Results from YAML/JSON file"
+)
+@click.option("--finding", help="Update finding")
+@click.option("--content", "-c", "content_text", help="Replace content body")
+@click.option("--content-file", type=click.Path(exists=True), help="Replace content from file")
+@click.option("--tag", multiple=True, help="Set tags (replaces existing)")
+@click.pass_context
+def update(
+    ctx: click.Context,
+    experiment_id: str,
+    status: str | None,
+    hypothesis: str | None,
+    params: str | None,
+    params_file: str | None,
+    result: str | None,
+    result_file: str | None,
+    finding: str | None,
+    content_text: str | None,
+    content_file: str | None,
+    tag: tuple[str, ...],
+):
+    """Update fields on an existing experiment.
+
+    \b
+    Examples:
+      sonde update EXP-0042 --status complete --result '{"rmse": 2.3}'
+      sonde update EXP-0042 --finding "CCN saturates at 1500"
+      sonde update EXP-0042 --params-file config.yaml
+      sonde update EXP-0042 --tag cloud-seeding --tag subtropical
+    """
+    experiment_id = experiment_id.upper()
+
+    exp = db.get(experiment_id)
+    if not exp:
+        print_error(
+            f"Experiment {experiment_id} not found",
+            "No experiment with this ID exists in the database.",
+            'List experiments: sonde list\n  Search: sonde search --text "your query"',
+        )
+        raise SystemExit(1)
+
+    updates: dict = {}
+
+    if status is not None:
+        updates["status"] = status
+    if hypothesis is not None:
+        updates["hypothesis"] = hypothesis
+    if finding is not None:
+        updates["finding"] = finding
+
+    # Content
+    if content_file:
+        updates["content"] = Path(content_file).read_text(encoding="utf-8").strip()
+    elif content_text is not None:
+        updates["content"] = content_text
+
+    # Params: merge file + inline with existing
+    try:
+        new_params = {}
+        if params_file:
+            new_params = _load_dict_file(params_file)
+        if params:
+            new_params = {**new_params, **json.loads(params)}
+        if new_params:
+            updates["parameters"] = {**exp.parameters, **new_params}
+
+        new_result = None
+        if result_file:
+            new_result = _load_dict_file(result_file)
+        if result:
+            file_result = new_result or {}
+            new_result = {**file_result, **json.loads(result)}
+        if new_result is not None:
+            updates["results"] = new_result
+    except json.JSONDecodeError as e:
+        print_error("Invalid JSON", str(e), "Check your --params and --result values")
+        raise SystemExit(2) from None
+    except (yaml.YAMLError, OSError) as e:
+        print_error(
+            "Failed to read file", str(e),
+            "Check your --params-file and --result-file paths",
+        )
+        raise SystemExit(2) from None
+
+    # Tags: replace if provided
+    if tag:
+        updates["tags"] = list(tag)
+
+    if not updates:
+        err.print("[sonde.muted]Nothing to update.[/]")
+        return
+
+    updated = db.update(experiment_id, updates)
+    if not updated:
+        print_error(f"Failed to update {experiment_id}", "Update returned no data.", "")
+        raise SystemExit(1)
+
+    # Log activity
+    from sonde.db.activity import log_activity
+
+    log_activity(experiment_id, "experiment", "updated", updates)
+
+    if ctx.obj.get("json"):
+        print_json(updated.model_dump(mode="json"))
+    else:
+        print_success(f"Updated {experiment_id}")
+        summary = record_summary(updated, 80)
+        if summary != "—":
+            err.print(f"  {summary}")
+        if "status" in updates:
+            err.print(f"  Status: {styled_status(updates['status'])}")
+
+
 def _format_size(size_bytes: int | None) -> str:
     """Format bytes as human-readable size."""
     if not size_bytes:
@@ -607,3 +780,28 @@ def _format_size(size_bytes: int | None) -> str:
             return f"{size_bytes:.0f} {unit}" if unit == "B" else f"{size_bytes:.1f} {unit}"
         size_bytes /= 1024
     return f"{size_bytes:.1f} TB"
+
+
+# ---------------------------------------------------------------------------
+# Register subcommands from other modules
+# ---------------------------------------------------------------------------
+
+from sonde.commands.attach import attach  # noqa: E402
+from sonde.commands.history import history  # noqa: E402
+from sonde.commands.lifecycle import (  # noqa: E402
+    close_experiment,
+    open_experiment,
+    start_experiment,
+)
+from sonde.commands.new import new_experiment  # noqa: E402
+from sonde.commands.note import note  # noqa: E402
+from sonde.commands.tag import tag  # noqa: E402
+
+experiment.add_command(close_experiment)
+experiment.add_command(open_experiment)
+experiment.add_command(start_experiment)
+experiment.add_command(note)
+experiment.add_command(attach)
+experiment.add_command(tag)
+experiment.add_command(history)
+experiment.add_command(new_experiment)
