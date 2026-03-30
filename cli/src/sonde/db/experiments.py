@@ -518,12 +518,29 @@ def get_tree_summary(program: str | None = None) -> dict[str, Any]:
                         }
                     )
 
+    # Stale open: experiments that were opened but never started, aging out
+    from sonde.coordination import STALE_OPEN_DAYS
+
+    stale_open = []
+    for r in all_rows:
+        if r.get("status") == "open" and not r.get("claimed_by"):
+            updated = _parse_iso(r.get("updated_at"))
+            if updated:
+                days = (now - updated).total_seconds() / 86400
+                if days > STALE_OPEN_DAYS:
+                    stale_open.append({
+                        "id": r["id"],
+                        "content_summary": (r.get("content") or "")[:80] or None,
+                        "days_idle": round(days),
+                    })
+
     return {
         "total_roots": len(roots),
         "active_branches": len(active),
         "dead_ends": len(dead_ends),
         "unclaimed": unclaimed[:10],
         "stale_claims": stale_claims,
+        "stale_open": stale_open[:10],
     }
 
 
