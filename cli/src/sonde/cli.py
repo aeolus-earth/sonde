@@ -38,25 +38,27 @@ class SondeCLI(click.Group):
         "note": ("experiment", "note"),
         "attach": ("experiment", "attach"),
         "history": ("experiment", "history"),
-        "pull": ("sync", "pull"),
-        "push": ("sync", "push"),
         "new": ("experiment", "new"),
         "diff": ("experiment", "diff"),
         "fork": ("experiment", "fork"),
         "archive": ("experiment", "archive"),
         # Noun group shortcuts (backward compat)
         "findings": ("finding", "list"),
+        "programs": ("program", "list"),
         "questions": ("question", "list"),
         "tags": ("tag", "list"),
     }
 
     def get_command(self, ctx: click.Context, cmd_name: str) -> click.Command | None:
+        command = super().get_command(ctx, cmd_name)
+        if command is not None:
+            return command
         if cmd_name in self._shortcuts:
             group_name, sub_name = self._shortcuts[cmd_name]
             group = super().get_command(ctx, group_name)
             if group and isinstance(group, click.Group):
                 return group.get_command(ctx, sub_name)
-        return super().get_command(ctx, cmd_name)
+        return None
 
     def format_help(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
         """Override help to show the branded banner with grouped panels."""
@@ -76,16 +78,20 @@ class SondeCLI(click.Group):
         }
         category_map = {
             "experiment": "Research",
+            "direction": "Research",
             "finding": "Research",
+            "program": "Research",
             "question": "Research",
             "tag": "Research",
-            "sync": "Research",
+            "pull": "Research",
+            "push": "Research",
             "status": "Research",
             "show": "Research",
             "brief": "Research",
             "recent": "Research",
             "health": "Research",
             "tree": "Research",
+            "init": "Auth & Setup",
             "login": "Auth & Setup",
             "logout": "Auth & Setup",
             "whoami": "Auth & Setup",
@@ -130,7 +136,6 @@ class SondeCLI(click.Group):
             "close, open, start                  lifecycle shortcuts\n"
             "note, attach, history               record management\n"
             "diff, fork                          compare & iterate\n"
-            "pull, push                          sync shortcuts\n"
             "new                                 scaffold a new experiment\n"
             "findings, questions, tags            noun list shortcuts"
         )
@@ -147,10 +152,11 @@ class SondeCLI(click.Group):
         err.print(
             Panel(
                 "sonde login\n"
-                'sonde log -p shared "Ran CCN sweep at 1200, saw 8% less enhancement"\n'
-                "sonde list                                 # experiments\n"
-                "sonde show EXP-0001                        # any record (EXP, FIND, DIR, Q)\n"
-                "sonde brief                               # summary across all programs",
+                "sonde init -p shared\n"
+                'sonde log "Ran CCN sweep at 1200, saw 8% less enhancement"\n'
+                "sonde direction list                      # research threads\n"
+                "sonde experiment list                     # experiments\n"
+                "sonde show EXP-0001                       # any record (EXP, FIND, DIR, Q)",
                 title="[sonde.heading]Quick start[/]",
                 border_style="sonde.brand.dim",
                 padding=(0, 1),
@@ -199,9 +205,14 @@ from sonde.commands.access import access  # noqa: E402
 from sonde.commands.admin import admin  # noqa: E402
 from sonde.commands.auth import login, logout, whoami  # noqa: E402
 from sonde.commands.brief import brief  # noqa: E402
+from sonde.commands.direction_group import direction  # noqa: E402
 from sonde.commands.experiment import experiment  # noqa: E402
 from sonde.commands.finding_group import finding  # noqa: E402
 from sonde.commands.health import health  # noqa: E402
+from sonde.commands.init import init_cmd  # noqa: E402
+from sonde.commands.program_group import program  # noqa: E402
+from sonde.commands.pull import pull  # noqa: E402
+from sonde.commands.push import push  # noqa: E402
 from sonde.commands.question_group import question  # noqa: E402
 from sonde.commands.recent import recent  # noqa: E402
 from sonde.commands.setup import setup  # noqa: E402
@@ -214,13 +225,19 @@ from sonde.commands.tree import tree_cmd  # noqa: E402
 cli.add_command(login)
 cli.add_command(logout)
 cli.add_command(whoami)
+cli.add_command(init_cmd)
 cli.add_command(setup)
 cli.add_command(access)
 
 # Research — noun groups
 cli.add_command(experiment)
+cli.add_command(direction)
 cli.add_command(finding)
+cli.add_command(program)
 cli.add_command(question)
+cli.add_command(pull)
+cli.add_command(push)
+sync.hidden = True
 cli.add_command(sync)
 
 # Research — cross-cutting views

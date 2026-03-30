@@ -55,9 +55,9 @@ def status(ctx: click.Context) -> None:
             {
                 "programs": [
                     {
-                        "id": p["id"],
-                        "description": p.get("description", ""),
-                        "stats": program_stats.get(p["id"], {}),
+                        "id": p.id,
+                        "description": p.description or "",
+                        "stats": program_stats.get(p.id, {}),
                     }
                     for p in programs
                 ],
@@ -76,16 +76,15 @@ def status(ctx: click.Context) -> None:
     if programs:
         prog_rows = []
         for p in programs:
-            pid = p["id"]
-            stats = program_stats.get(pid, {})
+            stats = program_stats.get(p.id, {})
             prog_rows.append(
                 {
-                    "program": pid,
+                    "program": p.id,
                     "experiments": str(stats.get("total", 0)),
                     "complete": str(stats.get("complete", 0)),
                     "running": str(stats.get("running", 0)),
                     "open": str(stats.get("open", 0)),
-                    "description": truncate_text(p.get("description"), 40),
+                    "description": truncate_text(p.description, 40),
                 }
             )
         print_table(

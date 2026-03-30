@@ -45,6 +45,7 @@ class UserInfo:
     user_id: str
     name: str = ""
     is_agent: bool = False
+    is_admin: bool = False
     programs: list[str] | None = None
 
 
@@ -191,10 +192,13 @@ def get_current_user() -> UserInfo | None:
 
     user = session.get("user", {})
     user_meta = user.get("user_metadata", {})
+    app_meta = user.get("app_metadata", {})
     return UserInfo(
         email=user.get("email", "unknown"),
         user_id=user.get("id", "unknown"),
         name=user_meta.get("full_name") or user_meta.get("name") or "",
+        is_admin=app_meta.get("is_admin", False),
+        programs=app_meta.get("programs"),
     )
 
 

@@ -203,7 +203,18 @@ After pulling, `.sonde/experiments/` contains one markdown file per experiment. 
 
 ## Programs
 
-Experiments are scoped to programs. Use the right one:
+Programs are the top-level namespace for research. Create them when starting
+a new research area:
+
+```bash
+sonde program create <slug> --name "Human Readable Name" --description "What this is about"
+sonde program list                    # active programs
+sonde program show <slug>             # stats, details
+sonde program archive <slug>          # hide from default views (reversible)
+sonde program unarchive <slug>        # bring back
+```
+
+Current programs:
 - `weather-intervention` — NWP simulations, cloud seeding, boundary layer experiments
 - `energy-trading` — market signals, weather-to-energy, agent performance
 - `nwp-development` — Breeze.jl development, model validation
