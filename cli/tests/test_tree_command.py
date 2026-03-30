@@ -15,6 +15,7 @@ from sonde.commands.tree import (
     _build_node_map,
     _filter_nodes,
     _format_node_label,
+    _parse_iso,
     _relative_age,
 )
 
@@ -81,6 +82,40 @@ _FAILED_LEAF: dict[str, Any] = {
 }
 
 _ALL_ROWS = [_ROOT_ROW, _CHILD_ROW_A, _CHILD_ROW_B, _FAILED_LEAF]
+
+
+# ---------------------------------------------------------------------------
+# _parse_iso (pure function)
+# ---------------------------------------------------------------------------
+
+
+class TestParseIso:
+    def test_valid_iso(self):
+        result = _parse_iso("2026-03-30T14:00:00+00:00")
+        assert result is not None
+        assert result.year == 2026
+
+    def test_z_suffix(self):
+        result = _parse_iso("2026-03-30T14:00:00Z")
+        assert result is not None
+        assert result.tzinfo is not None
+
+    def test_none_returns_none(self):
+        assert _parse_iso(None) is None
+
+    def test_empty_string_returns_none(self):
+        assert _parse_iso("") is None
+
+    def test_invalid_returns_none(self):
+        assert _parse_iso("not-a-date") is None
+
+    def test_naive_timestamp_gets_utc(self):
+        """Naive timestamps (no tz) should be treated as UTC, not crash."""
+        from datetime import UTC
+
+        result = _parse_iso("2026-03-30T14:00:00")
+        assert result is not None
+        assert result.tzinfo is not None
 
 
 # ---------------------------------------------------------------------------
@@ -168,6 +203,34 @@ class TestFilterNodes:
         assert "EXP-0002" in ids  # running + claimed 50h ago > 48h threshold
         assert "EXP-0001" not in ids
         assert "EXP-0003" not in ids
+
+    def test_stale_and_mine_compose(self):
+        """--stale --mine should intersect: only stale rows that are also mine."""
+        stale_time = (_NOW - timedelta(hours=50)).isoformat()
+        stale_row = {**_CHILD_ROW_A, "claimed_at": stale_time}  # agent/codex
+        stale_mine = {
+            **_CHILD_ROW_A,
+            "id": "EXP-0005",
+            "source": "human/mason",
+            "claimed_by": "human/mason",
+            "claimed_at": stale_time,
+        }
+        rows = [_ROOT_ROW, stale_row, stale_mine, _CHILD_ROW_B]
+        result = _filter_nodes(rows, stale_hours=48, mine="human/mason")
+        ids = {r["id"] for r in result}
+        assert "EXP-0005" in ids  # stale + mine
+        assert "EXP-0002" not in ids  # stale but not mine
+        assert "EXP-0001" not in ids  # not stale
+
+    def test_stale_and_leaves_compose(self):
+        """--stale --leaves should intersect: only stale leaf nodes."""
+        stale_time = (_NOW - timedelta(hours=50)).isoformat()
+        stale_row = {**_CHILD_ROW_A, "claimed_at": stale_time}
+        rows = [_ROOT_ROW, stale_row, _CHILD_ROW_B]
+        result = _filter_nodes(rows, stale_hours=48, leaves=True)
+        ids = {r["id"] for r in result}
+        # EXP-0002 is stale and a leaf (no children in this dataset)
+        assert "EXP-0002" in ids
 
     def test_no_filters_returns_all(self):
         result = _filter_nodes(_ALL_ROWS)

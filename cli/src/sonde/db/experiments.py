@@ -409,11 +409,17 @@ def get_children(experiment_id: str) -> list[Experiment]:
 
 
 def _parse_iso(value: str | None) -> datetime | None:
-    """Parse an ISO timestamp string, returning None on failure."""
+    """Parse an ISO timestamp string, returning None on failure.
+
+    Naive timestamps (no timezone) are treated as UTC.
+    """
     if not value:
         return None
     try:
-        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=UTC)
+        return dt
     except (ValueError, TypeError):
         return None
 

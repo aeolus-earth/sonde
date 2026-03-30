@@ -28,12 +28,38 @@ from sonde.output import (
 # ---------------------------------------------------------------------------
 
 
+def _parse_iso(value: str | None) -> datetime | None:
+    """Parse an ISO timestamp string, returning None on failure.
+
+    Naive timestamps (no timezone) are treated as UTC.
+    """
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=UTC)
+        return dt
+    except (ValueError, TypeError):
+        return None
+
+
 def _build_node_map(rows: list[dict]) -> dict[str | None, list[dict]]:
     """Group flat rows by parent_id."""
     nm: dict[str | None, list[dict]] = defaultdict(list)
     for r in rows:
         nm[r.get("parent_id")].append(r)
     return dict(nm)
+
+
+def _is_stale(row: dict, now: datetime, stale_hours: int) -> bool:
+    """Check whether a running experiment has a stale claim."""
+    if row.get("status") != "running" or not row.get("claimed_at"):
+        return False
+    ct = _parse_iso(row["claimed_at"])
+    if not ct:
+        return False
+    return (now - ct).total_seconds() / 3600 > stale_hours
 
 
 def _filter_nodes(
@@ -44,22 +70,14 @@ def _filter_nodes(
     leaves: bool = False,
     stale_hours: int | None = None,
 ) -> list[dict]:
-    """Apply filters to flat rows before tree assembly."""
+    """Apply filters to flat rows before tree assembly.
+
+    Filters compose in order: stale -> mine -> active -> leaves.
+    """
+    result = list(rows)
     if stale_hours is not None:
         now = datetime.now(UTC)
-        out_rows: list[dict] = []
-        for r in rows:
-            if r.get("status") != "running" or not r.get("claimed_at"):
-                continue
-            try:
-                ct = datetime.fromisoformat(str(r["claimed_at"]).replace("Z", "+00:00"))
-                if (now - ct).total_seconds() / 3600 > stale_hours:
-                    out_rows.append(r)
-            except (ValueError, TypeError):
-                pass
-        return out_rows
-
-    result = list(rows)
+        result = [r for r in result if _is_stale(r, now, stale_hours)]
     if mine:
         result = [
             r for r in result
@@ -85,19 +103,14 @@ def _filter_nodes(
 
 def _relative_age(dt_str: str | None) -> str:
     """Convert ISO timestamp to relative age like '2m', '3h', '1d'."""
-    if not dt_str:
+    dt = _parse_iso(dt_str)
+    if not dt:
         return ""
-    try:
-        delta = datetime.now(UTC) - datetime.fromisoformat(
-            str(dt_str).replace("Z", "+00:00")
-        )
-        mins = int(delta.total_seconds() / 60)
-        if mins < 60:
-            return f"{mins}m"
-        hrs = mins // 60
-        return f"{hrs}h" if hrs < 24 else f"{hrs // 24}d"
-    except (ValueError, TypeError):
-        return ""
+    mins = int((datetime.now(UTC) - dt).total_seconds() / 60)
+    if mins < 60:
+        return f"{mins}m"
+    hrs = mins // 60
+    return f"{hrs}h" if hrs < 24 else f"{hrs // 24}d"
 
 
 def _format_node_label(row: dict, *, frontier: bool = False) -> str:
@@ -177,6 +190,76 @@ def _build_json_nodes(rows: list[dict], fmap: dict[str, list[str]] | None = None
 
 
 # ---------------------------------------------------------------------------
+# Data collection (calls db layer)
+# ---------------------------------------------------------------------------
+
+
+def _collect_tree_rows(
+    root_id: str | None,
+    program: str | None,
+    max_depth: int,
+) -> list[dict]:
+    """Dispatch to the right db query based on root_id prefix.
+
+    Returns flat rows with a 'depth' field, suitable for tree assembly.
+    Exits with code 2 on unrecognized input.
+    """
+    if root_id and root_id.startswith("EXP-"):
+        return db.get_subtree(root_id, max_depth=max_depth)
+
+    if root_id and root_id.startswith("DIR-"):
+        exps = db.list_by_direction(root_id)
+        roots = [e for e in exps if not e.parent_id]
+        rows: list[dict] = []
+        for r in roots:
+            rows.extend(db.get_subtree(r.id, max_depth=max_depth))
+        if not roots:
+            rows = [e.model_dump(mode="json") | {"depth": 0} for e in exps]
+        return rows
+
+    if program:
+        all_exps = db.list_experiments(program=program, limit=500)
+        roots = [e for e in all_exps if not e.parent_id]
+        rows = []
+        for r in roots:
+            rows.extend(db.get_subtree(r.id, max_depth=max_depth))
+        seen_ids = {r["id"] for r in rows}
+        for e in all_exps:
+            if e.id not in seen_ids:
+                rows.append(e.model_dump(mode="json") | {"depth": 0})
+        return rows
+
+    if not root_id:
+        print_error(
+            "No target specified",
+            "Provide an experiment ID, direction ID, or --program.",
+            "sonde tree EXP-0001  or  sonde tree -p <program>",
+        )
+        raise SystemExit(2)
+
+    print_error(
+        "Unrecognized ID prefix",
+        f"Got {root_id!r}, expected EXP- or DIR- prefix.",
+        "sonde tree EXP-0001  or  sonde tree DIR-001",
+    )
+    raise SystemExit(2)
+
+
+def _build_findings_map(
+    program: str | None,
+    rows: list[dict],
+) -> dict[str, list[str]]:
+    """Build a mapping from experiment ID to list of finding IDs."""
+    fmap: dict[str, list[str]] = defaultdict(list)
+    fp = program or (rows[0].get("program") if rows else None)
+    if fp:
+        for f in find_db.list_active(program=fp, limit=200):
+            for eid in f.evidence or []:
+                fmap[eid].append(f.id)
+    return dict(fmap)
+
+
+# ---------------------------------------------------------------------------
 # Click command
 # ---------------------------------------------------------------------------
 
@@ -191,7 +274,16 @@ def _build_json_nodes(rows: list[dict], fmap: dict[str, list[str]] | None = None
 @click.option("--depth", type=int, help="Max tree depth")
 @pass_output_options
 @click.pass_context
-def tree_cmd(ctx, root_id, program, filter_active, filter_mine, filter_leaves, filter_stale, depth):
+def tree_cmd(
+    ctx: click.Context,
+    root_id: str | None,
+    program: str | None,
+    filter_active: bool,
+    filter_mine: bool,
+    filter_leaves: bool,
+    filter_stale: bool,
+    depth: int | None,
+) -> None:
     """Visualize experiment tree hierarchies.
 
     \b
@@ -207,64 +299,22 @@ def tree_cmd(ctx, root_id, program, filter_active, filter_mine, filter_leaves, f
     resolved_program = program or settings.program
     source_filter = resolve_source() if filter_mine else None
 
-    # -- Collect flat rows --
-    rows: list[dict] = []
-    if root_id and root_id.startswith("EXP-"):
-        rows = db.get_subtree(root_id, max_depth=depth or 10)
-    elif root_id and root_id.startswith("DIR-"):
-        exps = db.list_by_direction(root_id)
-        roots = [e for e in exps if not e.parent_id]
-        for r in roots:
-            rows.extend(db.get_subtree(r.id, max_depth=depth or 10))
-        if not roots:
-            rows = [e.model_dump(mode="json") | {"depth": 0} for e in exps]
-    elif resolved_program or not root_id:
-        if not resolved_program:
-            print_error(
-                "No target specified",
-                "Provide an experiment ID, direction ID, or --program.",
-                "sonde tree EXP-0001  or  sonde tree -p <program>",
-            )
-            raise SystemExit(2)
-        all_exps = db.list_experiments(program=resolved_program, limit=500)
-        roots = [e for e in all_exps if not e.parent_id]
-        for r in roots:
-            rows.extend(db.get_subtree(r.id, max_depth=depth or 10))
-        seen_ids = {r["id"] for r in rows}
-        for e in all_exps:
-            if e.id not in seen_ids:
-                rows.append(e.model_dump(mode="json") | {"depth": 0})
-    else:
-        print_error(
-            "Unrecognized ID prefix",
-            f"Got {root_id!r}, expected EXP- or DIR- prefix.",
-            "sonde tree EXP-0001  or  sonde tree DIR-001",
-        )
-        raise SystemExit(2)
-
+    rows = _collect_tree_rows(root_id, resolved_program, max_depth=depth or 10)
     if not rows:
         err.print("[sonde.muted]No experiments found.[/]")
         return
 
-    # -- Build findings map --
-    fmap: dict[str, list[str]] = defaultdict(list)
-    fp = resolved_program or (rows[0].get("program") if rows else None)
-    if fp:
-        for f in find_db.list_active(program=fp, limit=200):
-            for eid in f.evidence or []:
-                fmap[eid].append(f.id)
+    fmap = _build_findings_map(resolved_program, rows)
 
-    # -- Filter --
     filtered = _filter_nodes(
         rows, active=filter_active, mine=source_filter,
         leaves=filter_leaves, stale_hours=48 if filter_stale else None,
     )
 
-    # -- JSON output --
     if ctx.obj.get("json"):
         print_json({
             "root": root_id,
-            "nodes": _build_json_nodes(filtered, dict(fmap) if fmap else None),
+            "nodes": _build_json_nodes(filtered, fmap or None),
         })
         return
 
@@ -272,7 +322,7 @@ def tree_cmd(ctx, root_id, program, filter_active, filter_mine, filter_leaves, f
         err.print("[sonde.muted]No experiments match the active filters.[/]")
         return
 
-    # -- Rich tree --
+    # Render Rich trees
     node_map = _build_node_map(filtered)
     fids = {r["id"] for r in filtered}
     seen: set[str] = set()
@@ -283,9 +333,8 @@ def tree_cmd(ctx, root_id, program, filter_active, filter_mine, filter_leaves, f
             seen.add(rid)
             unique_roots.append(rid)
 
-    fm = dict(fmap) if fmap else None
     for rid in unique_roots:
-        out.print(_render_rich_tree(node_map, rid, depth_limit=depth, findings_map=fm))
+        out.print(_render_rich_tree(node_map, rid, depth_limit=depth, findings_map=fmap or None))
 
     n, t = len(filtered), len(unique_roots)
     label = "experiment" if n == 1 else "experiments"
