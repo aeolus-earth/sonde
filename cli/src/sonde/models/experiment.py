@@ -47,10 +47,14 @@ class ExperimentCreate(BaseModel):
     finding: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
-    # Provenance
+    # Provenance — creation time (set at log/fork)
     git_commit: str | None = None
     git_repo: str | None = None
     git_branch: str | None = None
+    # Provenance — close time (set at close)
+    git_close_commit: str | None = None
+    git_close_branch: str | None = None
+    git_dirty: bool | None = None
     data_sources: list[str] = Field(default_factory=list)
 
     # Links

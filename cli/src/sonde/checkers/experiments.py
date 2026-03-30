@@ -126,3 +126,24 @@ def check_no_content(data: HealthData) -> list[HealthIssue]:
                 )
             )
     return issues
+
+
+def check_dirty_provenance(data: HealthData) -> list[HealthIssue]:
+    """Flag completed experiments closed with dirty git state."""
+    issues: list[HealthIssue] = []
+    for e in data.experiments:
+        if e["status"] in ("complete", "failed") and e.get("git_dirty") is True:
+            issues.append(
+                HealthIssue(
+                    category="experiment",
+                    severity="warning",
+                    message=(
+                        f"{e['id']} was closed with uncommitted changes"
+                        " — provenance may be unreliable"
+                    ),
+                    record_id=e["id"],
+                    fix=f"sonde show {e['id']}",
+                    penalty=3,
+                )
+            )
+    return issues

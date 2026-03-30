@@ -16,6 +16,7 @@ from collections.abc import Callable
 from sonde.checkers.brief import check_brief_staleness
 from sonde.checkers.directions import check_complete_directions
 from sonde.checkers.experiments import (
+    check_dirty_provenance,
     check_no_content,
     check_no_finding,
     check_no_tags,
@@ -35,6 +36,7 @@ CHECKERS: list[Checker] = [
     check_no_finding,
     check_no_tags,
     check_no_content,
+    check_dirty_provenance,
     check_weakened_evidence,
     check_tag_duplicates,
     check_complete_directions,

@@ -118,7 +118,21 @@ sonde start EXP-0009 --json
 If `conflict` is non-null, someone else claimed it — back off and pick
 different work. If null, you own it.
 
-### 4. Do the work, then close with a finding
+### 4. Commit your code before closing
+
+When you're done with an experiment, commit your work first. `sonde close`
+will refuse if you have uncommitted changes — this ensures every finding
+has clean code provenance.
+
+```bash
+git add -A && git commit -m "EXP-0009: CFL violation fixed with 2x timestep"
+```
+
+The experiment records both the creation commit and the close commit.
+Ten months later, `git diff <start>..<end>` shows exactly what code
+changed during the experiment.
+
+### 5. Do the work, then close with a finding
 
 ```bash
 sonde close EXP-0009 --finding "Domain doubling causes CFL violation" --json
@@ -127,7 +141,7 @@ sonde close EXP-0009 --finding "Domain doubling causes CFL violation" --json
 The `suggested_next` array tells you what to do: fork a refinement, try
 an alternative, record a formal finding, or review the parent.
 
-### 5. Fork to continue
+### 6. Fork to continue
 
 ```bash
 sonde fork EXP-0009 --type refinement "Apply 2x time step fix" --json

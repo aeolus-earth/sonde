@@ -5,12 +5,13 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
 
 from sonde.cli import cli
 from sonde.commands.lifecycle import _suggest_next
+from sonde.git import GitContext
 from sonde.models.experiment import Experiment
 
 # ---------------------------------------------------------------------------
@@ -33,6 +34,9 @@ _BASE_ROW: dict[str, Any] = {
     "git_commit": None,
     "git_repo": None,
     "git_branch": None,
+    "git_close_commit": None,
+    "git_close_branch": None,
+    "git_dirty": None,
     "data_sources": [],
     "tags": ["cloud-seeding"],
     "direction_id": None,
@@ -162,8 +166,32 @@ def _lifecycle_table_factory(
     return factory
 
 
+# ---------------------------------------------------------------------------
+# Shared git context fixtures
+# ---------------------------------------------------------------------------
+
+_CLEAN_GIT = GitContext(
+    commit="abc123def456",
+    repo="git@github.com:test/repo.git",
+    branch="feature/test",
+    dirty=False,
+    modified_files=[],
+)
+
+_DIRTY_GIT = GitContext(
+    commit="abc123def456",
+    repo="git@github.com:test/repo.git",
+    branch="feature/test",
+    dirty=True,
+    modified_files=["file1.py", "file2.py", "file3.py"],
+)
+
+
+@patch("sonde.commands.lifecycle.detect_git_context", return_value=_CLEAN_GIT)
 class TestStartClaim:
-    def test_start_sets_claimed_by(self, runner: CliRunner, patched_db: MagicMock):
+    def test_start_sets_claimed_by(
+        self, _mock_git: MagicMock, runner: CliRunner, patched_db: MagicMock
+    ):
         open_exp = {**_BASE_ROW, "status": "open", "claimed_by": None}
         started_exp = {**open_exp, "status": "running", "claimed_by": "human/test"}
         patched_db.table.side_effect = _lifecycle_table_factory(open_exp, started_exp)
@@ -172,7 +200,9 @@ class TestStartClaim:
         assert result.exit_code == 0
         assert "running" in result.output
 
-    def test_start_warns_on_conflict(self, runner: CliRunner, patched_db: MagicMock):
+    def test_start_warns_on_conflict(
+        self, _mock_git: MagicMock, runner: CliRunner, patched_db: MagicMock
+    ):
         claimed_exp = {
             **_BASE_ROW,
             "status": "open",
@@ -186,7 +216,9 @@ class TestStartClaim:
         assert result.exit_code == 1
         assert "claimed by" in result.output or "Warning" in result.output
 
-    def test_start_force_bypasses_conflict(self, runner: CliRunner, patched_db: MagicMock):
+    def test_start_force_bypasses_conflict(
+        self, _mock_git: MagicMock, runner: CliRunner, patched_db: MagicMock
+    ):
         claimed_exp = {
             **_BASE_ROW,
             "status": "open",
@@ -200,7 +232,9 @@ class TestStartClaim:
         assert result.exit_code == 0
         assert "running" in result.output
 
-    def test_start_json_emits_correct_structure(self, runner: CliRunner, patched_db: MagicMock):
+    def test_start_json_emits_correct_structure(
+        self, _mock_git: MagicMock, runner: CliRunner, patched_db: MagicMock
+    ):
         open_exp = {**_BASE_ROW, "status": "open", "claimed_by": None}
         started_exp = {**open_exp, "status": "running", "claimed_by": "human/test"}
         patched_db.table.side_effect = _lifecycle_table_factory(open_exp, started_exp)
@@ -219,7 +253,10 @@ class TestStartClaim:
 
 
 class TestCloseHints:
-    def test_close_transitions_to_complete(self, runner: CliRunner, patched_db: MagicMock):
+    @patch("sonde.commands.lifecycle.detect_git_context", return_value=_CLEAN_GIT)
+    def test_close_transitions_to_complete(
+        self, _mock_git: MagicMock, runner: CliRunner, patched_db: MagicMock
+    ):
         running_exp = {
             **_BASE_ROW,
             "status": "running",
@@ -233,7 +270,10 @@ class TestCloseHints:
         assert result.exit_code == 0
         assert "complete" in result.output
 
-    def test_close_shows_suggestions_for_tree_node(self, runner: CliRunner, patched_db: MagicMock):
+    @patch("sonde.commands.lifecycle.detect_git_context", return_value=_CLEAN_GIT)
+    def test_close_shows_suggestions_for_tree_node(
+        self, _mock_git: MagicMock, runner: CliRunner, patched_db: MagicMock
+    ):
         """When closing a tree node (has parent_id), suggestions should appear."""
         running_exp = {
             **_BASE_ROW,
@@ -254,7 +294,10 @@ class TestCloseHints:
         # Should show suggested next since it has a parent_id
         assert "Suggested next" in result.output or "fork" in result.output
 
-    def test_close_json_includes_suggested_next(self, runner: CliRunner, patched_db: MagicMock):
+    @patch("sonde.commands.lifecycle.detect_git_context", return_value=_CLEAN_GIT)
+    def test_close_json_includes_suggested_next(
+        self, _mock_git: MagicMock, runner: CliRunner, patched_db: MagicMock
+    ):
         running_exp = {
             **_BASE_ROW,
             "status": "running",
@@ -281,3 +324,112 @@ class TestCloseHints:
         for s in data["suggested_next"]:
             assert "command" in s
             assert "reason" in s
+        # Git provenance in JSON output
+        assert "git" in data
+        assert data["git"]["close_commit"] == "abc123def456"
+        assert data["git"]["close_branch"] == "feature/test"
+        assert data["git"]["dirty"] is False
+
+
+# ---------------------------------------------------------------------------
+# close command — git provenance enforcement
+# ---------------------------------------------------------------------------
+
+
+class TestCloseGitProvenance:
+    @patch("sonde.commands.lifecycle.detect_git_context", return_value=_DIRTY_GIT)
+    def test_close_blocks_on_dirty_tree(
+        self, _mock_git: MagicMock, runner: CliRunner, patched_db: MagicMock
+    ):
+        """Close should refuse when working tree is dirty."""
+        running_exp = {
+            **_BASE_ROW,
+            "status": "running",
+            "claimed_by": "human/test",
+            "claimed_at": _NOW.isoformat(),
+        }
+        patched_db.table.side_effect = _lifecycle_table_factory(running_exp)
+
+        result = runner.invoke(cli, ["close", "EXP-0001"])
+        assert result.exit_code == 1
+        assert "Uncommitted changes" in result.output
+        assert "--force" in result.output
+
+    @patch("sonde.commands.lifecycle.detect_git_context", return_value=_DIRTY_GIT)
+    def test_close_dirty_json_emits_error(
+        self, _mock_git: MagicMock, runner: CliRunner, patched_db: MagicMock
+    ):
+        """Close --json should emit error object when dirty."""
+        running_exp = {
+            **_BASE_ROW,
+            "status": "running",
+            "claimed_by": "human/test",
+            "claimed_at": _NOW.isoformat(),
+        }
+        patched_db.table.side_effect = _lifecycle_table_factory(running_exp)
+
+        result = runner.invoke(cli, ["--json", "close", "EXP-0001"])
+        assert result.exit_code == 0  # JSON errors don't raise SystemExit
+        data = json.loads(result.output)
+        assert data["error"] == "uncommitted_changes"
+        assert data["file_count"] == 3
+        assert "suggested_commit" in data
+
+    @patch("sonde.commands.lifecycle.detect_git_context", return_value=_DIRTY_GIT)
+    def test_close_force_bypasses_dirty_check(
+        self, _mock_git: MagicMock, runner: CliRunner, patched_db: MagicMock
+    ):
+        """--force should allow close even with dirty tree."""
+        running_exp = {
+            **_BASE_ROW,
+            "status": "running",
+            "claimed_by": "human/test",
+            "claimed_at": _NOW.isoformat(),
+        }
+        closed_exp = {**running_exp, "status": "complete", "claimed_by": None, "claimed_at": None}
+        patched_db.table.side_effect = _lifecycle_table_factory(running_exp, closed_exp)
+
+        result = runner.invoke(cli, ["close", "EXP-0001", "--force"])
+        assert result.exit_code == 0
+        assert "complete" in result.output
+
+    @patch("sonde.commands.lifecycle.detect_git_context", return_value=None)
+    def test_close_skips_git_when_not_in_repo(
+        self, _mock_git: MagicMock, runner: CliRunner, patched_db: MagicMock
+    ):
+        """Close should succeed silently when not in a git repo."""
+        running_exp = {
+            **_BASE_ROW,
+            "status": "running",
+            "claimed_by": "human/test",
+            "claimed_at": _NOW.isoformat(),
+        }
+        closed_exp = {**running_exp, "status": "complete", "claimed_by": None, "claimed_at": None}
+        patched_db.table.side_effect = _lifecycle_table_factory(running_exp, closed_exp)
+
+        result = runner.invoke(cli, ["close", "EXP-0001"])
+        assert result.exit_code == 0
+        assert "complete" in result.output
+
+    @patch("sonde.commands.lifecycle.detect_git_context", return_value=_CLEAN_GIT)
+    def test_close_json_includes_git_object(
+        self, _mock_git: MagicMock, runner: CliRunner, patched_db: MagicMock
+    ):
+        """Close JSON output should include a git provenance object."""
+        running_exp = {
+            **_BASE_ROW,
+            "status": "running",
+            "claimed_by": "human/test",
+            "claimed_at": _NOW.isoformat(),
+            "git_commit": "start123",
+        }
+        closed_exp = {**running_exp, "status": "complete", "claimed_by": None, "claimed_at": None}
+        patched_db.table.side_effect = _lifecycle_table_factory(running_exp, closed_exp)
+
+        result = runner.invoke(cli, ["--json", "close", "EXP-0001"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["git"]["close_commit"] == "abc123def456"
+        assert data["git"]["close_branch"] == "feature/test"
+        assert data["git"]["dirty"] is False
+        assert data["git"]["start_commit"] == "start123"

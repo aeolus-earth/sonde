@@ -548,11 +548,24 @@ def show(ctx: click.Context, experiment_id: str, graph: bool) -> None:
         )
         if exp.tags:
             header.append(f"[sonde.muted]Tags: {', '.join(exp.tags)}[/]")
-        if exp.git_commit:
-            git_info = f"Git: {exp.git_commit[:12]}"
-            if exp.git_branch:
-                git_info += f" ({exp.git_branch})"
-            header.append(f"[sonde.muted]{git_info}[/]")
+        if exp.git_commit or exp.git_close_commit:
+            parts = []
+            if exp.git_commit:
+                parts.append(exp.git_commit[:12])
+            if exp.git_close_commit and exp.git_close_commit != exp.git_commit:
+                parts.append(f"→ {exp.git_close_commit[:12]}")
+            git_info = " ".join(parts)
+            if exp.git_branch or exp.git_close_branch:
+                branch = exp.git_close_branch or exp.git_branch
+                git_info += f" ({branch}"
+                if exp.git_dirty is True:
+                    git_info += ", dirty"
+                elif exp.git_dirty is False:
+                    git_info += ", clean"
+                git_info += ")"
+            elif exp.git_dirty is not None:
+                git_info += " (dirty)" if exp.git_dirty else " (clean)"
+            header.append(f"[sonde.muted]Git: {git_info}[/]")
         if exp.related:
             header.append(f"[sonde.muted]Related: {', '.join(exp.related)}[/]")
         if exp.parent_id:
