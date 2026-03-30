@@ -25,6 +25,16 @@ def test_service_role_key_from_env():
     assert settings.supabase_service_role_key == "secret-key"
 
 
+def test_project_config_does_not_overlay_service_role_key(tmp_path):
+    config = tmp_path / ".aeolus.yaml"
+    config.write_text("supabase_service_role_key: from-yaml\n")
+
+    with patch("sonde.config.Path.cwd", return_value=tmp_path):
+        settings = Settings().with_project_config()
+
+    assert settings.supabase_service_role_key == ""
+
+
 def test_project_config_overlay(tmp_path):
     config = tmp_path / ".aeolus.yaml"
     config.write_text("program: energy-trading\n")

@@ -232,8 +232,8 @@ def show(ctx: click.Context, experiment_id: str, graph: bool) -> None:
             )
         elif exp.status in ("open", "running") and not artifacts:
             print_nudge(
-                f"Stage result files under .sonde/experiments/{exp.id}/results/, then sync them.",
-                f"sonde experiment push {exp.id}",
+                f"Put files anywhere under .sonde/experiments/{exp.id}/, then sync them.",
+                f"sonde push experiment {exp.id}",
             )
         elif exp.status in ("open", "running") and not exp.direction_id:
             print_nudge(

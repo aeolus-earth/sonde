@@ -12,51 +12,86 @@ from sonde.cli import cli
 
 class TestCreateToken:
     def test_create_token_success(self, runner: CliRunner, patched_db: MagicMock):
-        patched_db.rpc.return_value.execute.return_value = MagicMock(
-            data={
-                "token": "sonde_at_abc123",
+        with patch(
+            "sonde.commands.admin.db.create_token",
+            return_value={
+                "token": "sonde_bt_bundle",
                 "expires_at": "2027-03-29T00:00:00Z",
-            }
-        )
-        result = runner.invoke(
-            cli, ["admin", "create-token", "-n", "test-bot", "-p", "weather-intervention"]
-        )
+            },
+        ):
+            result = runner.invoke(
+                cli, ["admin", "create-token", "-n", "test-bot", "-p", "weather-intervention"]
+            )
         assert result.exit_code == 0
         assert "test-bot" in result.output
 
     def test_create_token_json(self, runner: CliRunner, patched_db: MagicMock):
-        patched_db.rpc.return_value.execute.return_value = MagicMock(
-            data={"token": "sonde_at_abc123", "expires_at": "2027-03-29"}
-        )
-        result = runner.invoke(
-            cli,
-            ["--json", "admin", "create-token", "-n", "test-bot", "-p", "shared"],
-        )
+        with patch(
+            "sonde.commands.admin.db.create_token",
+            return_value={"token": "sonde_bt_bundle", "expires_at": "2027-03-29"},
+        ):
+            result = runner.invoke(
+                cli,
+                ["--json", "admin", "create-token", "-n", "test-bot", "-p", "shared"],
+            )
         assert result.exit_code == 0
         assert '"token"' in result.output
 
     def test_create_token_permission_denied(self, runner: CliRunner, patched_db: MagicMock):
-        patched_db.rpc.return_value.execute.side_effect = APIError(
-            {
-                "message": "Only admins can create tokens",
-                "code": "42501",
-                "hint": None,
-                "details": None,
-            }
-        )
-        result = runner.invoke(cli, ["admin", "create-token", "-n", "test-bot", "-p", "shared"])
+        with patch(
+            "sonde.commands.admin.db.create_token",
+            side_effect=APIError(
+                {
+                    "message": "Only admins can create tokens",
+                    "code": "42501",
+                    "hint": None,
+                    "details": None,
+                }
+            ),
+        ):
+            result = runner.invoke(cli, ["admin", "create-token", "-n", "test-bot", "-p", "shared"])
         assert result.exit_code == 1
         assert "Permission denied" in result.output
 
     def test_create_token_invalid_program(self, runner: CliRunner, patched_db: MagicMock):
-        patched_db.rpc.return_value.execute.side_effect = APIError(
-            {"message": "Programs do not exist", "code": "P0001", "hint": None, "details": None}
-        )
-        result = runner.invoke(
-            cli, ["admin", "create-token", "-n", "test-bot", "-p", "nonexistent"]
-        )
+        with patch(
+            "sonde.commands.admin.db.create_token",
+            side_effect=APIError(
+                {
+                    "message": "Programs do not exist",
+                    "code": "P0001",
+                    "hint": None,
+                    "details": None,
+                }
+            ),
+        ):
+            result = runner.invoke(
+                cli, ["admin", "create-token", "-n", "test-bot", "-p", "nonexistent"]
+            )
         assert result.exit_code == 1
         assert "Invalid program" in result.output
+
+    def test_create_token_reports_missing_signing_function(
+        self, runner: CliRunner, patched_db: MagicMock
+    ):
+        with patch(
+            "sonde.commands.admin.db.create_token",
+            side_effect=APIError(
+                {
+                    "message": "function extensions.sign(jsonb, text) does not exist",
+                    "code": "42883",
+                    "hint": None,
+                    "details": None,
+                }
+            ),
+        ):
+            result = runner.invoke(
+                cli, ["admin", "create-token", "-n", "test-bot", "-p", "weather-intervention"]
+            )
+
+        assert result.exit_code == 1
+        assert "Agent token signing is unavailable" in result.output
+        assert "supabase db push" in result.output
 
 
 class TestListTokens:

@@ -5,13 +5,16 @@ Shared by push.py (auto-sync directory) and attach.py (explicit attach).
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import mimetypes
 from collections import Counter
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
+from sonde.artifact_sync import ProgressReader
 from sonde.db import rows
 from sonde.db.client import get_admin_client, get_client, has_service_role_key
 from sonde.db.ids import create_with_retry
@@ -60,6 +63,10 @@ TEXT_MIME_TYPES = {
     "application/x-yaml",
     "application/yaml",
 }
+
+
+class ArtifactTooLargeError(ValueError):
+    """Raised when an artifact does not fit in the Supabase bucket."""
 
 
 def infer_type(filepath: Path) -> str:
@@ -160,6 +167,7 @@ def upload_file(
     storage_subpath: str | None = None,
     artifact_type: str | None = None,
     description: str | None = None,
+    progress_callback: Callable[[int], None] | None = None,
 ) -> dict[str, Any]:
     """Upload a file to Supabase Storage and create an artifact record.
 
@@ -181,13 +189,12 @@ def upload_file(
     if file_size > MAX_ARTIFACT_SIZE_BYTES:
         size_mb = file_size / (1024 * 1024)
         limit_mb = MAX_ARTIFACT_SIZE_BYTES / (1024 * 1024)
-        raise ValueError(
+        raise ArtifactTooLargeError(
             f"{filepath.name} is {size_mb:.1f} MB, over the "
             f"{limit_mb:.0f} MB Supabase artifact limit. "
             "Use the dataset/S3 workflow for larger outputs."
         )
 
-    file_bytes = filepath.read_bytes()
     content_type = mimetypes.guess_type(filepath.name)[0] or "application/octet-stream"
     checksum = compute_checksum(filepath)
     existing = find_by_storage_path(storage_path)
@@ -196,7 +203,7 @@ def upload_file(
         "filename": filepath.name,
         "type": artifact_type or infer_type(filepath),
         "mime_type": content_type,
-        "size_bytes": len(file_bytes),
+        "size_bytes": file_size,
         "description": description,
         "storage_path": storage_path,
         "experiment_id": experiment_id,
@@ -207,31 +214,35 @@ def upload_file(
     if existing:
         should_upload = (
             existing.get("checksum_sha256") != checksum
-            or existing.get("size_bytes") != len(file_bytes)
+            or existing.get("size_bytes") != file_size
             or existing.get("mime_type") != content_type
         )
         if should_upload:
-            client.storage.from_(ARTIFACT_BUCKET).update(
-                storage_path, file_bytes, {"content-type": content_type}
-            )
+            with ProgressReader(filepath, progress_callback) as handle:
+                client.storage.from_(ARTIFACT_BUCKET).update(
+                    storage_path, cast(Any, handle), {"content-type": content_type}
+                )
         return update_metadata(existing["id"], payload)
 
+    created = create_with_retry("artifacts", "ART", 4, payload)
+
     try:
-        client.storage.from_(ARTIFACT_BUCKET).upload(
-            storage_path, file_bytes, {"content-type": content_type}
-        )
+        with ProgressReader(filepath, progress_callback) as handle:
+            client.storage.from_(ARTIFACT_BUCKET).upload(
+                storage_path, cast(Any, handle), {"content-type": content_type}
+            )
     except Exception as exc:
         if "Duplicate" in str(exc) or "already exists" in str(exc):
-            client.storage.from_(ARTIFACT_BUCKET).update(
-                storage_path, file_bytes, {"content-type": content_type}
-            )
-            existing = find_by_storage_path(storage_path)
-            if existing:
-                return update_metadata(existing["id"], payload)
-        else:
-            raise
+            with ProgressReader(filepath, progress_callback) as handle:
+                client.storage.from_(ARTIFACT_BUCKET).update(
+                    storage_path, cast(Any, handle), {"content-type": content_type}
+                )
+            return created
+        with contextlib.suppress(Exception):
+            client.table("artifacts").delete().eq("id", created["id"]).execute()
+        raise
 
-    return create_with_retry("artifacts", "ART", 4, payload)
+    return created
 
 
 def find_by_path(experiment_id: str, storage_path: str) -> dict[str, Any] | None:

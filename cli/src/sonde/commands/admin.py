@@ -48,6 +48,12 @@ def create_token(ctx: click.Context, name: str, programs: str, expires: int) -> 
                 "Only admins can create agent tokens.",
                 "Ask an existing admin to grant you admin access.",
             )
+        elif "extensions.sign" in msg or "pgjwt" in msg:
+            print_error(
+                "Agent token signing is unavailable",
+                "The Supabase project is missing the current agent-token signing migration.",
+                "Apply the latest Supabase migrations, then retry: supabase db push",
+            )
         elif "do not exist" in msg:
             print_error(
                 "Invalid program",
