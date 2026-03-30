@@ -534,12 +534,57 @@ def _render_human(data: dict, cross_coverage: dict | None, gaps: bool, program: 
 
 
 def _save_markdown(data: dict) -> None:
-    """Save brief data as markdown to .sonde/brief.md."""
-    md = _render_markdown(data)
+    """Save brief data as markdown + provenance watermark to .sonde/."""
     sonde_dir = find_sonde_dir()
+
+    # Save the brief markdown
+    md = _render_markdown(data)
     brief_path = sonde_dir / "brief.md"
     brief_path.write_text(md, encoding="utf-8")
+
+    # Save provenance watermark for health checks
+    _save_provenance(data, sonde_dir)
+
     err.print(f"\n[sonde.muted]Saved → {brief_path.relative_to(sonde_dir.parent)}[/]")
+
+
+def _save_provenance(data: dict, sonde_dir) -> None:
+    """Write brief provenance watermark to .sonde/brief.meta.json."""
+    from sonde.models.health import BriefInputs, BriefProvenance
+
+    def _max_ts(records: list[dict], key: str = "updated_at") -> datetime | None:
+        timestamps = [r.get(key) for r in records if r.get(key)]
+        if not timestamps:
+            return None
+        # Handle both string and datetime
+        latest = max(timestamps)
+        if isinstance(latest, str):
+            return datetime.fromisoformat(latest)
+        return latest
+
+    # Reconstruct the raw record lists from brief data to get timestamps
+    # The brief data has already been processed — use what's available
+    all_records = (
+        data.get("open_experiments", [])
+        + data.get("running_experiments", [])
+        + data.get("recent_completions", [])
+    )
+
+    prov = BriefProvenance(
+        program=data.get("title"),
+        generated_at=datetime.now(UTC),
+        inputs=BriefInputs(
+            experiment_count=data["stats"]["total"],
+            last_experiment_updated=_max_ts(all_records, "created_at"),
+            finding_count=data["stats"]["findings"],
+            last_finding_updated=_max_ts(data.get("findings", [])),
+            question_count=data["stats"]["open_questions"],
+            last_question_updated=_max_ts(data.get("open_questions", [])),
+        ),
+    )
+
+    meta_path = sonde_dir / "brief.meta.json"
+    meta_path.write_text(prov.model_dump_json(indent=2), encoding="utf-8")
 
 
 def _render_markdown(data: dict) -> str:

@@ -82,6 +82,7 @@ class SondeCLI(click.Group):
             "show": "Research",
             "brief": "Research",
             "recent": "Research",
+            "health": "Research",
             "login": "Auth & Setup",
             "logout": "Auth & Setup",
             "whoami": "Auth & Setup",

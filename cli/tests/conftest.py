@@ -189,14 +189,18 @@ def patched_db(mock_supabase: MagicMock, authenticated: None) -> MagicMock:
     ):
         # Patch the imported reference in modules that bind get_client at import time
         import sonde.commands.admin as admin_mod
+        import sonde.db.activity as activity_mod
         import sonde.db.experiments as exp_mod
 
         orig_exp = exp_mod.get_client
         orig_admin = admin_mod.get_client
+        orig_activity = activity_mod.get_client
         exp_mod.get_client = lambda: mock_supabase
         admin_mod.get_client = lambda: mock_supabase
+        activity_mod.get_client = lambda: mock_supabase
         try:
             yield mock_supabase
         finally:
             exp_mod.get_client = orig_exp
             admin_mod.get_client = orig_admin
+            activity_mod.get_client = orig_activity

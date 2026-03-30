@@ -6,9 +6,9 @@ import click
 
 from sonde.cli_options import pass_output_options
 from sonde.commands.questions import questions_cmd
-from sonde.db import rows
+from sonde.db import questions as db
 from sonde.db.activity import log_activity
-from sonde.db.client import get_client
+from sonde.models.question import QuestionCreate
 from sonde.output import print_error, print_json, print_success
 
 
@@ -82,40 +82,23 @@ def question_create(
         else (f"human/{user.email.split('@')[0]}" if user else "unknown")
     )
 
-    client = get_client()
-
-    # Generate next ID
-    result = (
-        client.table("questions").select("id").order("created_at", desc=True).limit(1).execute()
+    data = QuestionCreate(
+        program=program,
+        question=question_text,
+        context=context_text,
+        source=resolved_source,
+        tags=list(tag),
     )
-    existing = rows(result.data)
-    if existing:
-        last_num = int(existing[0]["id"].split("-")[1])
-        new_id = f"Q-{last_num + 1:03d}"
-    else:
-        new_id = "Q-001"
-
-    record = {
-        "id": new_id,
-        "program": program,
-        "question": question_text,
-        "status": "open",
-        "source": resolved_source,
-        "tags": list(tag),
-    }
-    if context_text:
-        record["context"] = context_text
-
-    client.table("questions").insert(record).execute()
-    log_activity(new_id, "question", "created")
+    result = db.create(data)
+    log_activity(result.id, "question", "created")
 
     if ctx.obj.get("json"):
-        print_json(record)
+        print_json(result.model_dump(mode="json"))
     else:
         print_success(
-            f"Created {new_id} ({program})",
+            f"Created {result.id} ({program})",
             details=[f"Question: {question_text}"],
-            breadcrumbs=[f"View: sonde question show {new_id}"],
+            breadcrumbs=[f"View: sonde question show {result.id}"],
         )
 
 
@@ -124,7 +107,9 @@ def question_create(
 @click.option("--program", "-p", help="Override program for the new experiment")
 @pass_output_options
 @click.pass_context
-def question_promote(ctx: click.Context, question_id: str, program: str | None) -> None:
+def question_promote(
+    ctx: click.Context, question_id: str, program: str | None
+) -> None:
     """Promote a question to an open experiment.
 
     Creates an open experiment from the question text and marks the
@@ -136,23 +121,22 @@ def question_promote(ctx: click.Context, question_id: str, program: str | None) 
       sonde question promote Q-001 -p weather-intervention
     """
     from sonde.auth import get_current_user
-    from sonde.db import experiments as db
+    from sonde.db import experiments as exp_db
     from sonde.models.experiment import ExperimentCreate
 
-    client = get_client()
-
-    # Fetch the question
-    result = client.table("questions").select("*").eq("id", question_id.upper()).execute()
-    questions = rows(result.data)
-    if not questions:
-        print_error(f"Question {question_id} not found", "No question with this ID.", "")
+    q = db.get(question_id.upper())
+    if not q:
+        print_error(
+            f"Question {question_id} not found",
+            "No question with this ID.",
+            "",
+        )
         raise SystemExit(1)
 
-    q = questions[0]
-    if q.get("status") == "promoted":
+    if q.status == "promoted":
         print_error(
             f"Question {question_id} already promoted",
-            f"Promoted to {q.get('promoted_to_type')} {q.get('promoted_to_id')}.",
+            f"Promoted to {q.promoted_to_type} {q.promoted_to_id}.",
             "",
         )
         raise SystemExit(1)
@@ -164,45 +148,52 @@ def question_promote(ctx: click.Context, question_id: str, program: str | None) 
         else (f"human/{user.email.split('@')[0]}" if user else "unknown")
     )
 
-    resolved_program = program or q.get("program")
+    resolved_program = program or q.program
     if not resolved_program:
-        print_error("No program", "Specify --program or ensure the question has a program.", "")
+        print_error(
+            "No program",
+            "Specify --program or ensure the question has a program.",
+            "",
+        )
         raise SystemExit(2)
 
     # Create the experiment
     promoted_ctx = f"Promoted from {question_id.upper()}"
-    content_body = q.get("context") or promoted_ctx
+    content_body = q.context or promoted_ctx
     exp_data = ExperimentCreate(
         program=resolved_program,
         status="open",
         source=source,
-        content=f"# {q['question']}\n\n{content_body}",
-        tags=q.get("tags", []),
+        content=f"# {q.question}\n\n{content_body}",
+        tags=q.tags,
     )
-    exp = db.create(exp_data)
+    exp = exp_db.create(exp_data)
 
     # Update the question
-    client.table("questions").update(
+    db.update(
+        question_id.upper(),
         {
             "status": "promoted",
             "promoted_to_type": "experiment",
             "promoted_to_id": exp.id,
-        }
-    ).eq("id", question_id.upper()).execute()
+        },
+    )
 
     log_activity(
         question_id.upper(),
         "question",
         "status_changed",
-        {"from": q["status"], "to": "promoted"},
+        {"from": q.status, "to": "promoted"},
     )
     log_activity(exp.id, "experiment", "created")
 
     if ctx.obj.get("json"):
-        print_json({"question_id": question_id.upper(), "experiment_id": exp.id})
+        print_json(
+            {"question_id": question_id.upper(), "experiment_id": exp.id}
+        )
     else:
         print_success(
-            f"Promoted {question_id.upper()} → {exp.id}",
-            details=[f"Question: {q['question']}", f"Program: {resolved_program}"],
+            f"Promoted {question_id.upper()} \u2192 {exp.id}",
+            details=[f"Question: {q.question}", f"Program: {resolved_program}"],
             breadcrumbs=[f"View experiment: sonde show {exp.id}"],
         )

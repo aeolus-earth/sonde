@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+from typing import Literal, cast
+
 import click
 
 from sonde.cli_options import pass_output_options
 from sonde.commands.findings import findings_cmd
-from sonde.db import rows
+from sonde.db import findings as db
 from sonde.db.activity import log_activity
-from sonde.db.client import get_client
+from sonde.models.finding import FindingCreate
 from sonde.output import print_json, print_success
 
 
@@ -98,42 +100,28 @@ def finding_create(
         else (f"human/{user.email.split('@')[0]}" if user else "unknown")
     )
 
-    client = get_client()
+    data = FindingCreate(
+        program=program,
+        topic=topic,
+        finding=finding_text,
+        confidence=cast(Literal["low", "medium", "high"], confidence),
+        evidence=list(evidence),
+        source=resolved_source,
+        supersedes=supersedes,
+    )
 
-    # Generate next ID
-    result = client.table("findings").select("id").order("created_at", desc=True).limit(1).execute()
-    existing = rows(result.data)
-    if existing:
-        last_num = int(existing[0]["id"].split("-")[1])
-        new_id = f"FIND-{last_num + 1:03d}"
-    else:
-        new_id = "FIND-001"
-
-    record = {
-        "id": new_id,
-        "program": program,
-        "topic": topic,
-        "finding": finding_text,
-        "confidence": confidence,
-        "evidence": list(evidence),
-        "source": resolved_source,
-    }
+    result = db.create(data)
 
     if supersedes:
-        record["supersedes"] = supersedes
-        # Mark the superseded finding
-        client.table("findings").update({"superseded_by": new_id, "valid_until": "now()"}).eq(
-            "id", supersedes
-        ).execute()
+        db.supersede(supersedes, result.id)
 
-    client.table("findings").insert(record).execute()
-    log_activity(new_id, "finding", "created")
+    log_activity(result.id, "finding", "created")
 
     if ctx.obj.get("json"):
-        print_json(record)
+        print_json(result.model_dump(mode="json"))
     else:
         print_success(
-            f"Created {new_id} ({program})",
+            f"Created {result.id} ({program})",
             details=[f"Topic: {topic}", f"Confidence: {confidence}"],
-            breadcrumbs=[f"View: sonde finding show {new_id}"],
+            breadcrumbs=[f"View: sonde finding show {result.id}"],
         )
