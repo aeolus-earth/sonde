@@ -50,8 +50,11 @@ def log_activity(
 def get_recent(
     *,
     program: str | None = None,
-    days: int = 7,
+    days: int | None = 7,
+    since: str | None = None,
     actor: str | None = None,
+    action: str | None = None,
+    record_type: str | None = None,
     limit: int = 20,
 ) -> list[dict[str, Any]]:
     """Get recent activity entries."""
@@ -60,10 +63,15 @@ def get_recent(
 
     if actor:
         query = query.eq("actor", actor)
+    if action:
+        query = query.eq("action", action)
+    if record_type:
+        query = query.eq("record_type", record_type)
 
-    # Date filter: Supabase doesn't have a "last N days" operator,
-    # but we can use gte with an ISO timestamp
-    if days:
+    # Date filter: --since takes an ISO date, --days computes a cutoff
+    if since:
+        query = query.gte("created_at", since)
+    elif days:
         from datetime import UTC, datetime, timedelta
 
         cutoff = (datetime.now(UTC) - timedelta(days=days)).isoformat()
