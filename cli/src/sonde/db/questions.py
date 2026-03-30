@@ -79,6 +79,12 @@ def update(question_id: str, updates: dict[str, Any]) -> Question | None:
     return Question(**data[0]) if data else None
 
 
+def delete(question_id: str) -> None:
+    """Delete a question."""
+    client = get_client()
+    client.table("questions").delete().eq("id", question_id).execute()
+
+
 def find_by_promoted_to(experiment_id: str) -> list[Question]:
     """Get questions that were promoted to a specific experiment."""
     client = get_client()

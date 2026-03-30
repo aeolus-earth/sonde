@@ -21,6 +21,11 @@ load_dotenv()
 _NO_AUTH = {"login", "logout", "whoami", "setup"}
 
 
+def _is_help_request() -> bool:
+    """Return True when the current invocation is only asking for help."""
+    return any(arg == "--help" for arg in sys.argv[1:])
+
+
 class SondeCLI(click.Group):
     """Custom group with shortcuts and branded help."""
 
@@ -42,6 +47,7 @@ class SondeCLI(click.Group):
         "diff": ("experiment", "diff"),
         "fork": ("experiment", "fork"),
         "archive": ("experiment", "archive"),
+        "delete": ("experiment", "delete"),
         # Noun group shortcuts (backward compat)
         "findings": ("finding", "list"),
         "programs": ("program", "list"),
@@ -183,7 +189,7 @@ def cli(ctx: click.Context, use_json: bool, quiet: bool, verbose: bool, no_color
 
     # Enforce auth for commands that require it
     sub = ctx.invoked_subcommand
-    if sub and sub not in _NO_AUTH:
+    if sub and sub not in _NO_AUTH and not _is_help_request():
         from sonde.auth import is_authenticated
 
         if not is_authenticated():

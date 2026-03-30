@@ -4,9 +4,18 @@ from __future__ import annotations
 
 from typing import Any
 
+from postgrest.types import CountMethod
+
 from sonde.db import rows as to_rows
 from sonde.db.client import get_client
 from sonde.models.program import Program, ProgramCreate
+
+
+def _program_from_result(data: Any) -> Program:
+    """Coerce an RPC response payload into a Program model."""
+    if isinstance(data, dict):
+        return Program(**data)
+    return Program(**to_rows(data)[0])
 
 
 def create(data: ProgramCreate) -> Program:
@@ -17,11 +26,7 @@ def create(data: ProgramCreate) -> Program:
         "program_name": data.name,
         "program_description": data.description,
     }).execute()
-    rows = to_rows(result.data)
-    # RPC returns a single row, but to_rows wraps it
-    if isinstance(result.data, dict):
-        return Program(**result.data)
-    return Program(**rows[0])
+    return _program_from_result(result.data)
 
 
 def get(program_id: str) -> Program | None:
@@ -45,20 +50,14 @@ def archive(program_id: str) -> Program:
     """Archive a program via RPC. Requires admin role on the program."""
     client = get_client()
     result = client.rpc("archive_program", {"target_program": program_id}).execute()
-    if isinstance(result.data, dict):
-        return Program(**result.data)
-    rows = to_rows(result.data)
-    return Program(**rows[0])
+    return _program_from_result(result.data)
 
 
 def unarchive(program_id: str) -> Program:
     """Unarchive a program via RPC. Requires admin role on the program."""
     client = get_client()
     result = client.rpc("unarchive_program", {"target_program": program_id}).execute()
-    if isinstance(result.data, dict):
-        return Program(**result.data)
-    rows = to_rows(result.data)
-    return Program(**rows[0])
+    return _program_from_result(result.data)
 
 
 def delete(program_id: str) -> None:
@@ -74,9 +73,17 @@ def get_stats(program_id: str) -> dict[str, Any]:
     for table in ("experiments", "findings", "questions", "directions"):
         result = (
             client.table(table)
-            .select("id", count="exact")
+            .select("id", count=CountMethod.exact)
             .eq("program", program_id)
             .execute()
         )
         stats[table] = result.count or 0
     return stats
+
+
+def update(program_id: str, updates: dict[str, Any]) -> Program | None:
+    """Update a program's name or description."""
+    client = get_client()
+    result = client.table("programs").update(updates).eq("id", program_id).execute()
+    data = to_rows(result.data)
+    return Program(**data[0]) if data else None

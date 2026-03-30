@@ -224,6 +224,37 @@ def finding_extract(
         )
 
 
+@finding.command("delete")
+@click.argument("finding_id")
+@click.option("--confirm", is_flag=True, help="Confirm deletion")
+@pass_output_options
+@click.pass_context
+def finding_delete(ctx: click.Context, finding_id: str, confirm: bool) -> None:
+    """Delete a finding. Repairs supersession chains."""
+    finding_id = finding_id.upper()
+    f = db.get(finding_id)
+    if not f:
+        print_error(f"{finding_id} not found", "No finding with this ID.", "sonde findings")
+        raise SystemExit(1)
+
+    if not confirm:
+        err.print(f"[sonde.warning]This will delete {finding_id}[/]")
+        if f.supersedes:
+            err.print(f"  Will un-supersede {f.supersedes}")
+        if f.superseded_by:
+            err.print(f"  Chain will be repaired through {f.superseded_by}")
+        err.print("  Use --confirm to proceed.")
+        raise SystemExit(1)
+
+    log_activity(finding_id, "finding", "deleted", {"deleted_by": resolve_source()})
+    db.delete(finding_id)
+
+    if ctx.obj.get("json"):
+        print_json({"deleted": {"id": finding_id}})
+    else:
+        print_success(f"Deleted {finding_id}")
+
+
 finding.add_command(new_finding)
 finding.add_command(pull_finding, "pull")
 finding.add_command(push_finding, "push")

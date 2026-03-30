@@ -371,6 +371,52 @@ def archive_subtree(root_id: str) -> tuple[list[str], list[str]]:
     return archived, skipped
 
 
+def delete(experiment_id: str) -> dict[str, int]:
+    """Delete an experiment and cascade to notes, artifacts.
+
+    Re-parents children to the deleted experiment's parent (or null).
+    Activity log entries are preserved as audit trail.
+    Returns counts of deleted child records.
+    """
+    from sonde.db.validate import validate_id
+    validate_id(experiment_id)
+
+    client = get_client()
+    exp = get(experiment_id)
+    if not exp:
+        return {"notes": 0, "artifacts": 0, "children_reparented": 0}
+
+    # Re-parent children to grandparent
+    children = get_children(experiment_id)
+    for child in children:
+        client.table("experiments").update(
+            {"parent_id": exp.parent_id}
+        ).eq("id", child.id).execute()
+
+    # Cascade delete child records
+    notes_result = (
+        client.table("experiment_notes")
+        .delete()
+        .eq("experiment_id", experiment_id)
+        .execute()
+    )
+    artifacts_result = (
+        client.table("artifacts")
+        .delete()
+        .eq("experiment_id", experiment_id)
+        .execute()
+    )
+
+    # Delete the experiment
+    client.table("experiments").delete().eq("id", experiment_id).execute()
+
+    return {
+        "notes": len(to_rows(notes_result.data)),
+        "artifacts": len(to_rows(artifacts_result.data)),
+        "children_reparented": len(children),
+    }
+
+
 def get_ancestors(experiment_id: str) -> list[dict[str, Any]]:
     """Get the ancestry chain from this experiment to the root (leaf-to-root order).
 

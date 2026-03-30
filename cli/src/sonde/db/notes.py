@@ -30,6 +30,30 @@ def list_by_experiment(experiment_id: str) -> list[dict]:
     return to_rows(result.data)
 
 
+def get(note_id: str) -> dict | None:
+    """Get a single note by ID."""
+    client = get_client()
+    result = client.table("experiment_notes").select("*").eq("id", note_id).execute()
+    rows = to_rows(result.data)
+    return rows[0] if rows else None
+
+
+def update(note_id: str, content: str) -> dict | None:
+    """Update a note's content."""
+    client = get_client()
+    result = client.table("experiment_notes").update(
+        {"content": content}
+    ).eq("id", note_id).execute()
+    rows = to_rows(result.data)
+    return rows[0] if rows else None
+
+
+def delete(note_id: str) -> None:
+    """Delete a note."""
+    client = get_client()
+    client.table("experiment_notes").delete().eq("id", note_id).execute()
+
+
 def experiment_exists(experiment_id: str) -> bool:
     """Check if an experiment exists."""
     client = get_client()

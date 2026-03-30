@@ -163,6 +163,7 @@ def program_show(ctx: click.Context, id: str) -> None:
 
 @program.command("archive")
 @click.argument("id")
+@pass_output_options
 @click.pass_context
 def program_archive(ctx: click.Context, id: str) -> None:
     """Archive a program. Data is preserved but hidden from default views."""
@@ -180,11 +181,15 @@ def program_archive(ctx: click.Context, id: str) -> None:
             print_error(f"Failed to archive {id}", msg, "Check your permissions.")
         raise SystemExit(1) from None
 
+    if ctx.obj.get("json"):
+        print_json({"archived": id})
+        return
     print_success(f"Archived {id}. Data is preserved but hidden from default views.")
 
 
 @program.command("unarchive")
 @click.argument("id")
+@pass_output_options
 @click.pass_context
 def program_unarchive(ctx: click.Context, id: str) -> None:
     """Unarchive a program."""
@@ -202,12 +207,58 @@ def program_unarchive(ctx: click.Context, id: str) -> None:
             print_error(f"Failed to unarchive {id}", msg, "Check your permissions.")
         raise SystemExit(1) from None
 
+    if ctx.obj.get("json"):
+        print_json({"unarchived": id})
+        return
     print_success(f"Unarchived {id}.")
+
+
+@program.command("update")
+@click.argument("program_id")
+@click.option("--name", help="New program name")
+@click.option("--description", help="New description")
+@pass_output_options
+@click.pass_context
+def program_update(
+    ctx: click.Context, program_id: str, name: str | None, description: str | None,
+) -> None:
+    """Update a program's name or description.
+
+    \b
+    Examples:
+      sonde program update weather-intervention --name "Weather Intervention Research"
+      sonde program update shared --description "Cross-cutting tools and methods"
+    """
+    if not name and not description:
+        print_error("Nothing to update", "Provide --name or --description.", "")
+        raise SystemExit(2)
+
+    p = db.get(program_id)
+    if not p:
+        print_error(f"Program '{program_id}' not found", "", "sonde program list --all")
+        raise SystemExit(1)
+
+    updates: dict[str, str] = {}
+    if name:
+        updates["name"] = name
+    if description:
+        updates["description"] = description
+
+    result = db.update(program_id, updates)
+    if ctx.obj.get("json"):
+        print_json(result.model_dump(mode="json") if result else {"error": "update failed"})
+    else:
+        print_success(f"Updated program '{program_id}'")
+        if name:
+            err.print(f"  Name: {name}")
+        if description:
+            err.print(f"  Description: {description}")
 
 
 @program.command("delete")
 @click.argument("id")
 @click.option("--confirm", "confirm_id", default=None, help="Confirm by repeating the program ID")
+@pass_output_options
 @click.pass_context
 def program_delete(ctx: click.Context, id: str, confirm_id: str | None) -> None:
     """Delete a program and all child records. Requires --confirm <id>."""
@@ -237,4 +288,7 @@ def program_delete(ctx: click.Context, id: str, confirm_id: str | None) -> None:
             print_error(f"Failed to delete {id}", msg, "Check your permissions.")
         raise SystemExit(1) from None
 
+    if ctx.obj.get("json"):
+        print_json({"deleted": id, "stats": stats})
+        return
     print_success(f"Deleted {id} and all child records.")

@@ -120,6 +120,39 @@ def update(finding_id: str, updates: dict[str, Any]) -> Finding | None:
     return Finding(**data[0]) if data else None
 
 
+def delete(finding_id: str) -> None:
+    """Delete a finding. Repairs supersession chain to avoid orphans."""
+    client = get_client()
+    f = get(finding_id)
+    if not f:
+        return
+
+    # Repair supersession chain
+    if f.supersedes and f.superseded_by:
+        # Middle of chain: link predecessor to successor
+        client.table("findings").update(
+            {"superseded_by": f.superseded_by}
+        ).eq("id", f.supersedes).execute()
+        client.table("findings").update(
+            {"supersedes": f.supersedes}
+        ).eq("id", f.superseded_by).execute()
+    elif f.supersedes:
+        # End of chain: un-supersede the predecessor
+        client.table("findings").update(
+            {"superseded_by": None, "valid_until": None}
+        ).eq("id", f.supersedes).execute()
+    elif f.superseded_by:
+        # Start of chain: clear successor's back-reference
+        client.table("findings").update(
+            {"supersedes": None}
+        ).eq("id", f.superseded_by).execute()
+
+    # Delete artifacts linked to this finding
+    client.table("artifacts").delete().eq("finding_id", finding_id).execute()
+    # Delete the finding
+    client.table("findings").delete().eq("id", finding_id).execute()
+
+
 def _apply_filters(
     query: Any,
     *,

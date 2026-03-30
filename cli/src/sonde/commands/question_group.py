@@ -17,7 +17,7 @@ from sonde.db import questions as db
 from sonde.db.activity import log_activity
 from sonde.models.direction import DirectionCreate
 from sonde.models.question import QuestionCreate
-from sonde.output import print_error, print_json, print_success
+from sonde.output import err, print_error, print_json, print_success
 
 
 @click.group(invoke_without_command=True)
@@ -226,6 +226,33 @@ def question_promote(
             details=[f"Question: {q.question}", f"Program: {resolved_program}"],
             breadcrumbs=[f"View: sonde show {promoted_to_id}"],
         )
+
+
+@question.command("delete")
+@click.argument("question_id")
+@click.option("--confirm", is_flag=True, help="Confirm deletion")
+@pass_output_options
+@click.pass_context
+def question_delete(ctx: click.Context, question_id: str, confirm: bool) -> None:
+    """Delete a question."""
+    question_id = question_id.upper()
+    q = db.get(question_id)
+    if not q:
+        print_error(f"{question_id} not found", "No question with this ID.", "sonde questions")
+        raise SystemExit(1)
+
+    if not confirm:
+        err.print(f"[sonde.warning]This will delete {question_id}[/]")
+        err.print("  Use --confirm to proceed.")
+        raise SystemExit(1)
+
+    log_activity(question_id, "question", "deleted", {"deleted_by": resolve_source()})
+    db.delete(question_id)
+
+    if ctx.obj.get("json"):
+        print_json({"deleted": {"id": question_id}})
+    else:
+        print_success(f"Deleted {question_id}")
 
 
 question.add_command(new_question)

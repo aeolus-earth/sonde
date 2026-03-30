@@ -55,3 +55,23 @@ def update(direction_id: str, updates: dict[str, Any]) -> Direction | None:
     result = client.table("directions").update(updates).eq("id", direction_id).execute()
     data = to_rows(result.data)
     return Direction(**data[0]) if data else None
+
+
+def delete(direction_id: str) -> int:
+    """Delete a direction. Clears direction_id on linked experiments.
+
+    Returns count of experiments that had their direction_id cleared.
+    """
+    client = get_client()
+    # Find and clear experiments referencing this direction
+    exp_result = client.table("experiments").select("id").eq("direction_id", direction_id).execute()
+    count = len(to_rows(exp_result.data))
+    if count:
+        client.table("experiments").update(
+            {"direction_id": None}
+        ).eq("direction_id", direction_id).execute()
+    # Delete artifacts linked to this direction
+    client.table("artifacts").delete().eq("direction_id", direction_id).execute()
+    # Delete the direction
+    client.table("directions").delete().eq("id", direction_id).execute()
+    return count

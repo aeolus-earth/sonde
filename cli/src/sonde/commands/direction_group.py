@@ -16,7 +16,7 @@ from sonde.config import get_settings
 from sonde.db import directions as db
 from sonde.db.activity import log_activity
 from sonde.models.direction import DirectionCreate
-from sonde.output import print_error, print_json, print_success, print_table
+from sonde.output import err, print_error, print_json, print_success, print_table
 
 
 @click.group(invoke_without_command=True)
@@ -198,6 +198,43 @@ def direction_update(
             details=[f"Status: {updated.status}", f"Title: {updated.title}"],
             breadcrumbs=[f"View: sonde direction show {direction_id}"],
         )
+
+
+@direction.command("delete")
+@click.argument("direction_id")
+@click.option("--confirm", is_flag=True, help="Confirm deletion")
+@pass_output_options
+@click.pass_context
+def direction_delete(ctx: click.Context, direction_id: str, confirm: bool) -> None:
+    """Delete a direction. Clears direction_id on linked experiments."""
+    direction_id = direction_id.upper()
+    d = db.get(direction_id)
+    if not d:
+        print_error(
+            f"{direction_id} not found",
+            "No direction with this ID.",
+            "sonde direction list",
+        )
+        raise SystemExit(1)
+
+    if not confirm:
+        from sonde.db import experiments as exp_db
+        exp_count = len(exp_db.list_by_direction(direction_id))
+        err.print(f"[sonde.warning]This will delete {direction_id}[/]")
+        if exp_count:
+            err.print(f"  {exp_count} experiment(s) will have direction_id cleared")
+        err.print("  Use --confirm to proceed.")
+        raise SystemExit(1)
+
+    log_activity(direction_id, "direction", "deleted", {"deleted_by": resolve_source()})
+    cleared = db.delete(direction_id)
+
+    if ctx.obj.get("json"):
+        print_json({"deleted": {"id": direction_id}, "experiments_cleared": cleared})
+    else:
+        print_success(f"Deleted {direction_id}")
+        if cleared:
+            err.print(f"  {cleared} experiment(s) had direction_id cleared")
 
 
 direction.add_command(new_direction)
