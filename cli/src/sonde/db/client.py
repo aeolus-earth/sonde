@@ -22,9 +22,10 @@ def get_client() -> Client:
 
     try:
         token = get_token()
-    except NotAuthenticatedError:
+    except NotAuthenticatedError as exc:
+        msg = str(exc) if str(exc) else "Not logged in."
         raise SystemExit(
-            "Error: Not logged in.\n"
+            f"Error: {msg}\n"
             "  Run: sonde login\n\n"
             "  For agents, set the SONDE_TOKEN environment variable."
         ) from None

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import click
 
+from sonde.cli_options import pass_output_options
 from sonde.config import get_settings
 from sonde.db.activity import get_recent
 from sonde.output import err, print_json, print_table
@@ -18,6 +19,7 @@ from sonde.output import err, print_json, print_table
 @click.option("--type", "record_type", help="Filter by record type (experiment, finding, question)")
 @click.option("--count", "show_count", is_flag=True, help="Show only the count")
 @click.option("--limit", "-n", default=20, type=int, help="Max results (default: 20)")
+@pass_output_options
 @click.pass_context
 def recent(
     ctx: click.Context,

@@ -12,6 +12,7 @@ import click
 from dotenv import load_dotenv
 
 from sonde import __version__
+from sonde.cli_options import pass_output_options
 
 # Load .env before anything else
 load_dotenv()
@@ -27,7 +28,6 @@ class SondeCLI(click.Group):
         # Existing
         "log": ("experiment", "log"),
         "list": ("experiment", "list"),
-        "show": ("experiment", "show"),
         "search": ("experiment", "search"),
         # Newly consolidated
         "update": ("experiment", "update"),
@@ -40,6 +40,12 @@ class SondeCLI(click.Group):
         "pull": ("sync", "pull"),
         "push": ("sync", "push"),
         "new": ("experiment", "new"),
+        "diff": ("experiment", "diff"),
+        "fork": ("experiment", "fork"),
+        # Noun group shortcuts (backward compat)
+        "findings": ("finding", "list"),
+        "questions": ("question", "list"),
+        "tags": ("tag", "list"),
     }
 
     def get_command(self, ctx: click.Context, cmd_name: str) -> click.Command | None:
@@ -68,12 +74,14 @@ class SondeCLI(click.Group):
         }
         category_map = {
             "experiment": "Research",
+            "finding": "Research",
+            "question": "Research",
+            "tag": "Research",
             "sync": "Research",
+            "status": "Research",
+            "show": "Research",
             "brief": "Research",
             "recent": "Research",
-            "findings": "Research",
-            "questions": "Research",
-            "tags": "Research",
             "login": "Auth & Setup",
             "logout": "Auth & Setup",
             "whoami": "Auth & Setup",
@@ -114,11 +122,13 @@ class SondeCLI(click.Group):
 
         # Shortcuts panel
         shortcut_lines = (
-            "log, show, list, search, update    experiment shortcuts\n"
+            "log, list, search, update           experiment shortcuts\n"
             "close, open, start                  lifecycle shortcuts\n"
             "note, attach, history               record management\n"
+            "diff, fork                          compare & iterate\n"
             "pull, push                          sync shortcuts\n"
-            "new                                 scaffold a new experiment"
+            "new                                 scaffold a new experiment\n"
+            "findings, questions, tags            noun list shortcuts"
         )
         err.print(
             Panel(
@@ -134,8 +144,9 @@ class SondeCLI(click.Group):
             Panel(
                 "sonde login\n"
                 'sonde log -p shared "Ran CCN sweep at 1200, saw 8% less enhancement"\n'
-                "sonde list\n"
-                "sonde show EXP-0001",
+                "sonde list                                 # experiments\n"
+                "sonde show EXP-0001                        # any record (EXP, FIND, DIR, Q)\n"
+                "sonde brief                               # summary across all programs",
                 title="[sonde.heading]Quick start[/]",
                 border_style="sonde.brand.dim",
                 padding=(0, 1),
@@ -185,12 +196,13 @@ from sonde.commands.admin import admin  # noqa: E402
 from sonde.commands.auth import login, logout, whoami  # noqa: E402
 from sonde.commands.brief import brief  # noqa: E402
 from sonde.commands.experiment import experiment  # noqa: E402
-from sonde.commands.findings import findings_cmd  # noqa: E402
-from sonde.commands.questions import questions_cmd  # noqa: E402
+from sonde.commands.finding_group import finding  # noqa: E402
+from sonde.commands.question_group import question  # noqa: E402
 from sonde.commands.recent import recent  # noqa: E402
 from sonde.commands.setup import setup  # noqa: E402
+from sonde.commands.status import status  # noqa: E402
 from sonde.commands.sync import sync  # noqa: E402
-from sonde.commands.tag import tags_list  # noqa: E402
+from sonde.commands.tag import tag  # noqa: E402
 
 # Auth & Setup
 cli.add_command(login)
@@ -201,14 +213,41 @@ cli.add_command(access)
 
 # Research — noun groups
 cli.add_command(experiment)
+cli.add_command(finding)
+cli.add_command(question)
 cli.add_command(sync)
 
 # Research — cross-cutting views
 cli.add_command(brief)
 cli.add_command(recent)
-cli.add_command(findings_cmd)
-cli.add_command(questions_cmd)
-cli.add_command(tags_list)
+cli.add_command(tag)
+cli.add_command(status)
+
+
+# -- Polymorphic show (works with EXP-, FIND-, Q-, DIR- prefixes) --
+@cli.command("show")
+@click.argument("record_id")
+@click.option("--graph", "-g", is_flag=True, help="Show all connected entities (experiments only)")
+@pass_output_options
+@click.pass_context
+def show_cmd(ctx: click.Context, record_id: str, graph: bool) -> None:
+    """Show details for any record (experiment, finding, question, direction).
+
+    \b
+    Detects entity type from ID prefix:
+      sonde show EXP-0001       experiment
+      sonde show FIND-001       finding with evidence
+      sonde show Q-001          question with context
+      sonde show DIR-001        direction with experiments
+
+    \b
+    Examples:
+      sonde show EXP-0001 --graph   # show all connected entities
+      sonde show FIND-001 --json    # finding as JSON
+    """
+    from sonde.commands.show import show_dispatch
+    show_dispatch(ctx, record_id, graph)
+
 
 # Admin
 cli.add_command(admin)

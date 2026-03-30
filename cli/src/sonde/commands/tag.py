@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import click
 
+from sonde.cli_options import pass_output_options
 from sonde.config import get_settings
 from sonde.db import rows
 from sonde.db.client import get_client
@@ -94,15 +95,15 @@ def tag_remove(ctx: click.Context, record_id: str, tag_name: str) -> None:
     print_success(f"Removed '{tag_name}' from {record_id}")
 
 
-@tag.command("list")
+@tag.command("show")
 @click.argument("record_id")
 @click.pass_context
 def tag_show(ctx: click.Context, record_id: str) -> None:
-    """Show tags for a record.
+    """Show tags for a specific record.
 
     \b
     Examples:
-      sonde tag list EXP-0001
+      sonde tag show EXP-0001
     """
     record_id = record_id.upper()
     client = get_client()
@@ -123,16 +124,17 @@ def tag_show(ctx: click.Context, record_id: str) -> None:
         err.print("[sonde.muted]No tags[/]")
 
 
-@click.command("tags")
+@tag.command("list")
 @click.option("--program", "-p", help="Filter by program")
+@pass_output_options
 @click.pass_context
 def tags_list(ctx: click.Context, program: str | None) -> None:
     """Show all tags with counts.
 
     \b
     Examples:
-      sonde tags
-      sonde tags -p weather-intervention
+      sonde tag list
+      sonde tag list -p weather-intervention
     """
     settings = get_settings()
     resolved = program or settings.program

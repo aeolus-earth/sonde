@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import click
 
+from sonde.cli_options import pass_output_options
 from sonde.config import get_settings
 from sonde.db import rows
 from sonde.db.client import get_client
@@ -28,6 +29,7 @@ from sonde.output import (
 @click.option("--chain", is_flag=True, help="Show supersession chain for findings")
 @click.option("--count", "show_count", is_flag=True, help="Show only the count")
 @click.option("--limit", "-n", default=50, type=int, help="Max results (default: 50)")
+@pass_output_options
 @click.pass_context
 def findings_cmd(
     ctx: click.Context,

@@ -121,20 +121,45 @@ def search(
     client = get_client()
 
     if text:
-        # Use RPC for ranked full-text search
-        rpc_params: dict[str, Any] = {
-            "search_query": text,
-            "result_limit": limit + 1,  # +1 for has_more detection
-            "result_offset": offset,
-        }
-        if program:
-            rpc_params["filter_program"] = program
-        if status:
-            rpc_params["filter_status"] = status
-        if tags:
-            rpc_params["filter_tags"] = tags
-        result = client.rpc("search_experiments", rpc_params).execute()
-        experiments = [Experiment(**row) for row in to_rows(result.data)]
+        # Try RPC for ranked full-text search; fall back to client-side filtering
+        try:
+            rpc_params: dict[str, Any] = {
+                "search_query": text,
+                "result_limit": limit + 1,  # +1 for has_more detection
+                "result_offset": offset,
+            }
+            if program:
+                rpc_params["filter_program"] = program
+            if status:
+                rpc_params["filter_status"] = status
+            if tags:
+                rpc_params["filter_tags"] = tags
+            result = client.rpc("search_experiments", rpc_params).execute()
+            experiments = [Experiment(**row) for row in to_rows(result.data)]
+        except APIError:
+            import sys
+
+            print(
+                "Warning: Full-text search unavailable, using client-side filtering.",
+                file=sys.stderr,
+            )
+            # Fall back: fetch experiments and filter client-side
+            query = client.table("experiments").select("*").order("created_at", desc=True)
+            if program:
+                query = query.eq("program", program)
+            if status:
+                query = query.eq("status", status)
+            if tags:
+                query = query.contains("tags", tags)
+            result = query.execute()
+            text_lower = text.lower()
+            experiments = [
+                Experiment(**row)
+                for row in to_rows(result.data)
+                if text_lower in (row.get("content") or "").lower()
+                or text_lower in (row.get("hypothesis") or "").lower()
+                or text_lower in (row.get("finding") or "").lower()
+            ]
         # Client-side date filtering for RPC path (RPC doesn't support date filters)
         if since:
             experiments = [
@@ -168,7 +193,7 @@ def search(
         for exp in experiments:
             match = True
             for key, op, value in param_filters:
-                exp_val = exp.parameters.get(key)
+                exp_val = exp.all_params.get(key)
                 if exp_val is None:
                     match = False
                     break

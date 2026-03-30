@@ -162,6 +162,14 @@ def get_token() -> str:
                     return refreshed.session.access_token
             except AuthApiError:
                 logger.debug("Token refresh failed", exc_info=True)
+                raise NotAuthenticatedError(
+                    "Session expired and refresh failed. Run: sonde login"
+                ) from None
+
+        # Token is expired but no refresh token available
+        raise NotAuthenticatedError(
+            "Session expired. Run: sonde login"
+        )
 
     return access_token
 
@@ -188,11 +196,19 @@ def get_current_user() -> UserInfo | None:
 
 
 def is_authenticated() -> bool:
-    """Quick check — is there a usable token?"""
+    """Quick check — is there a usable token? Attempts refresh if expired."""
     if os.environ.get("SONDE_TOKEN"):
         return True
     session = load_session()
-    return session is not None and "access_token" in session
+    if session is None or "access_token" not in session:
+        return False
+    if _is_expired(session["access_token"]):
+        try:
+            get_token()  # triggers refresh
+            return True
+        except NotAuthenticatedError:
+            return False
+    return True
 
 
 def _is_expired(token: str) -> bool:

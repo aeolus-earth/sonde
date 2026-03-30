@@ -10,6 +10,7 @@ from pathlib import Path
 import click
 import yaml
 
+from sonde.cli_options import pass_output_options
 from sonde.config import get_settings
 from sonde.db import experiments as db
 from sonde.git import detect_git_context
@@ -140,6 +141,7 @@ def experiment():
 @click.option("--status", default="complete", type=click.Choice(["open", "running", "complete"]))
 @click.option("--quick", is_flag=True, help="Minimal record — just params + result")
 @click.option("--open", "open_exp", is_flag=True, help="Log as open/backlog (not yet run)")
+@pass_output_options
 @click.pass_context
 def log(
     ctx: click.Context,
@@ -301,6 +303,7 @@ def log(
 @click.option("--complete", "filter_complete", is_flag=True, help="Show only complete experiments")
 @click.option("--failed", "filter_failed", is_flag=True, help="Show only failed experiments")
 @click.option("--source", help="Filter by source (prefix match if no '/')")
+@click.option("--me", "filter_me", is_flag=True, help="Show only my experiments")
 @click.option("--tag", multiple=True, help="Filter by tag (repeatable)")
 @click.option("--direction", "-d", help="Filter by research direction ID")
 @click.option("--since", help="Show experiments created after this date (YYYY-MM-DD)")
@@ -314,6 +317,8 @@ def log(
 @click.option("--count", "show_count", is_flag=True, help="Show only the count")
 @click.option("--limit", "-n", default=50, help="Max results (default: 50)")
 @click.option("--offset", default=0, help="Skip first N results (for pagination)")
+@click.option("--page", type=int, help="Page number (1-based, combines with --limit)")
+@pass_output_options
 @click.pass_context
 def list_cmd(
     ctx: click.Context,
@@ -324,6 +329,7 @@ def list_cmd(
     filter_complete: bool,
     filter_failed: bool,
     source: str | None,
+    filter_me: bool,
     tag: tuple[str, ...],
     direction: str | None,
     since: str | None,
@@ -332,6 +338,7 @@ def list_cmd(
     show_count: bool,
     limit: int,
     offset: int,
+    page: int | None,
 ):
     """List experiments.
 
@@ -371,6 +378,25 @@ def list_cmd(
 
     settings = get_settings()
     resolved_program = program or settings.program or None
+
+    # Resolve --me to source filter
+    if filter_me:
+        if source:
+            print_error("Conflicting filters", "Cannot use --me with --source.", "Use one or the other.")
+            raise SystemExit(2)
+        from sonde.auth import get_current_user
+        user = get_current_user()
+        if user and user.is_agent:
+            source = "agent"
+        elif user:
+            source = f"human/{user.email.split('@')[0]}"
+
+    # Resolve --page to offset
+    if page is not None:
+        if page < 1:
+            print_error("Invalid page", "Page must be >= 1.", "")
+            raise SystemExit(2)
+        offset = (page - 1) * limit
 
     experiments = db.list_experiments(
         program=resolved_program,
@@ -417,14 +443,17 @@ def list_cmd(
 
 @experiment.command()
 @click.argument("experiment_id")
+@click.option("--graph", "-g", is_flag=True, help="Show all connected entities")
+@pass_output_options
 @click.pass_context
-def show(ctx: click.Context, experiment_id: str):
+def show(ctx: click.Context, experiment_id: str, graph: bool):
     """Show full details for an experiment.
 
     \b
     Examples:
       sonde experiment show EXP-0001
       sonde show EXP-0001 --json
+      sonde show EXP-0001 --graph
     """
     from sonde.db import rows as to_rows
     from sonde.db.client import get_client
@@ -471,6 +500,8 @@ def show(ctx: click.Context, experiment_id: str):
         data["_findings"] = related_findings
         data["_artifacts"] = artifacts
         data["_activity"] = activity
+        if graph:
+            data["_graph"] = _build_graph_data(exp, client, to_rows)
         print_json(data)
     else:
         from rich.markdown import Markdown
@@ -507,8 +538,8 @@ def show(ctx: click.Context, experiment_id: str):
         else:
             if exp.hypothesis:
                 header.append(f"\n[sonde.heading]Hypothesis:[/sonde.heading]\n  {exp.hypothesis}")
-            if exp.parameters:
-                param_str = "\n".join(f"  {k}: {v}" for k, v in exp.parameters.items())
+            if exp.all_params:
+                param_str = "\n".join(f"  {k}: {v}" for k, v in exp.all_params.items())
                 header.append(f"\n[sonde.heading]Parameters:[/sonde.heading]\n{param_str}")
             if exp.results:
                 result_str = "\n".join(f"  {k}: {v}" for k, v in exp.results.items())
@@ -563,6 +594,10 @@ def show(ctx: click.Context, experiment_id: str):
                     actor = actor.split("/")[-1]
                 err.print(f"  [sonde.muted]{ts}[/]  {actor}  {entry['action']}")
 
+        # Graph traversal (--graph)
+        if graph:
+            _render_graph(exp, client, to_rows)
+
         print_breadcrumbs(
             [
                 f"History: sonde history {exp.id}",
@@ -586,6 +621,8 @@ def show(ctx: click.Context, experiment_id: str):
 @click.option("--count", "show_count", is_flag=True, help="Show only the count")
 @click.option("--limit", "-n", default=50, help="Max results")
 @click.option("--offset", default=0, help="Skip first N results (for pagination)")
+@click.option("--page", type=int, help="Page number (1-based, combines with --limit)")
+@pass_output_options
 @click.pass_context
 def search(
     ctx: click.Context,
@@ -603,6 +640,7 @@ def search(
     show_count: bool,
     limit: int,
     offset: int,
+    page: int | None,
 ):
     """Search experiments.
 
@@ -637,6 +675,13 @@ def search(
         status = active[0][0]
     settings = get_settings()
     resolved_program = program or settings.program or None
+
+    # Resolve --page to offset
+    if page is not None:
+        if page < 1:
+            print_error("Invalid page", "Page must be >= 1.", "")
+            raise SystemExit(2)
+        offset = (page - 1) * limit
 
     param_filters = []
     for p in param:
@@ -748,6 +793,7 @@ def search(
 @click.option("--content", "-c", "content_text", help="Replace content body")
 @click.option("--content-file", type=click.Path(exists=True), help="Replace content from file")
 @click.option("--tag", multiple=True, help="Set tags (replaces existing)")
+@pass_output_options
 @click.pass_context
 def update(
     ctx: click.Context,
@@ -856,6 +902,113 @@ def update(
             err.print(f"  Status: {styled_status(updates['status'])}")
 
 
+def _build_graph_data(exp, client, to_rows) -> dict:
+    """Fetch all connected entities for an experiment."""
+    graph: dict = {
+        "related_experiments": [],
+        "reverse_related": [],
+        "questions_answered": [],
+        "direction": None,
+        "direction_siblings": [],
+    }
+
+    # Resolve related experiments (forward links)
+    if exp.related:
+        result = client.table("experiments").select("id,status,program,content,finding").in_("id", exp.related).execute()
+        graph["related_experiments"] = to_rows(result.data)
+
+    # Reverse related: experiments that list this one in their related[]
+    result = client.table("experiments").select("id,status,program,content,finding").contains("related", [exp.id]).execute()
+    reverse = [r for r in to_rows(result.data) if r["id"] != exp.id]
+    graph["reverse_related"] = reverse
+
+    # Questions that promoted to this experiment
+    result = client.table("questions").select("id,question,status").eq("promoted_to_id", exp.id).execute()
+    graph["questions_answered"] = to_rows(result.data)
+
+    # Direction and siblings
+    if exp.direction_id:
+        dir_result = client.table("directions").select("*").eq("id", exp.direction_id).execute()
+        dir_rows = to_rows(dir_result.data)
+        if dir_rows:
+            graph["direction"] = dir_rows[0]
+            sibling_result = (
+                client.table("experiments")
+                .select("id,status,content,finding")
+                .eq("direction_id", exp.direction_id)
+                .order("created_at", desc=True)
+                .limit(10)
+                .execute()
+            )
+            graph["direction_siblings"] = [
+                r for r in to_rows(sibling_result.data) if r["id"] != exp.id
+            ]
+
+    return graph
+
+
+def _render_graph(exp, client, to_rows) -> None:
+    """Render graph neighborhood for an experiment."""
+    graph = _build_graph_data(exp, client, to_rows)
+
+    has_content = False
+
+    # Related experiments (forward)
+    if graph["related_experiments"]:
+        has_content = True
+        rows_data = []
+        for r in graph["related_experiments"]:
+            rows_data.append({
+                "id": r["id"],
+                "status": r.get("status", ""),
+                "rel": "related",
+                "summary": record_summary(r, 45),
+            })
+        print_table(["id", "status", "rel", "summary"], rows_data, title="Related Experiments")
+
+    # Reverse related
+    if graph["reverse_related"]:
+        has_content = True
+        rows_data = []
+        for r in graph["reverse_related"]:
+            rows_data.append({
+                "id": r["id"],
+                "status": r.get("status", ""),
+                "rel": "references this",
+                "summary": record_summary(r, 45),
+            })
+        print_table(["id", "status", "rel", "summary"], rows_data, title="Referenced By")
+
+    # Questions answered
+    if graph["questions_answered"]:
+        has_content = True
+        rows_data = []
+        for q in graph["questions_answered"]:
+            rows_data.append({
+                "id": q["id"],
+                "status": q.get("status", ""),
+                "question": _truncate_text(q.get("question"), 55),
+            })
+        print_table(["id", "status", "question"], rows_data, title="Questions Answered")
+
+    # Direction
+    if graph["direction"]:
+        has_content = True
+        d = graph["direction"]
+        err.print(f"\n[sonde.heading]Direction[/]")
+        err.print(f"  {d['id']}  {d.get('title', '')}  [{d.get('status', '')}]")
+        err.print(f"  [sonde.muted]{d.get('question', '')}[/]")
+        if graph["direction_siblings"]:
+            err.print(f"\n  [sonde.heading]Siblings in this direction:[/]")
+            for s in graph["direction_siblings"]:
+                err.print(
+                    f"    {s['id']}  [{s.get('status', '')}]  {record_summary(s, 50)}"
+                )
+
+    if not has_content:
+        err.print("\n[dim]No graph connections found for this experiment.[/dim]")
+
+
 def _format_size(size_bytes: int | None) -> str:
     """Format bytes as human-readable size."""
     if size_bytes is None or size_bytes == 0:
@@ -868,11 +1021,108 @@ def _format_size(size_bytes: int | None) -> str:
     return f"{n:.1f} TB"
 
 
+@experiment.command()
+@click.argument("experiment_id")
+@click.option("--params", help="Override parameters as JSON (merges with source)")
+@click.option(
+    "--params-file", "params_file", type=click.Path(exists=True), help="Override params from file"
+)
+@click.option("--tag", multiple=True, help="Override tags (replaces source tags if provided)")
+@click.option("--status", default="open", type=click.Choice(["open", "running"]))
+@pass_output_options
+@click.pass_context
+def fork(
+    ctx: click.Context,
+    experiment_id: str,
+    params: str | None,
+    params_file: str | None,
+    tag: tuple[str, ...],
+    status: str,
+):
+    """Create a new experiment based on an existing one.
+
+    Copies program, tags, parameters, direction, and data_sources from the
+    source experiment. The new experiment links back via 'related'.
+
+    \b
+    Examples:
+      sonde fork EXP-0001
+      sonde fork EXP-0001 --params '{"ccn": 1800}'
+      sonde fork EXP-0001 --tag subtropical --tag high-ccn
+    """
+    source_exp = db.get(experiment_id.upper())
+    if not source_exp:
+        print_error(
+            f"Experiment {experiment_id} not found",
+            "No experiment with this ID exists in the database.",
+            'List experiments: sonde list\n  Search: sonde search --text "your query"',
+        )
+        raise SystemExit(1)
+
+    # Build overrides
+    override_params = dict(source_exp.parameters)
+    try:
+        if params_file:
+            override_params = {**override_params, **_load_dict_file(params_file)}
+        if params:
+            override_params = {**override_params, **json.loads(params)}
+    except json.JSONDecodeError as e:
+        print_error("Invalid JSON", str(e), "Check your --params value")
+        raise SystemExit(2) from None
+    except (yaml.YAMLError, OSError) as e:
+        print_error("Failed to read file", str(e), "Check your --params-file path")
+        raise SystemExit(2) from None
+
+    resolved_tags = list(tag) if tag else list(source_exp.tags)
+
+    # Resolve source
+    resolved_source = f"human/{os.environ.get('USER', 'unknown')}"
+    settings = get_settings()
+    if settings.source:
+        resolved_source = settings.source
+
+    # Auto-detect git context
+    git_ctx = detect_git_context()
+
+    data = ExperimentCreate(
+        program=source_exp.program,
+        status=status,
+        source=resolved_source,
+        tags=resolved_tags,
+        parameters=override_params,
+        metadata=dict(source_exp.metadata),
+        direction_id=source_exp.direction_id,
+        data_sources=list(source_exp.data_sources),
+        related=[source_exp.id],
+        git_commit=git_ctx.commit if git_ctx else None,
+        git_repo=git_ctx.repo if git_ctx else None,
+        git_branch=git_ctx.branch if git_ctx else None,
+    )
+
+    new_exp = db.create(data)
+
+    from sonde.db.activity import log_activity
+
+    log_activity(new_exp.id, "experiment", "created", {"forked_from": source_exp.id})
+
+    if ctx.obj.get("json"):
+        print_json(new_exp.model_dump(mode="json"))
+    else:
+        print_success(f"Forked {source_exp.id} → {new_exp.id}")
+        if override_params != source_exp.parameters:
+            changed = {k: v for k, v in override_params.items() if source_exp.parameters.get(k) != v}
+            if changed:
+                err.print(f"  Changed: {', '.join(f'{k}={v}' for k, v in changed.items())}")
+        err.print(f"\n  View:    sonde show {new_exp.id}")
+        err.print(f"  Start:   sonde start {new_exp.id}")
+
+
 # ---------------------------------------------------------------------------
 # Register subcommands from other modules
 # ---------------------------------------------------------------------------
 
 from sonde.commands.attach import attach  # noqa: E402
+from sonde.commands.diff import diff_cmd  # noqa: E402
 from sonde.commands.history import history  # noqa: E402
 from sonde.commands.lifecycle import (  # noqa: E402
     close_experiment,
@@ -891,3 +1141,4 @@ experiment.add_command(attach)
 experiment.add_command(tag)
 experiment.add_command(history)
 experiment.add_command(new_experiment)
+experiment.add_command(diff_cmd)

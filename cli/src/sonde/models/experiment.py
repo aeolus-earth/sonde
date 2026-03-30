@@ -70,3 +70,8 @@ class Experiment(ExperimentCreate):
     id: str
     created_at: datetime
     updated_at: datetime
+
+    @property
+    def all_params(self) -> dict[str, Any]:
+        """Merged view of parameters + metadata. Parameters win on conflict."""
+        return {**self.metadata, **self.parameters}
