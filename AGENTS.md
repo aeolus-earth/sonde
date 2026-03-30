@@ -23,26 +23,32 @@ cli/
     assets/              # static files (callback.html, aeolus-wordmark.svg)
     data/skills/         # bundled skill files deployed by `sonde setup`
     models/              # pydantic models — ExperimentCreate, Experiment, etc.
+    cli_options.py       # shared decorators (pass_output_options for --json on subcommands)
     db/                  # supabase client + per-entity CRUD modules
       client.py          # auth-aware Supabase client singleton
       experiments.py     # experiment CRUD + search + update
+      findings.py        # finding CRUD + supersede
+      questions.py       # question CRUD + update
       artifacts.py       # file upload to Supabase Storage
       activity.py        # append-only activity log
     commands/            # click command modules (see CLI architecture below)
       experiment.py      # noun group: log, list, show, search, update + subcommand registration
+      finding_group.py   # noun group: list, show, create
+      question_group.py  # noun group: list, show, create, promote
+      tag.py             # noun group: list, show, add, remove (top-level)
       lifecycle.py       # close, open, start (registered on experiment group)
       note.py            # add notes (registered on experiment group)
       attach.py          # attach files (registered on experiment group)
-      tag.py             # tag add/remove/list (registered on experiment group)
+      diff.py            # compare two experiments side-by-side
       history.py         # activity timeline (registered on experiment group)
-      new.py             # scaffold templates (registered on experiment group for experiments)
+      new.py             # scaffold templates (registered on experiment group)
       sync.py            # sync group wrapping pull + push
       pull.py            # pull from Supabase to .sonde/
       push.py            # push .sonde/ to Supabase
-      brief.py           # program summary (top-level)
+      brief.py           # research summary (top-level, supports --all/--tag/--direction)
       recent.py          # activity feed (top-level)
-      findings.py        # list findings (top-level)
-      questions.py       # list questions (top-level)
+      findings.py        # list findings (used by finding_group as "list" subcommand)
+      questions.py       # list questions (used by question_group as "list" subcommand)
       auth.py            # login, logout, whoami
       setup.py           # onboarding, skill deployment, MCP config
       access.py          # subsystem credential checks (S3, Icechunk, STAC)
@@ -169,7 +175,10 @@ sonde <verb> [args]               # shortcut (common verbs only)
 
 | Noun | Verbs | File |
 |------|-------|------|
-| `experiment` | log, list, show, search, update, close, open, start, note, attach, tag, history, new | `experiment.py` + registered submodules |
+| `experiment` | log, list, show, search, update, close, open, start, note, attach, diff, fork, history, new | `experiment.py` + registered submodules |
+| `finding` | list, show, create | `finding_group.py` |
+| `question` | list, show, create, promote | `question_group.py` |
+| `tag` | list, show, add, remove | `tag.py` |
 | `sync` | pull, push | `sync.py` (wraps `pull.py`, `push.py`) |
 | `admin` | create-token, list-tokens, revoke-token | `admin.py` |
 | `access` | s3, icechunk, stac | `access.py` |
@@ -177,8 +186,10 @@ sonde <verb> [args]               # shortcut (common verbs only)
 **Top-level cross-cutting views** (not noun groups — they span multiple record types):
 
 ```
-brief, recent, findings, questions, tags
+brief, recent, status, show
 ```
+
+**Backward-compat shortcuts** for old names: `findings` → `finding list`, `questions` → `question list`, `tags` → `tag list`.
 
 **Shortcuts** are defined in `SondeCLI._shortcuts` in `cli.py`. They map a bare verb to its noun group:
 
@@ -206,9 +217,12 @@ brief, recent, findings, questions, tags
 ### Click command patterns
 
 ```python
+from sonde.cli_options import pass_output_options
+
 @experiment.command()
 @click.option("--program", "-p", help="Program namespace")
 @click.option("--limit", "-n", default=50, help="Max results")
+@pass_output_options
 @click.pass_context
 def list_cmd(ctx: click.Context, program: str | None, limit: int):
     """List experiments.
@@ -222,7 +236,7 @@ def list_cmd(ctx: click.Context, program: str | None, limit: int):
 
 - Use `\b` before example blocks to prevent Click from rewrapping them.
 - Short flags (`-p`, `-n`, `-s`) for frequently-used options.
-- Always accept `--json` via the global context, never as a per-command flag.
+- `--json` is defined both at the CLI group level and on each leaf command via the `@pass_output_options` decorator (from `cli_options.py`). This lets users write `sonde list --json` (natural) as well as `sonde --json list` (Click convention). Both write to `ctx.obj["json"]`. Always check `ctx.obj.get("json")` in command bodies.
 - Resolve defaults through the settings chain: explicit flag > env var > `.aeolus.yaml` > hardcoded default.
 - Use `raise SystemExit(1)` for errors, not `sys.exit()` or `click.Abort()`.
 
