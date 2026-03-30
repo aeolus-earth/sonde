@@ -14,7 +14,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
-from sonde.artifact_sync import ProgressReader
 from sonde.db import rows
 from sonde.db.client import get_admin_client, get_client, has_service_role_key
 from sonde.db.ids import create_with_retry
@@ -218,31 +217,66 @@ def upload_file(
             or existing.get("mime_type") != content_type
         )
         if should_upload:
-            with ProgressReader(filepath, progress_callback) as handle:
-                client.storage.from_(ARTIFACT_BUCKET).update(
-                    storage_path, cast(Any, handle), {"content-type": content_type}
-                )
+            _write_storage_object(
+                client,
+                "update",
+                storage_path,
+                filepath,
+                content_type,
+                progress_callback=progress_callback,
+            )
         return update_metadata(existing["id"], payload)
 
     created = create_with_retry("artifacts", "ART", 4, payload)
 
     try:
-        with ProgressReader(filepath, progress_callback) as handle:
-            client.storage.from_(ARTIFACT_BUCKET).upload(
-                storage_path, cast(Any, handle), {"content-type": content_type}
-            )
+        _write_storage_object(
+            client,
+            "upload",
+            storage_path,
+            filepath,
+            content_type,
+            progress_callback=progress_callback,
+        )
     except Exception as exc:
         if "Duplicate" in str(exc) or "already exists" in str(exc):
-            with ProgressReader(filepath, progress_callback) as handle:
-                client.storage.from_(ARTIFACT_BUCKET).update(
-                    storage_path, cast(Any, handle), {"content-type": content_type}
-                )
+            _write_storage_object(
+                client,
+                "update",
+                storage_path,
+                filepath,
+                content_type,
+                progress_callback=progress_callback,
+            )
             return created
         with contextlib.suppress(Exception):
             client.table("artifacts").delete().eq("id", created["id"]).execute()
         raise
 
     return created
+
+
+def _write_storage_object(
+    client: Any,
+    operation: str,
+    storage_path: str,
+    filepath: Path,
+    content_type: str,
+    *,
+    progress_callback: Callable[[int], None] | None = None,
+) -> None:
+    """Write one artifact blob to Supabase Storage using supported file inputs."""
+    bucket = client.storage.from_(ARTIFACT_BUCKET)
+    with filepath.open("rb") as handle:
+        if operation == "upload":
+            bucket.upload(storage_path, cast(Any, handle), {"content-type": content_type})
+        elif operation == "update":
+            bucket.update(storage_path, cast(Any, handle), {"content-type": content_type})
+        else:
+            raise ValueError(f"Unsupported storage operation: {operation}")
+
+    if progress_callback:
+        progress_callback(filepath.stat().st_size)
 
 
 def find_by_path(experiment_id: str, storage_path: str) -> dict[str, Any] | None:
