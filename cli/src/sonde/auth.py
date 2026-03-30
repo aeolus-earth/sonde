@@ -167,9 +167,7 @@ def get_token() -> str:
                 ) from None
 
         # Token is expired but no refresh token available
-        raise NotAuthenticatedError(
-            "Session expired. Run: sonde login"
-        )
+        raise NotAuthenticatedError("Session expired. Run: sonde login")
 
     return access_token
 

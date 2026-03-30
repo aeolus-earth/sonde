@@ -6,11 +6,10 @@ import click
 
 from sonde.cli_options import pass_output_options
 from sonde.commands.findings import findings_cmd
-from sonde.config import get_settings
 from sonde.db import rows
 from sonde.db.activity import log_activity
 from sonde.db.client import get_client
-from sonde.output import err, print_error, print_json, print_success
+from sonde.output import print_json, print_success
 
 
 @click.group(invoke_without_command=True)
@@ -94,7 +93,9 @@ def finding_create(
 
     user = get_current_user()
     resolved_source = source or (
-        "agent" if (user and user.is_agent) else f"human/{user.email.split('@')[0]}" if user else "unknown"
+        "agent"
+        if (user and user.is_agent)
+        else (f"human/{user.email.split('@')[0]}" if user else "unknown")
     )
 
     client = get_client()

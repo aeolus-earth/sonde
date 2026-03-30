@@ -6,11 +6,10 @@ import click
 
 from sonde.cli_options import pass_output_options
 from sonde.commands.questions import questions_cmd
-from sonde.config import get_settings
 from sonde.db import rows
 from sonde.db.activity import log_activity
 from sonde.db.client import get_client
-from sonde.output import err, print_error, print_json, print_success
+from sonde.output import print_error, print_json, print_success
 
 
 @click.group(invoke_without_command=True)
@@ -78,13 +77,17 @@ def question_create(
 
     user = get_current_user()
     resolved_source = source or (
-        "agent" if (user and user.is_agent) else f"human/{user.email.split('@')[0]}" if user else "unknown"
+        "agent"
+        if (user and user.is_agent)
+        else (f"human/{user.email.split('@')[0]}" if user else "unknown")
     )
 
     client = get_client()
 
     # Generate next ID
-    result = client.table("questions").select("id").order("created_at", desc=True).limit(1).execute()
+    result = (
+        client.table("questions").select("id").order("created_at", desc=True).limit(1).execute()
+    )
     existing = rows(result.data)
     if existing:
         last_num = int(existing[0]["id"].split("-")[1])
@@ -132,9 +135,9 @@ def question_promote(ctx: click.Context, question_id: str, program: str | None) 
       sonde question promote Q-001
       sonde question promote Q-001 -p weather-intervention
     """
+    from sonde.auth import get_current_user
     from sonde.db import experiments as db
     from sonde.models.experiment import ExperimentCreate
-    from sonde.auth import get_current_user
 
     client = get_client()
 
@@ -155,7 +158,11 @@ def question_promote(ctx: click.Context, question_id: str, program: str | None) 
         raise SystemExit(1)
 
     user = get_current_user()
-    source = "agent" if (user and user.is_agent) else f"human/{user.email.split('@')[0]}" if user else "unknown"
+    source = (
+        "agent"
+        if (user and user.is_agent)
+        else (f"human/{user.email.split('@')[0]}" if user else "unknown")
+    )
 
     resolved_program = program or q.get("program")
     if not resolved_program:
@@ -163,23 +170,32 @@ def question_promote(ctx: click.Context, question_id: str, program: str | None) 
         raise SystemExit(2)
 
     # Create the experiment
+    promoted_ctx = f"Promoted from {question_id.upper()}"
+    content_body = q.get("context") or promoted_ctx
     exp_data = ExperimentCreate(
         program=resolved_program,
         status="open",
         source=source,
-        content=f"# {q['question']}\n\n{q.get('context') or 'Promoted from ' + question_id.upper()}",
+        content=f"# {q['question']}\n\n{content_body}",
         tags=q.get("tags", []),
     )
     exp = db.create(exp_data)
 
     # Update the question
-    client.table("questions").update({
-        "status": "promoted",
-        "promoted_to_type": "experiment",
-        "promoted_to_id": exp.id,
-    }).eq("id", question_id.upper()).execute()
+    client.table("questions").update(
+        {
+            "status": "promoted",
+            "promoted_to_type": "experiment",
+            "promoted_to_id": exp.id,
+        }
+    ).eq("id", question_id.upper()).execute()
 
-    log_activity(question_id.upper(), "question", "status_changed", {"from": q["status"], "to": "promoted"})
+    log_activity(
+        question_id.upper(),
+        "question",
+        "status_changed",
+        {"from": q["status"], "to": "promoted"},
+    )
     log_activity(exp.id, "experiment", "created")
 
     if ctx.obj.get("json"):

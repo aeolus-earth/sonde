@@ -382,9 +382,14 @@ def list_cmd(
     # Resolve --me to source filter
     if filter_me:
         if source:
-            print_error("Conflicting filters", "Cannot use --me with --source.", "Use one or the other.")
+            print_error(
+                "Conflicting filters",
+                "Cannot use --me with --source.",
+                "Use one or the other.",
+            )
             raise SystemExit(2)
         from sonde.auth import get_current_user
+
         user = get_current_user()
         if user and user.is_agent:
             source = "agent"
@@ -914,16 +919,31 @@ def _build_graph_data(exp, client, to_rows) -> dict:
 
     # Resolve related experiments (forward links)
     if exp.related:
-        result = client.table("experiments").select("id,status,program,content,finding").in_("id", exp.related).execute()
+        result = (
+            client.table("experiments")
+            .select("id,status,program,content,finding")
+            .in_("id", exp.related)
+            .execute()
+        )
         graph["related_experiments"] = to_rows(result.data)
 
     # Reverse related: experiments that list this one in their related[]
-    result = client.table("experiments").select("id,status,program,content,finding").contains("related", [exp.id]).execute()
+    result = (
+        client.table("experiments")
+        .select("id,status,program,content,finding")
+        .contains("related", [exp.id])
+        .execute()
+    )
     reverse = [r for r in to_rows(result.data) if r["id"] != exp.id]
     graph["reverse_related"] = reverse
 
     # Questions that promoted to this experiment
-    result = client.table("questions").select("id,question,status").eq("promoted_to_id", exp.id).execute()
+    result = (
+        client.table("questions")
+        .select("id,question,status")
+        .eq("promoted_to_id", exp.id)
+        .execute()
+    )
     graph["questions_answered"] = to_rows(result.data)
 
     # Direction and siblings
@@ -958,12 +978,14 @@ def _render_graph(exp, client, to_rows) -> None:
         has_content = True
         rows_data = []
         for r in graph["related_experiments"]:
-            rows_data.append({
-                "id": r["id"],
-                "status": r.get("status", ""),
-                "rel": "related",
-                "summary": record_summary(r, 45),
-            })
+            rows_data.append(
+                {
+                    "id": r["id"],
+                    "status": r.get("status", ""),
+                    "rel": "related",
+                    "summary": record_summary(r, 45),
+                }
+            )
         print_table(["id", "status", "rel", "summary"], rows_data, title="Related Experiments")
 
     # Reverse related
@@ -971,12 +993,14 @@ def _render_graph(exp, client, to_rows) -> None:
         has_content = True
         rows_data = []
         for r in graph["reverse_related"]:
-            rows_data.append({
-                "id": r["id"],
-                "status": r.get("status", ""),
-                "rel": "references this",
-                "summary": record_summary(r, 45),
-            })
+            rows_data.append(
+                {
+                    "id": r["id"],
+                    "status": r.get("status", ""),
+                    "rel": "references this",
+                    "summary": record_summary(r, 45),
+                }
+            )
         print_table(["id", "status", "rel", "summary"], rows_data, title="Referenced By")
 
     # Questions answered
@@ -984,26 +1008,26 @@ def _render_graph(exp, client, to_rows) -> None:
         has_content = True
         rows_data = []
         for q in graph["questions_answered"]:
-            rows_data.append({
-                "id": q["id"],
-                "status": q.get("status", ""),
-                "question": _truncate_text(q.get("question"), 55),
-            })
+            rows_data.append(
+                {
+                    "id": q["id"],
+                    "status": q.get("status", ""),
+                    "question": _truncate_text(q.get("question"), 55),
+                }
+            )
         print_table(["id", "status", "question"], rows_data, title="Questions Answered")
 
     # Direction
     if graph["direction"]:
         has_content = True
         d = graph["direction"]
-        err.print(f"\n[sonde.heading]Direction[/]")
+        err.print("\n[sonde.heading]Direction[/]")
         err.print(f"  {d['id']}  {d.get('title', '')}  [{d.get('status', '')}]")
         err.print(f"  [sonde.muted]{d.get('question', '')}[/]")
         if graph["direction_siblings"]:
-            err.print(f"\n  [sonde.heading]Siblings in this direction:[/]")
+            err.print("\n  [sonde.heading]Siblings in this direction:[/]")
             for s in graph["direction_siblings"]:
-                err.print(
-                    f"    {s['id']}  [{s.get('status', '')}]  {record_summary(s, 50)}"
-                )
+                err.print(f"    {s['id']}  [{s.get('status', '')}]  {record_summary(s, 50)}")
 
     if not has_content:
         err.print("\n[dim]No graph connections found for this experiment.[/dim]")
@@ -1110,7 +1134,9 @@ def fork(
     else:
         print_success(f"Forked {source_exp.id} → {new_exp.id}")
         if override_params != source_exp.parameters:
-            changed = {k: v for k, v in override_params.items() if source_exp.parameters.get(k) != v}
+            changed = {
+                k: v for k, v in override_params.items() if source_exp.parameters.get(k) != v
+            }
             if changed:
                 err.print(f"  Changed: {', '.join(f'{k}={v}' for k, v in changed.items())}")
         err.print(f"\n  View:    sonde show {new_exp.id}")

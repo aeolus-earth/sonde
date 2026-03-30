@@ -68,6 +68,14 @@ ignore = [
 [tool.ruff.lint.isort]
 known-first-party = ["sonde"]
 
+[tool.ruff.lint.per-file-ignores]
+"../dev/scripts/*.py" = [
+    "E402",  # imports after sys.path bootstrap for sonde package
+    "E501",  # long synthetic markdown strings
+    "I001",  # import block order with path setup
+    "RUF001",  # intentional unicode in stress-test payloads
+]
+
 # --- Pytest ---
 [tool.pytest.ini_options]
 testpaths = ["tests"]

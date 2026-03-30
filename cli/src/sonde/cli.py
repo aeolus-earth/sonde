@@ -197,6 +197,7 @@ from sonde.commands.auth import login, logout, whoami  # noqa: E402
 from sonde.commands.brief import brief  # noqa: E402
 from sonde.commands.experiment import experiment  # noqa: E402
 from sonde.commands.finding_group import finding  # noqa: E402
+from sonde.commands.health import health  # noqa: E402
 from sonde.commands.question_group import question  # noqa: E402
 from sonde.commands.recent import recent  # noqa: E402
 from sonde.commands.setup import setup  # noqa: E402
@@ -222,6 +223,7 @@ cli.add_command(brief)
 cli.add_command(recent)
 cli.add_command(tag)
 cli.add_command(status)
+cli.add_command(health)
 
 
 # -- Polymorphic show (works with EXP-, FIND-, Q-, DIR- prefixes) --
@@ -246,6 +248,7 @@ def show_cmd(ctx: click.Context, record_id: str, graph: bool) -> None:
       sonde show FIND-001 --json    # finding as JSON
     """
     from sonde.commands.show import show_dispatch
+
     show_dispatch(ctx, record_id, graph)
 
 

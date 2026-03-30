@@ -93,13 +93,15 @@ def diff_cmd(ctx: click.Context, id_left: str, id_right: str) -> None:
             field_diff[field] = {"left": lv, "right": rv}
 
     if ctx.obj.get("json"):
-        print_json({
-            "experiments": [left.id, right.id],
-            "parameter_diff": param_diff,
-            "result_diff": result_diff,
-            "tag_diff": tag_diff,
-            "field_diff": field_diff,
-        })
+        print_json(
+            {
+                "experiments": [left.id, right.id],
+                "parameter_diff": param_diff,
+                "result_diff": result_diff,
+                "tag_diff": tag_diff,
+                "field_diff": field_diff,
+            }
+        )
         return
 
     # Human-readable output
@@ -109,11 +111,13 @@ def diff_cmd(ctx: click.Context, id_left: str, id_right: str) -> None:
     if field_diff:
         rows = []
         for field, vals in field_diff.items():
-            rows.append({
-                "field": field,
-                left.id: str(vals["left"] or "—"),
-                right.id: str(vals["right"] or "—"),
-            })
+            rows.append(
+                {
+                    "field": field,
+                    left.id: str(vals["left"] or "—"),
+                    right.id: str(vals["right"] or "—"),
+                }
+            )
         print_table(["field", left.id, right.id], rows, title="Metadata")
 
     # Parameter diff
@@ -141,9 +145,7 @@ def diff_cmd(ctx: click.Context, id_left: str, id_right: str) -> None:
     err.print()
 
 
-def _render_dict_diff(
-    title: str, diff: dict[str, Any], left_id: str, right_id: str
-) -> None:
+def _render_dict_diff(title: str, diff: dict[str, Any], left_id: str, right_id: str) -> None:
     """Render a dict diff as a Rich table."""
     rows = []
 
@@ -155,12 +157,16 @@ def _render_dict_diff(
         if "delta" in vals:
             delta = vals["delta"]
             delta_str = f"+{delta}" if delta > 0 else str(delta)
-        rows.append({
-            "param": key,
-            left_id: str(vals["left"]),
-            right_id: str(vals["right"]),
-            "": f"[sonde.warning]← {delta_str}[/]" if delta_str else "[sonde.warning]← changed[/]",
-        })
+        rows.append(
+            {
+                "param": key,
+                left_id: str(vals["left"]),
+                right_id: str(vals["right"]),
+                "": f"[sonde.warning]← {delta_str}[/]"
+                if delta_str
+                else "[sonde.warning]← changed[/]",
+            }
+        )
 
     for key, value in sorted(diff["only_left"].items()):
         rows.append({"param": key, left_id: str(value), right_id: "—", "": ""})

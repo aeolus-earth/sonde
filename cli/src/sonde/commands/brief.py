@@ -196,7 +196,12 @@ def _build_cross_coverage(
 @click.option("--all", "show_all", is_flag=True, help="Brief across all programs")
 @click.option("--save", is_flag=True, help="Also save to .sonde/brief.md")
 @click.option("--gaps", is_flag=True, help="Show cross-parameter gap analysis")
-@click.option("--param", "gap_params", multiple=True, help="Parameters to cross-analyze (with --gaps)")
+@click.option(
+    "--param",
+    "gap_params",
+    multiple=True,
+    help="Parameters to cross-analyze (with --gaps)",
+)
 @pass_output_options
 @click.pass_context
 def brief(
@@ -257,7 +262,10 @@ def brief(
     title = " / ".join(title_parts) if title_parts else "all"
 
     # Fetch experiments with filters (select only columns needed for brief)
-    brief_columns = "id,status,parameters,metadata,content,finding,source,tags,created_at,updated_at,direction_id"
+    brief_columns = (
+        "id,status,parameters,metadata,content,finding,source,tags,"
+        "created_at,updated_at,direction_id"
+    )
     exp_query = client.table("experiments").select(brief_columns).order("created_at", desc=True)
     exp_query = _apply_experiment_filters(
         exp_query, program=resolved, direction=direction, tags=list(tag) or None, since=since
@@ -265,13 +273,20 @@ def brief(
     experiments = rows(exp_query.execute().data)
 
     # Fetch findings (scoped to program if available)
-    find_query = client.table("findings").select("*").is_("valid_until", "null").order("created_at", desc=True)
+    find_query = (
+        client.table("findings")
+        .select("*")
+        .is_("valid_until", "null")
+        .order("created_at", desc=True)
+    )
     if resolved:
         find_query = find_query.eq("program", resolved)
     findings = rows(find_query.execute().data)
 
     # Fetch questions (scoped to program if available)
-    q_query = client.table("questions").select("*").eq("status", "open").order("created_at", desc=True)
+    q_query = (
+        client.table("questions").select("*").eq("status", "open").order("created_at", desc=True)
+    )
     if resolved:
         q_query = q_query.eq("program", resolved)
     questions = rows(q_query.execute().data)
@@ -308,17 +323,30 @@ def _brief_all(
     save: bool,
 ) -> None:
     """Generate a multi-program brief."""
-    brief_columns = "id,status,parameters,metadata,content,finding,source,tags,created_at,updated_at,direction_id,program"
+    brief_columns = (
+        "id,status,parameters,metadata,content,finding,source,tags,"
+        "created_at,updated_at,direction_id,program"
+    )
     exp_query = client.table("experiments").select(brief_columns).order("created_at", desc=True)
     if since:
         exp_query = exp_query.gte("created_at", since)
     experiments = rows(exp_query.execute().data)
 
     findings = rows(
-        client.table("findings").select("*").is_("valid_until", "null").order("created_at", desc=True).execute().data
+        client.table("findings")
+        .select("*")
+        .is_("valid_until", "null")
+        .order("created_at", desc=True)
+        .execute()
+        .data
     )
     questions = rows(
-        client.table("questions").select("*").eq("status", "open").order("created_at", desc=True).execute().data
+        client.table("questions")
+        .select("*")
+        .eq("status", "open")
+        .order("created_at", desc=True)
+        .execute()
+        .data
     )
 
     # Group experiments by program
@@ -349,23 +377,27 @@ def _brief_all(
         open_count = sum(1 for e in exps if e["status"] == "open")
         prog_findings = sum(1 for f in findings if f["program"] == prog)
         prog_questions = sum(1 for q in questions if q["program"] == prog)
-        summary_rows.append({
-            "program": prog,
-            "complete": str(complete),
-            "running": str(running),
-            "open": str(open_count),
-            "findings": str(prog_findings),
-            "questions": str(prog_questions),
-        })
+        summary_rows.append(
+            {
+                "program": prog,
+                "complete": str(complete),
+                "running": str(running),
+                "open": str(open_count),
+                "findings": str(prog_findings),
+                "questions": str(prog_questions),
+            }
+        )
     print_table(["program", "complete", "running", "open", "findings", "questions"], summary_rows)
 
     total = len(experiments)
     err.print(f"\n[sonde.muted]{total} experiment(s) across {len(by_program)} program(s)[/]")
 
-    print_breadcrumbs([
-        "Drill down: sonde brief -p <program>",
-        "Status:     sonde status",
-    ])
+    print_breadcrumbs(
+        [
+            "Drill down: sonde brief -p <program>",
+            "Status:     sonde status",
+        ]
+    )
 
     if save:
         # Build a combined brief for saving
@@ -475,7 +507,7 @@ def _render_human(data: dict, cross_coverage: dict | None, gaps: bool, program: 
     # Cross-parameter coverage (--gaps)
     if cross_coverage:
         dims = cross_coverage["dimensions"]
-        err.print(f"\n[sonde.heading]Cross-Parameter Coverage ({' × '.join(dims)})[/]")
+        err.print(f"\n[sonde.heading]Cross-Parameter Coverage ({' x '.join(dims)})[/]")
         err.print(
             f"  {cross_coverage['tested_count']} of {cross_coverage['total']} "
             f"combinations tested ({cross_coverage['coverage_pct']}%)"
@@ -483,12 +515,10 @@ def _render_human(data: dict, cross_coverage: dict | None, gaps: bool, program: 
         if cross_coverage["untested"]:
             err.print("\n  [sonde.warning]Untested combinations:[/]")
             for combo in cross_coverage["untested"][:20]:
-                parts = [f"{d}={v}" for d, v in zip(dims, combo)]
+                parts = [f"{d}={v}" for d, v in zip(dims, combo, strict=True)]
                 err.print(f"    [sonde.muted]●[/] {' + '.join(parts)}")
             if len(cross_coverage["untested"]) > 20:
-                err.print(
-                    f"    [dim]... and {len(cross_coverage['untested']) - 20} more[/]"
-                )
+                err.print(f"    [dim]... and {len(cross_coverage['untested']) - 20} more[/]")
     elif gaps:
         err.print("\n[dim]Not enough multi-valued parameters for cross-coverage analysis.[/]")
 

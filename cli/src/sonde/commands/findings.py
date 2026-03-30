@@ -118,8 +118,9 @@ def _render_chain(ctx: click.Context, findings_list: list[dict]) -> None:
     by_id = {f["id"]: f for f in findings_list}
 
     # Find chain roots (findings that are not superseded by anything in our set)
-    superseded_ids = {f.get("superseded_by") for f in findings_list if f.get("superseded_by")}
-    roots = [f for f in findings_list if f.get("supersedes") is None or f.get("supersedes") not in by_id]
+    roots = [
+        f for f in findings_list if f.get("supersedes") is None or f.get("supersedes") not in by_id
+    ]
 
     # Build chains from roots
     chains: list[list[dict]] = []
@@ -144,31 +145,33 @@ def _render_chain(ctx: click.Context, findings_list: list[dict]) -> None:
             visited.add(f["id"])
 
     if ctx.obj.get("json"):
-        print_json([
-            {
-                "chain": [
-                    {
-                        "id": f["id"],
-                        "finding": f.get("finding"),
-                        "confidence": f.get("confidence"),
-                        "topic": f.get("topic"),
-                        "evidence": f.get("evidence", []),
-                        "valid_from": f.get("valid_from"),
-                        "valid_until": f.get("valid_until"),
-                        "superseded_by": f.get("superseded_by"),
-                    }
-                    for f in chain_items
-                ],
-                "revisions": len(chain_items),
-            }
-            for chain_items in chains
-        ])
+        print_json(
+            [
+                {
+                    "chain": [
+                        {
+                            "id": f["id"],
+                            "finding": f.get("finding"),
+                            "confidence": f.get("confidence"),
+                            "topic": f.get("topic"),
+                            "evidence": f.get("evidence", []),
+                            "valid_from": f.get("valid_from"),
+                            "valid_until": f.get("valid_until"),
+                            "superseded_by": f.get("superseded_by"),
+                        }
+                        for f in chain_items
+                    ],
+                    "revisions": len(chain_items),
+                }
+                for chain_items in chains
+            ]
+        )
         return
 
     for chain_items in chains:
         topic_label = chain_items[0].get("topic") or "Untitled"
         err.print(f"\n[sonde.heading]Finding Chain — {topic_label}[/]\n")
-        for i, f in enumerate(chain_items):
+        for f in chain_items:
             created = f.get("created_at", "")[:10]
             confidence = f.get("confidence", "medium")
             finding_text = f.get("finding", "")
@@ -188,4 +191,6 @@ def _render_chain(ctx: click.Context, findings_list: list[dict]) -> None:
         if len(chain_items) > 1:
             first_conf = chain_items[0].get("confidence", "?")
             last_conf = chain_items[-1].get("confidence", "?")
-            err.print(f"  [dim]{len(chain_items)} revision(s). Confidence: {first_conf} → {last_conf}[/]")
+            err.print(
+                f"  [dim]{len(chain_items)} revision(s). Confidence: {first_conf} → {last_conf}[/]"
+            )

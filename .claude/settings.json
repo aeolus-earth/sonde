@@ -1,7 +1,7 @@
 {
   "mcpServers": {
     "sonde": {
-      "command": "/Users/mlee27/.local/bin/sonde",
+      "command": "/Users/mlee27/miniconda3/bin/sonde",
       "args": [
         "mcp",
         "serve"

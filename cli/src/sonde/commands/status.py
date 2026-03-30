@@ -13,8 +13,6 @@ from sonde.output import (
     print_breadcrumbs,
     print_json,
     print_table,
-    record_summary,
-    styled_status,
 )
 
 
@@ -35,17 +33,10 @@ def status(ctx: click.Context) -> None:
     client = get_client()
 
     # Fetch programs
-    programs = rows(
-        client.table("programs").select("*").order("id").execute().data
-    )
+    programs = rows(client.table("programs").select("*").order("id").execute().data)
 
     # Fetch experiment counts per program
-    all_experiments = rows(
-        client.table("experiments")
-        .select("id,program,status")
-        .execute()
-        .data
-    )
+    all_experiments = rows(client.table("experiments").select("id,program,status").execute().data)
 
     # Fetch active directions
     directions = rows(
@@ -91,20 +82,22 @@ def status(ctx: click.Context) -> None:
             program_stats[prog][st] += 1
 
     if ctx.obj.get("json"):
-        print_json({
-            "programs": [
-                {
-                    "id": p["id"],
-                    "description": p.get("description", ""),
-                    "stats": program_stats.get(p["id"], {}),
-                }
-                for p in programs
-            ],
-            "directions": directions,
-            "findings": findings,
-            "questions": questions,
-            "total_experiments": len(all_experiments),
-        })
+        print_json(
+            {
+                "programs": [
+                    {
+                        "id": p["id"],
+                        "description": p.get("description", ""),
+                        "stats": program_stats.get(p["id"], {}),
+                    }
+                    for p in programs
+                ],
+                "directions": directions,
+                "findings": findings,
+                "questions": questions,
+                "total_experiments": len(all_experiments),
+            }
+        )
         return
 
     # --- Human-readable output ---
@@ -122,14 +115,16 @@ def status(ctx: click.Context) -> None:
             running = stats.get("running", 0)
             open_count = stats.get("open", 0)
             desc = _truncate_text(p.get("description"), 40)
-            prog_rows.append({
-                "program": pid,
-                "experiments": str(total),
-                "complete": str(complete),
-                "running": str(running),
-                "open": str(open_count),
-                "description": desc,
-            })
+            prog_rows.append(
+                {
+                    "program": pid,
+                    "experiments": str(total),
+                    "complete": str(complete),
+                    "running": str(running),
+                    "open": str(open_count),
+                    "description": desc,
+                }
+            )
         print_table(
             ["program", "experiments", "complete", "running", "open", "description"],
             prog_rows,
@@ -144,13 +139,15 @@ def status(ctx: click.Context) -> None:
         for d in directions:
             # Count experiments in this direction
             dir_exps = [e for e in all_experiments if e.get("direction_id") == d["id"]]
-            dir_rows.append({
-                "id": d["id"],
-                "status": d.get("status", ""),
-                "program": d.get("program", ""),
-                "title": _truncate_text(d.get("title"), 35),
-                "experiments": str(len(dir_exps)),
-            })
+            dir_rows.append(
+                {
+                    "id": d["id"],
+                    "status": d.get("status", ""),
+                    "program": d.get("program", ""),
+                    "title": _truncate_text(d.get("title"), 35),
+                    "experiments": str(len(dir_exps)),
+                }
+            )
         print_table(
             ["id", "status", "program", "title", "experiments"],
             dir_rows,
@@ -161,12 +158,14 @@ def status(ctx: click.Context) -> None:
     if findings:
         find_rows = []
         for f in findings:
-            find_rows.append({
-                "id": f["id"],
-                "program": f.get("program", ""),
-                "finding": _truncate_text(f.get("finding"), 45),
-                "confidence": f.get("confidence", ""),
-            })
+            find_rows.append(
+                {
+                    "id": f["id"],
+                    "program": f.get("program", ""),
+                    "finding": _truncate_text(f.get("finding"), 45),
+                    "confidence": f.get("confidence", ""),
+                }
+            )
         print_table(
             ["id", "program", "finding", "confidence"],
             find_rows,
@@ -177,12 +176,14 @@ def status(ctx: click.Context) -> None:
     if questions:
         q_rows = []
         for q in questions:
-            q_rows.append({
-                "id": q["id"],
-                "program": q.get("program", ""),
-                "question": _truncate_text(q.get("question"), 50),
-                "status": q.get("status", ""),
-            })
+            q_rows.append(
+                {
+                    "id": q["id"],
+                    "program": q.get("program", ""),
+                    "question": _truncate_text(q.get("question"), 50),
+                    "status": q.get("status", ""),
+                }
+            )
         print_table(
             ["id", "program", "question", "status"],
             q_rows,

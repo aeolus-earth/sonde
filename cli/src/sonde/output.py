@@ -119,9 +119,19 @@ def print_json(data: Any):
     print(json.dumps(data, indent=2, default=str))
 
 
-def print_success(message: str):
+def print_success(
+    message: str,
+    *,
+    details: list[str] | None = None,
+    breadcrumbs: list[str] | None = None,
+) -> None:
     """Print success message to stderr."""
     err.print(f"[sonde.success]✓[/] {message}")
+    if details:
+        for line in details:
+            err.print(f"  [sonde.muted]{line}[/]")
+    if breadcrumbs:
+        print_breadcrumbs(breadcrumbs)
 
 
 def print_error(what: str, why: str, fix: str):
