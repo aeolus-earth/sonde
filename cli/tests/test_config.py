@@ -55,6 +55,37 @@ def test_project_config_not_found(tmp_path):
     assert project == {}
 
 
+def test_supabase_url_overridable(monkeypatch):
+    """AEOLUS_SUPABASE_URL overrides the hardcoded default."""
+    monkeypatch.setenv("AEOLUS_SUPABASE_URL", "http://localhost:54321")
+    import importlib
+
+    import sonde.config
+
+    importlib.reload(sonde.config)
+    try:
+        assert sonde.config.SUPABASE_URL == "http://localhost:54321"
+    finally:
+        # Restore the module to its default state
+        monkeypatch.delenv("AEOLUS_SUPABASE_URL")
+        importlib.reload(sonde.config)
+
+
+def test_supabase_anon_key_overridable(monkeypatch):
+    """AEOLUS_SUPABASE_ANON_KEY overrides the hardcoded default."""
+    monkeypatch.setenv("AEOLUS_SUPABASE_ANON_KEY", "test-key-123")
+    import importlib
+
+    import sonde.config
+
+    importlib.reload(sonde.config)
+    try:
+        assert sonde.config.SUPABASE_ANON_KEY == "test-key-123"
+    finally:
+        monkeypatch.delenv("AEOLUS_SUPABASE_ANON_KEY")
+        importlib.reload(sonde.config)
+
+
 def test_settings_env_overrides_project(tmp_path):
     config = tmp_path / ".aeolus.yaml"
     config.write_text("program: from-yaml\n")

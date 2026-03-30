@@ -35,10 +35,13 @@ sonde <command>
 **Option B — Install directly from the private repo:**
 
 ```bash
-# HTTPS (will prompt for credentials or use a GitHub token)
+# uv (recommended)
+uv tool install "sonde @ git+https://github.com/aeolus-earth/sonde.git@main#subdirectory=cli"
+
+# pip — HTTPS (will prompt for credentials or use a GitHub token)
 pip install "sonde @ git+https://github.com/aeolus-earth/sonde.git#subdirectory=cli"
 
-# SSH (if you have SSH keys configured)
+# pip — SSH (if you have SSH keys configured)
 pip install "sonde @ git+ssh://git@github.com/aeolus-earth/sonde.git#subdirectory=cli"
 ```
 

@@ -174,7 +174,10 @@ def build_workspace_section(*, deep: bool = False) -> DoctorSection:
 def build_supabase_section(*, deep: bool = False) -> DoctorSection:
     """Verify that the current identity can reach Supabase and the configured program."""
     settings = get_settings()
-    checks = [check_supabase_access(settings.program)]
+    checks = [
+        check_supabase_access(settings.program),
+        check_schema_version(),
+    ]
     return build_section("supabase", checks, required=True)
 
 
@@ -587,6 +590,72 @@ def check_supabase_access(program: str) -> DoctorCheck:
         }
 
     return _timed_check("supabase-access", "Database access", build, required=True)
+
+
+def check_schema_version() -> DoctorCheck:
+    """Verify the remote schema version meets this CLI's requirements."""
+
+    def build() -> dict[str, Any]:
+        if not auth.is_authenticated():
+            return {
+                "status": "skipped",
+                "summary": "Schema version check skipped (not authenticated).",
+            }
+        from sonde.db.compat import (
+            MINIMUM_SCHEMA_VERSION,
+            SchemaIncompatibleError,
+            check_schema_compat,
+            get_cached_version,
+            reset_cache,
+        )
+
+        # Reset so doctor always does a fresh check
+        reset_cache()
+        try:
+            version = check_schema_compat()
+            if version == 0:
+                return {
+                    "status": "warn",
+                    "summary": "Could not determine remote schema version.",
+                    "details": [
+                        "The get_schema_version() RPC may not exist yet.",
+                        "Apply the latest migrations to enable version tracking.",
+                    ],
+                    "fix": "supabase db push",
+                }
+            return {
+                "status": "ok",
+                "summary": f"Schema version {version} (required >= {MINIMUM_SCHEMA_VERSION}).",
+                "metadata": {
+                    "remote_version": version,
+                    "required": MINIMUM_SCHEMA_VERSION,
+                },
+            }
+        except SchemaIncompatibleError:
+            remote = get_cached_version()
+            return {
+                "status": "error",
+                "summary": (
+                    f"Schema version mismatch: "
+                    f"remote={remote}, required>={MINIMUM_SCHEMA_VERSION}."
+                ),
+                "details": [
+                    "The hosted database is behind this CLI version.",
+                    "Migrations need to be applied to the shared Supabase project.",
+                ],
+                "fix": "supabase db push",
+                "metadata": {
+                    "remote_version": remote,
+                    "required": MINIMUM_SCHEMA_VERSION,
+                },
+            }
+        except Exception as exc:
+            return {
+                "status": "warn",
+                "summary": f"Schema version check failed: {exc}",
+            }
+
+    return _timed_check("supabase-schema-version", "Schema version", build, required=True)
 
 
 def check_artifact_sync(program: str) -> DoctorCheck:

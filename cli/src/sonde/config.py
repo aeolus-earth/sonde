@@ -1,13 +1,15 @@
 """Configuration management.
 
-Supabase credentials are hardcoded — they're public values (anon key is designed
-for client-side use). Only user-specific settings are configurable.
+Supabase credentials default to the hosted project's public values (the anon key
+is designed for client-side use).  Override via AEOLUS_SUPABASE_URL and
+AEOLUS_SUPABASE_ANON_KEY for CI or local-Supabase workflows.
 
 Priority: explicit flag > env var > project config (.aeolus.yaml) > default.
 """
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -15,9 +17,15 @@ import yaml
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# -- Supabase project (public, hardcoded) --
-SUPABASE_URL = "https://utvmqjssbkzpumsdpgdy.supabase.co"
-SUPABASE_ANON_KEY = "sb_publishable_tWTyul-LMC9QDFYID8pOZA_wKM2e2AL"
+# -- Supabase project (public defaults, overridable for CI / local dev) --
+SUPABASE_URL = os.environ.get(
+    "AEOLUS_SUPABASE_URL",
+    "https://utvmqjssbkzpumsdpgdy.supabase.co",
+)
+SUPABASE_ANON_KEY = os.environ.get(
+    "AEOLUS_SUPABASE_ANON_KEY",
+    "sb_publishable_tWTyul-LMC9QDFYID8pOZA_wKM2e2AL",
+)
 
 # -- User config paths --
 CONFIG_DIR = Path.home() / ".config" / "sonde"

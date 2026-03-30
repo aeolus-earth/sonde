@@ -18,7 +18,7 @@ from sonde.cli_options import pass_output_options
 load_dotenv()
 
 # Commands that don't require authentication
-_NO_AUTH = {"login", "logout", "whoami", "setup", "doctor"}
+_NO_AUTH = {"login", "logout", "whoami", "setup", "doctor", "skills"}
 
 
 def _is_help_request() -> bool:
@@ -103,6 +103,7 @@ class SondeCLI(click.Group):
             "whoami": "Auth & Setup",
             "setup": "Auth & Setup",
             "doctor": "Auth & Setup",
+            "skills": "Auth & Setup",
             "access": "Auth & Setup",
             "admin": "Admin",
         }
@@ -200,6 +201,14 @@ def cli(ctx: click.Context, use_json: bool, quiet: bool, verbose: bool, no_color
                 "  For agents, set the SONDE_TOKEN environment variable."
             )
 
+        # Schema compatibility — catch stale hosted DB before deeper errors
+        from sonde.db.compat import SchemaIncompatibleError, check_schema_compat
+
+        try:
+            check_schema_compat()
+        except SchemaIncompatibleError as exc:
+            raise SystemExit(f"Error: {exc}") from None
+
     # Show help when invoked with no subcommand
     if ctx.invoked_subcommand is None:
         click.echo(ctx.get_help())
@@ -224,6 +233,7 @@ from sonde.commands.push import push  # noqa: E402
 from sonde.commands.question_group import question  # noqa: E402
 from sonde.commands.recent import recent  # noqa: E402
 from sonde.commands.setup import setup  # noqa: E402
+from sonde.commands.skills import skills  # noqa: E402
 from sonde.commands.status import status  # noqa: E402
 from sonde.commands.sync import sync  # noqa: E402
 from sonde.commands.tag import tag  # noqa: E402
@@ -237,6 +247,7 @@ cli.add_command(init_cmd)
 cli.add_command(setup)
 cli.add_command(doctor)
 cli.add_command(access)
+cli.add_command(skills)
 
 # Research — noun groups
 cli.add_command(experiment)

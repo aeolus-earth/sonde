@@ -219,8 +219,14 @@ def patched_db(mock_supabase: MagicMock, authenticated: None) -> Generator[Magic
         originals = {mod: mod.get_client for mod in modules}
         for mod in modules:
             mod.get_client = lambda: mock_supabase
+
+        # Ensure the compat cache doesn't leak between tests
+        from sonde.db.compat import reset_cache
+
+        reset_cache()
         try:
             yield mock_supabase
         finally:
+            reset_cache()
             for mod, orig in originals.items():
                 mod.get_client = orig
