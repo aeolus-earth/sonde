@@ -8,6 +8,7 @@ from unittest.mock import patch
 import pytest
 from click.testing import CliRunner
 
+from sonde.cli import cli
 from sonde.runtimes import RUNTIMES, detect_runtimes, resolve_runtimes
 from sonde.skills import (
     bundled_skills,
@@ -17,7 +18,6 @@ from sonde.skills import (
     load_manifest,
     save_manifest,
 )
-
 
 # ---------------------------------------------------------------------------
 # Runtime detection
@@ -204,8 +204,6 @@ class TestBundledSkills:
 
 class TestSetupCommand:
     def test_check_flag_missing_skills(self, tmp_path: Path):
-        from sonde.cli import cli
-
         runner = CliRunner()
         with (
             patch("sonde.commands.setup._find_project_root", return_value=tmp_path),
@@ -221,8 +219,6 @@ class TestSetupCommand:
         assert "missing" in result.output.lower() or "missing" in (result.stderr or "")
 
     def test_runtime_flag_deploys_to_codex(self, tmp_path: Path):
-        from sonde.cli import cli
-
         runner = CliRunner()
         with (
             patch("sonde.commands.setup._find_project_root", return_value=tmp_path),
@@ -235,12 +231,9 @@ class TestSetupCommand:
             patch("sonde.db.client.get_client") as mock_client,
         ):
             # Mock the connectivity check
-            mock_client.return_value.table.return_value.select.return_value.execute.return_value.data = [
-                {"id": "shared"}
-            ]
-            result = runner.invoke(
-                cli, ["-q", "setup", "--runtime", "codex", "--skip-mcp"]
-            )
+            tbl = mock_client.return_value.table.return_value
+            tbl.select.return_value.execute.return_value.data = [{"id": "shared"}]
+            result = runner.invoke(cli, ["-q", "setup", "--runtime", "codex", "--skip-mcp"])
 
         assert result.exit_code == 0
         codex_dir = tmp_path / ".codex" / "skills"

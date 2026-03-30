@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import sys
-from typing import Any
+from typing import Any, cast
 
 from rich.console import Console
 from rich.table import Table
@@ -144,16 +144,17 @@ def record_summary(record: dict | object, length: int = 60) -> str:
     Tries content first line, then finding, then hypothesis.
     Works with both dicts (from DB rows) and Pydantic models.
     """
-    content = record.get("content") if isinstance(record, dict) else getattr(record, "content", None)
+    row = cast(dict[str, Any], record) if isinstance(record, dict) else None
+    content = row.get("content") if row is not None else getattr(record, "content", None)
     if content:
         for line in content.splitlines():
             stripped = line.strip().lstrip("# ").strip()
             if stripped:
                 return _truncate_text(stripped, length)
-    finding = record.get("finding") if isinstance(record, dict) else getattr(record, "finding", None)
+    finding = row.get("finding") if row is not None else getattr(record, "finding", None)
     if finding:
         return _truncate_text(finding, length)
-    hypothesis = record.get("hypothesis") if isinstance(record, dict) else getattr(record, "hypothesis", None)
+    hypothesis = row.get("hypothesis") if row is not None else getattr(record, "hypothesis", None)
     if hypothesis:
         return _truncate_text(hypothesis, length)
     return "—"

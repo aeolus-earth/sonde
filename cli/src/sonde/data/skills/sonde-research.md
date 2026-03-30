@@ -118,3 +118,14 @@ Experiments are scoped to programs. Use the right one:
 - `shared` — cross-cutting knowledge, methods, tools
 
 If `.aeolus.yaml` exists in the repo, the program is set automatically.
+
+## Data workflow
+
+When your experiment produces **geospatial output** (NetCDF, Zarr, GeoTIFF):
+- Upload to S3, register in STAC catalog, link back to the experiment
+- See the `stac-data-workflow` skill for the full pattern
+
+For **non-geospatial files** (figures, CSVs, PDFs, notebooks):
+- Use `sonde experiment attach EXP-XXXX file.png`
+
+See `aeolus-conventions` for S3 paths, STAC collections, and naming patterns.

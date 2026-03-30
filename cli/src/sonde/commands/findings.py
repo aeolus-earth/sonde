@@ -11,7 +11,6 @@ from sonde.output import (
     _truncate_text,
     err,
     print_breadcrumbs,
-    print_error,
     print_json,
     print_table,
 )
@@ -19,7 +18,11 @@ from sonde.output import (
 
 @click.command("findings")
 @click.option("--program", "-p", help="Filter by program")
-@click.option("--confidence", type=click.Choice(["low", "medium", "high"]), help="Filter by confidence")
+@click.option(
+    "--confidence",
+    type=click.Choice(["low", "medium", "high"]),
+    help="Filter by confidence",
+)
 @click.option("--all", "show_all", is_flag=True, help="Include superseded findings")
 @click.option("--limit", "-n", default=50, type=int, help="Max results (default: 50)")
 @click.pass_context

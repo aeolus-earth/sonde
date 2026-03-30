@@ -21,7 +21,9 @@ def test_experiment_create_content_only():
         program="weather-intervention",
         source="human/test",
         status="complete",
-        content="# Spectral bin CCN sweep\n\nRan CCN=1200 with spectral bin, saw 8% less enhancement.",
+        content=(
+            "# Spectral bin CCN sweep\n\nRan CCN=1200 with spectral bin, saw 8% less enhancement."
+        ),
         tags=["cloud-seeding", "spectral-bin"],
     )
     assert exp.content is not None

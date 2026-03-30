@@ -11,7 +11,6 @@ from sonde.output import (
     _truncate_text,
     err,
     print_breadcrumbs,
-    print_error,
     print_json,
     print_table,
 )
@@ -75,6 +74,9 @@ def questions_cmd(
         print_table(["id", "status", "question", "source", "created"], table_rows)
         err.print(f"\n[dim]{len(questions_list)} question(s)[/dim]")
 
-        print_breadcrumbs([
-            f"Promote to experiment: sonde log --open -p {resolved or '<program>'} \"question text\"",
-        ])
+        prog = resolved or "<program>"
+        print_breadcrumbs(
+            [
+                f'Promote to experiment: sonde log --open -p {prog} "question text"',
+            ]
+        )

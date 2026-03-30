@@ -58,6 +58,7 @@ def _columns_for_status(status: str | None):
             "id": e.id,
             "status": e.status,
             "program": e.program,
+            "updated": e.updated_at.strftime("%Y-%m-%d") if e.updated_at else "—",
             "tags": ", ".join(e.tags)[:30] if e.tags else "—",
             "summary": record_summary(e, 50),
         }
@@ -103,7 +104,10 @@ def _columns_for_status(status: str | None):
         "complete": (["id", "program", "tags", "finding"], _complete),
         "failed": (["id", "program", "source", "tags", "summary"], _failed),
     }
-    return mapping.get(status, (["id", "status", "program", "tags", "summary"], _default))
+    default_entry = (["id", "status", "program", "updated", "tags", "summary"], _default)
+    if status is None or status not in mapping:
+        return default_entry
+    return mapping[status]
 
 
 @click.group()
@@ -227,7 +231,8 @@ def log(
         raise SystemExit(2) from None
     except (yaml.YAMLError, OSError) as e:
         print_error(
-            "Failed to read file", str(e),
+            "Failed to read file",
+            str(e),
             "Check your --params-file and --result-file paths",
         )
         raise SystemExit(2) from None
@@ -295,8 +300,18 @@ def log(
 @click.option("--running", "filter_running", is_flag=True, help="Show only running experiments")
 @click.option("--complete", "filter_complete", is_flag=True, help="Show only complete experiments")
 @click.option("--failed", "filter_failed", is_flag=True, help="Show only failed experiments")
-@click.option("--source", help="Filter by source")
+@click.option("--source", help="Filter by source (prefix match if no '/')")
 @click.option("--tag", multiple=True, help="Filter by tag (repeatable)")
+@click.option("--direction", "-d", help="Filter by research direction ID")
+@click.option("--since", help="Show experiments created after this date (YYYY-MM-DD)")
+@click.option("--before", help="Show experiments created before this date (YYYY-MM-DD)")
+@click.option(
+    "--sort",
+    type=click.Choice(["created", "updated"]),
+    default="created",
+    help="Sort order (default: created)",
+)
+@click.option("--count", "show_count", is_flag=True, help="Show only the count")
 @click.option("--limit", "-n", default=50, help="Max results (default: 50)")
 @click.option("--offset", default=0, help="Skip first N results (for pagination)")
 @click.pass_context
@@ -310,6 +325,11 @@ def list_cmd(
     filter_failed: bool,
     source: str | None,
     tag: tuple[str, ...],
+    direction: str | None,
+    since: str | None,
+    before: str | None,
+    sort: str,
+    show_count: bool,
     limit: int,
     offset: int,
 ):
@@ -321,7 +341,11 @@ def list_cmd(
       sonde list --open                           # open experiments
       sonde list --complete -p weather-intervention
       sonde list --tag cloud-seeding
-      sonde list --status open                    # same as --open
+      sonde list --since 2026-03-01 --before 2026-03-15
+      sonde list --direction DIR-001
+      sonde list --sort updated                   # recently modified first
+      sonde list --source human                   # all human-logged experiments
+      sonde list --count --open                   # just the count
     """
     # Resolve convenience flags to status
     flags = [
@@ -353,12 +377,23 @@ def list_cmd(
         status=status,
         source=source,
         tags=list(tag) or None,
+        direction=direction,
+        since=since,
+        before=before,
+        sort=sort,
         limit=limit,
         offset=offset,
     )
 
     has_more = len(experiments) > limit
     experiments = experiments[:limit]
+
+    if show_count:
+        if ctx.obj.get("json"):
+            print_json({"count": len(experiments)})
+        else:
+            click.echo(len(experiments))
+        return
 
     if ctx.obj.get("json"):
         print_json([e.model_dump(mode="json") for e in experiments])
@@ -512,17 +547,15 @@ def show(ctx: click.Context, experiment_id: str):
 
         # Artifacts
         if artifacts:
-            err.print(f"\n[sonde.heading]Artifacts[/]")
+            err.print("\n[sonde.heading]Artifacts[/]")
             for a in artifacts:
                 size = a.get("size_bytes")
                 size_str = f" ({_format_size(size)})" if size else ""
-                err.print(
-                    f"  [sonde.muted]{a.get('type', 'file')}[/]  {a['filename']}{size_str}"
-                )
+                err.print(f"  [sonde.muted]{a.get('type', 'file')}[/]  {a['filename']}{size_str}")
 
         # Recent activity
         if activity:
-            err.print(f"\n[sonde.heading]Activity[/]")
+            err.print("\n[sonde.heading]Activity[/]")
             for entry in activity[:5]:
                 ts = entry["created_at"][:16].replace("T", " ")
                 actor = entry.get("actor", "")
@@ -530,17 +563,27 @@ def show(ctx: click.Context, experiment_id: str):
                     actor = actor.split("/")[-1]
                 err.print(f"  [sonde.muted]{ts}[/]  {actor}  {entry['action']}")
 
-        print_breadcrumbs([
-            f"History: sonde history {exp.id}",
-            f"Note:    sonde note {exp.id} \"observation\"",
-        ])
+        print_breadcrumbs(
+            [
+                f"History: sonde history {exp.id}",
+                f'Note:    sonde note {exp.id} "observation"',
+            ]
+        )
 
 
 @experiment.command()
 @click.option("--program", "-p", help="Filter by program")
 @click.option("--text", "-t", help="Full-text search across hypothesis and finding")
+@click.option("--status", help="Filter by status (open, running, complete, failed)")
+@click.option("--open", "filter_open", is_flag=True, help="Only open experiments")
+@click.option("--running", "filter_running", is_flag=True, help="Only running experiments")
+@click.option("--complete", "filter_complete", is_flag=True, help="Only complete experiments")
+@click.option("--failed", "filter_failed", is_flag=True, help="Only failed experiments")
 @click.option("--param", multiple=True, help="Parameter filter (e.g., ccn>1000)")
 @click.option("--tag", multiple=True, help="Filter by tag")
+@click.option("--since", help="Created after this date (YYYY-MM-DD)")
+@click.option("--before", help="Created before this date (YYYY-MM-DD)")
+@click.option("--count", "show_count", is_flag=True, help="Show only the count")
 @click.option("--limit", "-n", default=50, help="Max results")
 @click.option("--offset", default=0, help="Skip first N results (for pagination)")
 @click.pass_context
@@ -548,8 +591,16 @@ def search(
     ctx: click.Context,
     program: str | None,
     text: str | None,
+    status: str | None,
+    filter_open: bool,
+    filter_running: bool,
+    filter_complete: bool,
+    filter_failed: bool,
     param: tuple[str, ...],
     tag: tuple[str, ...],
+    since: str | None,
+    before: str | None,
+    show_count: bool,
     limit: int,
     offset: int,
 ):
@@ -558,9 +609,32 @@ def search(
     \b
     Examples:
       sonde experiment search --text "spectral bin"
+      sonde experiment search --text "spectral bin" --complete
       sonde experiment search --param ccn>1000
       sonde experiment search -p weather-intervention --tag cloud-seeding
+      sonde experiment search --since 2026-03-01
     """
+    # Resolve convenience status flags
+    status_flags = [
+        ("open", filter_open),
+        ("running", filter_running),
+        ("complete", filter_complete),
+        ("failed", filter_failed),
+    ]
+    active = [(name, flag) for name, flag in status_flags if flag]
+    if active and status:
+        print_error(
+            "Conflicting filters",
+            f"Cannot use --{active[0][0]} with --status.",
+            "Use one or the other.",
+        )
+        raise SystemExit(2)
+    if len(active) > 1:
+        names = ", ".join(f"--{name}" for name, _ in active)
+        print_error("Conflicting filters", f"Cannot combine {names}.", "Use one at a time.")
+        raise SystemExit(2)
+    if active:
+        status = active[0][0]
     settings = get_settings()
     resolved_program = program or settings.program or None
 
@@ -609,14 +683,24 @@ def search(
     experiments = db.search(
         program=resolved_program,
         text=text,
+        status=status,
         param_filters=param_filters or None,
         tags=list(tag) or None,
+        since=since,
+        before=before,
         limit=limit,
         offset=offset,
     )
 
     has_more = len(experiments) > limit
     experiments = experiments[:limit]
+
+    if show_count:
+        if ctx.obj.get("json"):
+            print_json({"count": len(experiments)})
+        else:
+            click.echo(len(experiments))
+        return
 
     if ctx.obj.get("json"):
         print_json([e.model_dump(mode="json") for e in experiments])
@@ -737,7 +821,8 @@ def update(
         raise SystemExit(2) from None
     except (yaml.YAMLError, OSError) as e:
         print_error(
-            "Failed to read file", str(e),
+            "Failed to read file",
+            str(e),
             "Check your --params-file and --result-file paths",
         )
         raise SystemExit(2) from None
@@ -773,13 +858,14 @@ def update(
 
 def _format_size(size_bytes: int | None) -> str:
     """Format bytes as human-readable size."""
-    if not size_bytes:
+    if size_bytes is None or size_bytes == 0:
         return ""
+    n = float(size_bytes)
     for unit in ["B", "KB", "MB", "GB"]:
-        if size_bytes < 1024:
-            return f"{size_bytes:.0f} {unit}" if unit == "B" else f"{size_bytes:.1f} {unit}"
-        size_bytes /= 1024
-    return f"{size_bytes:.1f} TB"
+        if n < 1024:
+            return f"{n:.0f} {unit}" if unit == "B" else f"{n:.1f} {unit}"
+        n /= 1024
+    return f"{n:.1f} TB"
 
 
 # ---------------------------------------------------------------------------

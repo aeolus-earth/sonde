@@ -16,7 +16,9 @@ _EXPERIMENT_ROW: dict[str, Any] = {
     "program": "weather-intervention",
     "status": "complete",
     "source": "human/test",
-    "content": "# Spectral bin CCN sweep\n\nRan spectral bin at CCN=1200. 8% less enhancement than bulk.",
+    "content": (
+        "# Spectral bin CCN sweep\n\nRan spectral bin at CCN=1200. 8% less enhancement than bulk."
+    ),
     "hypothesis": "Spectral bin changes CCN response",
     "parameters": {"ccn": 1200, "scheme": "spectral_bin"},
     "results": {"precip_delta_pct": 5.8},
@@ -144,25 +146,41 @@ class TestList:
 class TestShow:
     def _setup_show_mock(self, patched_db: MagicMock, exp_data: dict):
         """Set up mocks for show command which queries experiments + context tables."""
+
         # The mock uses a single table mock for all tables.
         # We need to track calls and return appropriate data.
         # Simplest approach: use side_effect on execute to return different data
         # based on which select was called. But the mock chains make this tricky.
         # Instead, just make table() return a new mock per table name.
-        from unittest.mock import MagicMock as MM
-
         def table_factory(name):
-            tbl = MM()
+            tbl = MagicMock()
             for method in (
-                "select", "insert", "update", "delete", "eq", "neq",
-                "gt", "lt", "gte", "lte", "like", "ilike", "is_", "in_",
-                "contains", "or_", "order", "limit", "range", "single",
+                "select",
+                "insert",
+                "update",
+                "delete",
+                "eq",
+                "neq",
+                "gt",
+                "lt",
+                "gte",
+                "lte",
+                "like",
+                "ilike",
+                "is_",
+                "in_",
+                "contains",
+                "or_",
+                "order",
+                "limit",
+                "range",
+                "single",
             ):
                 getattr(tbl, method).return_value = tbl
             if name == "experiments":
-                tbl.execute.return_value = MM(data=[exp_data] if exp_data else [])
+                tbl.execute.return_value = MagicMock(data=[exp_data] if exp_data else [])
             else:
-                tbl.execute.return_value = MM(data=[])
+                tbl.execute.return_value = MagicMock(data=[])
             return tbl
 
         patched_db.table.side_effect = table_factory
@@ -198,9 +216,7 @@ class TestShow:
 class TestSearch:
     def test_search_by_text(self, runner: CliRunner, patched_db: MagicMock):
         # Text search uses the search_experiments RPC
-        patched_db.rpc.return_value.execute.return_value = MagicMock(
-            data=[_EXPERIMENT_ROW]
-        )
+        patched_db.rpc.return_value.execute.return_value = MagicMock(data=[_EXPERIMENT_ROW])
 
         result = runner.invoke(cli, ["search", "--text", "spectral"])
         assert result.exit_code == 0
@@ -293,33 +309,52 @@ class TestSearchParamFilters:
 
 class TestUpdate:
     def _setup_update_mock(
-        self, patched_db: MagicMock, exp_data: dict | None, updated_data: dict | None = None,
+        self,
+        patched_db: MagicMock,
+        exp_data: dict | None,
+        updated_data: dict | None = None,
     ):
         """Set up mocks for update command which calls get() then update()."""
-        from unittest.mock import MagicMock as MM
 
         def table_factory(name):
-            tbl = MM()
+            tbl = MagicMock()
             for method in (
-                "select", "insert", "update", "delete", "eq", "neq",
-                "gt", "lt", "gte", "lte", "like", "ilike", "is_", "in_",
-                "contains", "or_", "order", "limit", "range", "single",
+                "select",
+                "insert",
+                "update",
+                "delete",
+                "eq",
+                "neq",
+                "gt",
+                "lt",
+                "gte",
+                "lte",
+                "like",
+                "ilike",
+                "is_",
+                "in_",
+                "contains",
+                "or_",
+                "order",
+                "limit",
+                "range",
+                "single",
             ):
                 getattr(tbl, method).return_value = tbl
             if name == "experiments":
                 # First execute = get(), second = update()
                 results = []
                 if exp_data:
-                    results.append(MM(data=[exp_data]))
+                    results.append(MagicMock(data=[exp_data]))
                 else:
-                    results.append(MM(data=[]))
+                    results.append(MagicMock(data=[]))
                 if updated_data:
-                    results.append(MM(data=[updated_data]))
+                    results.append(MagicMock(data=[updated_data]))
                 else:
-                    results.append(MM(data=[exp_data] if exp_data else []))
+                    results.append(MagicMock(data=[exp_data] if exp_data else []))
                 tbl.execute.side_effect = results
             else:
-                tbl.execute.return_value = MM(data=[])
+                tbl.execute.return_value = MagicMock(data=[])
             return tbl
 
         patched_db.table.side_effect = table_factory
@@ -368,7 +403,10 @@ class TestParamsFile:
         assert "EXP-0001" in result.output
 
     def test_log_params_file_merge_with_inline(
-        self, runner: CliRunner, patched_db: MagicMock, tmp_path,
+        self,
+        runner: CliRunner,
+        patched_db: MagicMock,
+        tmp_path,
     ):
         patched_db.table("experiments").select("id").order("created_at", desc=True).limit(
             1
@@ -383,9 +421,14 @@ class TestParamsFile:
         result = runner.invoke(
             cli,
             [
-                "log", "--quick", "-p", "weather-intervention",
-                "--params-file", str(params_file),
-                "--params", '{"scheme": "bulk"}',
+                "log",
+                "--quick",
+                "-p",
+                "weather-intervention",
+                "--params-file",
+                str(params_file),
+                "--params",
+                '{"scheme": "bulk"}',
             ],
         )
         assert result.exit_code == 0
@@ -405,8 +448,13 @@ class TestCanonicalPaths:
         result = runner.invoke(
             cli,
             [
-                "experiment", "log", "--quick",
-                "-p", "weather-intervention", "--params", '{"ccn": 1200}',
+                "experiment",
+                "log",
+                "--quick",
+                "-p",
+                "weather-intervention",
+                "--params",
+                '{"ccn": 1200}',
             ],
         )
         assert result.exit_code == 0
@@ -419,23 +467,38 @@ class TestCanonicalPaths:
     def test_experiment_update(self, runner: CliRunner, patched_db: MagicMock):
         updated_row = {**_EXPERIMENT_ROW, "finding": "New finding"}
 
-        from unittest.mock import MagicMock as MM
-
         def table_factory(name):
-            tbl = MM()
+            tbl = MagicMock()
             for method in (
-                "select", "insert", "update", "delete", "eq", "neq",
-                "gt", "lt", "gte", "lte", "like", "ilike", "is_", "in_",
-                "contains", "or_", "order", "limit", "range", "single",
+                "select",
+                "insert",
+                "update",
+                "delete",
+                "eq",
+                "neq",
+                "gt",
+                "lt",
+                "gte",
+                "lte",
+                "like",
+                "ilike",
+                "is_",
+                "in_",
+                "contains",
+                "or_",
+                "order",
+                "limit",
+                "range",
+                "single",
             ):
                 getattr(tbl, method).return_value = tbl
             if name == "experiments":
                 tbl.execute.side_effect = [
-                    MM(data=[_EXPERIMENT_ROW]),  # get
-                    MM(data=[updated_row]),      # update
+                    MagicMock(data=[_EXPERIMENT_ROW]),  # get
+                    MagicMock(data=[updated_row]),  # update
                 ]
             else:
-                tbl.execute.return_value = MM(data=[])
+                tbl.execute.return_value = MagicMock(data=[])
             return tbl
 
         patched_db.table.side_effect = table_factory

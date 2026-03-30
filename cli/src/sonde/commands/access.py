@@ -74,7 +74,10 @@ def s3(ctx: click.Context) -> None:
         else:
             print_error(
                 "No S3 credentials found",
-                "Set AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY, AWS_PROFILE, or configure an instance role.",
+                (
+                    "Set AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY, AWS_PROFILE, "
+                    "or configure an instance role."
+                ),
                 "Agents need S3 credentials to load/store large datasets.",
             )
         if config["bucket"]:

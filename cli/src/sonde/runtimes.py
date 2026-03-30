@@ -93,18 +93,18 @@ def resolve_runtimes(project_root: Path, names: str | None) -> list[RuntimeSpec]
 # ---------------------------------------------------------------------------
 
 
-def configure_mcp_server(settings_path: Path) -> bool:
-    """Add sonde MCP server to a JSON settings file. Returns True if changed."""
-    sonde_path = shutil.which("sonde")
-    if not sonde_path:
-        return False
+def configure_mcp_server(
+    settings_path: Path,
+    server_name: str = "sonde",
+    server_config: dict | None = None,
+) -> bool:
+    """Add an MCP server to a JSON settings file. Returns True if changed."""
+    if server_config is None:
+        sonde_path = shutil.which("sonde")
+        if not sonde_path:
+            return False
+        server_config = {"command": sonde_path, "args": ["mcp", "serve"]}
 
-    mcp_entry = {
-        "command": sonde_path,
-        "args": ["mcp", "serve"],
-    }
-
-    # Read existing settings or start fresh
     if settings_path.exists():
         try:
             settings = json.loads(settings_path.read_text())
@@ -115,9 +115,9 @@ def configure_mcp_server(settings_path: Path) -> bool:
         settings = {}
 
     servers = settings.setdefault("mcpServers", {})
-    if "sonde" in servers and servers["sonde"] == mcp_entry:
-        return False  # Already configured
+    if server_name in servers and servers[server_name] == server_config:
+        return False
 
-    servers["sonde"] = mcp_entry
+    servers[server_name] = server_config
     settings_path.write_text(json.dumps(settings, indent=2) + "\n")
     return True

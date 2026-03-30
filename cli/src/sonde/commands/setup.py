@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import click
@@ -153,7 +154,70 @@ def setup(
         elif not quiet:
             err.print("  [sonde.muted]Already configured (no changes)[/sonde.muted]")
 
-    # -- Step 6: Verify connectivity --
+    # -- Step 6: STAC MCP --
+    if not skip_mcp:
+        if not quiet:
+            err.print("\n[sonde.heading]STAC data catalog...[/sonde.heading]")
+
+        import shutil
+
+        stac_mcp_path = shutil.which("stac-mcp")
+        if stac_mcp_path:
+            stac_api_url = os.environ.get("STAC_API_URL", "https://stac.aeolus.earth")
+            stac_config = {
+                "command": stac_mcp_path,
+                "args": ["--api-url", stac_api_url],
+            }
+            stac_configured = False
+            for rt in runtimes:
+                if rt.mcp_config is None:
+                    continue
+                config_root = root if project_root or rt.supports_home else None
+                if config_root is None:
+                    continue
+                config_path = config_root / rt.mcp_config
+                if configure_mcp_server(config_path, "stac", stac_config):
+                    stac_configured = True
+
+            if stac_configured:
+                print_success("STAC MCP registered")
+
+            # Check STAC API health
+            try:
+                import httpx
+
+                resp = httpx.get(f"{stac_api_url}/collections", timeout=5)
+                if resp.status_code == 200:
+                    collections = [c["id"] for c in resp.json().get("collections", [])]
+                    if collections:
+                        print_success(f"STAC API reachable — {', '.join(collections)}")
+                    else:
+                        print_success("STAC API reachable (no collections yet)")
+                else:
+                    err.print(f"  [sonde.warning]STAC API returned {resp.status_code}[/]")
+            except Exception:
+                err.print("  [sonde.muted]STAC API not reachable (sonde works without it)[/]")
+        else:
+            err.print("  [sonde.muted]stac-mcp not found — install for data catalog tools[/]")
+            err.print("  [sonde.muted]  cd vendor/stac-db/mcp && uv tool install .[/]")
+
+    # -- Step 7: S3 access --
+    if not quiet:
+        err.print("\n[sonde.heading]S3 access...[/sonde.heading]")
+
+    has_s3 = bool(
+        os.environ.get("AWS_ACCESS_KEY_ID")
+        or os.environ.get("AWS_PROFILE")
+        or (Path.home() / ".aws" / "credentials").exists()
+    )
+    if has_s3:
+        profile = os.environ.get("AWS_PROFILE", "default")
+        print_success(f"AWS credentials found (profile: {profile})")
+    else:
+        err.print("  [sonde.muted]No AWS credentials found (optional — for data upload)[/]")
+        err.print("  [sonde.muted]  Set AWS_PROFILE or AWS_ACCESS_KEY_ID to enable S3 uploads[/]")
+
+    # -- Step 8: Verify connectivity --
     if not quiet:
         err.print("\n[sonde.heading]Verifying connectivity...[/sonde.heading]")
 

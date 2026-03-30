@@ -46,11 +46,7 @@ def _build_brief_data(
             for k, v in e.get("parameters", {}).items():
                 cov[k].add(str(v))
         coverage = {k: sorted(v) for k, v in sorted(cov.items())} if cov else {}
-        gaps = [
-            {"parameter": k, "values_tested": sorted(v)}
-            for k, v in cov.items()
-            if len(v) == 1
-        ]
+        gaps = [{"parameter": k, "values_tested": sorted(v)} for k, v in cov.items() if len(v) == 1]
 
     return {
         "program": program,
@@ -266,22 +262,24 @@ def brief(ctx: click.Context, program: str | None, save: bool) -> None:
 
     # Coverage and gaps (keep as text — tables don't add much here)
     if data["coverage"]:
-        err.print(f"\n[sonde.heading]Coverage[/]")
+        err.print("\n[sonde.heading]Coverage[/]")
         for param, values in data["coverage"].items():
             err.print(f"  [sonde.muted]{param}:[/] {', '.join(values)}")
         if data["gaps"]:
-            err.print(f"\n[sonde.heading]Gaps[/]")
+            err.print("\n[sonde.heading]Gaps[/]")
             for g in data["gaps"]:
                 err.print(
                     f"  [sonde.warning]●[/] Only one value tested for "
                     f"[sonde.accent]{g['parameter']}[/]: {', '.join(g['values_tested'])}"
                 )
 
-    print_breadcrumbs([
-        f"Drill down: sonde list --open -p {resolved}",
-        f"Findings:   sonde findings -p {resolved}",
-        f"Questions:  sonde questions -p {resolved}",
-    ])
+    print_breadcrumbs(
+        [
+            f"Drill down: sonde list --open -p {resolved}",
+            f"Findings:   sonde findings -p {resolved}",
+            f"Questions:  sonde questions -p {resolved}",
+        ]
+    )
 
     # Save locally if requested (markdown format for .sonde/brief.md)
     if save:

@@ -63,15 +63,20 @@ def list_experiments(
     status: str | None = None,
     source: str | None = None,
     tags: list[str] | None = None,
+    direction: str | None = None,
+    since: str | None = None,
+    before: str | None = None,
+    sort: str = "created",
     limit: int = 50,
     offset: int = 0,
 ) -> list[Experiment]:
     """List experiments with optional filters."""
     client = get_client()
+    order_field = "updated_at" if sort == "updated" else "created_at"
     query = (
         client.table("experiments")
         .select("*")
-        .order("created_at", desc=True)
+        .order(order_field, desc=True)
         .range(offset, offset + limit)
     )
     if program:
@@ -79,9 +84,18 @@ def list_experiments(
     if status:
         query = query.eq("status", status)
     if source:
-        query = query.eq("source", source)
+        if "/" not in source:
+            query = query.ilike("source", f"{source}%")
+        else:
+            query = query.eq("source", source)
     if tags:
         query = query.contains("tags", tags)
+    if direction:
+        query = query.eq("direction_id", direction)
+    if since:
+        query = query.gte("created_at", since)
+    if before:
+        query = query.lte("created_at", before)
     result = query.execute()
     return [Experiment(**row) for row in to_rows(result.data)]
 
@@ -90,8 +104,11 @@ def search(
     *,
     program: str | None = None,
     text: str | None = None,
+    status: str | None = None,
     param_filters: list[tuple[str, str, Any]] | None = None,
     tags: list[str] | None = None,
+    since: str | None = None,
+    before: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> list[Experiment]:
@@ -112,10 +129,21 @@ def search(
         }
         if program:
             rpc_params["filter_program"] = program
+        if status:
+            rpc_params["filter_status"] = status
         if tags:
             rpc_params["filter_tags"] = tags
         result = client.rpc("search_experiments", rpc_params).execute()
         experiments = [Experiment(**row) for row in to_rows(result.data)]
+        # Client-side date filtering for RPC path (RPC doesn't support date filters)
+        if since:
+            experiments = [
+                e for e in experiments if e.created_at and e.created_at.isoformat() >= since
+            ]
+        if before:
+            experiments = [
+                e for e in experiments if e.created_at and e.created_at.isoformat() <= before
+            ]
     else:
         # Non-text queries use standard PostgREST filtering
         query = client.table("experiments").select("*").order("created_at", desc=True)
@@ -123,8 +151,14 @@ def search(
             query = query.range(offset, offset + limit)
         if program:
             query = query.eq("program", program)
+        if status:
+            query = query.eq("status", status)
         if tags:
             query = query.contains("tags", tags)
+        if since:
+            query = query.gte("created_at", since)
+        if before:
+            query = query.lte("created_at", before)
         result = query.execute()
         experiments = [Experiment(**row) for row in to_rows(result.data)]
 
