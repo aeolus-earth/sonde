@@ -18,7 +18,7 @@ from sonde.cli_options import pass_output_options
 load_dotenv()
 
 # Commands that don't require authentication
-_NO_AUTH = {"login", "logout", "whoami", "setup"}
+_NO_AUTH = {"login", "logout", "whoami", "setup", "doctor"}
 
 
 def _is_help_request() -> bool:
@@ -102,6 +102,7 @@ class SondeCLI(click.Group):
             "logout": "Auth & Setup",
             "whoami": "Auth & Setup",
             "setup": "Auth & Setup",
+            "doctor": "Auth & Setup",
             "access": "Auth & Setup",
             "admin": "Admin",
         }
@@ -212,6 +213,7 @@ from sonde.commands.admin import admin  # noqa: E402
 from sonde.commands.auth import login, logout, whoami  # noqa: E402
 from sonde.commands.brief import brief  # noqa: E402
 from sonde.commands.direction_group import direction  # noqa: E402
+from sonde.commands.doctor import doctor  # noqa: E402
 from sonde.commands.experiment import experiment  # noqa: E402
 from sonde.commands.finding_group import finding  # noqa: E402
 from sonde.commands.health import health  # noqa: E402
@@ -233,6 +235,7 @@ cli.add_command(logout)
 cli.add_command(whoami)
 cli.add_command(init_cmd)
 cli.add_command(setup)
+cli.add_command(doctor)
 cli.add_command(access)
 
 # Research — noun groups

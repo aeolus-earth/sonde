@@ -228,7 +228,7 @@ def show(ctx: click.Context, experiment_id: str, graph: bool) -> None:
         if exp.status in ("complete", "failed") and not exp.finding:
             print_nudge(
                 "No finding recorded — state the result with numbers and conditions:",
-                f'sonde update {exp.id} --finding'
+                f"sonde update {exp.id} --finding"
                 f' "32x32 tiling: 12.4 GFLOPS (3x naive), L2 miss 0.08"',
             )
         elif exp.status in ("open", "running") and not artifacts:

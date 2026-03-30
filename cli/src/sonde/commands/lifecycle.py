@@ -432,7 +432,7 @@ def _change_status(
 
         print_nudge(
             "Record what you learned — be quantitative and specific:",
-            f'sonde update {experiment_id} --finding'
+            f"sonde update {experiment_id} --finding"
             f' "CCN=1500 shows 8% less enhancement (5.8% vs 13.6%)"',
         )
 
