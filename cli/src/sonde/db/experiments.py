@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from postgrest.exceptions import APIError
@@ -63,6 +62,7 @@ def list_experiments(
     program: str | None = None,
     status: str | None = None,
     source: str | None = None,
+    tags: list[str] | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> list[Experiment]:
@@ -80,6 +80,8 @@ def list_experiments(
         query = query.eq("status", status)
     if source:
         query = query.eq("source", source)
+    if tags:
+        query = query.contains("tags", tags)
     result = query.execute()
     return [Experiment(**row) for row in to_rows(result.data)]
 
@@ -93,28 +95,40 @@ def search(
     limit: int = 50,
     offset: int = 0,
 ) -> list[Experiment]:
-    """Search experiments with text search and parameter filters."""
+    """Search experiments with full-text search and optional filters.
+
+    Text search uses Postgres FTS (plainto_tsquery) across content,
+    hypothesis, and finding fields via the search_experiments RPC.
+    Results are ranked by relevance when text is provided.
+    """
     client = get_client()
-    query = client.table("experiments").select("*").order("created_at", desc=True)
 
-    # Only apply DB-side limit when there's no client-side filtering
-    if not param_filters:
-        query = query.range(offset, offset + limit)
-
-    if program:
-        query = query.eq("program", program)
     if text:
-        # Escape SQL LIKE metacharacters; preserve all other characters (dots, commas, etc.)
-        safe_text = re.sub(r"[%_\\]", "", text)
-        if safe_text.strip():
-            query = query.or_(f"hypothesis.ilike.%{safe_text}%,finding.ilike.%{safe_text}%")
-    if tags:
-        query = query.contains("tags", tags)
-
-    result = query.execute()
+        # Use RPC for ranked full-text search
+        rpc_params: dict[str, Any] = {
+            "search_query": text,
+            "result_limit": limit + 1,  # +1 for has_more detection
+            "result_offset": offset,
+        }
+        if program:
+            rpc_params["filter_program"] = program
+        if tags:
+            rpc_params["filter_tags"] = tags
+        result = client.rpc("search_experiments", rpc_params).execute()
+        experiments = [Experiment(**row) for row in to_rows(result.data)]
+    else:
+        # Non-text queries use standard PostgREST filtering
+        query = client.table("experiments").select("*").order("created_at", desc=True)
+        if not param_filters:
+            query = query.range(offset, offset + limit)
+        if program:
+            query = query.eq("program", program)
+        if tags:
+            query = query.contains("tags", tags)
+        result = query.execute()
+        experiments = [Experiment(**row) for row in to_rows(result.data)]
 
     # Client-side param filtering (Supabase REST doesn't support JSONB operators directly)
-    experiments = [Experiment(**row) for row in to_rows(result.data)]
     if param_filters:
         filtered = []
         for exp in experiments:

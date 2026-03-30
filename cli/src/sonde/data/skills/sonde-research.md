@@ -2,16 +2,32 @@
 
 Use the `sonde` CLI to log experiments, query research history, and find gaps in the knowledge base. Every experiment you help run should be logged so the team's institutional memory grows.
 
-## Starting a research session
+## Discovery workflow
 
-Before doing anything else, pull the current knowledge base and read the brief:
+Start broad, then drill down:
 
 ```bash
-sonde pull -p <program>          # sync knowledge base to local .sonde/
-sonde brief -p <program>         # see what's been tried, what's open, what to work on
+# 1. Get the big picture
+sonde brief -p <program>              # stats, findings, open work, gaps
+sonde brief -p <program> --json       # structured output for programmatic use
+
+# 2. Drill into what's active
+sonde list --open -p <program>        # what's queued up
+sonde list --running                  # what's in progress
+sonde list --complete                 # what's done (shows findings)
+
+# 3. Explore knowledge
+sonde findings -p <program>           # current research findings
+sonde questions -p <program>          # open research questions
+sonde search --text "spectral bin"    # full-text search across all content
+sonde search --tag cloud-seeding      # filter by tag
+
+# 4. Go deep on one experiment
+sonde show EXP-0001                   # full detail + findings + artifacts + activity
+sonde show EXP-0001 --json            # machine-readable with all context
 ```
 
-The brief shows experiment stats, active findings, open questions, parameter coverage, and gaps. Use it to decide what to work on next.
+Each command shows breadcrumb hints for the next step.
 
 ## When to log
 
@@ -22,45 +38,47 @@ The brief shows experiment stats, active findings, open questions, parameter cov
 
 ## How to log
 
-Gather from the conversation: what was tested (parameters), what happened (results), and what it means (finding). Then call sonde:
+Experiments are markdown documents. Write what's relevant — hypothesis, method, parameters, results, analysis — in the content body:
 
 ```bash
-# Quick log — minimum viable record
-sonde log --quick -p <program> \
-  --params '{"key": "value", ...}' \
-  --result '{"metric": value, ...}'
+# Content-first (preferred)
+sonde log -p <program> "Ran spectral bin at CCN=1200, saw 8% less enhancement"
+sonde log -p <program> -f experiment-notes.md
+echo "detailed analysis" | sonde log -p <program> --stdin
 
-# Full log with finding
-sonde log -p <program> \
-  --hypothesis "What you expected" \
-  --params '{"key": "value"}' \
-  --result '{"metric": value}' \
-  --finding "What you learned" \
-  --tag relevant-tag
+# Quick structured log (still works)
+sonde log --quick -p <program> \
+  --params '{"ccn": 1200, "scheme": "spectral_bin"}' \
+  --result '{"precip_delta_pct": 5.8}'
+
+# Open an experiment for later
+sonde log --open -p <program> "Test combined BL heating + seeding"
 ```
 
-The `--source` is set automatically from the logged-in user. Git commit, repo, and branch are auto-detected.
+The `--source` is set automatically. Git commit, repo, and branch are auto-detected.
 
-## Before starting new work
-
-Always check what's been done before designing a new experiment:
+## Lifecycle
 
 ```bash
-sonde list -p <program>                   # recent experiments
-sonde search --text "topic"               # find relevant prior work
-sonde search --param key>value            # filter by parameters
-sonde show EXP-0001                       # full detail on one experiment
+sonde start EXP-0001                  # mark as running
+sonde close EXP-0001                  # mark as complete
+sonde close EXP-0001 --finding "..."  # complete with finding
+sonde open EXP-0001                   # reopen
 ```
 
 ## Adding notes and attachments
 
-After logging, attach relevant outputs and add notes as you go:
-
 ```bash
 sonde attach EXP-0001 figures/plot.png
-sonde attach EXP-0001 output/data.nc
 sonde note EXP-0001 "Retried with higher CCN, same saturation pattern"
 sonde note EXP-0001 --file analysis-notes.md
+```
+
+## Activity tracking
+
+```bash
+sonde recent -p <program>             # what happened lately
+sonde history EXP-0001                # full audit trail for one record
 ```
 
 ## Syncing with the knowledge base
@@ -68,11 +86,11 @@ sonde note EXP-0001 --file analysis-notes.md
 Use pull/push to work with local markdown files in `.sonde/`:
 
 ```bash
-sonde pull -p <program>          # download experiments, findings, questions
-sonde push                       # sync local edits back to the database
+sonde pull -p <program>               # download experiments, findings, questions
+sonde push                            # sync local edits back to the database
 ```
 
-After pulling, you can read and edit files in `.sonde/experiments/` directly. Push syncs your changes back.
+After pulling, `.sonde/experiments/` contains one markdown file per experiment. Read and grep these directly — they're the knowledge base.
 
 ## Programs
 

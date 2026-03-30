@@ -70,11 +70,23 @@ STATUS_STYLE: dict[str, str] = {
     "superseded": "sonde.muted",
 }
 
+CONFIDENCE_STYLE: dict[str, str] = {
+    "high": "sonde.success",
+    "medium": "sonde.warning",
+    "low": "sonde.muted",
+}
+
 
 def styled_status(status: str) -> str:
     """Return a Rich-styled status string."""
     style = STATUS_STYLE.get(status, "")
     return f"[{style}]{status}[/]" if style else status
+
+
+def styled_confidence(confidence: str) -> str:
+    """Return a Rich-styled confidence string."""
+    style = CONFIDENCE_STYLE.get(confidence, "")
+    return f"[{style}]{confidence}[/]" if style else confidence
 
 
 def print_table(columns: list[str], rows: list[dict[str, Any]], *, title: str | None = None):
@@ -92,9 +104,11 @@ def print_table(columns: list[str], rows: list[dict[str, Any]], *, title: str | 
         values = []
         for col in columns:
             val = str(row.get(col, "—"))
-            # Auto-style the status column
+            # Auto-style semantic columns
             if col == "status":
                 val = styled_status(val)
+            elif col == "confidence":
+                val = styled_confidence(val)
             values.append(val)
         table.add_row(*values)
     out.print(table)
@@ -115,6 +129,41 @@ def print_error(what: str, why: str, fix: str):
     err.print(f"\n[sonde.error]Error:[/] {what}")
     err.print(f"  [sonde.muted]{why}[/]")
     err.print(f"\n  {fix}\n")
+
+
+def print_breadcrumbs(hints: list[str]) -> None:
+    """Print drill-down hints on stderr."""
+    err.print()
+    for hint in hints:
+        err.print(f"  [sonde.muted]{hint}[/]")
+
+
+def record_summary(record: dict | object, length: int = 60) -> str:
+    """Extract a one-line summary from a record (dict or model).
+
+    Tries content first line, then finding, then hypothesis.
+    Works with both dicts (from DB rows) and Pydantic models.
+    """
+    content = record.get("content") if isinstance(record, dict) else getattr(record, "content", None)
+    if content:
+        for line in content.splitlines():
+            stripped = line.strip().lstrip("# ").strip()
+            if stripped:
+                return _truncate_text(stripped, length)
+    finding = record.get("finding") if isinstance(record, dict) else getattr(record, "finding", None)
+    if finding:
+        return _truncate_text(finding, length)
+    hypothesis = record.get("hypothesis") if isinstance(record, dict) else getattr(record, "hypothesis", None)
+    if hypothesis:
+        return _truncate_text(hypothesis, length)
+    return "—"
+
+
+def _truncate_text(text: str | None, length: int) -> str:
+    """Truncate text with ellipsis."""
+    if not text:
+        return "—"
+    return text[:length] + "..." if len(text) > length else text
 
 
 def is_tty() -> bool:

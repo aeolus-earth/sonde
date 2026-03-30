@@ -46,14 +46,32 @@ class Settings(BaseSettings):
     program: str = Field(default="", description="Default program namespace")
     source: str = Field(default="", description="Default source attribution")
 
+    # Subsystem access (from .aeolus.yaml or env vars)
+    s3_bucket: str = Field(default="", description="S3 bucket for large datasets")
+    s3_prefix: str = Field(default="", description="S3 key prefix (e.g., programs/weather/)")
+    s3_region: str = Field(default="us-east-1", description="AWS region")
+    icechunk_repo: str = Field(default="", description="Icechunk repository URI")
+    stac_catalog_url: str = Field(default="", description="STAC catalog endpoint URL")
+
     def with_project_config(self) -> Settings:
-        """Overlay .aeolus.yaml values where env/flags haven't set them."""
+        """Overlay .aeolus.yaml values where env/flags haven't set them.
+
+        Supports both flat keys (program: foo) and nested keys
+        (s3: {bucket: bar} → s3_bucket: bar).
+        """
         project = _find_project_config()
         updates = {}
         for key, value in project.items():
-            field_name = key.replace("-", "_")
-            if field_name in self.model_fields and not getattr(self, field_name):
-                updates[field_name] = value
+            if isinstance(value, dict):
+                # Flatten nested: s3: {bucket: bar} → s3_bucket: bar
+                for sub_key, sub_value in value.items():
+                    field_name = f"{key}_{sub_key}".replace("-", "_")
+                    if field_name in self.__class__.model_fields and not getattr(self, field_name):
+                        updates[field_name] = sub_value
+            else:
+                field_name = key.replace("-", "_")
+                if field_name in self.__class__.model_fields and not getattr(self, field_name):
+                    updates[field_name] = value
         if updates:
             return self.model_copy(update=updates)
         return self

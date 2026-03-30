@@ -9,6 +9,16 @@
 
 ---
 
+## Design philosophy: unstructured records, structured discovery
+
+Experiment records are **freeform markdown documents**, not structured schemas. An experiment's content — hypothesis, method, parameters, results, findings, analysis — lives in the markdown body. Agents and humans write whatever is relevant. The only structured fields are the catalog card: `program`, `status`, `source`, `tags`. These exist for filtering and discovery, not for forcing a template on research.
+
+This means the data catalog follows the same pattern. Dataset records in `.sonde/datasets/` have rich metadata in frontmatter (URI, format, variables, dimensions, extent) for machine queries, but the body can be freeform notes. Sonde is a catalog and auth layer, not a structured schema enforcer.
+
+When an agent pulls `.sonde/`, it gets markdown it can read naturally. When it needs to narrow scope, it uses `sonde search` (full-text search on the markdown body), `sonde list` (filter by program/status/tags), or `sonde data list` (filter by experiment, domain, resolution). Discovery is structured. Content is not.
+
+---
+
 ## The problem
 
 An agent (Claude Code, Codex, a SLURM post-processing script) is working on a research program. It has full access to the knowledge layer — experiments, findings, questions, directions — via the sonde CLI. It pulls down `.sonde/` and reads the markdown. It can see that EXP-0082 ran spectral-bin microphysics over the North Atlantic at 25km with CCN=1200, and that the finding was "8% less enhancement than bulk at same CCN."

@@ -73,6 +73,8 @@ class SondeCLI(click.Group):
             "start": "Research",
             "recent": "Research",
             "history": "Research",
+            "findings": "Research",
+            "questions": "Research",
             "login": "Auth & Setup",
             "logout": "Auth & Setup",
             "whoami": "Auth & Setup",
@@ -167,6 +169,7 @@ from sonde.commands.attach import attach  # noqa: E402
 from sonde.commands.auth import login, logout, whoami  # noqa: E402
 from sonde.commands.brief import brief  # noqa: E402
 from sonde.commands.experiment import experiment  # noqa: E402
+from sonde.commands.findings import findings_cmd  # noqa: E402
 from sonde.commands.history import history  # noqa: E402
 from sonde.commands.lifecycle import (  # noqa: E402
     close_experiment,
@@ -177,6 +180,7 @@ from sonde.commands.new import new  # noqa: E402
 from sonde.commands.note import note  # noqa: E402
 from sonde.commands.pull import pull  # noqa: E402
 from sonde.commands.push import push  # noqa: E402
+from sonde.commands.questions import questions_cmd  # noqa: E402
 from sonde.commands.recent import recent  # noqa: E402
 from sonde.commands.setup import setup  # noqa: E402
 from sonde.commands.tag import tag, tags_list  # noqa: E402
@@ -201,3 +205,5 @@ cli.add_command(open_experiment)
 cli.add_command(start_experiment)
 cli.add_command(recent)
 cli.add_command(history)
+cli.add_command(findings_cmd)
+cli.add_command(questions_cmd)

@@ -16,10 +16,12 @@ _EXPERIMENT_ROW: dict[str, Any] = {
     "program": "weather-intervention",
     "status": "complete",
     "source": "human/test",
+    "content": "# Spectral bin CCN sweep\n\nRan spectral bin at CCN=1200. 8% less enhancement than bulk.",
     "hypothesis": "Spectral bin changes CCN response",
     "parameters": {"ccn": 1200, "scheme": "spectral_bin"},
     "results": {"precip_delta_pct": 5.8},
     "finding": "8% less enhancement than bulk at same CCN",
+    "metadata": {},
     "git_commit": "abc123def456",
     "git_repo": "aeolus/breeze-experiments",
     "git_branch": "feature/spectral-bin",
@@ -30,6 +32,30 @@ _EXPERIMENT_ROW: dict[str, Any] = {
     "run_at": None,
     "created_at": datetime(2026, 3, 29, 14, 0, 0, tzinfo=UTC).isoformat(),
     "updated_at": datetime(2026, 3, 29, 14, 0, 0, tzinfo=UTC).isoformat(),
+}
+
+# An experiment with content only (no legacy structured fields)
+_CONTENT_ONLY_ROW: dict[str, Any] = {
+    "id": "EXP-0002",
+    "program": "weather-intervention",
+    "status": "complete",
+    "source": "codex/task-abc",
+    "content": "# Maritime Cu domain test\n\nTested maritime cumulus response to seeding.",
+    "hypothesis": None,
+    "parameters": {},
+    "results": None,
+    "finding": None,
+    "metadata": {},
+    "git_commit": "def456abc123",
+    "git_repo": None,
+    "git_branch": None,
+    "data_sources": [],
+    "tags": ["maritime-cu"],
+    "direction_id": None,
+    "related": [],
+    "run_at": None,
+    "created_at": datetime(2026, 3, 29, 15, 0, 0, tzinfo=UTC).isoformat(),
+    "updated_at": datetime(2026, 3, 29, 15, 0, 0, tzinfo=UTC).isoformat(),
 }
 
 
@@ -116,44 +142,116 @@ class TestList:
 
 
 class TestShow:
-    def test_show_experiment(self, runner: CliRunner, patched_db: MagicMock):
-        patched_db.table("experiments").select("*").eq(
-            "id", "EXP-0001"
-        ).execute.return_value = MagicMock(data=[_EXPERIMENT_ROW])
+    def _setup_show_mock(self, patched_db: MagicMock, exp_data: dict):
+        """Set up mocks for show command which queries experiments + context tables."""
+        # The mock uses a single table mock for all tables.
+        # We need to track calls and return appropriate data.
+        # Simplest approach: use side_effect on execute to return different data
+        # based on which select was called. But the mock chains make this tricky.
+        # Instead, just make table() return a new mock per table name.
+        from unittest.mock import MagicMock as MM
+
+        def table_factory(name):
+            tbl = MM()
+            for method in (
+                "select", "insert", "update", "delete", "eq", "neq",
+                "gt", "lt", "gte", "lte", "like", "ilike", "is_", "in_",
+                "contains", "or_", "order", "limit", "range", "single",
+            ):
+                getattr(tbl, method).return_value = tbl
+            if name == "experiments":
+                tbl.execute.return_value = MM(data=[exp_data] if exp_data else [])
+            else:
+                tbl.execute.return_value = MM(data=[])
+            return tbl
+
+        patched_db.table.side_effect = table_factory
+
+    def test_show_experiment_with_content(self, runner: CliRunner, patched_db: MagicMock):
+        self._setup_show_mock(patched_db, _EXPERIMENT_ROW)
 
         result = runner.invoke(cli, ["show", "EXP-0001"])
         assert result.exit_code == 0
         assert "EXP-0001" in result.output
-        assert "spectral_bin" in result.output
+        # Content-first: renders markdown body
+        assert "Spectral bin CCN sweep" in result.output
 
     def test_show_not_found(self, runner: CliRunner, patched_db: MagicMock):
+        self._setup_show_mock(patched_db, None)
+
         result = runner.invoke(cli, ["show", "EXP-9999"])
         assert result.exit_code == 1
         assert "not found" in result.output
 
     def test_show_json(self, runner: CliRunner, patched_db: MagicMock):
-        patched_db.table("experiments").select("*").eq(
-            "id", "EXP-0001"
-        ).execute.return_value = MagicMock(data=[_EXPERIMENT_ROW])
+        self._setup_show_mock(patched_db, _EXPERIMENT_ROW)
 
         result = runner.invoke(cli, ["--json", "show", "EXP-0001"])
         assert result.exit_code == 0
         assert '"hypothesis"' in result.output
+        # JSON output includes related context keys
+        assert '"_findings"' in result.output
+        assert '"_artifacts"' in result.output
+        assert '"_activity"' in result.output
 
 
 class TestSearch:
     def test_search_by_text(self, runner: CliRunner, patched_db: MagicMock):
-        patched_db.table("experiments").select("*").order("created_at", desc=True).range(
-            0, 50
-        ).or_.return_value.execute.return_value = MagicMock(data=[_EXPERIMENT_ROW])
+        # Text search uses the search_experiments RPC
+        patched_db.rpc.return_value.execute.return_value = MagicMock(
+            data=[_EXPERIMENT_ROW]
+        )
 
         result = runner.invoke(cli, ["search", "--text", "spectral"])
         assert result.exit_code == 0
+        assert "EXP-0001" in result.output
+        # Verify RPC was called with correct function name
+        patched_db.rpc.assert_called_once()
+        call_args = patched_db.rpc.call_args
+        assert call_args[0][0] == "search_experiments"
+        assert call_args[0][1]["search_query"] == "spectral"
 
     def test_search_empty(self, runner: CliRunner, patched_db: MagicMock):
+        patched_db.rpc.return_value.execute.return_value = MagicMock(data=[])
+
         result = runner.invoke(cli, ["search", "--text", "nonexistent"])
         assert result.exit_code == 0
         assert "No experiments" in result.output
+
+
+class TestLogContentFirst:
+    def test_log_inline_content(self, runner: CliRunner, patched_db: MagicMock):
+        patched_db.table("experiments").select("id").order("created_at", desc=True).limit(
+            1
+        ).execute.return_value = MagicMock(data=[])
+        patched_db.table("experiments").insert.return_value.execute.return_value = MagicMock(
+            data=[_CONTENT_ONLY_ROW]
+        )
+
+        result = runner.invoke(
+            cli,
+            ["log", "-p", "weather-intervention", "Maritime Cu domain test results"],
+        )
+        assert result.exit_code == 0
+        assert "EXP-0002" in result.output
+
+    def test_log_from_file(self, runner: CliRunner, patched_db: MagicMock, tmp_path):
+        patched_db.table("experiments").select("id").order("created_at", desc=True).limit(
+            1
+        ).execute.return_value = MagicMock(data=[])
+        patched_db.table("experiments").insert.return_value.execute.return_value = MagicMock(
+            data=[_CONTENT_ONLY_ROW]
+        )
+
+        md_file = tmp_path / "experiment.md"
+        md_file.write_text("# Test experiment\n\nContent from file.")
+
+        result = runner.invoke(
+            cli,
+            ["log", "-p", "weather-intervention", "-f", str(md_file)],
+        )
+        assert result.exit_code == 0
+        assert "EXP-0002" in result.output
 
 
 class TestLogEdgeCases:

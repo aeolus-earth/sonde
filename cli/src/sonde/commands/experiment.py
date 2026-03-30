@@ -13,7 +13,73 @@ from sonde.db import experiments as db
 from sonde.git import detect_git_context
 from sonde.local import _generate_body
 from sonde.models.experiment import ExperimentCreate
-from sonde.output import err, print_error, print_json, print_success, print_table, styled_status
+from sonde.output import (
+    _truncate_text,
+    err,
+    print_breadcrumbs,
+    print_error,
+    print_json,
+    print_success,
+    print_table,
+    record_summary,
+    styled_status,
+)
+
+
+def _columns_for_status(status: str | None):
+    """Return (columns, row_builder) adapted to the status filter."""
+
+    def _default(e):
+        return {
+            "id": e.id,
+            "status": e.status,
+            "program": e.program,
+            "tags": ", ".join(e.tags)[:30] if e.tags else "—",
+            "summary": record_summary(e, 50),
+        }
+
+    def _open(e):
+        return {
+            "id": e.id,
+            "program": e.program,
+            "source": e.source.split("/")[-1] if "/" in e.source else e.source,
+            "created": e.created_at.strftime("%Y-%m-%d") if e.created_at else "—",
+            "summary": record_summary(e, 45),
+        }
+
+    def _running(e):
+        return {
+            "id": e.id,
+            "program": e.program,
+            "source": e.source.split("/")[-1] if "/" in e.source else e.source,
+            "tags": ", ".join(e.tags)[:25] if e.tags else "—",
+            "summary": record_summary(e, 45),
+        }
+
+    def _complete(e):
+        return {
+            "id": e.id,
+            "program": e.program,
+            "tags": ", ".join(e.tags)[:25] if e.tags else "—",
+            "finding": _truncate_text(e.finding, 50) if e.finding else record_summary(e, 50),
+        }
+
+    def _failed(e):
+        return {
+            "id": e.id,
+            "program": e.program,
+            "source": e.source.split("/")[-1] if "/" in e.source else e.source,
+            "tags": ", ".join(e.tags)[:25] if e.tags else "—",
+            "summary": record_summary(e, 45),
+        }
+
+    mapping = {
+        "open": (["id", "program", "source", "created", "summary"], _open),
+        "running": (["id", "program", "source", "tags", "summary"], _running),
+        "complete": (["id", "program", "tags", "finding"], _complete),
+        "failed": (["id", "program", "source", "tags", "summary"], _failed),
+    }
+    return mapping.get(status, (["id", "status", "program", "tags", "summary"], _default))
 
 
 @click.group()
@@ -164,7 +230,7 @@ def log(
         print_json(exp.model_dump(mode="json"))
     else:
         print_success(f"Created {exp.id} ({exp.program})")
-        summary = _summary(exp, 80)
+        summary = record_summary(exp, 80)
         if summary != "—":
             err.print(f"  {summary}")
         if exp.git_commit:
@@ -176,8 +242,13 @@ def log(
 
 @experiment.command("list")
 @click.option("--program", "-p", help="Filter by program")
-@click.option("--status", help="Filter by status")
+@click.option("--status", help="Filter by status (open, running, complete, failed)")
+@click.option("--open", "filter_open", is_flag=True, help="Show only open experiments")
+@click.option("--running", "filter_running", is_flag=True, help="Show only running experiments")
+@click.option("--complete", "filter_complete", is_flag=True, help="Show only complete experiments")
+@click.option("--failed", "filter_failed", is_flag=True, help="Show only failed experiments")
 @click.option("--source", help="Filter by source")
+@click.option("--tag", multiple=True, help="Filter by tag (repeatable)")
 @click.option("--limit", "-n", default=50, help="Max results (default: 50)")
 @click.option("--offset", default=0, help="Skip first N results (for pagination)")
 @click.pass_context
@@ -185,7 +256,12 @@ def list_cmd(
     ctx: click.Context,
     program: str | None,
     status: str | None,
+    filter_open: bool,
+    filter_running: bool,
+    filter_complete: bool,
+    filter_failed: bool,
     source: str | None,
+    tag: tuple[str, ...],
     limit: int,
     offset: int,
 ):
@@ -193,16 +269,44 @@ def list_cmd(
 
     \b
     Examples:
-      sonde experiment list
-      sonde experiment list -p weather-intervention
-      sonde experiment list --status open
-      sonde experiment list --offset 50
+      sonde list                                  # all experiments
+      sonde list --open                           # open experiments
+      sonde list --complete -p weather-intervention
+      sonde list --tag cloud-seeding
+      sonde list --status open                    # same as --open
     """
+    # Resolve convenience flags to status
+    flags = [
+        ("open", filter_open),
+        ("running", filter_running),
+        ("complete", filter_complete),
+        ("failed", filter_failed),
+    ]
+    active = [(name, flag) for name, flag in flags if flag]
+    if active and status:
+        print_error(
+            "Conflicting filters",
+            f"Cannot use --{active[0][0]} with --status.",
+            "Use one or the other.",
+        )
+        raise SystemExit(2)
+    if len(active) > 1:
+        names = ", ".join(f"--{name}" for name, _ in active)
+        print_error("Conflicting filters", f"Cannot combine {names}.", "Use one at a time.")
+        raise SystemExit(2)
+    if active:
+        status = active[0][0]
+
     settings = get_settings()
     resolved_program = program or settings.program or None
 
     experiments = db.list_experiments(
-        program=resolved_program, status=status, source=source, limit=limit, offset=offset
+        program=resolved_program,
+        status=status,
+        source=source,
+        tags=list(tag) or None,
+        limit=limit,
+        offset=offset,
     )
 
     has_more = len(experiments) > limit
@@ -213,20 +317,9 @@ def list_cmd(
     elif not experiments:
         err.print("[dim]No experiments found.[/dim]")
     else:
-        columns = ["id", "status", "program", "tags", "summary"]
-        rows = []
-        for e in experiments:
-            tag_str = ", ".join(e.tags)[:30] if e.tags else "—"
-            rows.append(
-                {
-                    "id": e.id,
-                    "status": e.status,
-                    "program": e.program,
-                    "tags": tag_str,
-                    "summary": _summary(e, 50),
-                }
-            )
-        print_table(columns, rows)
+        columns, row_builder = _columns_for_status(status)
+        table_rows = [row_builder(e) for e in experiments]
+        print_table(columns, table_rows)
         if has_more:
             next_offset = offset + limit
             err.print(
@@ -235,6 +328,8 @@ def list_cmd(
             )
         else:
             err.print(f"\n[dim]{len(experiments)} experiment(s)[/dim]")
+        if experiments:
+            print_breadcrumbs([f"Show details: sonde show {experiments[0].id}"])
 
 
 @experiment.command()
@@ -248,6 +343,9 @@ def show(ctx: click.Context, experiment_id: str):
       sonde experiment show EXP-0001
       sonde show EXP-0001 --json
     """
+    from sonde.db import rows as to_rows
+    from sonde.db.client import get_client
+
     exp = db.get(experiment_id.upper())
 
     if not exp:
@@ -258,15 +356,46 @@ def show(ctx: click.Context, experiment_id: str):
         )
         raise SystemExit(1)
 
+    # Fetch related context
+    client = get_client()
+    related_findings = to_rows(
+        client.table("findings")
+        .select("id,finding,confidence")
+        .contains("evidence", [exp.id])
+        .is_("valid_until", "null")
+        .execute()
+        .data
+    )
+    artifacts = to_rows(
+        client.table("artifacts")
+        .select("filename,type,size_bytes")
+        .eq("experiment_id", exp.id)
+        .execute()
+        .data
+    )
+    activity = to_rows(
+        client.table("activity_log")
+        .select("created_at,actor,action,details")
+        .eq("record_id", exp.id)
+        .order("created_at", desc=True)
+        .limit(5)
+        .execute()
+        .data
+    )
+
     if ctx.obj.get("json"):
-        print_json(exp.model_dump(mode="json"))
+        data = exp.model_dump(mode="json")
+        data["_findings"] = related_findings
+        data["_artifacts"] = artifacts
+        data["_activity"] = activity
+        print_json(data)
     else:
         from rich.markdown import Markdown
         from rich.panel import Panel
 
         from sonde.output import out
 
-        # Metadata header (always shown)
+        # Metadata header
         header = []
         header.append(f"[sonde.heading]{exp.id}[/]  {styled_status(exp.status)}  {exp.program}")
         header.append(
@@ -283,7 +412,6 @@ def show(ctx: click.Context, experiment_id: str):
             header.append(f"[sonde.muted]Related: {', '.join(exp.related)}[/]")
 
         if exp.content:
-            # Content-first: render markdown body
             header.append("")
             out.print(
                 Panel(
@@ -294,7 +422,6 @@ def show(ctx: click.Context, experiment_id: str):
             )
             out.print(Markdown(exp.content))
         else:
-            # Legacy: structured field display
             if exp.hypothesis:
                 header.append(f"\n[sonde.heading]Hypothesis:[/sonde.heading]\n  {exp.hypothesis}")
             if exp.parameters:
@@ -305,14 +432,13 @@ def show(ctx: click.Context, experiment_id: str):
                 header.append(f"\n[sonde.heading]Results:[/sonde.heading]\n{result_str}")
             if exp.finding:
                 header.append(f"\n[sonde.heading]Finding:[/sonde.heading]\n  {exp.finding}")
-            if exp.git_commit and not exp.content:
+            if exp.git_commit:
                 header.append("\n[sonde.heading]Provenance:[/sonde.heading]")
                 header.append(f"  Commit: {exp.git_commit[:12]}")
                 if exp.git_repo:
                     header.append(f"  Repo: {exp.git_repo}")
                 if exp.git_branch:
                     header.append(f"  Branch: {exp.git_branch}")
-
             out.print(
                 Panel(
                     "\n".join(header),
@@ -320,6 +446,46 @@ def show(ctx: click.Context, experiment_id: str):
                     border_style="sonde.brand.dim",
                 )
             )
+
+        # Related findings
+        if related_findings:
+            print_table(
+                ["id", "finding", "confidence"],
+                [
+                    {
+                        "id": f["id"],
+                        "finding": _truncate_text(f.get("finding"), 55),
+                        "confidence": f.get("confidence", "medium"),
+                    }
+                    for f in related_findings
+                ],
+                title="Findings from this experiment",
+            )
+
+        # Artifacts
+        if artifacts:
+            err.print(f"\n[sonde.heading]Artifacts[/]")
+            for a in artifacts:
+                size = a.get("size_bytes")
+                size_str = f" ({_format_size(size)})" if size else ""
+                err.print(
+                    f"  [sonde.muted]{a.get('type', 'file')}[/]  {a['filename']}{size_str}"
+                )
+
+        # Recent activity
+        if activity:
+            err.print(f"\n[sonde.heading]Activity[/]")
+            for entry in activity[:5]:
+                ts = entry["created_at"][:16].replace("T", " ")
+                actor = entry.get("actor", "")
+                if "/" in actor:
+                    actor = actor.split("/")[-1]
+                err.print(f"  [sonde.muted]{ts}[/]  {actor}  {entry['action']}")
+
+        print_breadcrumbs([
+            f"History: sonde history {exp.id}",
+            f"Note:    sonde note {exp.id} \"observation\"",
+        ])
 
 
 @experiment.command()
@@ -418,7 +584,7 @@ def search(
                     "id": e.id,
                     "status": e.status,
                     "tags": tag_str,
-                    "summary": _summary(e, 60),
+                    "summary": record_summary(e, 60),
                 }
             )
         print_table(columns, rows)
@@ -432,21 +598,12 @@ def search(
             err.print(f"\n[dim]{len(experiments)} result(s)[/dim]")
 
 
-def _truncate(text: str | None, length: int) -> str:
-    if not text:
-        return "—"
-    return text[:length] + "..." if len(text) > length else text
-
-
-def _summary(exp, length: int = 60) -> str:
-    """Extract a one-line summary from experiment content, falling back to legacy fields."""
-    if exp.content:
-        for line in exp.content.splitlines():
-            stripped = line.strip().lstrip("# ").strip()
-            if stripped:
-                return _truncate(stripped, length)
-    if exp.finding:
-        return _truncate(exp.finding, length)
-    if exp.hypothesis:
-        return _truncate(exp.hypothesis, length)
-    return "—"
+def _format_size(size_bytes: int | None) -> str:
+    """Format bytes as human-readable size."""
+    if not size_bytes:
+        return ""
+    for unit in ["B", "KB", "MB", "GB"]:
+        if size_bytes < 1024:
+            return f"{size_bytes:.0f} {unit}" if unit == "B" else f"{size_bytes:.1f} {unit}"
+        size_bytes /= 1024
+    return f"{size_bytes:.1f} TB"

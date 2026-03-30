@@ -1,8 +1,14 @@
 """Experiment model — the atomic unit of research.
 
-An experiment is a markdown document with minimal metadata for search.
-The content field holds the full freeform body. The metadata field holds
-agent-defined key-value pairs for structured queries.
+An experiment is a markdown document with minimal metadata for discovery.
+The content field IS the experiment — hypothesis, method, parameters,
+results, findings, analysis, whatever the author writes. Structured
+fields exist only for filtering (program, status, tags) and backwards
+compatibility (hypothesis, parameters, results, finding).
+
+Agents and humans write freeform markdown in content. The CLI helps
+you find experiments via full-text search, tags, and program/status
+filters. Once found, you read the markdown.
 """
 
 from __future__ import annotations
@@ -16,16 +22,17 @@ from pydantic import BaseModel, Field, field_validator
 class ExperimentCreate(BaseModel):
     """Input model for creating an experiment."""
 
-    # Required metadata (the catalog card)
+    # Required metadata (the catalog card — structured, filterable)
     program: str
     status: str = Field(default="open", pattern="^(open|running|complete|failed|superseded)$")
     source: str
     tags: list[str] = Field(default_factory=list)
 
-    # Freeform content (the actual research)
+    # The experiment itself (freeform markdown)
     content: str | None = None
 
-    # Optional structured fields (backwards compatible)
+    # Legacy structured fields (backwards compatible, not required).
+    # Prefer writing this information in the content body instead.
     hypothesis: str | None = None
     parameters: dict[str, Any] = Field(default_factory=dict)
     results: dict[str, Any] | None = None

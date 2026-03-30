@@ -12,6 +12,23 @@ def test_experiment_create_minimal():
     assert exp.status == "open"
     assert exp.parameters == {}
     assert exp.tags == []
+    assert exp.content is None
+
+
+def test_experiment_create_content_only():
+    """Content-first: an experiment can be just markdown with catalog metadata."""
+    exp = ExperimentCreate(
+        program="weather-intervention",
+        source="human/test",
+        status="complete",
+        content="# Spectral bin CCN sweep\n\nRan CCN=1200 with spectral bin, saw 8% less enhancement.",
+        tags=["cloud-seeding", "spectral-bin"],
+    )
+    assert exp.content is not None
+    assert "spectral bin" in exp.content.lower()
+    assert exp.hypothesis is None
+    assert exp.parameters == {}
+    assert exp.finding is None
 
 
 def test_experiment_create_full():
@@ -40,19 +57,13 @@ def test_experiment_create_invalid_status():
         )
 
 
-def test_experiment_create_hypothesis_max_length():
-    with pytest.raises(ValidationError):
-        ExperimentCreate(
-            program="weather-intervention",
-            source="human/test",
-            hypothesis="x" * 5001,
-        )
-
-
-def test_experiment_create_finding_max_length():
-    with pytest.raises(ValidationError):
-        ExperimentCreate(
-            program="weather-intervention",
-            source="human/test",
-            finding="x" * 10001,
-        )
+def test_experiment_null_coercion():
+    """Database can return null for list/dict fields."""
+    exp = ExperimentCreate(
+        program="test",
+        source="human/test",
+        tags=None,
+        parameters=None,
+    )
+    assert exp.tags == []
+    assert exp.parameters == {}

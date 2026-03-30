@@ -75,10 +75,15 @@ def render_record(record: dict[str, Any]) -> str:
     If the record has a `content` field, that becomes the body.
     Otherwise, the body is generated from structured fields.
     """
+    # Legacy structured fields: only include in frontmatter if non-empty
+    _LEGACY_FIELDS = {"hypothesis", "parameters", "results", "finding"}
+
     fm_data = {}
     for key, value in record.items():
         if key == "content":
             continue  # Content goes in body, not frontmatter
+        if key in _LEGACY_FIELDS and not _has_value(value):
+            continue  # Suppress empty legacy fields
         if key in _FRONTMATTER_KEYS and _has_value(value):
             fm_data[key] = _serialize(value)
 
