@@ -82,7 +82,12 @@ Apply tags from these categories:
 - **Quality:** `baseline` (reference run), `needs-review`
 
 ```bash
+# Replace all tags at once (overwrites existing tags):
 sonde update EXP-XXXX --tag cloud-seeding --tag spectral-bin --tag north-atlantic --tag 25km
+
+# Or add tags one at a time (preserves existing tags):
+sonde tag add EXP-XXXX cloud-seeding
+sonde tag add EXP-XXXX spectral-bin
 ```
 
 **Finding** — if the experiment is complete, extract the key insight as a single sentence:
@@ -155,13 +160,6 @@ sonde note EXP-XXXX "Motivated by Q-003: does spectral bin change CCN response?"
 # If results support or contradict a finding
 sonde note EXP-XXXX "Supports FIND-001 (CCN saturation) — consistent threshold at 1200-1500"
 ```
-
-### parent_id vs related
-
-- **parent_id**: Set automatically by `sonde fork`. This experiment is a branch (variant/refinement/etc.) of the parent. Forms a navigable tree.
-- **related**: Set manually via `--related`. A loose "see also" cross-reference. Flat, not hierarchical.
-
-Don't set parent_id manually — use `sonde fork` to create branches.
 
 ### 6. Verify the record
 

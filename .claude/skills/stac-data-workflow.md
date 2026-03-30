@@ -2,7 +2,7 @@
 
 When an experiment produces geospatial output (NetCDF, Zarr, GeoTIFF), follow this workflow to register it in the data catalog and link it to the sonde experiment.
 
-For non-geospatial files (figures, CSVs, PDFs, notebooks), skip this and use `sonde experiment attach` instead.
+For non-geospatial files (figures, CSVs, PDFs, notebooks), skip this and use `sonde attach` instead.
 
 ## When to use STAC
 
@@ -12,9 +12,9 @@ Use STAC when your output has **spatial coordinates** and **temporal extent**:
 - Reanalysis data (ERA5 subsets, GFS forecasts)
 
 Do NOT use STAC for:
-- Figures and plots → `sonde experiment attach`
-- CSVs of parameter sweeps → `sonde experiment attach`
-- PDFs and notebooks → `sonde experiment attach`
+- Figures and plots → `sonde attach`
+- CSVs of parameter sweeps → `sonde attach`
+- PDFs and notebooks → `sonde attach`
 - Agent progress files → just leave them in the experiment directory
 
 ## The workflow (5 steps)
@@ -91,18 +91,14 @@ Arguments:
 Add the `has-data` tag and STAC reference to the experiment:
 
 ```bash
-sonde experiment tag add EXP-XXXX has-data
+sonde tag add EXP-XXXX has-data
 ```
 
-Also update the experiment's metadata frontmatter to include:
+Also update the experiment content to note the STAC item:
 
-```yaml
-metadata:
-  stac_items:
-    - nwp-simulations/EXP-XXXX-output
+```bash
+sonde note EXP-XXXX "STAC item registered: nwp-simulations/EXP-XXXX-output"
 ```
-
-Then push: `sonde experiment push EXP-XXXX`
 
 ### 5. Verify
 

@@ -45,10 +45,10 @@ Standard naming, paths, and patterns used across the Aeolus research platform.
 | File type | Where it goes |
 |---|---|
 | NetCDF, Zarr, GeoTIFF (geospatial) | S3 + STAC catalog |
-| Figures, plots (.png, .svg) | `sonde experiment attach` (Supabase Storage) |
-| CSVs, Parquet (tabular) | `sonde experiment attach` |
-| PDFs, notebooks | `sonde experiment attach` |
-| Config files (.yaml, .toml) | `sonde experiment attach` or in experiment directory |
+| Figures, plots (.png, .svg) | `sonde attach` (Supabase Storage) |
+| CSVs, Parquet (tabular) | `sonde attach` |
+| PDFs, notebooks | `sonde attach` |
+| Config files (.yaml, .toml) | `sonde attach` or in experiment directory |
 
 ## Tags
 

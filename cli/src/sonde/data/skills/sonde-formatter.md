@@ -82,7 +82,12 @@ Apply tags from these categories:
 - **Quality:** `baseline` (reference run), `needs-review`
 
 ```bash
+# Replace all tags at once (overwrites existing tags):
 sonde update EXP-XXXX --tag cloud-seeding --tag spectral-bin --tag north-atlantic --tag 25km
+
+# Or add tags one at a time (preserves existing tags):
+sonde tag add EXP-XXXX cloud-seeding
+sonde tag add EXP-XXXX spectral-bin
 ```
 
 **Finding** — if the experiment is complete, extract the key insight as a single sentence:
