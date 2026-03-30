@@ -26,7 +26,8 @@ def fetch_health_data(*, program: str | None = None) -> dict[str, Any]:
         client.table("experiments")
         .select(
             "id,status,content,finding,tags,parameters,metadata,"
-            "source,created_at,updated_at,direction_id,program"
+            "source,created_at,updated_at,direction_id,program,"
+            "claimed_by,claimed_at,git_dirty"
         )
         .order("created_at", desc=True)
     )

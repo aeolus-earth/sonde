@@ -11,6 +11,7 @@ from rich.tree import Tree
 from sonde.auth import resolve_source
 from sonde.cli_options import pass_output_options
 from sonde.config import get_settings
+from sonde.coordination import STALE_CLAIM_HOURS
 from sonde.db import experiments as db
 from sonde.db import findings as find_db
 from sonde.output import (
@@ -80,9 +81,9 @@ def _filter_nodes(
         result = [r for r in result if _is_stale(r, now, stale_hours)]
     if mine:
         result = [
-            r for r in result
-            if (r.get("source") or "") == mine
-            or (r.get("claimed_by") or "") == mine
+            r
+            for r in result
+            if (r.get("source") or "") == mine or (r.get("claimed_by") or "") == mine
         ]
     if active:
         active_ids: set[str] = set()
@@ -270,7 +271,12 @@ def _build_findings_map(
 @click.option("--active", "filter_active", is_flag=True, help="Only active branches")
 @click.option("--mine", "filter_mine", is_flag=True, help="Only my experiments")
 @click.option("--leaves", "filter_leaves", is_flag=True, help="Only leaf experiments")
-@click.option("--stale", "filter_stale", is_flag=True, help="Flag stale claims (>48h)")
+@click.option(
+    "--stale",
+    "filter_stale",
+    is_flag=True,
+    help=f"Flag stale claims (>{STALE_CLAIM_HOURS}h)",
+)
 @click.option("--depth", type=int, help="Max tree depth")
 @pass_output_options
 @click.pass_context
@@ -293,7 +299,7 @@ def tree_cmd(
       sonde tree -p weather          # all trees in a program
       sonde tree --active            # only active branches
       sonde tree --mine              # only my experiments
-      sonde tree --stale             # flag stale claims (>48h)
+      sonde tree --stale             # flag stale claims (>{STALE_CLAIM_HOURS}h)
     """
     settings = get_settings()
     resolved_program = program or settings.program
@@ -308,8 +314,11 @@ def tree_cmd(
     fmap = _build_findings_map(resolved_program, rows)
 
     filtered = _filter_nodes(
-        rows, active=filter_active, mine=source_filter,
-        leaves=filter_leaves, stale_hours=48 if filter_stale else None,
+        rows,
+        active=filter_active,
+        mine=source_filter,
+        leaves=filter_leaves,
+        stale_hours=STALE_CLAIM_HOURS if filter_stale else None,
     )
 
     # When a specific EXP- root was requested, always include it for context
@@ -321,10 +330,12 @@ def tree_cmd(
                 filtered.insert(0, root_row)
 
     if ctx.obj.get("json"):
-        print_json({
-            "root": root_id,
-            "nodes": _build_json_nodes(filtered, fmap or None),
-        })
+        print_json(
+            {
+                "root": root_id,
+                "nodes": _build_json_nodes(filtered, fmap or None),
+            }
+        )
         return
 
     if not filtered:
@@ -356,7 +367,18 @@ def tree_cmd(
     bc = []
     if root_id and root_id.startswith("EXP-"):
         bc += [f"Details:  sonde show {root_id}", f"Fork:     sonde fork {root_id}"]
+        root_exp = db.get(root_id)
+        if root_exp:
+            from sonde.commands.lifecycle import _suggest_next
+
+            children = db.get_children(root_id)
+            siblings = db.get_siblings(root_id) if root_exp.parent_id else []
+            suggestions = _suggest_next(root_exp, children, siblings)
+            for suggestion in suggestions[:2]:
+                bc.append(f"Next:     {suggestion['command']}")
     elif resolved_program:
-        bc += [f"Brief:    sonde brief -p {resolved_program}",
-               f"Stale:    sonde tree -p {resolved_program} --stale"]
+        bc += [
+            f"Brief:    sonde brief -p {resolved_program}",
+            f"Stale:    sonde tree -p {resolved_program} --stale",
+        ]
     print_breadcrumbs(bc)

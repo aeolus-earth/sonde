@@ -46,6 +46,7 @@ def _create_new(record_type: str, title: str | None, program: str | None) -> Non
     # Determine directory
     category = {
         "experiment": "experiments",
+        "direction": "directions",
         "finding": "findings",
         "question": "questions",
         "note": "notes",
@@ -66,11 +67,19 @@ def _create_new(record_type: str, title: str | None, program: str | None) -> Non
     filepath.write_text(content, encoding="utf-8")
 
     print_success(f"Created {filepath.relative_to(sonde_dir.parent)}")
-    err.print(f"  [sonde.muted]Edit the file, then: sonde push {record_type} {filepath.stem}[/]")
+    if record_type == "note":
+        err.print("  [sonde.muted]Attach it to an experiment notes directory before pushing.[/]")
+    else:
+        err.print(
+            f"  [sonde.muted]Edit the file, then: sonde {record_type} push {filepath.stem}[/]"
+        )
 
 
 @click.command("new")
-@click.argument("record_type", type=click.Choice(["experiment", "finding", "question", "note"]))
+@click.argument(
+    "record_type",
+    type=click.Choice(["experiment", "direction", "finding", "question", "note"]),
+)
 @click.option("--title", "-t", help="Title (used for filename)")
 @click.option("--program", "-p", help="Program namespace")
 @click.pass_context
@@ -80,6 +89,7 @@ def new(ctx: click.Context, record_type: str, title: str | None, program: str | 
     \b
     Examples:
       sonde new experiment
+      sonde new direction --title "CCN sensitivity"
       sonde new finding --title "CCN saturation threshold"
       sonde new question
       sonde new note --title "Literature review"
@@ -100,3 +110,30 @@ def new_experiment(ctx: click.Context, title: str | None, program: str | None) -
       sonde experiment new --title "CCN sweep subtropical"
     """
     _create_new("experiment", title, program)
+
+
+@click.command("new")
+@click.option("--title", "-t", help="Title (used for filename)")
+@click.option("--program", "-p", help="Program namespace")
+@click.pass_context
+def new_direction(ctx: click.Context, title: str | None, program: str | None) -> None:
+    """Scaffold a new direction file from a template."""
+    _create_new("direction", title, program)
+
+
+@click.command("new")
+@click.option("--title", "-t", help="Title (used for filename)")
+@click.option("--program", "-p", help="Program namespace")
+@click.pass_context
+def new_finding(ctx: click.Context, title: str | None, program: str | None) -> None:
+    """Scaffold a new finding file from a template."""
+    _create_new("finding", title, program)
+
+
+@click.command("new")
+@click.option("--title", "-t", help="Title (used for filename)")
+@click.option("--program", "-p", help="Program namespace")
+@click.pass_context
+def new_question(ctx: click.Context, title: str | None, program: str | None) -> None:
+    """Scaffold a new question file from a template."""
+    _create_new("question", title, program)

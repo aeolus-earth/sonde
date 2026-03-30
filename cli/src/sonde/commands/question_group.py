@@ -6,9 +6,16 @@ import click
 
 from sonde.auth import resolve_source
 from sonde.cli_options import pass_output_options
+from sonde.commands.new import new_question
+from sonde.commands.pull import pull_question
+from sonde.commands.push import push_question
 from sonde.commands.questions import questions_cmd
+from sonde.commands.remove import remove_question
+from sonde.config import get_settings
+from sonde.db import directions as dir_db
 from sonde.db import questions as db
 from sonde.db.activity import log_activity
+from sonde.models.direction import DirectionCreate
 from sonde.models.question import QuestionCreate
 from sonde.output import print_error, print_json, print_success
 
@@ -98,10 +105,25 @@ def question_create(
 
 @question.command("promote")
 @click.argument("question_id")
+@click.option(
+    "--to",
+    "target_type",
+    type=click.Choice(["experiment", "direction"]),
+    default="experiment",
+    show_default=True,
+    help="What to create from the question",
+)
 @click.option("--program", "-p", help="Override program for the new experiment")
+@click.option("--title", "-t", help="Direction title (required when promoting to a direction)")
 @pass_output_options
 @click.pass_context
-def question_promote(ctx: click.Context, question_id: str, program: str | None) -> None:
+def question_promote(
+    ctx: click.Context,
+    question_id: str,
+    target_type: str,
+    program: str | None,
+    title: str | None,
+) -> None:
     """Promote a question to an open experiment.
 
     Creates an open experiment from the question text and marks the
@@ -110,7 +132,7 @@ def question_promote(ctx: click.Context, question_id: str, program: str | None) 
     \b
     Examples:
       sonde question promote Q-001
-      sonde question promote Q-001 -p weather-intervention
+      sonde question promote Q-001 --to direction -t "CCN sensitivity"
     """
     from sonde.db import experiments as exp_db
     from sonde.models.experiment import ExperimentCreate
@@ -132,7 +154,8 @@ def question_promote(ctx: click.Context, question_id: str, program: str | None) 
         )
         raise SystemExit(1)
 
-    source = resolve_source()
+    settings = get_settings()
+    source = settings.source or resolve_source()
 
     resolved_program = program or q.program
     if not resolved_program:
@@ -143,25 +166,43 @@ def question_promote(ctx: click.Context, question_id: str, program: str | None) 
         )
         raise SystemExit(2)
 
-    # Create the experiment
     promoted_ctx = f"Promoted from {question_id.upper()}"
-    content_body = q.context or promoted_ctx
-    exp_data = ExperimentCreate(
-        program=resolved_program,
-        status="open",
-        source=source,
-        content=f"# {q.question}\n\n{content_body}",
-        tags=q.tags,
-    )
-    exp = exp_db.create(exp_data)
+    promoted_to_id: str
+
+    if target_type == "direction":
+        direction_title = title or q.question
+        direction = dir_db.create(
+            DirectionCreate(
+                program=resolved_program,
+                title=direction_title,
+                question=q.question,
+                status="active",
+                source=source,
+            )
+        )
+        promoted_to_id = direction.id
+        log_activity(direction.id, "direction", "created")
+    else:
+        content_body = q.context or promoted_ctx
+        exp_data = ExperimentCreate(
+            program=resolved_program,
+            status="open",
+            source=source,
+            content=f"# {q.question}\n\n{content_body}",
+            tags=q.tags,
+            direction_id=settings.default_direction or None,
+        )
+        exp = exp_db.create(exp_data)
+        promoted_to_id = exp.id
+        log_activity(exp.id, "experiment", "created")
 
     # Update the question
     db.update(
         question_id.upper(),
         {
             "status": "promoted",
-            "promoted_to_type": "experiment",
-            "promoted_to_id": exp.id,
+            "promoted_to_type": target_type,
+            "promoted_to_id": promoted_to_id,
         },
     )
 
@@ -171,13 +212,23 @@ def question_promote(ctx: click.Context, question_id: str, program: str | None) 
         "status_changed",
         {"from": q.status, "to": "promoted"},
     )
-    log_activity(exp.id, "experiment", "created")
-
     if ctx.obj.get("json"):
-        print_json({"question_id": question_id.upper(), "experiment_id": exp.id})
+        print_json(
+            {
+                "question_id": question_id.upper(),
+                "promoted_to_type": target_type,
+                "promoted_to_id": promoted_to_id,
+            }
+        )
     else:
         print_success(
-            f"Promoted {question_id.upper()} \u2192 {exp.id}",
+            f"Promoted {question_id.upper()} \u2192 {promoted_to_id}",
             details=[f"Question: {q.question}", f"Program: {resolved_program}"],
-            breadcrumbs=[f"View experiment: sonde show {exp.id}"],
+            breadcrumbs=[f"View: sonde show {promoted_to_id}"],
         )
+
+
+question.add_command(new_question)
+question.add_command(pull_question, "pull")
+question.add_command(push_question, "push")
+question.add_command(remove_question)

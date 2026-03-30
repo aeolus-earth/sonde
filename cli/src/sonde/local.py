@@ -22,6 +22,7 @@ _FRONTMATTER_KEYS = {
     "metadata",
     "created_at",
     "updated_at",
+    "title",
     # Legacy structured fields (still supported)
     "hypothesis",
     "parameters",
@@ -32,7 +33,14 @@ _FRONTMATTER_KEYS = {
     "git_branch",
     "data_sources",
     "direction_id",
+    "parent_id",
+    "branch_type",
+    "claimed_by",
+    "claimed_at",
     "run_at",
+    "git_close_commit",
+    "git_close_branch",
+    "git_dirty",
     # Findings
     "topic",
     "confidence",
@@ -64,6 +72,30 @@ def ensure_subdir(sonde_dir: Path, name: str) -> Path:
         raise ValueError(f"Subdirectory escapes .sonde/: {name!r}")
     sub.mkdir(parents=True, exist_ok=True)
     return sub
+
+
+def resolve_record_path(sonde_dir: Path, category: str, name: str) -> Path | None:
+    """Resolve an existing record path under ``.sonde/<category>`` safely."""
+    from sonde.db.validate import contained_path
+
+    base_dir = sonde_dir / category
+    candidates: list[str] = []
+    for candidate in (
+        name,
+        f"{name}.md" if not name.endswith(".md") else None,
+        f"{name.upper()}.md" if not name.endswith(".md") else None,
+    ):
+        if candidate and candidate not in candidates:
+            candidates.append(candidate)
+
+    for candidate in candidates:
+        try:
+            path = contained_path(base_dir, candidate)
+        except ValueError:
+            return None
+        if path.exists():
+            return path
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -102,9 +134,20 @@ def generate_body(record: dict[str, Any]) -> str:
     record_id = record.get("id", "")
 
     # Title
-    title = record.get("hypothesis") or record.get("topic") or record.get("question") or record_id
+    title = (
+        record.get("title")
+        or record.get("hypothesis")
+        or record.get("topic")
+        or record.get("question")
+        or record_id
+    )
     if title:
         lines.append(f"# {title}")
+        lines.append("")
+
+    question = record.get("question")
+    if record.get("title") and question:
+        lines.append(question)
         lines.append("")
 
     # Parameters
@@ -182,12 +225,8 @@ def write_record(sonde_dir: Path, category: str, record_id: str, content: str) -
 
 def read_record(sonde_dir: Path, category: str, filename: str) -> tuple[dict[str, Any], str]:
     """Read and parse a record from .sonde/. Returns (frontmatter, body)."""
-    if ".." in filename:
-        return {}, ""
-    filepath = sonde_dir / category / filename
-    if not filepath.exists():
-        filepath = sonde_dir / category / f"{filename}.md"
-    if not filepath.exists():
+    filepath = resolve_record_path(sonde_dir, category, filename)
+    if filepath is None:
         return {}, ""
     return parse_markdown(filepath.read_text(encoding="utf-8"))
 
@@ -212,6 +251,16 @@ Describe your experiment here. Include whatever is relevant:
 - What you learned
 
 Be as detailed or brief as the research requires.
+""",
+    "direction": """---
+program: {program}
+status: active
+tags: []
+---
+
+# Direction title
+
+What research thread are we pursuing, and why does it matter?
 """,
     "finding": """---
 program: {program}
@@ -258,7 +307,7 @@ def _has_value(value: Any) -> bool:
         return False
     if isinstance(value, (list, dict)) and not value:
         return False
-    return not (isinstance(value, str) and not value)
+    return not (isinstance(value, str) and not value.strip())
 
 
 def _serialize(value: Any) -> Any:
@@ -268,3 +317,27 @@ def _serialize(value: Any) -> Any:
     if isinstance(value, datetime):
         return value.isoformat()
     return value
+
+
+def extract_finding_text(content: str) -> str | None:
+    """Extract a finding summary from content-first markdown."""
+    body = content.strip()
+    if not body:
+        return None
+
+    lines = body.splitlines()
+    for idx, line in enumerate(lines):
+        if line.strip().lower() == "## finding":
+            collected: list[str] = []
+            for next_line in lines[idx + 1 :]:
+                if next_line.startswith("#"):
+                    break
+                collected.append(next_line)
+            text = "\n".join(collected).strip()
+            if text:
+                return text
+
+    for paragraph in (part.strip() for part in body.split("\n\n")):
+        if paragraph and not paragraph.startswith("#"):
+            return paragraph
+    return None

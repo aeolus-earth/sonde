@@ -74,11 +74,12 @@ def get_recent(
     entries = rows(result.data)
 
     # If program filter requested, we need to cross-reference with experiments
-    # (activity_log doesn't have a program column — it's lightweight by design)
+    # (activity_log doesn't have a program column — resolve through record tables)
     if program and entries:
-        # Get experiment IDs for this program
-        exp_result = client.table("experiments").select("id").eq("program", program).execute()
-        program_ids = {r["id"] for r in rows(exp_result.data)}
+        program_ids: set[str] = set()
+        for table in ("experiments", "findings", "questions", "directions"):
+            result = client.table(table).select("id").eq("program", program).execute()
+            program_ids.update(r["id"] for r in rows(result.data))
         entries = [e for e in entries if e["record_id"] in program_ids]
 
     return entries

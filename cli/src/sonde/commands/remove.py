@@ -1,0 +1,67 @@
+"""Local workspace cleanup commands."""
+
+from __future__ import annotations
+
+import shutil
+from pathlib import Path
+
+import click
+
+from sonde.local import find_sonde_dir
+from sonde.output import print_error, print_success
+
+
+def _remove_local_record(category: str, name: str) -> Path:
+    sonde_dir = find_sonde_dir()
+    directory = sonde_dir / category
+    for candidate in (directory / f"{name}.md", directory / f"{name.upper()}.md"):
+        if candidate.exists():
+            candidate.unlink()
+            if category == "experiments":
+                exp_dir = directory / candidate.stem
+                if exp_dir.exists():
+                    shutil.rmtree(exp_dir)
+            return candidate
+
+    print_error(
+        f"Local record not found: {name}",
+        f"No .md file matching '{name}' in .sonde/{category}/",
+        "Use the exact local filename stem or record ID.",
+    )
+    raise SystemExit(1)
+
+
+@click.command("remove")
+@click.argument("name")
+@click.pass_context
+def remove_experiment(ctx: click.Context, name: str) -> None:
+    """Remove a local experiment file and its notebook directory."""
+    path = _remove_local_record("experiments", name)
+    print_success(f"Removed {path.name} from .sonde/experiments/")
+
+
+@click.command("remove")
+@click.argument("name")
+@click.pass_context
+def remove_finding(ctx: click.Context, name: str) -> None:
+    """Remove a local finding file."""
+    path = _remove_local_record("findings", name)
+    print_success(f"Removed {path.name} from .sonde/findings/")
+
+
+@click.command("remove")
+@click.argument("name")
+@click.pass_context
+def remove_question(ctx: click.Context, name: str) -> None:
+    """Remove a local question file."""
+    path = _remove_local_record("questions", name)
+    print_success(f"Removed {path.name} from .sonde/questions/")
+
+
+@click.command("remove")
+@click.argument("name")
+@click.pass_context
+def remove_direction(ctx: click.Context, name: str) -> None:
+    """Remove a local direction file."""
+    path = _remove_local_record("directions", name)
+    print_success(f"Removed {path.name} from .sonde/directions/")

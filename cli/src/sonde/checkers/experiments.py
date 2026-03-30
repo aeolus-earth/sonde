@@ -4,13 +4,14 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
+from sonde.coordination import STALE_CLAIM_HOURS, STALE_RUNNING_HOURS
 from sonde.models.health import HealthData, HealthIssue
 
 
 def check_stale_running(data: HealthData) -> list[HealthIssue]:
-    """Flag experiments stuck at 'running' for >48h with no recent activity."""
+    """Flag experiments stuck at 'running' with no recent activity."""
     issues: list[HealthIssue] = []
-    cutoff = (datetime.now(UTC) - timedelta(hours=48)).isoformat()
+    cutoff = (datetime.now(UTC) - timedelta(hours=STALE_RUNNING_HOURS)).isoformat()
 
     # Record IDs with recent activity (heartbeats suppress staleness)
     recent_ids = {a["record_id"] for a in data.activity}
@@ -28,7 +29,7 @@ def check_stale_running(data: HealthData) -> list[HealthIssue]:
                     category="experiment",
                     severity="warning",
                     record_id=e["id"],
-                    message=f"running >48h, no activity since {last_date}",
+                    message=(f"running >{STALE_RUNNING_HOURS}h, no activity since {last_date}"),
                     fix=f'sonde close {e["id"]} --finding "stale: no activity since {last_date}"',
                     penalty=5,
                 )
@@ -82,7 +83,7 @@ def check_no_tags(data: HealthData) -> list[HealthIssue]:
 
 
 def check_stale_claims(data: HealthData) -> list[HealthIssue]:
-    """Flag experiments claimed >24h with no recent activity."""
+    """Flag experiments claimed for too long with no recent activity."""
     issues: list[HealthIssue] = []
     now = datetime.now(UTC)
     for e in data.experiments:
@@ -92,15 +93,14 @@ def check_stale_claims(data: HealthData) -> list[HealthIssue]:
         if isinstance(claimed_at, str):
             claimed_at = datetime.fromisoformat(claimed_at)
         hours = (now - claimed_at).total_seconds() / 3600
-        if hours > 24:
+        if hours > STALE_CLAIM_HOURS:
             claimed_by = e.get("claimed_by", "unknown")
             issues.append(
                 HealthIssue(
                     category="experiment",
                     severity="stale",
                     message=(
-                        f"{e['id']} claimed by {claimed_by}"
-                        f" {hours:.0f}h ago — may be abandoned"
+                        f"{e['id']} claimed by {claimed_by} {hours:.0f}h ago — may be abandoned"
                     ),
                     record_id=e["id"],
                     fix=f"sonde release {e['id']}",

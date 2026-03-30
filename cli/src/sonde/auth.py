@@ -7,6 +7,7 @@ Two auth paths, one interface:
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import os
@@ -183,7 +184,17 @@ def get_current_user() -> UserInfo | None:
     # Agent token
     env_token = os.environ.get("SONDE_TOKEN", "")
     if env_token:
-        return UserInfo(email="agent", user_id="agent", is_agent=True)
+        claims = _token_claims(env_token.removeprefix("sonde_at_"))
+        identity = _agent_identity(claims)
+        app_meta = claims.get("app_metadata", {})
+        return UserInfo(
+            email=identity,
+            user_id=str(claims.get("sub") or identity),
+            name=identity,
+            is_agent=True,
+            is_admin=bool(app_meta.get("is_admin", False)),
+            programs=_claim_programs(claims),
+        )
 
     # Human session
     session = load_session()
@@ -213,7 +224,10 @@ def resolve_source(user: UserInfo | None = None) -> str:
     if user is None:
         return "unknown"
     if user.is_agent:
-        return "agent"
+        identity = user.name or user.user_id or "agent"
+        if identity == "agent":
+            return identity
+        return identity if "/" in identity else f"agent/{identity}"
     return f"human/{user.email.split('@')[0]}"
 
 
@@ -235,14 +249,10 @@ def is_authenticated() -> bool:
 
 def _is_expired(token: str) -> bool:
     """Check if a JWT is expired (with 60s buffer)."""
-    import base64
-    import json as _json
     import time
 
     try:
-        payload = token.split(".")[1]
-        padding = "=" * (4 - len(payload) % 4)
-        decoded = _json.loads(base64.urlsafe_b64decode(payload + padding))
+        decoded = _token_claims(token)
         exp = decoded.get("exp", 0)
         return time.time() > (exp - 60)  # 60s buffer
     except Exception:
@@ -314,6 +324,43 @@ def login() -> UserInfo:
 def _anon_client() -> Client:
     """Create an unauthenticated Supabase client for auth operations."""
     return create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+
+
+def _token_claims(token: str) -> dict[str, Any]:
+    """Decode JWT claims for local UX only. Authorization stays server-side."""
+    payload = token.split(".")[1]
+    padding = "=" * (-len(payload) % 4)
+    decoded = json.loads(base64.urlsafe_b64decode(payload + padding))
+    return decoded if isinstance(decoded, dict) else {}
+
+
+def _claim_programs(claims: dict[str, Any]) -> list[str] | None:
+    """Extract program scopes from token claims when present."""
+    app_meta = claims.get("app_metadata", {})
+    programs = app_meta.get("programs") or claims.get("programs")
+    if isinstance(programs, list) and all(isinstance(program, str) for program in programs):
+        return programs
+    return None
+
+
+def _agent_identity(claims: dict[str, Any]) -> str:
+    """Derive a stable agent identity from token claims."""
+    app_meta = claims.get("app_metadata", {})
+    user_meta = claims.get("user_metadata", {})
+    for value in (
+        app_meta.get("agent_name"),
+        claims.get("agent_name"),
+        user_meta.get("agent_name"),
+        claims.get("name"),
+        claims.get("sub"),
+    ):
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+
+    jti = claims.get("jti")
+    if isinstance(jti, str) and jti:
+        return f"agent/{jti[:8]}"
+    return "agent"
 
 
 def _user_dict(user: Any) -> dict[str, Any]:

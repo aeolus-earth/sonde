@@ -117,9 +117,7 @@ class TestSuggestNext:
     def test_non_leaf_with_open_siblings_still_suggests_parent(self):
         """Bug fix: closing a non-leaf node with non-terminal siblings should
         still suggest branching from parent, not return empty."""
-        exp = _make_experiment(
-            status="complete", parent_id="EXP-0000", finding="Some finding"
-        )
+        exp = _make_experiment(status="complete", parent_id="EXP-0000", finding="Some finding")
         child = _make_experiment(id="EXP-0010", parent_id="EXP-0001")
         sib = _make_experiment(id="EXP-0002", status="open", parent_id="EXP-0000")
         suggestions = _suggest_next(exp, children=[child], siblings=[sib])
@@ -143,14 +141,31 @@ def _lifecycle_table_factory(
     def factory(name: str) -> MagicMock:
         tbl = MagicMock()
         for method in (
-            "select", "insert", "update", "delete", "eq", "neq",
-            "gt", "lt", "gte", "lte", "like", "ilike", "is_",
-            "in_", "contains", "or_", "order", "limit", "range", "single",
+            "select",
+            "insert",
+            "update",
+            "delete",
+            "eq",
+            "neq",
+            "gt",
+            "lt",
+            "gte",
+            "lte",
+            "like",
+            "ilike",
+            "is_",
+            "in_",
+            "contains",
+            "or_",
+            "order",
+            "limit",
+            "range",
+            "single",
         ):
             getattr(tbl, method).return_value = tbl
         if name == "experiments":
             results = [
-                MagicMock(data=[exp_data]),             # get() — initial lookup
+                MagicMock(data=[exp_data]),  # get() — initial lookup
                 MagicMock(data=[updated_data or exp_data]),  # update()
                 MagicMock(data=[updated_data or exp_data]),  # get() — post-update for suggestions
             ]
@@ -433,3 +448,76 @@ class TestCloseGitProvenance:
         assert data["git"]["close_branch"] == "feature/test"
         assert data["git"]["dirty"] is False
         assert data["git"]["start_commit"] == "start123"
+
+
+# ---------------------------------------------------------------------------
+# release command
+# ---------------------------------------------------------------------------
+
+
+def _release_table_factory(exp_data: dict[str, Any]) -> Any:
+    """Return a table factory for release tests (get, update)."""
+
+    def factory(name: str) -> MagicMock:
+        tbl = MagicMock()
+        for method in (
+            "select", "insert", "update", "delete", "eq", "neq",
+            "gt", "lt", "gte", "lte", "like", "ilike", "is_",
+            "in_", "contains", "or_", "order", "limit", "range", "single",
+        ):
+            getattr(tbl, method).return_value = tbl
+        if name == "experiments":
+            tbl.execute.return_value = MagicMock(data=[exp_data] if exp_data else [])
+        elif name == "activity_log":
+            tbl.execute.return_value = MagicMock(data=[])
+        else:
+            tbl.execute.return_value = MagicMock(data=[])
+        return tbl
+
+    return factory
+
+
+class TestRelease:
+    def test_release_clears_claim(self, runner: CliRunner, patched_db: MagicMock):
+        claimed_exp = {
+            **_BASE_ROW,
+            "status": "running",
+            "claimed_by": "agent/codex",
+            "claimed_at": _NOW.isoformat(),
+        }
+        patched_db.table.side_effect = _release_table_factory(claimed_exp)
+
+        result = runner.invoke(cli, ["release", "EXP-0001"])
+        assert result.exit_code == 0
+        assert "Released" in result.output
+        assert "agent/codex" in result.output
+
+    def test_release_unclaimed_is_noop(self, runner: CliRunner, patched_db: MagicMock):
+        unclaimed_exp = {**_BASE_ROW, "status": "open", "claimed_by": None}
+        patched_db.table.side_effect = _release_table_factory(unclaimed_exp)
+
+        result = runner.invoke(cli, ["release", "EXP-0001"])
+        assert result.exit_code == 0
+        assert "not claimed" in result.output
+
+    def test_release_nonexistent_errors(self, runner: CliRunner, patched_db: MagicMock):
+        patched_db.table.side_effect = _release_table_factory(None)
+
+        result = runner.invoke(cli, ["release", "EXP-9999"])
+        assert result.exit_code == 1
+        assert "not found" in result.output
+
+    def test_release_json_output(self, runner: CliRunner, patched_db: MagicMock):
+        claimed_exp = {
+            **_BASE_ROW,
+            "status": "running",
+            "claimed_by": "agent/codex",
+            "claimed_at": _NOW.isoformat(),
+        }
+        patched_db.table.side_effect = _release_table_factory(claimed_exp)
+
+        result = runner.invoke(cli, ["--json", "release", "EXP-0001"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["released"]["id"] == "EXP-0001"
+        assert data["released"]["previous_claim"] == "agent/codex"

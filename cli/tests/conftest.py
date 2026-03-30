@@ -202,8 +202,18 @@ def patched_db(mock_supabase: MagicMock, authenticated: None) -> MagicMock:
         import sonde.db.tags as tags_mod
 
         modules = [
-            admin_mod, activity_mod, art_mod, dir_mod, exp_mod, find_mod,
-            health_mod, ids_mod, notes_mod, prog_mod, q_mod, tags_mod,
+            admin_mod,
+            activity_mod,
+            art_mod,
+            dir_mod,
+            exp_mod,
+            find_mod,
+            health_mod,
+            ids_mod,
+            notes_mod,
+            prog_mod,
+            q_mod,
+            tags_mod,
         ]
         originals = {mod: mod.get_client for mod in modules}
         for mod in modules:

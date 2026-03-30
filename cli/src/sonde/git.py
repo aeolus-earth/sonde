@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from urllib.parse import urlsplit, urlunsplit
 
 from git import InvalidGitRepositoryError, Repo
 
@@ -14,6 +15,28 @@ class GitContext:
     branch: str
     dirty: bool = False
     modified_files: list[str] = field(default_factory=list)
+
+
+def sanitize_remote_url(remote_url: str) -> str:
+    """Strip credentials and volatile URL parts from a git remote."""
+    if not remote_url:
+        return ""
+
+    if "://" not in remote_url:
+        if "@" in remote_url and ":" in remote_url.split("@", 1)[1]:
+            return remote_url.split("@", 1)[1]
+        return remote_url
+
+    parsed = urlsplit(remote_url)
+    hostname = parsed.hostname or ""
+    if not hostname:
+        return remote_url
+
+    netloc = hostname
+    if parsed.port:
+        netloc = f"{netloc}:{parsed.port}"
+
+    return urlunsplit((parsed.scheme, netloc, parsed.path, "", ""))
 
 
 def detect_git_context() -> GitContext | None:
@@ -32,7 +55,7 @@ def detect_git_context() -> GitContext | None:
     remote = ""
     if repo.remotes:
         origin = next((r for r in repo.remotes if r.name == "origin"), repo.remotes[0])
-        remote = next(iter(origin.urls), "")
+        remote = sanitize_remote_url(next(iter(origin.urls), ""))
 
     # Get current branch
     branch = ""
@@ -47,6 +70,9 @@ def detect_git_context() -> GitContext | None:
         modified.extend(repo.untracked_files)
 
     return GitContext(
-        commit=commit, repo=remote, branch=branch,
-        dirty=dirty, modified_files=modified,
+        commit=commit,
+        repo=remote,
+        branch=branch,
+        dirty=dirty,
+        modified_files=modified,
     )

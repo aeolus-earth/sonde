@@ -27,10 +27,13 @@ def test_help_shows_shortcuts(runner: CliRunner):
     assert "Shortcuts" in result.output or "shortcuts" in result.output.lower()
 
 
-def test_help_shows_sync(runner: CliRunner):
+def test_help_shows_direction_and_workspace(runner: CliRunner):
     result = runner.invoke(cli, ["--help"])
     assert result.exit_code == 0
-    assert "sync" in result.output.lower()
+    output = result.output.lower()
+    assert "direction" in output
+    assert "pull" in output
+    assert "push" in output
 
 
 def test_unknown_command(runner: CliRunner):

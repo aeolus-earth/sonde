@@ -197,9 +197,7 @@ class TestDirections:
 
 class TestExperiments:
     def test_exists_true(self, patched_db: MagicMock):
-        patched_db.table("experiments").execute.return_value = MagicMock(
-            data=[{"id": "EXP-0001"}]
-        )
+        patched_db.table("experiments").execute.return_value = MagicMock(data=[{"id": "EXP-0001"}])
 
         from sonde.db import experiments as db
 
@@ -306,18 +304,14 @@ class TestIds:
         assert next_sequential_id("experiments", "EXP", 4) == "EXP-0001"
 
     def test_next_sequential_id_increment(self, patched_db: MagicMock):
-        patched_db.table("experiments").execute.return_value = MagicMock(
-            data=[{"id": "EXP-0042"}]
-        )
+        patched_db.table("experiments").execute.return_value = MagicMock(data=[{"id": "EXP-0042"}])
 
         from sonde.db.ids import next_sequential_id
 
         assert next_sequential_id("experiments", "EXP", 4) == "EXP-0043"
 
     def test_next_sequential_id_3_digits(self, patched_db: MagicMock):
-        patched_db.table("findings").execute.return_value = MagicMock(
-            data=[{"id": "FIND-005"}]
-        )
+        patched_db.table("findings").execute.return_value = MagicMock(data=[{"id": "FIND-005"}])
 
         from sonde.db.ids import next_sequential_id
 

@@ -543,28 +543,47 @@ def _fork_table_factory(
     counter to sequence the execute() return values across all mock instances.
     """
     exp_results = [
-        MagicMock(data=[source_row]),           # get source experiment
-        MagicMock(data=[]),                     # ID generation query (next_sequential_id)
-        MagicMock(data=[forked_row]),           # insert
-        MagicMock(data=sibling_rows or []),     # get_children for siblings
+        MagicMock(data=[source_row]),  # get source experiment
+        MagicMock(data=[]),  # ID generation query (next_sequential_id)
+        MagicMock(data=[forked_row]),  # insert
+        MagicMock(data=sibling_rows or []),  # get_children for siblings
     ]
     exp_call_idx = [0]
 
     def factory(name: str) -> MagicMock:
         tbl = MagicMock()
         for method in (
-            "select", "insert", "update", "delete", "eq", "neq",
-            "gt", "lt", "gte", "lte", "like", "ilike", "is_",
-            "in_", "contains", "or_", "order", "limit", "range", "single",
+            "select",
+            "insert",
+            "update",
+            "delete",
+            "eq",
+            "neq",
+            "gt",
+            "lt",
+            "gte",
+            "lte",
+            "like",
+            "ilike",
+            "is_",
+            "in_",
+            "contains",
+            "or_",
+            "order",
+            "limit",
+            "range",
+            "single",
         ):
             getattr(tbl, method).return_value = tbl
         if name == "experiments":
+
             def _exp_execute():
                 idx = exp_call_idx[0]
                 exp_call_idx[0] += 1
                 if idx < len(exp_results):
                     return exp_results[idx]
                 return MagicMock(data=[])
+
             tbl.execute.side_effect = lambda: _exp_execute()
         elif name == "activity":
             tbl.execute.return_value = MagicMock(data=[])
@@ -612,9 +631,7 @@ class TestForkTree:
             "claimed_by": "human/test",
             "claimed_at": "2026-03-30T14:00:00+00:00",
         }
-        patched_db.table.side_effect = _fork_table_factory(
-            _EXPERIMENT_ROW, running_fork
-        )
+        patched_db.table.side_effect = _fork_table_factory(_EXPERIMENT_ROW, running_fork)
 
         result = runner.invoke(
             cli,
@@ -640,9 +657,26 @@ class TestShowTree:
         def table_factory(name):
             tbl = MagicMock()
             for method in (
-                "select", "insert", "update", "delete", "eq", "neq",
-                "gt", "lt", "gte", "lte", "like", "ilike", "is_",
-                "in_", "contains", "or_", "order", "limit", "range", "single",
+                "select",
+                "insert",
+                "update",
+                "delete",
+                "eq",
+                "neq",
+                "gt",
+                "lt",
+                "gte",
+                "lte",
+                "like",
+                "ilike",
+                "is_",
+                "in_",
+                "contains",
+                "or_",
+                "order",
+                "limit",
+                "range",
+                "single",
             ):
                 getattr(tbl, method).return_value = tbl
             if name == "experiments":

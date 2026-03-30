@@ -377,9 +377,26 @@ def _tree_table_factory(
     def factory(name: str) -> MagicMock:
         tbl = MagicMock()
         for method in (
-            "select", "insert", "update", "delete", "eq", "neq",
-            "gt", "lt", "gte", "lte", "like", "ilike", "is_",
-            "in_", "contains", "or_", "order", "limit", "range", "single",
+            "select",
+            "insert",
+            "update",
+            "delete",
+            "eq",
+            "neq",
+            "gt",
+            "lt",
+            "gte",
+            "lte",
+            "like",
+            "ilike",
+            "is_",
+            "in_",
+            "contains",
+            "or_",
+            "order",
+            "limit",
+            "range",
+            "single",
         ):
             getattr(tbl, method).return_value = tbl
         if name == "experiments":

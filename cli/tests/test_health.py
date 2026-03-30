@@ -29,6 +29,7 @@ from sonde.models.health import BriefInputs, BriefProvenance, HealthData, Health
 # Realistic test data — mimics a real research program
 # ---------------------------------------------------------------------------
 
+
 def _now() -> str:
     return datetime.now(UTC).isoformat()
 
@@ -71,8 +72,13 @@ def _healthy_program() -> HealthData:
             _make_experiment("EXP-0003", status="running", updated_at=_ago(1)),
         ],
         findings=[
-            {"id": "FIND-001", "finding": "CCN saturates at 1500", "confidence": "high",
-             "evidence": ["EXP-0001", "EXP-0002"], "updated_at": _ago(48)},
+            {
+                "id": "FIND-001",
+                "finding": "CCN saturates at 1500",
+                "confidence": "high",
+                "evidence": ["EXP-0001", "EXP-0002"],
+                "updated_at": _ago(48),
+            },
         ],
         questions=[],
         directions=[],
@@ -100,20 +106,35 @@ def _unhealthy_program() -> HealthData:
             # Good experiment
             _make_experiment("EXP-0001"),
             # Stale running experiment (no activity for 96h)
-            _make_experiment("EXP-0002", status="running", content=None,
-                           finding=None, tags=[], updated_at=_ago(96)),
+            _make_experiment(
+                "EXP-0002",
+                status="running",
+                content=None,
+                finding=None,
+                tags=[],
+                updated_at=_ago(96),
+            ),
             # Another stale running
-            _make_experiment("EXP-0003", status="running", content=None,
-                           finding=None, tags=[], updated_at=_ago(72)),
+            _make_experiment(
+                "EXP-0003",
+                status="running",
+                content=None,
+                finding=None,
+                tags=[],
+                updated_at=_ago(72),
+            ),
             # Complete but missing everything
-            _make_experiment("EXP-0004", status="complete", content=None,
-                           finding=None, tags=[]),
+            _make_experiment("EXP-0004", status="complete", content=None, finding=None, tags=[]),
             # Complete with content but no finding
-            _make_experiment("EXP-0005", status="complete",
-                           content="# Ran a sweep", finding=None, tags=["ccn-sweep"]),
+            _make_experiment(
+                "EXP-0005",
+                status="complete",
+                content="# Ran a sweep",
+                finding=None,
+                tags=["ccn-sweep"],
+            ),
             # Complete with finding but no tags
-            _make_experiment("EXP-0006", status="complete",
-                           finding="Some result", tags=[]),
+            _make_experiment("EXP-0006", status="complete", finding="Some result", tags=[]),
             # Good experiment in a direction
             _make_experiment("EXP-0007", status="complete", direction_id="DIR-001"),
             # Another done experiment in same direction
@@ -125,17 +146,32 @@ def _unhealthy_program() -> HealthData:
         ],
         findings=[
             # Finding with good evidence
-            {"id": "FIND-001", "finding": "CCN saturates", "confidence": "high",
-             "evidence": ["EXP-0001"], "updated_at": _ago(48)},
+            {
+                "id": "FIND-001",
+                "finding": "CCN saturates",
+                "confidence": "high",
+                "evidence": ["EXP-0001"],
+                "updated_at": _ago(48),
+            },
             # Finding with weakened evidence — evidence experiment is superseded
-            {"id": "FIND-002", "finding": "Spectral bin matters", "confidence": "medium",
-             "evidence": ["EXP-0010"], "updated_at": _ago(24)},
+            {
+                "id": "FIND-002",
+                "finding": "Spectral bin matters",
+                "confidence": "medium",
+                "evidence": ["EXP-0010"],
+                "updated_at": _ago(24),
+            },
         ],
         questions=[],
         directions=[
             # Direction where all experiments are done but it's still "active"
-            {"id": "DIR-001", "title": "CCN response", "status": "active",
-             "created_at": _ago(168), "updated_at": _ago(168)},
+            {
+                "id": "DIR-001",
+                "title": "CCN response",
+                "status": "active",
+                "created_at": _ago(168),
+                "updated_at": _ago(168),
+            },
         ],
         activity=[],  # No recent activity — stale experiments won't be suppressed
         brief_provenance=None,  # No brief generated
@@ -188,9 +224,7 @@ class TestNoFinding:
         assert check_no_finding(data) == []
 
     def test_complete_without_finding_flagged(self):
-        data = HealthData(
-            experiments=[_make_experiment("EXP-0001", finding=None, content=None)]
-        )
+        data = HealthData(experiments=[_make_experiment("EXP-0001", finding=None, content=None)])
         issues = check_no_finding(data)
         assert len(issues) == 1
         assert issues[0].fix is None  # requires judgment
@@ -375,12 +409,12 @@ class TestHealthReport:
 
         # Check that each issue type was found
         categories = {i.category for i in issues}
-        assert "brief" in categories      # no provenance
+        assert "brief" in categories  # no provenance
         assert "experiment" in categories  # stale, no finding, no tags, no content
         # weakened evidence: FIND-002 cites EXP-0002 which is still running
         assert "finding" in categories
-        assert "direction" in categories   # DIR-001 all experiments done
-        assert "tag" in categories         # cloud-seeding / Cloud-Seeding
+        assert "direction" in categories  # DIR-001 all experiments done
+        assert "tag" in categories  # cloud-seeding / Cloud-Seeding
 
     def test_unhealthy_program_score_is_low(self):
         data = _unhealthy_program()
@@ -450,14 +484,29 @@ class TestHealthIssueStructure:
             generated_at=datetime.now(UTC),
             issue_count=3,
             issues=[
-                HealthIssue(category="brief", severity="stale",
-                           message="stale", fix="sonde brief --save", penalty=10),
-                HealthIssue(category="experiment", severity="warning",
-                           record_id="EXP-0041", message="stale",
-                           fix="sonde close EXP-0041", penalty=5),
-                HealthIssue(category="experiment", severity="warning",
-                           record_id="EXP-0055", message="no finding",
-                           fix=None, penalty=3),
+                HealthIssue(
+                    category="brief",
+                    severity="stale",
+                    message="stale",
+                    fix="sonde brief --save",
+                    penalty=10,
+                ),
+                HealthIssue(
+                    category="experiment",
+                    severity="warning",
+                    record_id="EXP-0041",
+                    message="stale",
+                    fix="sonde close EXP-0041",
+                    penalty=5,
+                ),
+                HealthIssue(
+                    category="experiment",
+                    severity="warning",
+                    record_id="EXP-0055",
+                    message="no finding",
+                    fix=None,
+                    penalty=3,
+                ),
             ],
         )
         d = report.model_dump(mode="json")
@@ -485,8 +534,15 @@ class TestHealthIssueStructure:
 
 
 class TestHealthCommand:
-    def _setup_health_mock(self, patched_db: MagicMock, experiments=None, findings=None,
-                           questions=None, directions=None, activity=None):
+    def _setup_health_mock(
+        self,
+        patched_db: MagicMock,
+        experiments=None,
+        findings=None,
+        questions=None,
+        directions=None,
+        activity=None,
+    ):
         """Set up mock to return different data per table."""
         table_data = {
             "experiments": experiments or [],
@@ -499,9 +555,26 @@ class TestHealthCommand:
         def table_factory(name):
             tbl = MagicMock()
             for method in (
-                "select", "insert", "update", "delete", "eq", "neq",
-                "gt", "lt", "gte", "lte", "like", "ilike", "is_", "in_",
-                "contains", "or_", "order", "limit", "range", "single",
+                "select",
+                "insert",
+                "update",
+                "delete",
+                "eq",
+                "neq",
+                "gt",
+                "lt",
+                "gte",
+                "lte",
+                "like",
+                "ilike",
+                "is_",
+                "in_",
+                "contains",
+                "or_",
+                "order",
+                "limit",
+                "range",
+                "single",
             ):
                 getattr(tbl, method).return_value = tbl
             tbl.execute.return_value = MagicMock(data=table_data.get(name, []))
@@ -511,6 +584,7 @@ class TestHealthCommand:
 
         # Also patch db.health.get_client
         import sonde.db.health as health_mod
+
         health_mod.get_client = lambda: patched_db
 
     def test_health_json_output(self, runner: CliRunner, patched_db: MagicMock):
@@ -518,8 +592,14 @@ class TestHealthCommand:
             patched_db,
             experiments=[
                 _make_experiment("EXP-0001"),
-                _make_experiment("EXP-0002", status="running", updated_at=_ago(96),
-                               content=None, finding=None, tags=[]),
+                _make_experiment(
+                    "EXP-0002",
+                    status="running",
+                    updated_at=_ago(96),
+                    content=None,
+                    finding=None,
+                    tags=[],
+                ),
             ],
         )
 

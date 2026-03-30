@@ -33,6 +33,7 @@ cli/
       activity.py        # append-only activity log
     commands/            # click command modules (see CLI architecture below)
       experiment.py      # noun group: log, list, show, search, update + subcommand registration
+      direction_group.py # noun group: list, show, create, update
       finding_group.py   # noun group: list, show, create
       question_group.py  # noun group: list, show, create, promote
       tag.py             # noun group: list, show, add, remove (top-level)
@@ -45,6 +46,8 @@ cli/
       sync.py            # sync group wrapping pull + push
       pull.py            # pull from Supabase to .sonde/
       push.py            # push .sonde/ to Supabase
+      init.py            # repo bootstrap and default direction setup
+      remove.py          # remove local notebook records from .sonde/
       brief.py           # research summary (top-level, supports --all/--tag/--direction)
       recent.py          # activity feed (top-level)
       findings.py        # list findings (used by finding_group as "list" subcommand)
@@ -175,19 +178,27 @@ sonde <verb> [args]               # shortcut (common verbs only)
 
 | Noun | Verbs | File |
 |------|-------|------|
-| `experiment` | log, list, show, search, update, close, open, start, note, attach, diff, fork, history, new | `experiment.py` + registered submodules |
-| `finding` | list, show, create | `finding_group.py` |
-| `question` | list, show, create, promote | `question_group.py` |
+| `experiment` | log, list, show, search, update, close, open, start, note, attach, diff, fork, history, new, pull, push, remove | `experiment.py` + registered submodules |
+| `direction` | list, show, create, update, new, pull, push, remove | `direction_group.py` |
+| `finding` | list, show, create, extract, new, pull, push, remove | `finding_group.py` |
+| `question` | list, show, create, promote, new, pull, push, remove | `question_group.py` |
 | `tag` | list, show, add, remove | `tag.py` |
-| `sync` | pull, push | `sync.py` (wraps `pull.py`, `push.py`) |
 | `admin` | create-token, list-tokens, revoke-token | `admin.py` |
 | `access` | s3, icechunk, stac | `access.py` |
 
 **Top-level cross-cutting views** (not noun groups — they span multiple record types):
 
 ```
-brief, recent, status, show
+brief, recent, status, health, tree, show
 ```
+
+**Top-level workflow helpers**:
+
+```
+pull, push, init
+```
+
+`sync` remains as a backward-compatibility wrapper, but it is not the primary surface the CLI should teach.
 
 **Backward-compat shortcuts** for old names: `findings` → `finding list`, `questions` → `question list`, `tags` → `tag list`.
 
@@ -196,7 +207,6 @@ brief, recent, status, show
 ```python
 "log"    → ("experiment", "log")
 "close"  → ("experiment", "close")
-"pull"   → ("sync", "pull")
 # etc.
 ```
 
@@ -213,6 +223,16 @@ brief, recent, status, show
 5. **Shortcuts are for ergonomics, not structure.** The canonical form is always `sonde <noun> <verb>`. Skills and docs should teach the canonical form. Shortcuts exist so `sonde close EXP-0001` works without typing `sonde experiment close EXP-0001`.
 
 6. **All write paths go through the DB abstraction layer** (`db/experiments.py`, etc.). Commands must not call `client.table(...).update(...)` directly — use `db.update()`, `db.create()`, etc. This keeps the data layer in one place.
+
+### Agent-native guidance
+
+Sonde is used heavily by AI agents. The CLI should not only expose primitives; it should make the next sensible action obvious from the current state.
+
+- **Prefer opinionated guidance over silent flexibility.** After a meaningful transition or inspection command, show the likely next command(s) instead of making the agent infer them.
+- **Do not invent hidden workflow state just to guide the user.** Guidance should be computed from current record state, tree state, claim state, and direction context.
+- **Success should hand-hold.** A completed experiment should usually suggest one of: continue the active child branch, fork a refinement, curate a finding, or attach the work to a direction.
+- **Inspection should reduce ambiguity.** `show`, `tree`, `brief`, and lifecycle commands should agree on the current coordination story so different commands do not imply different next steps.
+- **Guidance belongs in stderr, data in stdout.** Human-readable “what to do next” hints are status output, not structured data tables.
 
 ### Click command patterns
 
@@ -342,6 +362,7 @@ These are from the PRD. Internalize them.
 3. **Provenance is permanent.** Every record links to a git commit, data sources, and the human or agent who created it. Years from now, someone should be able to trace any finding back to the exact code and data that produced it.
 4. **Stdout is for data, stderr is for humans.** Data output (tables, JSON) goes to stdout and is pipeable. Status messages, progress, and errors go to stderr. Every command supports `--json`.
 5. **No LLM dependency.** The CLI is a data management tool. Intelligence comes from the agents that use it. The CLI never calls an LLM.
+6. **Hand-hold the next step.** Especially for branching, completion, and stale-claim cases, Sonde should tell the agent what to do next rather than requiring workflow folklore.
 
 ---
 

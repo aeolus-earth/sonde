@@ -48,6 +48,12 @@ def list_artifacts(experiment_id: str) -> list[dict[str, Any]]:
     return rows(result.data)
 
 
+def download_file(storage_path: str) -> bytes:
+    """Download artifact bytes from Supabase Storage."""
+    client = get_client()
+    return client.storage.from_("artifacts").download(storage_path)
+
+
 def upload_file(
     experiment_id: str,
     filepath: Path,

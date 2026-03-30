@@ -18,7 +18,7 @@ def pass_output_options(fn):
     group-level `sonde --json <cmd>`.
     """
 
-    @click.option("--json", "use_json", is_flag=True, help="Output as JSON", hidden=True)
+    @click.option("--json", "use_json", is_flag=True, help="Output as JSON")
     @functools.wraps(fn)
     def wrapper(*args, use_json=False, **kwargs):
         ctx = click.get_current_context()

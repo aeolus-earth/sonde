@@ -8,6 +8,7 @@ from typing import Any
 from postgrest.exceptions import APIError
 from postgrest.types import CountMethod
 
+from sonde.coordination import STALE_CLAIM_HOURS
 from sonde.db import apply_source_filter
 from sonde.db import rows as to_rows
 from sonde.db.client import get_client
@@ -361,9 +362,7 @@ def archive_subtree(root_id: str) -> tuple[list[str], list[str]]:
         exp_id = row["id"]
         status = row.get("status")
         if status in ("complete", "failed"):
-            client.table("experiments").update(
-                {"status": "superseded"}
-            ).eq("id", exp_id).execute()
+            client.table("experiments").update({"status": "superseded"}).eq("id", exp_id).execute()
             archived.append(exp_id)
         elif status in ("open", "running"):
             skipped.append(exp_id)
@@ -445,8 +444,7 @@ def get_tree_summary(program: str | None = None) -> dict[str, Any]:
     branches = [r for r in all_rows if r.get("parent_id")]
     active = [r for r in branches if r.get("status") in ("open", "running")]
     dead_ends = [
-        r for r in all_rows
-        if r.get("status") == "failed" and r["id"] not in ids_with_children
+        r for r in all_rows if r.get("status") == "failed" and r["id"] not in ids_with_children
     ]
     unclaimed = [
         {
@@ -465,12 +463,14 @@ def get_tree_summary(program: str | None = None) -> dict[str, Any]:
             claimed = _parse_iso(r["claimed_at"])
             if claimed:
                 hours = (now - claimed).total_seconds() / 3600
-                if hours > 2:
-                    stale_claims.append({
-                        "id": r["id"],
-                        "claimed_by": r["claimed_by"],
-                        "claimed_hours_ago": round(hours, 1),
-                    })
+                if hours > STALE_CLAIM_HOURS:
+                    stale_claims.append(
+                        {
+                            "id": r["id"],
+                            "claimed_by": r["claimed_by"],
+                            "claimed_hours_ago": round(hours, 1),
+                        }
+                    )
 
     return {
         "total_roots": len(roots),

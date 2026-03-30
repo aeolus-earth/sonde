@@ -1,7 +1,4 @@
-"""Push command — sync local .sonde/ files to Supabase.
-
-An experiment is a directory. Push uploads the markdown AND all files in it.
-"""
+"""Push command — sync local .sonde/ files to Supabase."""
 
 from __future__ import annotations
 
@@ -9,14 +6,25 @@ from pathlib import Path
 from typing import Any
 
 import click
+import yaml
 
 from sonde.auth import get_current_user, resolve_source
 from sonde.config import get_settings
-from sonde.db import rows
-from sonde.db.client import get_client
+from sonde.db import directions as dir_db
+from sonde.db import experiments as exp_db
+from sonde.db import findings as find_db
+from sonde.db import notes as notes_db
+from sonde.db import questions as q_db
+from sonde.db.activity import log_activity
 from sonde.git import detect_git_context
-from sonde.local import find_sonde_dir, parse_markdown
+from sonde.local import extract_finding_text, find_sonde_dir, parse_markdown
+from sonde.models.direction import DirectionCreate
+from sonde.models.experiment import ExperimentCreate
+from sonde.models.finding import FindingCreate
+from sonde.models.question import QuestionCreate
 from sonde.output import err, print_error, print_json, print_success
+
+_SKIP = {".DS_Store", "__pycache__"}
 
 
 @click.group(invoke_without_command=True)
@@ -24,124 +32,176 @@ from sonde.output import err, print_error, print_json, print_success
 def push(ctx: click.Context) -> None:
     """Push local .sonde/ changes to Supabase.
 
-    Uploads markdown files AND all files in experiment directories.
-
     \b
     Examples:
-      sonde push                          # push everything
-      sonde push experiment EXP-0002      # push one experiment + its files
-      sonde push experiment my-draft      # create new from local .md
+      sonde push
+      sonde push experiment EXP-0002
+      sonde push finding FIND-001
     """
     if ctx.invoked_subcommand is None:
-        ctx.invoke(push_experiments)
+        ctx.invoke(push_all)
+
+
+@push.command("all")
+@click.pass_context
+def push_all(ctx: click.Context) -> None:
+    """Push all local core records."""
+    counts = {
+        "experiments": _push_directory("experiments"),
+        "findings": _push_directory("findings"),
+        "questions": _push_directory("questions"),
+        "directions": _push_directory("directions"),
+    }
+    if ctx.obj.get("json"):
+        print_json(counts)
+    else:
+        print_success(
+            "Pushed local notebook",
+            details=[
+                f"Experiments: {counts['experiments']}",
+                f"Findings: {counts['findings']}",
+                f"Questions: {counts['questions']}",
+                f"Directions: {counts['directions']}",
+            ],
+        )
 
 
 @push.command("experiment")
 @click.argument("name")
 @click.pass_context
 def push_experiment(ctx: click.Context, name: str) -> None:
-    """Push a single experiment and its directory.
-
-    NAME is the filename (without .md) or experiment ID.
-
-    \b
-    Examples:
-      sonde push experiment EXP-0002
-      sonde push experiment my-draft
-    """
-    sonde_dir = find_sonde_dir()
-    filepath = _find_file(sonde_dir / "experiments", name)
-    if not filepath:
-        print_error(
-            f"File not found: {name}",
-            f"No .md file matching '{name}' in .sonde/experiments/",
-            "Create a file first: sonde new experiment",
-        )
-        raise SystemExit(1)
-
-    fm, body = parse_markdown(filepath.read_text(encoding="utf-8"))
-    if not fm:
-        print_error(
-            "Invalid file",
-            "Could not parse YAML frontmatter.",
-            "Check the --- delimiters.",
-        )
-        raise SystemExit(1)
-
-    result = _upsert_experiment(fm, body, filepath)
-    exp_id = result["id"]
-
-    # Log activity
-    from sonde.db.activity import log_activity
-
-    action = "updated" if fm.get("id") else "created"
-    log_activity(exp_id, "experiment", action)
-
-    # Auto-sync directory contents
-    exp_dir = filepath.parent / exp_id
-    if not exp_dir.exists():
-        # Try the pre-rename directory name
-        exp_dir = filepath.parent / filepath.stem
-    file_count = _sync_directory(exp_id, exp_dir) if exp_dir.is_dir() else 0
-
+    """Push one experiment file and its local directory."""
+    result = _push_one("experiments", name)
     if ctx.obj.get("json"):
         print_json(result)
     else:
-        action = "Updated" if fm.get("id") else "Created"
-        print_success(f"{action} {exp_id}")
-        if file_count:
-            err.print(f"  [sonde.muted]Synced {file_count} file(s)[/]")
+        print_success(f"{result['action'].title()} {result['id']}")
 
 
 @push.command("experiments")
 @click.pass_context
 def push_experiments(ctx: click.Context) -> None:
-    """Push all experiment .md files and their directories.
+    """Push all experiments."""
+    count = _push_directory("experiments")
+    if ctx.obj.get("json"):
+        print_json({"experiments": count})
+    else:
+        print_success(f"Pushed {count} experiment(s)")
 
-    \b
-    Examples:
-      sonde push experiments
-      sonde push
-    """
+
+@push.command("finding")
+@click.argument("name")
+@click.pass_context
+def push_finding(ctx: click.Context, name: str) -> None:
+    """Push one finding."""
+    result = _push_one("findings", name)
+    if ctx.obj.get("json"):
+        print_json(result)
+    else:
+        print_success(f"{result['action'].title()} {result['id']}")
+
+
+@push.command("findings")
+@click.pass_context
+def push_findings(ctx: click.Context) -> None:
+    """Push all findings."""
+    count = _push_directory("findings")
+    if ctx.obj.get("json"):
+        print_json({"findings": count})
+    else:
+        print_success(f"Pushed {count} finding(s)")
+
+
+@push.command("question")
+@click.argument("name")
+@click.pass_context
+def push_question(ctx: click.Context, name: str) -> None:
+    """Push one question."""
+    result = _push_one("questions", name)
+    if ctx.obj.get("json"):
+        print_json(result)
+    else:
+        print_success(f"{result['action'].title()} {result['id']}")
+
+
+@push.command("questions")
+@click.pass_context
+def push_questions(ctx: click.Context) -> None:
+    """Push all questions."""
+    count = _push_directory("questions")
+    if ctx.obj.get("json"):
+        print_json({"questions": count})
+    else:
+        print_success(f"Pushed {count} question(s)")
+
+
+@push.command("direction")
+@click.argument("name")
+@click.pass_context
+def push_direction(ctx: click.Context, name: str) -> None:
+    """Push one direction."""
+    result = _push_one("directions", name)
+    if ctx.obj.get("json"):
+        print_json(result)
+    else:
+        print_success(f"{result['action'].title()} {result['id']}")
+
+
+@push.command("directions")
+@click.pass_context
+def push_directions(ctx: click.Context) -> None:
+    """Push all directions."""
+    count = _push_directory("directions")
+    if ctx.obj.get("json"):
+        print_json({"directions": count})
+    else:
+        print_success(f"Pushed {count} direction(s)")
+
+
+def _push_directory(category: str) -> int:
     sonde_dir = find_sonde_dir()
-    exp_dir = sonde_dir / "experiments"
-
-    if not exp_dir.exists():
-        err.print("[sonde.muted]No experiments directory.[/]")
-        return
+    directory = sonde_dir / category
+    if not directory.exists():
+        return 0
 
     count = 0
-    for filepath in sorted(exp_dir.glob("*.md")):
-        fm, body = parse_markdown(filepath.read_text(encoding="utf-8"))
-        if not fm:
-            err.print(f"  [sonde.warning]Skipped {filepath.name}[/]")
-            continue
-
-        result = _upsert_experiment(fm, body, filepath)
-        exp_id = result["id"]
-
-        # Sync directory
-        sub_dir = filepath.parent / exp_id
-        file_count = _sync_directory(exp_id, sub_dir) if sub_dir.is_dir() else 0
-
-        action = "Updated" if fm.get("id") else "Created"
-        suffix = f" (+{file_count} files)" if file_count else ""
-        err.print(f"  [sonde.muted]{action} {exp_id}{suffix}[/]")
+    for filepath in sorted(directory.glob("*.md")):
+        _push_file(category, filepath)
         count += 1
+    return count
 
-    print_success(f"Pushed {count} experiment(s)")
+
+def _push_one(category: str, name: str) -> dict[str, Any]:
+    sonde_dir = find_sonde_dir()
+    filepath = _find_file(sonde_dir / category, name)
+    if not filepath:
+        print_error(
+            f"File not found: {name}",
+            f"No .md file matching '{name}' in .sonde/{category}/",
+            f"Create one first: sonde {category[:-1]} new",
+        )
+        raise SystemExit(1)
+    return _push_file(category, filepath)
 
 
-# ---------------------------------------------------------------------------
-# Internal
-# ---------------------------------------------------------------------------
+def _push_file(category: str, filepath: Path) -> dict[str, Any]:
+    frontmatter, body = parse_markdown(filepath.read_text(encoding="utf-8"))
+    if category == "experiments":
+        result = _upsert_experiment(frontmatter, body, filepath)
+    elif category == "findings":
+        result = _upsert_finding(frontmatter, body, filepath)
+    elif category == "questions":
+        result = _upsert_question(frontmatter, body, filepath)
+    elif category == "directions":
+        result = _upsert_direction(frontmatter, body, filepath)
+    else:
+        raise ValueError(f"Unsupported category: {category}")
 
-# Files/dirs to skip when syncing
-_SKIP = {"notes", ".DS_Store", "__pycache__"}
+    log_activity(result["id"], result["record_type"], result["action"])
+    return result
 
 
 def _find_file(directory: Path, name: str) -> Path | None:
-    """Find a .md file by name or ID."""
     for candidate in [f"{name}.md", f"{name.upper()}.md"]:
         path = directory / candidate
         if path.exists():
@@ -149,106 +209,225 @@ def _find_file(directory: Path, name: str) -> Path | None:
     return None
 
 
-def _upsert_experiment(fm: dict, body: str, filepath: Path) -> dict:
-    """Create or update an experiment from frontmatter + body."""
-    client = get_client()
+def _rename_local_record(filepath: Path, new_id: str) -> None:
+    new_path = filepath.parent / f"{new_id}.md"
+    if filepath == new_path:
+        return
+
+    frontmatter, body = parse_markdown(filepath.read_text(encoding="utf-8"))
+    frontmatter["id"] = new_id
+    content = f"---\n{yaml.dump(frontmatter, sort_keys=False).rstrip()}\n---\n\n{body}"
+    new_path.write_text(content, encoding="utf-8")
+    filepath.unlink()
+
+    old_dir = filepath.parent / filepath.stem
+    new_dir = filepath.parent / new_id
+    if old_dir.is_dir() and not new_dir.exists():
+        old_dir.rename(new_dir)
+
+
+def _resolve_program(frontmatter: dict[str, Any]) -> str:
     settings = get_settings()
-    user = get_current_user()
-
-    source = fm.get("source", "") or resolve_source(user)
-
-    program = fm.get("program") or settings.program
+    program = frontmatter.get("program") or settings.program
     if not program:
         raise click.ClickException("No program in frontmatter or .aeolus.yaml.")
+    return str(program)
 
-    # Auto-detect git context
+
+def _resolve_source(frontmatter: dict[str, Any]) -> str:
+    settings = get_settings()
+    user = get_current_user()
+    return str(frontmatter.get("source") or settings.source or resolve_source(user))
+
+
+def _extract_heading(body: str, fallback: str) -> str:
+    for line in body.splitlines():
+        if line.startswith("# "):
+            return line[2:].strip()
+    return fallback
+
+
+def _extract_context(body: str) -> str | None:
+    lines = body.splitlines()
+    filtered = [line for line in lines if not line.startswith("# ")]
+    text = "\n".join(filtered).strip()
+    return text or None
+
+
+def _upsert_experiment(frontmatter: dict[str, Any], body: str, filepath: Path) -> dict[str, Any]:
+    program = _resolve_program(frontmatter)
+    source = _resolve_source(frontmatter)
     git_ctx = detect_git_context()
 
-    row: dict[str, Any] = {
+    payload: dict[str, Any] = {
         "program": program,
+        "status": frontmatter.get("status", "open"),
         "source": source,
-        "status": fm.get("status", "open"),
-        "tags": fm.get("tags", []),
         "content": body or None,
-        "metadata": fm.get("metadata", {}),
-        "hypothesis": fm.get("hypothesis"),
-        "parameters": fm.get("parameters", {}),
-        "results": fm.get("results"),
-        "finding": fm.get("finding"),
-        "related": fm.get("related", []),
-        "direction_id": fm.get("direction_id"),
+        "hypothesis": frontmatter.get("hypothesis"),
+        "parameters": frontmatter.get("parameters") or {},
+        "results": frontmatter.get("results"),
+        "finding": frontmatter.get("finding"),
+        "metadata": frontmatter.get("metadata") or {},
+        "data_sources": frontmatter.get("data_sources") or [],
+        "direction_id": frontmatter.get("direction_id"),
+        "related": frontmatter.get("related") or [],
+        "parent_id": frontmatter.get("parent_id"),
+        "branch_type": frontmatter.get("branch_type"),
+        "claimed_by": frontmatter.get("claimed_by"),
+        "claimed_at": frontmatter.get("claimed_at"),
+        "run_at": frontmatter.get("run_at"),
+        "tags": frontmatter.get("tags") or [],
+        "git_commit": frontmatter.get("git_commit") or (git_ctx.commit if git_ctx else None),
+        "git_repo": frontmatter.get("git_repo") or (git_ctx.repo if git_ctx else None),
+        "git_branch": frontmatter.get("git_branch") or (git_ctx.branch if git_ctx else None),
+        "git_close_commit": frontmatter.get("git_close_commit"),
+        "git_close_branch": frontmatter.get("git_close_branch"),
+        "git_dirty": frontmatter.get("git_dirty"),
     }
 
-    # Git provenance: use frontmatter if set, otherwise auto-detect
-    if fm.get("git_commit"):
-        row["git_commit"] = fm["git_commit"]
-        row["git_repo"] = fm.get("git_repo")
-        row["git_branch"] = fm.get("git_branch")
-    elif git_ctx:
-        row["git_commit"] = git_ctx.commit
-        row["git_repo"] = git_ctx.repo
-        row["git_branch"] = git_ctx.branch
+    existing_id = str(frontmatter.get("id", "")).upper()
+    if existing_id.startswith("EXP-"):
+        exp = exp_db.update(existing_id, payload)
+        if not exp:
+            raise click.ClickException(f"Failed to update {existing_id}.")
+        action = "updated"
+        exp_id = exp.id
+    else:
+        exp = exp_db.create(ExperimentCreate(**payload))
+        exp_id = exp.id
+        action = "created"
+        _rename_local_record(filepath, exp_id)
 
-    existing_id = fm.get("id", "")
+    exp_dir = filepath.parent / exp_id
+    if not exp_dir.exists():
+        exp_dir = filepath.parent / filepath.stem
+    file_count = _sync_directory(exp_id, exp_dir) if exp_dir.is_dir() else 0
+    note_count = _sync_notes(exp_id, exp_dir) if exp_dir.is_dir() else 0
+    if file_count or note_count:
+        err.print(f"  [sonde.muted]{exp_id}: synced {file_count} file(s), {note_count} note(s)[/]")
+    return {"id": exp_id, "record_type": "experiment", "action": action}
 
-    if existing_id and existing_id.startswith("EXP-"):
-        result = client.table("experiments").update(row).eq("id", existing_id).execute()
-        return rows(result.data)[0]
 
-    # Create new
-    from sonde.db.ids import next_sequential_id
+def _upsert_finding(frontmatter: dict[str, Any], body: str, filepath: Path) -> dict[str, Any]:
+    program = _resolve_program(frontmatter)
+    source = _resolve_source(frontmatter)
+    finding_text = frontmatter.get("finding") or extract_finding_text(body) or body.strip()
+    topic = frontmatter.get("topic") or _extract_heading(body, filepath.stem.replace("-", " "))
 
-    new_id = next_sequential_id("experiments", "EXP", 4)
-    row["id"] = new_id
-    result = client.table("experiments").insert(row).execute()
-    created = rows(result.data)[0]
+    existing_id = str(frontmatter.get("id", "")).upper()
+    if existing_id.startswith("FIND-"):
+        finding = find_db.update(
+            existing_id,
+            {
+                "program": program,
+                "topic": topic,
+                "finding": finding_text,
+                "confidence": frontmatter.get("confidence", "medium"),
+                "evidence": frontmatter.get("evidence") or [],
+                "source": source,
+                "supersedes": frontmatter.get("supersedes"),
+            },
+        )
+        if not finding:
+            raise click.ClickException(f"Failed to update {existing_id}.")
+        return {"id": finding.id, "record_type": "finding", "action": "updated"}
 
-    # Rename local file to assigned ID
-    new_path = filepath.parent / f"{new_id}.md"
-    if filepath != new_path:
-        # Re-parse and inject the assigned ID into frontmatter
-        raw = filepath.read_text(encoding="utf-8")
-        fm, body = parse_markdown(raw)
-        fm["id"] = new_id
-        import yaml
+    finding = find_db.create(
+        FindingCreate(
+            program=program,
+            topic=topic,
+            finding=finding_text,
+            confidence=frontmatter.get("confidence", "medium"),
+            evidence=frontmatter.get("evidence") or [],
+            source=source,
+            supersedes=frontmatter.get("supersedes"),
+        )
+    )
+    _rename_local_record(filepath, finding.id)
+    return {"id": finding.id, "record_type": "finding", "action": "created"}
 
-        new_content = f"---\n{yaml.dump(fm, default_flow_style=False).rstrip()}\n---\n\n{body}"
-        new_path.write_text(new_content, encoding="utf-8")
-        filepath.unlink()
-        err.print(f"  [sonde.muted]Renamed → {new_path.name}[/]")
 
-        # Also rename the directory if it exists
-        old_dir = filepath.parent / filepath.stem
-        new_dir = filepath.parent / new_id
-        if old_dir.is_dir() and not new_dir.exists():
-            old_dir.rename(new_dir)
+def _upsert_question(frontmatter: dict[str, Any], body: str, filepath: Path) -> dict[str, Any]:
+    program = _resolve_program(frontmatter)
+    source = _resolve_source(frontmatter)
+    question_text = frontmatter.get("question") or _extract_heading(body, filepath.stem)
+    context = frontmatter.get("context") or _extract_context(body)
 
-    return created
+    existing_id = str(frontmatter.get("id", "")).upper()
+    if existing_id.startswith("Q-"):
+        question = q_db.update(
+            existing_id,
+            {
+                "program": program,
+                "question": question_text,
+                "context": context,
+                "status": frontmatter.get("status", "open"),
+                "source": source,
+                "raised_by": frontmatter.get("raised_by"),
+                "tags": frontmatter.get("tags") or [],
+                "promoted_to_type": frontmatter.get("promoted_to_type"),
+                "promoted_to_id": frontmatter.get("promoted_to_id"),
+            },
+        )
+        if not question:
+            raise click.ClickException(f"Failed to update {existing_id}.")
+        return {"id": question.id, "record_type": "question", "action": "updated"}
+
+    question = q_db.create(
+        QuestionCreate(
+            program=program,
+            question=question_text,
+            context=context,
+            status=frontmatter.get("status", "open"),
+            source=source,
+            raised_by=frontmatter.get("raised_by"),
+            tags=frontmatter.get("tags") or [],
+        )
+    )
+    _rename_local_record(filepath, question.id)
+    return {"id": question.id, "record_type": "question", "action": "created"}
+
+
+def _upsert_direction(frontmatter: dict[str, Any], body: str, filepath: Path) -> dict[str, Any]:
+    program = _resolve_program(frontmatter)
+    source = _resolve_source(frontmatter)
+    title = frontmatter.get("title") or _extract_heading(body, filepath.stem.replace("-", " "))
+    question = frontmatter.get("question") or _extract_context(body) or title
+    payload = {
+        "program": program,
+        "title": title,
+        "question": question,
+        "status": frontmatter.get("status", "active"),
+        "source": source,
+    }
+
+    existing_id = str(frontmatter.get("id", "")).upper()
+    if existing_id.startswith("DIR-"):
+        direction = dir_db.update(existing_id, payload)
+        if not direction:
+            raise click.ClickException(f"Failed to update {existing_id}.")
+        return {"id": direction.id, "record_type": "direction", "action": "updated"}
+
+    direction = dir_db.create(DirectionCreate(**payload))
+    _rename_local_record(filepath, direction.id)
+    return {"id": direction.id, "record_type": "direction", "action": "created"}
 
 
 def _sync_directory(experiment_id: str, exp_dir: Path) -> int:
-    """Upload all files in an experiment directory to Supabase Storage.
-
-    Returns the number of files uploaded.
-    """
     from sonde.db.artifacts import find_by_path, upload_file
 
     user = get_current_user()
     source = resolve_source(user)
-
     uploaded = 0
     for path in sorted(exp_dir.rglob("*")):
         if not path.is_file():
             continue
-        # Skip notes (managed separately) and system files
-        if any(part in _SKIP for part in path.parts):
+        if any(part in _SKIP or part == "notes" for part in path.parts):
             continue
 
-        # Storage path preserves directory structure under experiment ID
         relative = path.relative_to(exp_dir)
         storage_path = f"{experiment_id}/{relative}"
-
-        # Skip if already uploaded with same size
         existing = find_by_path(experiment_id, storage_path)
         if existing and existing.get("size_bytes") == path.stat().st_size:
             continue
@@ -256,7 +435,29 @@ def _sync_directory(experiment_id: str, exp_dir: Path) -> int:
         try:
             upload_file(experiment_id, path, source, storage_subpath=storage_path)
             uploaded += 1
-        except Exception as e:
-            err.print(f"  [sonde.warning]Failed: {relative} ({e})[/]")
-
+        except Exception as exc:
+            err.print(f"  [sonde.warning]Failed: {relative} ({exc})[/]")
     return uploaded
+
+
+def _sync_notes(experiment_id: str, exp_dir: Path) -> int:
+    notes_dir = exp_dir / "notes"
+    if not notes_dir.exists():
+        return 0
+
+    existing = notes_db.list_by_experiment(experiment_id)
+    existing_keys = {
+        ((note.get("content") or "").strip(), note.get("source") or "") for note in existing
+    }
+    created = 0
+    for note_file in sorted(notes_dir.glob("*.md")):
+        frontmatter, body = parse_markdown(note_file.read_text(encoding="utf-8"))
+        note_source = frontmatter.get("author") or frontmatter.get("source") or _resolve_source({})
+        key = (body.strip(), str(note_source))
+        if not body.strip() or key in existing_keys:
+            continue
+        note = notes_db.create(experiment_id, body.strip(), str(note_source))
+        existing_keys.add(key)
+        created += 1
+        log_activity(experiment_id, "experiment", "note_added", {"note_id": note["id"]})
+    return created
