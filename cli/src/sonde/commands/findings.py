@@ -6,14 +6,13 @@ import click
 
 from sonde.cli_options import pass_output_options
 from sonde.config import get_settings
-from sonde.db import rows
-from sonde.db.client import get_client
+from sonde.db import findings as db
 from sonde.output import (
-    _truncate_text,
     err,
     print_breadcrumbs,
     print_json,
     print_table,
+    truncate_text,
 )
 
 
@@ -29,6 +28,7 @@ from sonde.output import (
 @click.option("--chain", is_flag=True, help="Show supersession chain for findings")
 @click.option("--count", "show_count", is_flag=True, help="Show only the count")
 @click.option("--limit", "-n", default=50, type=int, help="Max results (default: 50)")
+@click.option("--offset", default=0, type=int, help="Skip first N results")
 @pass_output_options
 @click.pass_context
 def findings_cmd(
@@ -40,6 +40,7 @@ def findings_cmd(
     chain: bool,
     show_count: bool,
     limit: int,
+    offset: int,
 ) -> None:
     """List current research findings.
 
@@ -56,97 +57,91 @@ def findings_cmd(
     """
     settings = get_settings()
     resolved = program or settings.program or None
-
-    client = get_client()
     # When --chain is used, fetch all (including superseded) for chain assembly
     fetch_all = show_all or chain
-    query = client.table("findings").select("*").order("created_at", desc=True).limit(limit)
-
-    if resolved:
-        query = query.eq("program", resolved)
-    if not fetch_all:
-        query = query.is_("valid_until", "null")
-    if confidence:
-        query = query.eq("confidence", confidence)
-    if topic:
-        query = query.ilike("topic", f"%{topic}%")
-
-    result = query.execute()
-    findings_list = rows(result.data)
 
     if show_count:
+        total = db.count_findings(
+            program=resolved,
+            confidence=confidence,
+            topic=topic,
+            include_superseded=fetch_all,
+        )
         if ctx.obj.get("json"):
-            print_json({"count": len(findings_list)})
+            print_json({"count": total})
         else:
-            click.echo(len(findings_list))
+            click.echo(total)
         return
 
+    findings_list = db.list_findings(
+        program=resolved,
+        confidence=confidence,
+        topic=topic,
+        include_superseded=fetch_all,
+        limit=limit,
+        offset=offset,
+    )
+
     if chain and findings_list:
-        # Build supersession chains
         _render_chain(ctx, findings_list)
         return
 
     if ctx.obj.get("json"):
-        print_json(findings_list)
+        print_json([f.model_dump(mode="json") for f in findings_list])
     elif not findings_list:
         err.print("[dim]No findings found.[/dim]")
-        print_breadcrumbs([
-            "Create: sonde finding create -p <program> --topic '...' --finding '...'",
-            "Experiment findings: sonde list --complete",
-        ])
+        print_breadcrumbs(
+            [
+                "Create: sonde finding create -p <program> --topic '...' --finding '...'",
+                "Experiment findings: sonde list --complete",
+            ]
+        )
     else:
         table_rows = []
         for f in findings_list:
-            evidence = f.get("evidence", [])
             table_rows.append(
                 {
-                    "id": f["id"],
-                    "finding": _truncate_text(f.get("finding"), 45),
-                    "confidence": f.get("confidence", "medium"),
-                    "evidence": ", ".join(evidence)[:30] if evidence else "—",
-                    "topic": _truncate_text(f.get("topic"), 20),
+                    "id": f.id,
+                    "finding": truncate_text(f.finding, 45),
+                    "confidence": f.confidence,
+                    "evidence": ", ".join(f.evidence)[:30] if f.evidence else "—",
+                    "topic": truncate_text(f.topic, 20),
                 }
             )
         print_table(["id", "finding", "confidence", "evidence", "topic"], table_rows)
         err.print(f"\n[dim]{len(findings_list)} finding(s)[/dim]")
 
-        if findings_list:
-            first_evidence = (findings_list[0].get("evidence") or [None])[0]
-            if first_evidence:
-                print_breadcrumbs([f"Show evidence: sonde show {first_evidence}"])
+        first_evidence = (findings_list[0].evidence or [None])[0]
+        if first_evidence:
+            print_breadcrumbs([f"Show evidence: sonde show {first_evidence}"])
 
 
-def _render_chain(ctx: click.Context, findings_list: list[dict]) -> None:
+def _render_chain(ctx: click.Context, findings_list: list) -> None:
     """Render findings as supersession chains."""
-    # Index by ID
-    by_id = {f["id"]: f for f in findings_list}
+    from sonde.models.finding import Finding
 
-    # Find chain roots (findings that are not superseded by anything in our set)
-    roots = [
-        f for f in findings_list if f.get("supersedes") is None or f.get("supersedes") not in by_id
-    ]
+    by_id = {f.id: f for f in findings_list}
 
-    # Build chains from roots
-    chains: list[list[dict]] = []
+    roots = [f for f in findings_list if f.supersedes is None or f.supersedes not in by_id]
+
+    chains: list[list[Finding]] = []
     visited: set[str] = set()
     for root in roots:
-        if root["id"] in visited:
+        if root.id in visited:
             continue
-        chain_items = []
-        current = root
+        chain_items: list[Finding] = []
+        current: Finding | None = root
         while current:
             chain_items.append(current)
-            visited.add(current["id"])
-            next_id = current.get("superseded_by")
-            current = by_id.get(next_id) if next_id else None
+            visited.add(current.id)
+            current = by_id.get(current.superseded_by) if current.superseded_by else None
         if chain_items:
             chains.append(chain_items)
 
-    # Add orphans (not in any chain)
     for f in findings_list:
-        if f["id"] not in visited:
+        if f.id not in visited:
             chains.append([f])
-            visited.add(f["id"])
+            visited.add(f.id)
 
     if ctx.obj.get("json"):
         print_json(
@@ -154,14 +149,14 @@ def _render_chain(ctx: click.Context, findings_list: list[dict]) -> None:
                 {
                     "chain": [
                         {
-                            "id": f["id"],
-                            "finding": f.get("finding"),
-                            "confidence": f.get("confidence"),
-                            "topic": f.get("topic"),
-                            "evidence": f.get("evidence", []),
-                            "valid_from": f.get("valid_from"),
-                            "valid_until": f.get("valid_until"),
-                            "superseded_by": f.get("superseded_by"),
+                            "id": f.id,
+                            "finding": f.finding,
+                            "confidence": f.confidence,
+                            "topic": f.topic,
+                            "evidence": f.evidence,
+                            "valid_from": f.valid_from.isoformat() if f.valid_from else None,
+                            "valid_until": f.valid_until.isoformat() if f.valid_until else None,
+                            "superseded_by": f.superseded_by,
                         }
                         for f in chain_items
                     ],
@@ -173,28 +168,26 @@ def _render_chain(ctx: click.Context, findings_list: list[dict]) -> None:
         return
 
     for chain_items in chains:
-        topic_label = chain_items[0].get("topic") or "Untitled"
+        topic_label = chain_items[0].topic or "Untitled"
         err.print(f"\n[sonde.heading]Finding Chain — {topic_label}[/]\n")
         for f in chain_items:
-            created = f.get("created_at", "")[:10]
-            confidence = f.get("confidence", "medium")
-            finding_text = f.get("finding", "")
-            evidence = ", ".join(f.get("evidence", []))
-            is_current = f.get("valid_until") is None
+            created = f.created_at.strftime("%Y-%m-%d") if f.created_at else ""
+            evidence = ", ".join(f.evidence)
+            is_current = f.valid_until is None
 
             marker = "[green]●[/] current" if is_current else ""
-            err.print(f"  [sonde.brand]{f['id']}[/]  {created}  [{confidence}]  {finding_text}")
+            err.print(f"  [sonde.brand]{f.id}[/]  {created}  [{f.confidence}]  {f.finding}")
             if evidence:
                 err.print(f"        Evidence: {evidence}")
-            if f.get("superseded_by"):
-                err.print(f"        [dim]↓ superseded by {f['superseded_by']}[/]")
+            if f.superseded_by:
+                err.print(f"        [dim]↓ superseded by {f.superseded_by}[/]")
             elif is_current:
                 err.print(f"        {marker}")
             err.print()
 
         if len(chain_items) > 1:
-            first_conf = chain_items[0].get("confidence", "?")
-            last_conf = chain_items[-1].get("confidence", "?")
+            first_conf = chain_items[0].confidence
+            last_conf = chain_items[-1].confidence
             err.print(
                 f"  [dim]{len(chain_items)} revision(s). Confidence: {first_conf} → {last_conf}[/]"
             )

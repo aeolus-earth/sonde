@@ -5,10 +5,10 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import click
+from postgrest.exceptions import APIError
 
-from sonde.auth import get_current_user
-from sonde.db import rows
-from sonde.db.client import get_client
+from sonde.auth import resolve_source
+from sonde.db import notes as db
 from sonde.local import ensure_subdir, find_sonde_dir
 from sonde.output import err, print_error, print_json, print_success
 
@@ -46,9 +46,7 @@ def note(
         raise SystemExit(2)
 
     # Verify experiment exists
-    client = get_client()
-    exp_result = client.table("experiments").select("id").eq("id", experiment_id).execute()
-    if not rows(exp_result.data):
+    if not db.experiment_exists(experiment_id):
         print_error(
             f"Experiment {experiment_id} not found",
             "Cannot add a note to a nonexistent experiment.",
@@ -56,43 +54,20 @@ def note(
         )
         raise SystemExit(1)
 
-    user = get_current_user()
-    source = f"human/{user.email.split('@')[0]}" if user and not user.is_agent else "agent"
+    source = resolve_source()
     now = datetime.now(UTC)
 
-    # Generate note ID
-    id_result = (
-        client.table("experiment_notes")
-        .select("id")
-        .order("created_at", desc=True)
-        .limit(1)
-        .execute()
-    )
-    existing = rows(id_result.data)
-    if existing:
-        last_num = int(existing[0]["id"].split("-")[1])
-        note_id = f"NOTE-{last_num + 1:04d}"
-    else:
-        note_id = "NOTE-0001"
-
-    # Insert into database
-    row = {
-        "id": note_id,
-        "experiment_id": experiment_id,
-        "content": content,
-        "source": source,
-    }
-
     try:
-        result = client.table("experiment_notes").insert(row).execute()
-    except Exception as e:
-        # Table may not exist yet — graceful fallback
+        row = db.create(experiment_id, content, source)
+    except APIError as exc:
         print_error(
             "Failed to save note",
-            str(e),
+            str(exc),
             "The experiment_notes table may need to be created. Run migrations.",
         )
         raise SystemExit(1) from None
+
+    note_id = row["id"]
 
     # Log activity
     from sonde.db.activity import log_activity
@@ -110,7 +85,7 @@ def note(
     )
 
     if ctx.obj.get("json"):
-        print_json(rows(result.data)[0] if rows(result.data) else row)
+        print_json(row)
     else:
         print_success(f"Note {note_id} added to {experiment_id}")
-        err.print(f"  [sonde.muted]→ {local_file.relative_to(sonde_dir.parent)}[/]")
+        err.print(f"  [sonde.muted]\u2192 {local_file.relative_to(sonde_dir.parent)}[/]")

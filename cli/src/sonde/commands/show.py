@@ -10,10 +10,7 @@ from __future__ import annotations
 import click
 from rich.panel import Panel
 
-from sonde.db import rows as to_rows
-from sonde.db.client import get_client
 from sonde.output import (
-    _truncate_text,
     err,
     out,
     print_breadcrumbs,
@@ -23,285 +20,207 @@ from sonde.output import (
     record_summary,
     styled_confidence,
     styled_status,
+    truncate_text,
 )
 
 
 def _show_finding(ctx: click.Context, finding_id: str) -> None:
     """Display a finding with its evidence and supersession chain."""
-    client = get_client()
-    result = client.table("findings").select("*").eq("id", finding_id).execute()
-    data = to_rows(result.data)
+    from sonde.db import experiments as exp_db
+    from sonde.db import findings as db
 
-    if not data:
-        print_error(f"Finding {finding_id} not found", "No finding with this ID.", "")
+    f = db.get(finding_id)
+    if not f:
+        print_error(
+            f"Finding {finding_id} not found",
+            "No finding with this ID.",
+            "List findings: sonde findings",
+        )
         raise SystemExit(1)
 
-    f = data[0]
-
     # Fetch evidence experiments
-    evidence_exps = []
-    evidence_ids = f.get("evidence", [])
-    if evidence_ids:
-        evidence_exps = to_rows(
-            client.table("experiments")
-            .select("id,status,program,content,finding")
-            .in_("id", evidence_ids)
-            .execute()
-            .data
-        )
+    evidence_exps = exp_db.get_by_ids(f.evidence) if f.evidence else []
 
     # Fetch supersession chain
-    chain = []
-    if f.get("supersedes"):
-        prev = to_rows(
-            client.table("findings")
-            .select("id,finding,confidence,valid_from,valid_until")
-            .eq("id", f["supersedes"])
-            .execute()
-            .data
-        )
+    chain: list[tuple[str, object]] = []
+    if f.supersedes:
+        prev = db.get(f.supersedes)
         if prev:
-            chain.append(("supersedes", prev[0]))
-    if f.get("superseded_by"):
-        nxt = to_rows(
-            client.table("findings")
-            .select("id,finding,confidence,valid_from,valid_until")
-            .eq("id", f["superseded_by"])
-            .execute()
-            .data
-        )
+            chain.append(("supersedes", prev))
+    if f.superseded_by:
+        nxt = db.get(f.superseded_by)
         if nxt:
-            chain.append(("superseded_by", nxt[0]))
+            chain.append(("superseded_by", nxt))
 
     if ctx.obj.get("json"):
-        f["_evidence_experiments"] = evidence_exps
-        f["_chain"] = chain
-        print_json(f)
+        data = f.model_dump(mode="json")
+        data["_evidence_experiments"] = [e.model_dump(mode="json") for e in evidence_exps]
+        data["_chain"] = [{"relation": rel, **item.model_dump(mode="json")} for rel, item in chain]
+        print_json(data)
         return
 
     # Header
-    is_active = f.get("valid_until") is None
+    is_active = f.valid_until is None
     active_str = "[sonde.success]● active[/]" if is_active else "[sonde.muted]○ superseded[/]"
-    confidence = f.get("confidence", "medium")
 
-    created = str(f.get("created_at", ""))[:10]
+    created = f.created_at.strftime("%Y-%m-%d") if f.created_at else ""
     header = [
-        f"[sonde.heading]{f['id']}[/]  {active_str}  {f.get('program', '')}",
-        (
-            f"[sonde.muted]Topic: {f.get('topic', '—')}  "
-            f"Confidence: {styled_confidence(confidence)}[/]"
-        ),
-        f"[sonde.muted]Source: {f.get('source', '—')}  Created: {created}[/]",
+        f"[sonde.heading]{f.id}[/]  {active_str}  {f.program}",
+        f"[sonde.muted]Topic: {f.topic or '—'}  Confidence: {styled_confidence(f.confidence)}[/]",
+        f"[sonde.muted]Source: {f.source or '—'}  Created: {created}[/]",
     ]
-    if f.get("valid_from"):
-        valid_str = f"Valid from: {str(f['valid_from'])[:10]}"
-        if f.get("valid_until"):
-            valid_str += f" → {str(f['valid_until'])[:10]}"
-        else:
-            valid_str += " → present"
+    if f.valid_from:
+        valid_str = f"Valid from: {f.valid_from.strftime('%Y-%m-%d')}"
+        valid_str += f" → {f.valid_until.strftime('%Y-%m-%d')}" if f.valid_until else " → present"
         header.append(f"[sonde.muted]{valid_str}[/]")
 
-    header.append(f"\n{f.get('finding', '')}")
+    header.append(f"\n{f.finding}")
 
     out.print(
-        Panel(
-            "\n".join(header),
-            title=f"[sonde.brand]{f['id']}[/]",
-            border_style="sonde.brand.dim",
-        )
+        Panel("\n".join(header), title=f"[sonde.brand]{f.id}[/]", border_style="sonde.brand.dim")
     )
 
-    # Evidence experiments
     if evidence_exps:
         print_table(
             ["id", "status", "summary"],
             [
-                {
-                    "id": e["id"],
-                    "status": e.get("status", ""),
-                    "summary": record_summary(e, 55),
-                }
+                {"id": e.id, "status": e.status, "summary": record_summary(e, 55)}
                 for e in evidence_exps
             ],
             title="Evidence",
         )
 
-    # Supersession chain
     if chain:
         err.print("\n[sonde.heading]Supersession[/]")
         for rel, item in chain:
             direction = "← supersedes" if rel == "supersedes" else "→ superseded by"
             err.print(
-                f"  {direction} {item['id']}  [{item.get('confidence', '')}]  "
-                f"{_truncate_text(item.get('finding'), 50)}"
+                f"  {direction} {item.id}  [{item.confidence}]  {truncate_text(item.finding, 50)}"
             )
 
     print_breadcrumbs(
         [
-            f"Evidence:  sonde show {evidence_ids[0]}" if evidence_ids else "",
-            f"All:       sonde findings -p {f.get('program', '')}",
+            f"Evidence:  sonde show {f.evidence[0]}" if f.evidence else "",
+            f"All:       sonde findings -p {f.program}",
         ]
     )
 
 
 def _show_question(ctx: click.Context, question_id: str) -> None:
     """Display a question with promotion context."""
-    client = get_client()
-    result = client.table("questions").select("*").eq("id", question_id).execute()
-    data = to_rows(result.data)
+    from sonde.db import questions as db
 
-    if not data:
-        print_error(f"Question {question_id} not found", "No question with this ID.", "")
+    q = db.get(question_id)
+    if not q:
+        print_error(
+            f"Question {question_id} not found",
+            "No question with this ID.",
+            "List questions: sonde questions",
+        )
         raise SystemExit(1)
 
-    q = data[0]
-
     if ctx.obj.get("json"):
-        print_json(q)
+        print_json(q.model_dump(mode="json"))
         return
 
-    q_created = str(q.get("created_at", ""))[:10]
+    q_created = q.created_at.strftime("%Y-%m-%d") if q.created_at else ""
     header = [
-        (
-            f"[sonde.heading]{q['id']}[/]  "
-            f"{styled_status(q.get('status', 'open'))}  {q.get('program', '')}"
-        ),
-        f"[sonde.muted]Raised by: {q.get('source', '—')}  Created: {q_created}[/]",
+        f"[sonde.heading]{q.id}[/]  {styled_status(q.status)}  {q.program}",
+        f"[sonde.muted]Raised by: {q.source or '—'}  Created: {q_created}[/]",
     ]
-    if q.get("tags"):
-        header.append(f"[sonde.muted]Tags: {', '.join(q['tags'])}[/]")
+    if q.tags:
+        header.append(f"[sonde.muted]Tags: {', '.join(q.tags)}[/]")
 
-    header.append(f"\n{q.get('question', '')}")
+    header.append(f"\n{q.question}")
 
-    if q.get("context"):
-        header.append(f"\n[sonde.heading]Context[/]\n{q['context']}")
+    if q.context:
+        header.append(f"\n[sonde.heading]Context[/]\n{q.context}")
 
-    if q.get("promoted_to_id"):
+    if q.promoted_to_id:
         header.append(
-            f"\n[sonde.success]Promoted to {q.get('promoted_to_type', 'experiment')}: "
-            f"{q['promoted_to_id']}[/]"
+            f"\n[sonde.success]Promoted to {q.promoted_to_type or 'experiment'}: "
+            f"{q.promoted_to_id}[/]"
         )
 
     out.print(
-        Panel(
-            "\n".join(header),
-            title=f"[sonde.brand]{q['id']}[/]",
-            border_style="sonde.brand.dim",
-        )
+        Panel("\n".join(header), title=f"[sonde.brand]{q.id}[/]", border_style="sonde.brand.dim")
     )
 
-    breadcrumbs = [f"All: sonde questions -p {q.get('program', '')}"]
-    if q.get("promoted_to_id"):
-        breadcrumbs.insert(0, f"Promoted to: sonde show {q['promoted_to_id']}")
+    breadcrumbs = [f"All: sonde questions -p {q.program}"]
+    if q.promoted_to_id:
+        breadcrumbs.insert(0, f"Promoted to: sonde show {q.promoted_to_id}")
     print_breadcrumbs(breadcrumbs)
 
 
 def _show_direction(ctx: click.Context, direction_id: str) -> None:
     """Display a direction with its experiments and findings."""
-    client = get_client()
-    result = client.table("directions").select("*").eq("id", direction_id).execute()
-    data = to_rows(result.data)
+    from sonde.db import directions as dir_db
+    from sonde.db import experiments as exp_db
+    from sonde.db import findings as find_db
 
-    if not data:
-        print_error(f"Direction {direction_id} not found", "No direction with this ID.", "")
+    d = dir_db.get(direction_id)
+    if not d:
+        print_error(
+            f"Direction {direction_id} not found",
+            "No direction with this ID.",
+            "View status: sonde status",
+        )
         raise SystemExit(1)
 
-    d = data[0]
+    experiments = exp_db.list_by_direction(direction_id)
 
-    # Fetch experiments in this direction
-    experiments = to_rows(
-        client.table("experiments")
-        .select("id,status,program,content,finding,source,tags,created_at")
-        .eq("direction_id", direction_id)
-        .order("created_at", desc=True)
-        .execute()
-        .data
-    )
-
-    # Fetch findings from these experiments
-    exp_ids = [e["id"] for e in experiments]
-    findings = []
-    if exp_ids:
-        all_findings = to_rows(
-            client.table("findings")
-            .select("id,finding,confidence,evidence")
-            .eq("program", d.get("program", ""))
-            .is_("valid_until", "null")
-            .execute()
-            .data
-        )
-        findings = [
-            f for f in all_findings if any(eid in (f.get("evidence") or []) for eid in exp_ids)
-        ]
+    # Find active findings whose evidence overlaps with this direction's experiments
+    exp_ids = {e.id for e in experiments}
+    all_findings = find_db.list_active(program=d.program)
+    findings = [f for f in all_findings if exp_ids & set(f.evidence)]
 
     if ctx.obj.get("json"):
-        d["_experiments"] = experiments
-        d["_findings"] = findings
-        print_json(d)
+        data = d.model_dump(mode="json")
+        data["_experiments"] = [e.model_dump(mode="json") for e in experiments]
+        data["_findings"] = [f.model_dump(mode="json") for f in findings]
+        print_json(data)
         return
 
-    # Stats
-    complete = sum(1 for e in experiments if e["status"] == "complete")
-    running = sum(1 for e in experiments if e["status"] == "running")
-    open_count = sum(1 for e in experiments if e["status"] == "open")
+    complete = sum(1 for e in experiments if e.status == "complete")
+    running = sum(1 for e in experiments if e.status == "running")
+    open_count = sum(1 for e in experiments if e.status == "open")
 
-    d_created = str(d.get("created_at", ""))[:10]
+    d_created = d.created_at.strftime("%Y-%m-%d") if d.created_at else ""
     header = [
-        (
-            f"[sonde.heading]{d['id']}[/]  "
-            f"{styled_status(d.get('status', 'active'))}  {d.get('program', '')}"
-        ),
-        f"[sonde.muted]Source: {d.get('source', '—')}  Created: {d_created}[/]",
+        f"[sonde.heading]{d.id}[/]  {styled_status(d.status)}  {d.program}",
+        f"[sonde.muted]Source: {d.source or '—'}  Created: {d_created}[/]",
         f"[sonde.muted]{complete} complete, {running} running, {open_count} open[/]",
-        f"\n[sonde.heading]{d.get('title', '')}[/]",
-        f"{d.get('question', '')}",
+        f"\n[sonde.heading]{d.title}[/]",
+        f"{d.question}",
     ]
 
     out.print(
-        Panel(
-            "\n".join(header),
-            title=f"[sonde.brand]{d['id']}[/]",
-            border_style="sonde.brand.dim",
-        )
+        Panel("\n".join(header), title=f"[sonde.brand]{d.id}[/]", border_style="sonde.brand.dim")
     )
 
-    # Experiments table
     if experiments:
         exp_rows = []
         for e in experiments:
-            source = e.get("source", "")
+            source = e.source
             if "/" in source:
                 source = source.split("/")[-1]
             exp_rows.append(
-                {
-                    "id": e["id"],
-                    "status": e.get("status", ""),
-                    "source": source,
-                    "summary": record_summary(e, 45),
-                }
+                {"id": e.id, "status": e.status, "source": source, "summary": record_summary(e, 45)}
             )
         print_table(["id", "status", "source", "summary"], exp_rows, title="Experiments")
 
-    # Findings
     if findings:
         print_table(
             ["id", "finding", "confidence"],
             [
-                {
-                    "id": f["id"],
-                    "finding": _truncate_text(f.get("finding"), 50),
-                    "confidence": f.get("confidence", ""),
-                }
+                {"id": f.id, "finding": truncate_text(f.finding, 50), "confidence": f.confidence}
                 for f in findings
             ],
             title="Findings from this direction",
         )
 
     print_breadcrumbs(
-        [
-            f"List:  sonde list --direction {d['id']}",
-            f"Brief: sonde brief -p {d.get('program', '')}",
-        ]
+        [f"List:  sonde list --direction {d.id}", f"Brief: sonde brief -p {d.program}"]
     )
 
 
@@ -316,31 +235,17 @@ def show_dispatch(ctx: click.Context, record_id: str, graph: bool) -> None:
     elif rid.startswith("DIR-"):
         _show_direction(ctx, rid)
     elif rid.startswith("EXP-") or rid[0].isdigit():
-        # Delegate to experiment show (the original)
-        # We import here to avoid circular imports
-        ctx.invoke(
-            _get_experiment_show(),
-            experiment_id=rid,
-            graph=graph,
-        )
+        ctx.invoke(_get_experiment_show(), experiment_id=rid, graph=graph)
     else:
-        # Reject unknown prefixes with a clear error
         if "-" in rid:
             prefix = rid.split("-")[0]
-            from sonde.output import print_error
-
             print_error(
                 f"Unknown record type: {prefix}",
                 "Recognized prefixes: EXP, FIND, Q, DIR.",
                 f"Try: sonde show EXP-{rid.split('-', 1)[1]}",
             )
             raise SystemExit(1)
-        # Bare ID without prefix — try as experiment
-        ctx.invoke(
-            _get_experiment_show(),
-            experiment_id=rid,
-            graph=graph,
-        )
+        ctx.invoke(_get_experiment_show(), experiment_id=rid, graph=graph)
 
 
 def _get_experiment_show():

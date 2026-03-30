@@ -187,20 +187,27 @@ def patched_db(mock_supabase: MagicMock, authenticated: None) -> MagicMock:
         patch("sonde.db.client._client", mock_supabase),
         patch("sonde.db.client._client_token", "eyJ-fake-access-token"),
     ):
-        # Patch the imported reference in modules that bind get_client at import time
+        # Patch the imported reference in all modules that bind get_client at import time
         import sonde.commands.admin as admin_mod
         import sonde.db.activity as activity_mod
+        import sonde.db.directions as dir_mod
         import sonde.db.experiments as exp_mod
+        import sonde.db.findings as find_mod
+        import sonde.db.ids as ids_mod
+        import sonde.db.notes as notes_mod
+        import sonde.db.programs as prog_mod
+        import sonde.db.questions as q_mod
+        import sonde.db.tags as tags_mod
 
-        orig_exp = exp_mod.get_client
-        orig_admin = admin_mod.get_client
-        orig_activity = activity_mod.get_client
-        exp_mod.get_client = lambda: mock_supabase
-        admin_mod.get_client = lambda: mock_supabase
-        activity_mod.get_client = lambda: mock_supabase
+        modules = [
+            admin_mod, activity_mod, dir_mod, exp_mod, find_mod,
+            ids_mod, notes_mod, prog_mod, q_mod, tags_mod,
+        ]
+        originals = {mod: mod.get_client for mod in modules}
+        for mod in modules:
+            mod.get_client = lambda: mock_supabase
         try:
             yield mock_supabase
         finally:
-            exp_mod.get_client = orig_exp
-            admin_mod.get_client = orig_admin
-            activity_mod.get_client = orig_activity
+            for mod, orig in originals.items():
+                mod.get_client = orig

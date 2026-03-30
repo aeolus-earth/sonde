@@ -14,3 +14,14 @@ def rows(data: Any) -> list[dict[str, Any]]:
     if isinstance(data, list):
         return cast(list[dict[str, Any]], data)
     return []
+
+
+def apply_source_filter(query: Any, source: str) -> Any:
+    """Apply source filter: prefix match for bare names, exact for 'type/name'.
+
+    >>> apply_source_filter(query, "mason")   # ilike 'mason%'
+    >>> apply_source_filter(query, "human/mason")  # eq exact
+    """
+    if "/" not in source:
+        return query.ilike("source", f"{source}%")
+    return query.eq("source", source)

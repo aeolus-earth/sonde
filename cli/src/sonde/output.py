@@ -66,7 +66,7 @@ STATUS_STYLE: dict[str, str] = {
     "open": "status.open",
     "running": "status.running",
     "complete": "status.complete",
-    "failed": "status.error",
+    "failed": "status.failed",
     "superseded": "sonde.muted",
 }
 
@@ -160,17 +160,17 @@ def record_summary(record: dict | object, length: int = 60) -> str:
         for line in content.splitlines():
             stripped = line.strip().lstrip("# ").strip()
             if stripped:
-                return _truncate_text(stripped, length)
+                return truncate_text(stripped, length)
     finding = row.get("finding") if row is not None else getattr(record, "finding", None)
     if finding:
-        return _truncate_text(finding, length)
+        return truncate_text(finding, length)
     hypothesis = row.get("hypothesis") if row is not None else getattr(record, "hypothesis", None)
     if hypothesis:
-        return _truncate_text(hypothesis, length)
+        return truncate_text(hypothesis, length)
     return "—"
 
 
-def _truncate_text(text: str | None, length: int) -> str:
+def truncate_text(text: str | None, length: int) -> str:
     """Truncate text with ellipsis."""
     if not text:
         return "—"

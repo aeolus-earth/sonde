@@ -6,10 +6,9 @@ from pathlib import Path
 
 import click
 
-from sonde.auth import get_current_user
-from sonde.db import rows
+from sonde.auth import get_current_user, resolve_source
+from sonde.db import experiments as exp_db
 from sonde.db.artifacts import upload_file
-from sonde.db.client import get_client
 from sonde.local import ensure_subdir, find_sonde_dir
 from sonde.output import err, print_error, print_json, print_success
 
@@ -36,11 +35,9 @@ def attach(
       sonde attach EXP-0001 output/*.nc
     """
     experiment_id = experiment_id.upper()
-    client = get_client()
 
     # Verify experiment exists
-    exp_result = client.table("experiments").select("id").eq("id", experiment_id).execute()
-    if not rows(exp_result.data):
+    if not exp_db.exists(experiment_id):
         print_error(
             f"Experiment {experiment_id} not found",
             "Cannot attach files to a nonexistent experiment.",
@@ -49,7 +46,7 @@ def attach(
         raise SystemExit(1)
 
     user = get_current_user()
-    source = f"human/{user.email.split('@')[0]}" if user and not user.is_agent else "agent"
+    source = resolve_source(user)
 
     results = []
     for file_str in files:

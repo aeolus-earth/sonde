@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import click
 
+from sonde.auth import resolve_source
 from sonde.cli_options import pass_output_options
 from sonde.commands.questions import questions_cmd
 from sonde.db import questions as db
@@ -73,14 +74,7 @@ def question_create(
       sonde question create -p weather-intervention "Does spectral bin change the CCN curve?"
       sonde question create -p weather-intervention "BL heating interaction?" --tag cloud-seeding
     """
-    from sonde.auth import get_current_user
-
-    user = get_current_user()
-    resolved_source = source or (
-        "agent"
-        if (user and user.is_agent)
-        else (f"human/{user.email.split('@')[0]}" if user else "unknown")
-    )
+    resolved_source = source or resolve_source()
 
     data = QuestionCreate(
         program=program,
@@ -107,9 +101,7 @@ def question_create(
 @click.option("--program", "-p", help="Override program for the new experiment")
 @pass_output_options
 @click.pass_context
-def question_promote(
-    ctx: click.Context, question_id: str, program: str | None
-) -> None:
+def question_promote(ctx: click.Context, question_id: str, program: str | None) -> None:
     """Promote a question to an open experiment.
 
     Creates an open experiment from the question text and marks the
@@ -120,7 +112,6 @@ def question_promote(
       sonde question promote Q-001
       sonde question promote Q-001 -p weather-intervention
     """
-    from sonde.auth import get_current_user
     from sonde.db import experiments as exp_db
     from sonde.models.experiment import ExperimentCreate
 
@@ -129,7 +120,7 @@ def question_promote(
         print_error(
             f"Question {question_id} not found",
             "No question with this ID.",
-            "",
+            "List questions: sonde questions",
         )
         raise SystemExit(1)
 
@@ -137,23 +128,18 @@ def question_promote(
         print_error(
             f"Question {question_id} already promoted",
             f"Promoted to {q.promoted_to_type} {q.promoted_to_id}.",
-            "",
+            f"View: sonde show {q.promoted_to_id}",
         )
         raise SystemExit(1)
 
-    user = get_current_user()
-    source = (
-        "agent"
-        if (user and user.is_agent)
-        else (f"human/{user.email.split('@')[0]}" if user else "unknown")
-    )
+    source = resolve_source()
 
     resolved_program = program or q.program
     if not resolved_program:
         print_error(
             "No program",
             "Specify --program or ensure the question has a program.",
-            "",
+            "Use --program <name> or set 'program' in .aeolus.yaml",
         )
         raise SystemExit(2)
 
@@ -188,9 +174,7 @@ def question_promote(
     log_activity(exp.id, "experiment", "created")
 
     if ctx.obj.get("json"):
-        print_json(
-            {"question_id": question_id.upper(), "experiment_id": exp.id}
-        )
+        print_json({"question_id": question_id.upper(), "experiment_id": exp.id})
     else:
         print_success(
             f"Promoted {question_id.upper()} \u2192 {exp.id}",

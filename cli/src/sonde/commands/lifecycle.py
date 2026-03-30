@@ -61,7 +61,11 @@ def _change_status(
 
     exp = db.get(experiment_id)
     if not exp:
-        print_error(f"{experiment_id} not found", "", "sonde list")
+        print_error(
+            f"{experiment_id} not found",
+            "No experiment with this ID exists.",
+            "List experiments: sonde list",
+        )
         raise SystemExit(1)
 
     old_status = exp.status

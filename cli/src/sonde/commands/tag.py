@@ -167,9 +167,7 @@ def _normalize_tag(t: str) -> str:
 @click.option("--force", is_flag=True, help="Apply changes (default is dry-run)")
 @pass_output_options
 @click.pass_context
-def tag_normalize(
-    ctx: click.Context, program: str | None, force: bool
-) -> None:
+def tag_normalize(ctx: click.Context, program: str | None, force: bool) -> None:
     """Normalize duplicate tags (case, underscores, spaces).
 
     By default shows a preview. Use --force to apply.
@@ -198,9 +196,7 @@ def tag_normalize(
         groups.setdefault(key, []).append(t)
 
     # Filter to groups with duplicates
-    dup_groups = {
-        k: variants for k, variants in groups.items() if len(variants) > 1
-    }
+    dup_groups = {k: variants for k, variants in groups.items() if len(variants) > 1}
 
     if not dup_groups:
         if ctx.obj.get("json"):
@@ -233,22 +229,24 @@ def tag_normalize(
 
     # JSON output
     if ctx.obj.get("json"):
-        print_json({
-            "groups": [
-                {
-                    "canonical": canonicals[k],
-                    "variants": sorted(v),
-                    "affected_experiments": sum(
-                        1
-                        for exp_id, old, _new in changes
-                        if any(_normalize_tag(t) == k for t in old)
-                    ),
-                }
-                for k, v in sorted(dup_groups.items())
-            ],
-            "total_affected": len(changes),
-            "dry_run": not force,
-        })
+        print_json(
+            {
+                "groups": [
+                    {
+                        "canonical": canonicals[k],
+                        "variants": sorted(v),
+                        "affected_experiments": sum(
+                            1
+                            for exp_id, old, _new in changes
+                            if any(_normalize_tag(t) == k for t in old)
+                        ),
+                    }
+                    for k, v in sorted(dup_groups.items())
+                ],
+                "total_affected": len(changes),
+                "dry_run": not force,
+            }
+        )
         if not force:
             return
     elif not force:
@@ -258,20 +256,19 @@ def tag_normalize(
             canonical = canonicals[key]
             variants = [v for v in sorted(dup_groups[key]) if v != canonical]
             affected = sum(
-                1
-                for _eid, old, _new in changes
-                if any(_normalize_tag(t) == key for t in old)
+                1 for _eid, old, _new in changes if any(_normalize_tag(t) == key for t in old)
             )
             for v in variants:
-                rows.append({
-                    "from": v,
-                    "to": canonical,
-                    "experiments": str(affected),
-                })
+                rows.append(
+                    {
+                        "from": v,
+                        "to": canonical,
+                        "experiments": str(affected),
+                    }
+                )
         print_table(["from", "to", "experiments"], rows, title="Tag normalization preview")
         err.print(
-            f"\n[dim]{len(dup_groups)} group(s), "
-            f"{len(changes)} experiment(s) affected.[/dim]"
+            f"\n[dim]{len(dup_groups)} group(s), {len(changes)} experiment(s) affected.[/dim]"
         )
         print_breadcrumbs(["Apply: sonde tag normalize --force"])
         return
@@ -282,20 +279,13 @@ def tag_normalize(
     for exp_id, old_tags, new_tags in changes:
         db.set_tags(exp_id, new_tags)
         # Log which tags changed
-        changed_tags = {
-            old: new
-            for old, new in zip(old_tags, new_tags, strict=True)
-            if old != new
-        }
-        log_activity(
-            exp_id, "experiment", "tag_normalized", {"changes": changed_tags}
-        )
+        changed_tags = {old: new for old, new in zip(old_tags, new_tags, strict=True) if old != new}
+        log_activity(exp_id, "experiment", "tag_normalized", {"changes": changed_tags})
 
     if not ctx.obj.get("json"):
         print_success(
             f"Normalized {len(changes)} experiment(s)",
             details=[
-                f"{', '.join(sorted(dup_groups[k]))} → {canonicals[k]}"
-                for k in sorted(dup_groups)
+                f"{', '.join(sorted(dup_groups[k]))} → {canonicals[k]}" for k in sorted(dup_groups)
             ],
         )

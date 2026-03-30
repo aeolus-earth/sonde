@@ -19,6 +19,7 @@ from sonde.output import err, print_json, print_table
 @click.option("--type", "record_type", help="Filter by record type (experiment, finding, question)")
 @click.option("--count", "show_count", is_flag=True, help="Show only the count")
 @click.option("--limit", "-n", default=20, type=int, help="Max results (default: 20)")
+@click.option("--offset", default=0, type=int, help="Skip first N results")
 @pass_output_options
 @click.pass_context
 def recent(
@@ -31,6 +32,7 @@ def recent(
     record_type: str | None,
     show_count: bool,
     limit: int,
+    offset: int,
 ) -> None:
     """Show recent activity across the knowledge base.
 
@@ -70,6 +72,7 @@ def recent(
         action=action,
         record_type=record_type,
         limit=limit,
+        offset=offset,
     )
 
     if show_count:

@@ -11,52 +11,47 @@ import click
 
 from sonde.cli_options import pass_output_options
 from sonde.config import get_settings
-from sonde.db import rows
-from sonde.db.client import get_client
+from sonde.db import experiments as exp_db
+from sonde.db import findings as find_db
+from sonde.db import questions as q_db
 from sonde.local import find_sonde_dir
+from sonde.models.experiment import Experiment
+from sonde.models.finding import Finding
+from sonde.models.question import Question
 from sonde.output import (
-    _truncate_text,
     err,
     print_breadcrumbs,
     print_error,
     print_json,
     print_table,
     record_summary,
+    truncate_text,
 )
 
 
-def _merged_params(e: dict) -> dict[str, Any]:
-    """Merge parameters + metadata for an experiment dict."""
-    return {**e.get("metadata", {}), **e.get("parameters", {})}
+def _merged_params(e: Experiment) -> dict[str, Any]:
+    """Merge parameters + metadata for an experiment."""
+    return {**(e.metadata or {}), **(e.parameters or {})}
 
 
-def _apply_experiment_filters(query, *, program=None, direction=None, tags=None, since=None):
-    """Apply common filters to a Supabase query on the experiments table."""
-    if program:
-        query = query.eq("program", program)
-    if direction:
-        query = query.eq("direction_id", direction)
-    if tags:
-        for t in tags:
-            query = query.contains("tags", [t])
-    if since:
-        query = query.gte("created_at", since)
-    return query
+# ---------------------------------------------------------------------------
+# Data assembly — turns Pydantic models into structured brief dicts
+# ---------------------------------------------------------------------------
 
 
 def _build_brief_data(
     title: str,
-    experiments: list[dict],
-    findings: list[dict],
-    questions: list[dict],
+    experiments: list[Experiment],
+    findings: list[Finding],
+    questions: list[Question],
 ) -> dict[str, Any]:
-    """Assemble structured brief data from raw DB rows."""
+    """Assemble structured brief data from model lists."""
     now = datetime.now(UTC).isoformat()
 
-    complete = [e for e in experiments if e["status"] == "complete"]
-    open_exps = [e for e in experiments if e["status"] == "open"]
-    running = [e for e in experiments if e["status"] == "running"]
-    failed = [e for e in experiments if e["status"] == "failed"]
+    complete = [e for e in experiments if e.status == "complete"]
+    open_exps = [e for e in experiments if e.status == "open"]
+    running = [e for e in experiments if e.status == "running"]
+    failed = [e for e in experiments if e.status == "failed"]
 
     # Coverage and gaps
     coverage: dict[str, list[str]] = {}
@@ -83,50 +78,47 @@ def _build_brief_data(
         },
         "findings": [
             {
-                "id": f["id"],
-                "finding": f.get("finding", ""),
-                "confidence": f.get("confidence", "medium"),
-                "evidence": f.get("evidence", []),
-                "topic": f.get("topic"),
+                "id": f.id,
+                "finding": f.finding,
+                "confidence": f.confidence,
+                "evidence": f.evidence,
+                "topic": f.topic,
             }
             for f in findings
         ],
         "open_experiments": [
             {
-                "id": e["id"],
+                "id": e.id,
                 "summary": record_summary(e, 120),
-                "source": e["source"],
-                "tags": e.get("tags", []),
-                "created_at": e.get("created_at", ""),
+                "source": e.source,
+                "tags": e.tags,
+                "created_at": e.created_at.isoformat() if e.created_at else "",
             }
             for e in open_exps
         ],
         "running_experiments": [
             {
-                "id": e["id"],
+                "id": e.id,
                 "summary": record_summary(e, 120),
-                "source": e["source"],
-                "tags": e.get("tags", []),
-                "created_at": e.get("created_at", ""),
+                "source": e.source,
+                "tags": e.tags,
+                "created_at": e.created_at.isoformat() if e.created_at else "",
             }
             for e in running
         ],
         "recent_completions": [
             {
-                "id": e["id"],
+                "id": e.id,
                 "summary": record_summary(e, 120),
-                "finding": _truncate_text(e.get("finding"), 120),
-                "completed_at": e.get("updated_at", e.get("created_at", "")),
+                "finding": truncate_text(e.finding, 120),
+                "completed_at": (e.updated_at or e.created_at).isoformat()
+                if (e.updated_at or e.created_at)
+                else "",
             }
             for e in complete[:5]
         ],
         "open_questions": [
-            {
-                "id": q["id"],
-                "question": q.get("question", ""),
-                "status": q.get("status", "open"),
-            }
-            for q in questions
+            {"id": q.id, "question": q.question, "status": q.status} for q in questions
         ],
         "coverage": coverage,
         "gaps": gaps,
@@ -134,35 +126,24 @@ def _build_brief_data(
 
 
 def _build_cross_coverage(
-    complete: list[dict],
+    complete: list[Experiment],
     param_names: list[str] | None = None,
     max_params: int = 3,
 ) -> dict[str, Any] | None:
-    """Compute cross-parameter coverage from complete experiments.
-
-    Returns None if fewer than 2 parameters are available for cross-analysis.
-    """
-    # Build per-parameter value sets (merged view)
+    """Compute cross-parameter coverage from complete experiments."""
     cov: dict[str, set[str]] = defaultdict(set)
     for e in complete:
         for k, v in _merged_params(e).items():
             cov[k].add(str(v))
 
     def _is_scalar(v: str) -> bool:
-        """Check if a stringified value looks like a scalar (not a list/dict)."""
         return not (v.startswith("[") or v.startswith("{"))
 
     if param_names:
-        # Use only the requested parameters
         selected = [p for p in param_names if p in cov]
     else:
-        # Auto-select: parameters with 2-10 distinct scalar values
         selected = sorted(
-            [
-                k
-                for k, v in cov.items()
-                if 2 <= len(v) <= 10 and all(_is_scalar(s) for s in v)
-            ],
+            [k for k, v in cov.items() if 2 <= len(v) <= 10 and all(_is_scalar(s) for s in v)],
             key=lambda k: len(cov[k]),
         )
 
@@ -170,18 +151,15 @@ def _build_cross_coverage(
     if len(selected) < 2:
         return None
 
-    # Build tested combinations
     tested_combos: set[tuple[str, ...]] = set()
     for e in complete:
         params = _merged_params(e)
         combo = tuple(str(params.get(p, "")) for p in selected)
-        if all(combo):  # skip if any param missing
+        if all(combo):
             tested_combos.add(combo)
 
-    # Build all possible combinations
     all_values = [sorted(cov[p]) for p in selected]
     all_combos = set(product(*all_values))
-
     untested = sorted(all_combos - tested_combos)
     total = len(all_combos)
     tested_count = len(tested_combos)
@@ -189,11 +167,16 @@ def _build_cross_coverage(
     return {
         "dimensions": selected,
         "tested": [list(c) for c in sorted(tested_combos)],
-        "untested": [list(c) for c in untested[:100]],  # cap display
+        "untested": [list(c) for c in untested[:100]],
         "tested_count": tested_count,
         "total": total,
         "coverage_pct": round(100 * tested_count / total, 1) if total > 0 else 0,
     }
+
+
+# ---------------------------------------------------------------------------
+# Command
+# ---------------------------------------------------------------------------
 
 
 @click.command()
@@ -250,13 +233,10 @@ def brief(
         raise SystemExit(2)
 
     if not resolved and not show_all and not direction and not tag:
-        # No scope specified — default to --all
         show_all = True
 
-    client = get_client()
-
     if show_all:
-        _brief_all(ctx, client, gaps, gap_params, since, save)
+        _brief_all(ctx, gaps, gap_params, since, save)
         return
 
     # Build title from active filters
@@ -269,45 +249,20 @@ def brief(
         title_parts.append(f"since {since}")
     title = " / ".join(title_parts) if title_parts else "all"
 
-    # Fetch experiments with filters (select only columns needed for brief)
-    brief_columns = (
-        "id,status,parameters,metadata,content,finding,source,tags,"
-        "created_at,updated_at,direction_id"
+    # Fetch via db layer
+    experiments = exp_db.list_for_brief(
+        program=resolved, direction=direction, tags=list(tag) or None, since=since
     )
-    exp_query = client.table("experiments").select(brief_columns).order("created_at", desc=True)
-    exp_query = _apply_experiment_filters(
-        exp_query, program=resolved, direction=direction, tags=list(tag) or None, since=since
-    )
-    experiments = rows(exp_query.execute().data)
-
-    # Fetch findings (scoped to program if available)
-    find_query = (
-        client.table("findings")
-        .select("*")
-        .is_("valid_until", "null")
-        .order("created_at", desc=True)
-    )
-    if resolved:
-        find_query = find_query.eq("program", resolved)
-    findings = rows(find_query.execute().data)
-
-    # Fetch questions (scoped to program if available)
-    q_query = (
-        client.table("questions").select("*").eq("status", "open").order("created_at", desc=True)
-    )
-    if resolved:
-        q_query = q_query.eq("program", resolved)
-    questions = rows(q_query.execute().data)
+    findings = find_db.list_active(program=resolved)
+    questions = q_db.list_questions(program=resolved)
 
     data = _build_brief_data(title, experiments, findings, questions)
 
-    # Cross-parameter gap analysis
     cross_coverage = None
     if gaps:
-        complete = [e for e in experiments if e["status"] == "complete"]
+        complete = [e for e in experiments if e.status == "complete"]
         cross_coverage = _build_cross_coverage(
-            complete,
-            param_names=list(gap_params) if gap_params else None,
+            complete, param_names=list(gap_params) if gap_params else None
         )
         if cross_coverage:
             data["cross_coverage"] = cross_coverage
@@ -317,8 +272,7 @@ def brief(
         return
 
     _render_human(
-        data, cross_coverage, gaps,
-        program=resolved, direction=direction, tag=tag, since=since,
+        data, cross_coverage, gaps, program=resolved, direction=direction, tag=tag, since=since
     )
 
     if save:
@@ -327,54 +281,30 @@ def brief(
 
 def _brief_all(
     ctx: click.Context,
-    client,
     gaps: bool,
     gap_params: tuple[str, ...],
     since: str | None,
     save: bool,
 ) -> None:
     """Generate a multi-program brief."""
-    brief_columns = (
-        "id,status,parameters,metadata,content,finding,source,tags,"
-        "created_at,updated_at,direction_id,program"
-    )
-    exp_query = client.table("experiments").select(brief_columns).order("created_at", desc=True)
-    if since:
-        exp_query = exp_query.gte("created_at", since)
-    experiments = rows(exp_query.execute().data)
-
-    findings = rows(
-        client.table("findings")
-        .select("*")
-        .is_("valid_until", "null")
-        .order("created_at", desc=True)
-        .execute()
-        .data
-    )
-    questions = rows(
-        client.table("questions")
-        .select("*")
-        .eq("status", "open")
-        .order("created_at", desc=True)
-        .execute()
-        .data
-    )
+    experiments = exp_db.list_for_brief(since=since)
+    findings = find_db.list_active()
+    questions = q_db.list_questions()
 
     # Group experiments by program
-    by_program: dict[str, list[dict]] = defaultdict(list)
+    by_program: dict[str, list[Experiment]] = defaultdict(list)
     for e in experiments:
-        by_program[e["program"]].append(e)
+        by_program[e.program].append(e)
 
     if ctx.obj.get("json"):
         programs_data = []
         for prog, exps in sorted(by_program.items()):
-            prog_findings = [f for f in findings if f["program"] == prog]
-            prog_questions = [q for q in questions if q["program"] == prog]
+            prog_findings = [f for f in findings if f.program == prog]
+            prog_questions = [q for q in questions if q.program == prog]
             programs_data.append(_build_brief_data(prog, exps, prog_findings, prog_questions))
         print_json({"programs": programs_data, "generated_at": datetime.now(UTC).isoformat()})
         return
 
-    # Multi-program summary table
     title = "all programs"
     if since:
         title += f" (since {since})"
@@ -383,11 +313,11 @@ def _brief_all(
     summary_rows = []
     for prog in sorted(by_program):
         exps = by_program[prog]
-        complete = sum(1 for e in exps if e["status"] == "complete")
-        running = sum(1 for e in exps if e["status"] == "running")
-        open_count = sum(1 for e in exps if e["status"] == "open")
-        prog_findings = sum(1 for f in findings if f["program"] == prog)
-        prog_questions = sum(1 for q in questions if q["program"] == prog)
+        complete = sum(1 for e in exps if e.status == "complete")
+        running = sum(1 for e in exps if e.status == "running")
+        open_count = sum(1 for e in exps if e.status == "open")
+        prog_findings = sum(1 for f in findings if f.program == prog)
+        prog_questions = sum(1 for q in questions if q.program == prog)
         summary_rows.append(
             {
                 "program": prog,
@@ -403,17 +333,16 @@ def _brief_all(
     total = len(experiments)
     err.print(f"\n[sonde.muted]{total} experiment(s) across {len(by_program)} program(s)[/]")
 
-    print_breadcrumbs(
-        [
-            "Drill down: sonde brief -p <program>",
-            "Status:     sonde status",
-        ]
-    )
+    print_breadcrumbs(["Drill down: sonde brief -p <program>", "Status:     sonde status"])
 
     if save:
-        # Build a combined brief for saving
         data = _build_brief_data("all programs", experiments, findings, questions)
         _save_markdown(data)
+
+
+# ---------------------------------------------------------------------------
+# Rendering
+# ---------------------------------------------------------------------------
 
 
 def _render_human(
@@ -435,14 +364,13 @@ def _render_human(
         f"{stats['open_questions']} question(s)[/]\n"
     )
 
-    # Findings
     if data["findings"]:
         print_table(
             ["id", "finding", "confidence", "evidence"],
             [
                 {
                     "id": f["id"],
-                    "finding": _truncate_text(f["finding"], 50),
+                    "finding": truncate_text(f["finding"], 50),
                     "confidence": f["confidence"],
                     "evidence": ", ".join(f["evidence"]),
                 }
@@ -451,14 +379,13 @@ def _render_human(
             title="Findings",
         )
 
-    # Open experiments
     if data["open_experiments"]:
         print_table(
             ["id", "summary", "source", "created"],
             [
                 {
                     "id": e["id"],
-                    "summary": _truncate_text(e["summary"], 45),
+                    "summary": truncate_text(e["summary"], 45),
                     "source": e["source"].split("/")[-1] if "/" in e["source"] else e["source"],
                     "created": e["created_at"][:10] if e["created_at"] else "—",
                 }
@@ -467,14 +394,13 @@ def _render_human(
             title="Open Experiments",
         )
 
-    # Running experiments
     if data["running_experiments"]:
         print_table(
             ["id", "summary", "source"],
             [
                 {
                     "id": e["id"],
-                    "summary": _truncate_text(e["summary"], 50),
+                    "summary": truncate_text(e["summary"], 50),
                     "source": e["source"].split("/")[-1] if "/" in e["source"] else e["source"],
                 }
                 for e in data["running_experiments"]
@@ -482,14 +408,13 @@ def _render_human(
             title="Running",
         )
 
-    # Recent completions
     if data["recent_completions"]:
         print_table(
             ["id", "summary", "finding"],
             [
                 {
                     "id": e["id"],
-                    "summary": _truncate_text(e["summary"], 40),
+                    "summary": truncate_text(e["summary"], 40),
                     "finding": e["finding"] if e["finding"] != "—" else "—",
                 }
                 for e in data["recent_completions"]
@@ -497,21 +422,16 @@ def _render_human(
             title="Recent Completions",
         )
 
-    # Open questions
     if data["open_questions"]:
         print_table(
             ["id", "question"],
             [
-                {
-                    "id": q["id"],
-                    "question": _truncate_text(q["question"], 65),
-                }
+                {"id": q["id"], "question": truncate_text(q["question"], 65)}
                 for q in data["open_questions"]
             ],
             title="Open Questions",
         )
 
-    # Coverage and gaps (keep as text — tables don't add much here)
     if data["coverage"]:
         err.print("\n[sonde.heading]Coverage[/]")
         for param, values in data["coverage"].items():
@@ -524,7 +444,6 @@ def _render_human(
                     f"[sonde.accent]{g['parameter']}[/]: {', '.join(g['values_tested'])}"
                 )
 
-    # Cross-parameter coverage (--gaps)
     if cross_coverage:
         dims = cross_coverage["dimensions"]
         err.print(f"\n[sonde.heading]Cross-Parameter Coverage ({' x '.join(dims)})[/]")
@@ -542,7 +461,6 @@ def _render_human(
     elif gaps:
         err.print("\n[dim]Not enough multi-valued parameters for cross-coverage analysis.[/]")
 
-    # Breadcrumbs — reflect active filters
     breadcrumbs = []
     if program:
         breadcrumbs.append(f"Drill down: sonde list --open -p {program}")
@@ -557,16 +475,19 @@ def _render_human(
     print_breadcrumbs(breadcrumbs)
 
 
+# ---------------------------------------------------------------------------
+# Save
+# ---------------------------------------------------------------------------
+
+
 def _save_markdown(data: dict) -> None:
     """Save brief data as markdown + provenance watermark to .sonde/."""
     sonde_dir = find_sonde_dir()
 
-    # Save the brief markdown
     md = _render_markdown(data)
     brief_path = sonde_dir / "brief.md"
     brief_path.write_text(md, encoding="utf-8")
 
-    # Save provenance watermark for health checks
     _save_provenance(data, sonde_dir)
 
     err.print(f"\n[sonde.muted]Saved → {brief_path.relative_to(sonde_dir.parent)}[/]")
@@ -580,14 +501,11 @@ def _save_provenance(data: dict, sonde_dir) -> None:
         timestamps = [r.get(key) for r in records if r.get(key)]
         if not timestamps:
             return None
-        # Handle both string and datetime
         latest = max(timestamps)
         if isinstance(latest, str):
             return datetime.fromisoformat(latest)
         return latest
 
-    # Reconstruct the raw record lists from brief data to get timestamps
-    # The brief data has already been processed — use what's available
     all_records = (
         data.get("open_experiments", [])
         + data.get("running_experiments", [])

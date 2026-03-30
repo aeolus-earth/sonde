@@ -66,10 +66,18 @@ def diff_cmd(ctx: click.Context, id_left: str, id_right: str) -> None:
     right = db.get(id_right.upper())
 
     if not left:
-        print_error(f"Experiment {id_left} not found", "No experiment with this ID.", "")
+        print_error(
+            f"Experiment {id_left} not found",
+            "No experiment with this ID.",
+            "List experiments: sonde list",
+        )
         raise SystemExit(1)
     if not right:
-        print_error(f"Experiment {id_right} not found", "No experiment with this ID.", "")
+        print_error(
+            f"Experiment {id_right} not found",
+            "No experiment with this ID.",
+            "List experiments: sonde list",
+        )
         raise SystemExit(1)
 
     # Compute diffs — merge parameters + metadata for a unified view

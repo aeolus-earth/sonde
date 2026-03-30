@@ -59,7 +59,9 @@ def find_sonde_dir() -> Path:
 
 def ensure_subdir(sonde_dir: Path, name: str) -> Path:
     """Ensure a subdirectory exists under .sonde/."""
-    sub = sonde_dir / name
+    sub = (sonde_dir / name).resolve()
+    if not sub.is_relative_to(sonde_dir.resolve()):
+        raise ValueError(f"Subdirectory escapes .sonde/: {name!r}")
     sub.mkdir(parents=True, exist_ok=True)
     return sub
 
@@ -89,12 +91,12 @@ def render_record(record: dict[str, Any]) -> str:
 
     fm = yaml.dump(fm_data, default_flow_style=False, sort_keys=False, allow_unicode=True)
 
-    body = record.get("content") or _generate_body(record)
+    body = record.get("content") or generate_body(record)
 
     return f"---\n{fm}---\n\n{body}\n"
 
 
-def _generate_body(record: dict[str, Any]) -> str:
+def generate_body(record: dict[str, Any]) -> str:
     """Generate a readable body from structured fields (backwards compat)."""
     lines = []
     record_id = record.get("id", "")
@@ -169,6 +171,9 @@ def parse_markdown(content: str) -> tuple[dict[str, Any], str]:
 
 def write_record(sonde_dir: Path, category: str, record_id: str, content: str) -> Path:
     """Write a rendered record to .sonde/."""
+    from sonde.db.validate import validate_id
+
+    validate_id(record_id)
     subdir = ensure_subdir(sonde_dir, category)
     filepath = subdir / f"{record_id}.md"
     filepath.write_text(content, encoding="utf-8")
@@ -177,6 +182,8 @@ def write_record(sonde_dir: Path, category: str, record_id: str, content: str) -
 
 def read_record(sonde_dir: Path, category: str, filename: str) -> tuple[dict[str, Any], str]:
     """Read and parse a record from .sonde/. Returns (frontmatter, body)."""
+    if ".." in filename:
+        return {}, ""
     filepath = sonde_dir / category / filename
     if not filepath.exists():
         filepath = sonde_dir / category / f"{filename}.md"

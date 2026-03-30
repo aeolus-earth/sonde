@@ -5,12 +5,11 @@ An experiment is a directory. Push uploads the markdown AND all files in it.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import click
 
-from sonde.auth import get_current_user
+from sonde.auth import get_current_user, resolve_source
 from sonde.config import get_settings
 from sonde.db import rows
 from sonde.db.client import get_client
@@ -155,12 +154,7 @@ def _upsert_experiment(fm: dict, body: str, filepath: Path) -> dict:
     settings = get_settings()
     user = get_current_user()
 
-    source = fm.get("source", "")
-    if not source:
-        if user and not user.is_agent:
-            source = f"human/{user.email.split('@')[0]}"
-        else:
-            source = f"human/{os.environ.get('USER', 'unknown')}"
+    source = fm.get("source", "") or resolve_source(user)
 
     program = fm.get("program") or settings.program
     if not program:
@@ -201,9 +195,9 @@ def _upsert_experiment(fm: dict, body: str, filepath: Path) -> dict:
         return rows(result.data)[0]
 
     # Create new
-    from sonde.db.experiments import _next_id
+    from sonde.db.ids import next_sequential_id
 
-    new_id = _next_id()
+    new_id = next_sequential_id("experiments", "EXP", 4)
     row["id"] = new_id
     result = client.table("experiments").insert(row).execute()
     created = rows(result.data)[0]
@@ -234,7 +228,7 @@ def _sync_directory(experiment_id: str, exp_dir: Path) -> int:
     from sonde.db.artifacts import find_by_path, upload_file
 
     user = get_current_user()
-    source = f"human/{user.email.split('@')[0]}" if user and not user.is_agent else "agent"
+    source = resolve_source(user)
 
     uploaded = 0
     for path in sorted(exp_dir.rglob("*")):

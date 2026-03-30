@@ -3,21 +3,20 @@
 from __future__ import annotations
 
 import json
-import os
 import sys
 from pathlib import Path
 
 import click
 import yaml
 
+from sonde.auth import resolve_source
 from sonde.cli_options import pass_output_options
 from sonde.config import get_settings
 from sonde.db import experiments as db
 from sonde.git import detect_git_context
-from sonde.local import _generate_body
+from sonde.local import generate_body
 from sonde.models.experiment import ExperimentCreate
 from sonde.output import (
-    _truncate_text,
     err,
     print_breadcrumbs,
     print_error,
@@ -26,6 +25,7 @@ from sonde.output import (
     print_table,
     record_summary,
     styled_status,
+    truncate_text,
 )
 
 
@@ -87,7 +87,7 @@ def _columns_for_status(status: str | None):
             "id": e.id,
             "program": e.program,
             "tags": ", ".join(e.tags)[:25] if e.tags else "—",
-            "finding": _truncate_text(e.finding, 50) if e.finding else record_summary(e, 50),
+            "finding": truncate_text(e.finding, 50) if e.finding else record_summary(e, 50),
         }
 
     def _failed(e):
@@ -202,7 +202,7 @@ def log(
         raise SystemExit(2)
 
     # Resolve source
-    resolved_source = source or settings.source or f"human/{os.environ.get('USER', 'unknown')}"
+    resolved_source = source or settings.source or resolve_source()
 
     # Resolve content from the three possible sources
     content = None
@@ -241,7 +241,7 @@ def log(
 
     # If legacy flags used without explicit content, generate content from them
     if not content and (hypothesis or parsed_params or parsed_result or finding):
-        content = _generate_body(
+        content = generate_body(
             {
                 "hypothesis": hypothesis,
                 "parameters": parsed_params,
@@ -388,18 +388,12 @@ def list_cmd(
                 "Use one or the other.",
             )
             raise SystemExit(2)
-        from sonde.auth import get_current_user
-
-        user = get_current_user()
-        if user and user.is_agent:
-            source = "agent"
-        elif user:
-            source = f"human/{user.email.split('@')[0]}"
+        source = resolve_source()
 
     # Resolve --page to offset
     if page is not None:
         if page < 1:
-            print_error("Invalid page", "Page must be >= 1.", "")
+            print_error("Invalid page", "Page must be >= 1.", "Use --page 1 for the first page.")
             raise SystemExit(2)
         offset = (page - 1) * limit
 
@@ -585,7 +579,7 @@ def show(ctx: click.Context, experiment_id: str, graph: bool):
                 [
                     {
                         "id": f["id"],
-                        "finding": _truncate_text(f.get("finding"), 55),
+                        "finding": truncate_text(f.get("finding"), 55),
                         "confidence": f.get("confidence", "medium"),
                     }
                     for f in related_findings
@@ -696,7 +690,7 @@ def search(
     # Resolve --page to offset
     if page is not None:
         if page < 1:
-            print_error("Invalid page", "Page must be >= 1.", "")
+            print_error("Invalid page", "Page must be >= 1.", "Use --page 1 for the first page.")
             raise SystemExit(2)
         offset = (page - 1) * limit
 
@@ -900,7 +894,11 @@ def update(
 
     updated = db.update(experiment_id, updates)
     if not updated:
-        print_error(f"Failed to update {experiment_id}", "Update returned no data.", "")
+        print_error(
+            f"Failed to update {experiment_id}",
+            "Update returned no data.",
+            f"Verify the experiment exists: sonde show {experiment_id}",
+        )
         raise SystemExit(1)
 
     # Log activity
@@ -1024,7 +1022,7 @@ def _render_graph(exp, client, to_rows) -> None:
                 {
                     "id": q["id"],
                     "status": q.get("status", ""),
-                    "question": _truncate_text(q.get("question"), 55),
+                    "question": truncate_text(q.get("question"), 55),
                 }
             )
         print_table(["id", "status", "question"], rows_data, title="Questions Answered")
@@ -1112,10 +1110,8 @@ def fork(
     resolved_tags = list(tag) if tag else list(source_exp.tags)
 
     # Resolve source
-    resolved_source = f"human/{os.environ.get('USER', 'unknown')}"
     settings = get_settings()
-    if settings.source:
-        resolved_source = settings.source
+    resolved_source = settings.source or resolve_source()
 
     # Auto-detect git context
     git_ctx = detect_git_context()

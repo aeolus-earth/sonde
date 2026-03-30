@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sonde.auth import get_current_user
+from sonde.auth import get_current_user, resolve_source
 from sonde.db import rows
 from sonde.db.client import get_client
 
@@ -20,18 +20,9 @@ def log_activity(
 ) -> None:
     """Append an activity log entry. Called by every write command."""
     user = get_current_user()
-
-    actor = "unknown"
-    actor_email = None
-    actor_name = None
-
-    if user:
-        if user.is_agent:
-            actor = "agent"
-        else:
-            actor = f"human/{user.email.split('@')[0]}"
-            actor_email = user.email
-            actor_name = user.name or None
+    actor = resolve_source(user)
+    actor_email = user.email if user and not user.is_agent else None
+    actor_name = (user.name or None) if user and not user.is_agent else None
 
     client = get_client()
     client.table("activity_log").insert(
@@ -56,10 +47,12 @@ def get_recent(
     action: str | None = None,
     record_type: str | None = None,
     limit: int = 20,
+    offset: int = 0,
 ) -> list[dict[str, Any]]:
     """Get recent activity entries."""
     client = get_client()
-    query = client.table("activity_log").select("*").order("created_at", desc=True).limit(limit)
+    query = client.table("activity_log").select("*").order("created_at", desc=True)
+    query = query.range(offset, offset + limit - 1) if offset else query.limit(limit)
 
     if actor:
         query = query.eq("actor", actor)

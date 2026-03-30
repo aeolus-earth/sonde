@@ -6,14 +6,13 @@ import click
 
 from sonde.cli_options import pass_output_options
 from sonde.config import get_settings
-from sonde.db import rows
-from sonde.db.client import get_client
+from sonde.db import questions as db
 from sonde.output import (
-    _truncate_text,
     err,
     print_breadcrumbs,
     print_json,
     print_table,
+    truncate_text,
 )
 
 
@@ -24,6 +23,7 @@ from sonde.output import (
 @click.option("--source", help="Filter by source")
 @click.option("--count", "show_count", is_flag=True, help="Show only the count")
 @click.option("--limit", "-n", default=50, type=int, help="Max results (default: 50)")
+@click.option("--offset", default=0, type=int, help="Skip first N results")
 @pass_output_options
 @click.pass_context
 def questions_cmd(
@@ -34,6 +34,7 @@ def questions_cmd(
     source: str | None,
     show_count: bool,
     limit: int,
+    offset: int,
 ) -> None:
     """List research questions.
 
@@ -51,48 +52,45 @@ def questions_cmd(
     settings = get_settings()
     resolved = program or settings.program or None
 
-    client = get_client()
-    query = client.table("questions").select("*").order("created_at", desc=True).limit(limit)
-
-    if resolved:
-        query = query.eq("program", resolved)
-    if not show_all:
-        query = query.in_("status", ["open", "investigating"])
-    if tag:
-        query = query.contains("tags", list(tag))
-    if source:
-        if "/" not in source:
-            query = query.ilike("source", f"{source}%")
-        else:
-            query = query.eq("source", source)
-
-    result = query.execute()
-    questions_list = rows(result.data)
-
     if show_count:
+        total = db.count_questions(
+            program=resolved,
+            include_all=show_all,
+            tags=list(tag) or None,
+            source=source,
+        )
         if ctx.obj.get("json"):
-            print_json({"count": len(questions_list)})
+            print_json({"count": total})
         else:
-            click.echo(len(questions_list))
+            click.echo(total)
         return
 
+    questions_list = db.list_questions(
+        program=resolved,
+        include_all=show_all,
+        tags=list(tag) or None,
+        source=source,
+        limit=limit,
+        offset=offset,
+    )
+
     if ctx.obj.get("json"):
-        print_json(questions_list)
+        print_json([q.model_dump(mode="json") for q in questions_list])
     elif not questions_list:
         err.print("[dim]No questions found.[/dim]")
     else:
         table_rows = []
         for q in questions_list:
-            q_source = q.get("source", "")
+            q_source = q.source
             if "/" in q_source:
                 q_source = q_source.split("/")[-1]
             table_rows.append(
                 {
-                    "id": q["id"],
-                    "status": q.get("status", "open"),
-                    "question": _truncate_text(q.get("question"), 55),
+                    "id": q.id,
+                    "status": q.status,
+                    "question": truncate_text(q.question, 55),
                     "source": q_source,
-                    "created": q.get("created_at", "")[:10],
+                    "created": q.created_at.strftime("%Y-%m-%d") if q.created_at else "—",
                 }
             )
         print_table(["id", "status", "question", "source", "created"], table_rows)

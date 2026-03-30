@@ -193,6 +193,21 @@ def get_current_user() -> UserInfo | None:
     )
 
 
+def resolve_source(user: UserInfo | None = None) -> str:
+    """Derive the source attribution string for the current actor.
+
+    Returns 'agent' for agent tokens, 'human/<email_prefix>' for humans,
+    or 'unknown' if no user context is available.
+    """
+    if user is None:
+        user = get_current_user()
+    if user is None:
+        return "unknown"
+    if user.is_agent:
+        return "agent"
+    return f"human/{user.email.split('@')[0]}"
+
+
 def is_authenticated() -> bool:
     """Quick check — is there a usable token? Attempts refresh if expired."""
     if os.environ.get("SONDE_TOKEN"):

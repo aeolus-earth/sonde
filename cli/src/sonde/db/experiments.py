@@ -6,6 +6,7 @@ from typing import Any
 
 from postgrest.exceptions import APIError
 
+from sonde.db import apply_source_filter
 from sonde.db import rows as to_rows
 from sonde.db.client import get_client
 from sonde.db.ids import create_with_retry
@@ -27,9 +28,14 @@ def get(experiment_id: str) -> Experiment | None:
     client = get_client()
     result = client.table("experiments").select("*").eq("id", experiment_id).execute()
     rows = to_rows(result.data)
-    if rows:
-        return Experiment(**rows[0])
-    return None
+    return Experiment(**rows[0]) if rows else None
+
+
+def exists(experiment_id: str) -> bool:
+    """Check if an experiment exists by ID."""
+    client = get_client()
+    result = client.table("experiments").select("id").eq("id", experiment_id).execute()
+    return bool(to_rows(result.data))
 
 
 def count_experiments(
@@ -45,25 +51,17 @@ def count_experiments(
     """Return the total count of experiments matching filters (no limit)."""
     client = get_client()
     query = client.table("experiments").select("id", count="exact")
-    if program:
-        query = query.eq("program", program)
-    if status:
-        query = query.eq("status", status)
-    if source:
-        if "/" not in source:
-            query = query.ilike("source", f"{source}%")
-        else:
-            query = query.eq("source", source)
-    if tags:
-        query = query.contains("tags", tags)
-    if direction:
-        query = query.eq("direction_id", direction)
-    if since:
-        query = query.gte("created_at", since)
-    if before:
-        query = query.lte("created_at", before)
-    result = query.execute()
-    return result.count or 0
+    query = _apply_filters(
+        query,
+        program=program,
+        status=status,
+        source=source,
+        tags=tags,
+        direction=direction,
+        since=since,
+        before=before,
+    )
+    return query.execute().count or 0
 
 
 def list_experiments(
@@ -86,27 +84,19 @@ def list_experiments(
         client.table("experiments")
         .select("*")
         .order(order_field, desc=True)
-        .range(offset, offset + limit)
+        .range(offset, offset + limit - 1)
     )
-    if program:
-        query = query.eq("program", program)
-    if status:
-        query = query.eq("status", status)
-    if source:
-        if "/" not in source:
-            query = query.ilike("source", f"{source}%")
-        else:
-            query = query.eq("source", source)
-    if tags:
-        query = query.contains("tags", tags)
-    if direction:
-        query = query.eq("direction_id", direction)
-    if since:
-        query = query.gte("created_at", since)
-    if before:
-        query = query.lte("created_at", before)
-    result = query.execute()
-    return [Experiment(**row) for row in to_rows(result.data)]
+    query = _apply_filters(
+        query,
+        program=program,
+        status=status,
+        source=source,
+        tags=tags,
+        direction=direction,
+        since=since,
+        before=before,
+    )
+    return [Experiment(**row) for row in to_rows(query.execute().data)]
 
 
 def search(
@@ -132,34 +122,25 @@ def search(
     if text:
         # Try RPC for ranked full-text search; fall back to client-side filtering
         try:
-            # Send ALL 6 params — PostgREST requires exact name matching
-            # and won't resolve SQL DEFAULT values for omitted params.
             rpc_params: dict[str, Any] = {
                 "search_query": text,
                 "filter_program": program,
                 "filter_status": status,
                 "filter_tags": tags,
-                "result_limit": limit + 1,  # +1 for has_more detection
+                "result_limit": limit + 1,
                 "result_offset": offset,
             }
             result = client.rpc("search_experiments", rpc_params).execute()
             experiments = [Experiment(**row) for row in to_rows(result.data)]
         except APIError as exc:
-            import sys
+            from sonde.output import err
 
-            print(
-                f"Warning: Full-text search unavailable "
-                f"({exc.code}: {exc.message}), using client-side filtering.",
-                file=sys.stderr,
+            err.print(
+                f"[sonde.warning]Warning:[/] Full-text search unavailable "
+                f"({exc.code}: {exc.message}), using client-side filtering."
             )
-            # Fall back: fetch experiments and filter client-side
             query = client.table("experiments").select("*").order("created_at", desc=True)
-            if program:
-                query = query.eq("program", program)
-            if status:
-                query = query.eq("status", status)
-            if tags:
-                query = query.contains("tags", tags)
+            query = _apply_filters(query, program=program, status=status, tags=tags)
             result = query.execute()
             text_lower = text.lower()
             experiments = [
@@ -182,17 +163,15 @@ def search(
         # Non-text queries use standard PostgREST filtering
         query = client.table("experiments").select("*").order("created_at", desc=True)
         if not param_filters:
-            query = query.range(offset, offset + limit)
-        if program:
-            query = query.eq("program", program)
-        if status:
-            query = query.eq("status", status)
-        if tags:
-            query = query.contains("tags", tags)
-        if since:
-            query = query.gte("created_at", since)
-        if before:
-            query = query.lte("created_at", before)
+            query = query.range(offset, offset + limit - 1)
+        query = _apply_filters(
+            query,
+            program=program,
+            status=status,
+            tags=tags,
+            since=since,
+            before=before,
+        )
         result = query.execute()
         experiments = [Experiment(**row) for row in to_rows(result.data)]
 
@@ -224,11 +203,93 @@ def search(
     return experiments
 
 
+def get_by_ids(ids: list[str]) -> list[Experiment]:
+    """Get multiple experiments by their IDs."""
+    if not ids:
+        return []
+    client = get_client()
+    result = client.table("experiments").select("*").in_("id", ids).execute()
+    return [Experiment(**row) for row in to_rows(result.data)]
+
+
+def list_by_direction(direction_id: str) -> list[Experiment]:
+    """Get all experiments in a research direction."""
+    client = get_client()
+    result = (
+        client.table("experiments")
+        .select("*")
+        .eq("direction_id", direction_id)
+        .order("created_at", desc=True)
+        .execute()
+    )
+    return [Experiment(**row) for row in to_rows(result.data)]
+
+
+def list_summary() -> list[dict[str, Any]]:
+    """Get lightweight summary (id, program, status, direction_id) for all experiments.
+
+    Used by status and brief commands for aggregation. Returns dicts
+    rather than full models to avoid fetching unnecessary columns.
+    """
+    client = get_client()
+    result = client.table("experiments").select("id,program,status,direction_id").execute()
+    return to_rows(result.data)
+
+
+def list_for_brief(
+    *,
+    program: str | None = None,
+    direction: str | None = None,
+    tags: list[str] | None = None,
+    since: str | None = None,
+) -> list[Experiment]:
+    """Fetch experiments for brief generation with optional filters."""
+    client = get_client()
+    query = client.table("experiments").select("*").order("created_at", desc=True)
+    if program:
+        query = query.eq("program", program)
+    if direction:
+        query = query.eq("direction_id", direction)
+    if tags:
+        for t in tags:
+            query = query.contains("tags", [t])
+    if since:
+        query = query.gte("created_at", since)
+    return [Experiment(**row) for row in to_rows(query.execute().data)]
+
+
 def update(experiment_id: str, updates: dict[str, Any]) -> Experiment | None:
     """Update an experiment by ID."""
     client = get_client()
     result = client.table("experiments").update(updates).eq("id", experiment_id).execute()
     rows = to_rows(result.data)
-    if rows:
-        return Experiment(**rows[0])
-    return None
+    return Experiment(**rows[0]) if rows else None
+
+
+def _apply_filters(
+    query: Any,
+    *,
+    program: str | None = None,
+    status: str | None = None,
+    source: str | None = None,
+    tags: list[str] | None = None,
+    direction: str | None = None,
+    since: str | None = None,
+    before: str | None = None,
+) -> Any:
+    """Apply experiment-specific filters to a query."""
+    if program:
+        query = query.eq("program", program)
+    if status:
+        query = query.eq("status", status)
+    if source:
+        query = apply_source_filter(query, source)
+    if tags:
+        query = query.contains("tags", tags)
+    if direction:
+        query = query.eq("direction_id", direction)
+    if since:
+        query = query.gte("created_at", since)
+    if before:
+        query = query.lte("created_at", before)
+    return query
