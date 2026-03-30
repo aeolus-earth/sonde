@@ -148,7 +148,7 @@ def _make_mock_client() -> MagicMock:
 
     # .rpc() chains similarly
     rpc = client.rpc.return_value
-    rpc.execute.return_value = MagicMock(data={})
+    rpc.execute.return_value = MagicMock(data=[])
 
     return client
 
@@ -190,9 +190,11 @@ def patched_db(mock_supabase: MagicMock, authenticated: None) -> MagicMock:
         # Patch the imported reference in all modules that bind get_client at import time
         import sonde.commands.admin as admin_mod
         import sonde.db.activity as activity_mod
+        import sonde.db.artifacts as art_mod
         import sonde.db.directions as dir_mod
         import sonde.db.experiments as exp_mod
         import sonde.db.findings as find_mod
+        import sonde.db.health as health_mod
         import sonde.db.ids as ids_mod
         import sonde.db.notes as notes_mod
         import sonde.db.programs as prog_mod
@@ -200,8 +202,8 @@ def patched_db(mock_supabase: MagicMock, authenticated: None) -> MagicMock:
         import sonde.db.tags as tags_mod
 
         modules = [
-            admin_mod, activity_mod, dir_mod, exp_mod, find_mod,
-            ids_mod, notes_mod, prog_mod, q_mod, tags_mod,
+            admin_mod, activity_mod, art_mod, dir_mod, exp_mod, find_mod,
+            health_mod, ids_mod, notes_mod, prog_mod, q_mod, tags_mod,
         ]
         originals = {mod: mod.get_client for mod in modules}
         for mod in modules:

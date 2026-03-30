@@ -11,6 +11,7 @@ from typing import Any
 
 from sonde.db import rows
 from sonde.db.client import get_client
+from sonde.db.ids import create_with_retry
 
 # Extension → artifact type
 _TYPE_MAP = {
@@ -40,17 +41,6 @@ def infer_type(filepath: Path) -> str:
     return _TYPE_MAP.get(filepath.suffix.lower(), "other")
 
 
-def next_id() -> str:
-    """Generate the next artifact ID (ART-0001 format)."""
-    client = get_client()
-    result = (
-        client.table("artifacts").select("id").order("created_at", desc=True).limit(1).execute()
-    )
-    existing = rows(result.data)
-    if existing:
-        last_num = int(existing[0]["id"].split("-")[1])
-        return f"ART-{last_num + 1:04d}"
-    return "ART-0001"
 
 
 def list_artifacts(experiment_id: str) -> list[dict[str, Any]]:
@@ -83,7 +73,6 @@ def upload_file(
         The created artifact metadata dict.
     """
     client = get_client()
-    art_id = next_id()
 
     storage_path = storage_subpath or f"{experiment_id}/{filepath.name}"
     file_bytes = filepath.read_bytes()
@@ -102,9 +91,8 @@ def upload_file(
         else:
             raise
 
-    # Create artifact metadata row
-    row = {
-        "id": art_id,
+    # Create artifact metadata row with retry on ID collision
+    payload = {
         "filename": filepath.name,
         "type": artifact_type or infer_type(filepath),
         "mime_type": content_type,
@@ -114,8 +102,7 @@ def upload_file(
         "experiment_id": experiment_id,
         "source": source,
     }
-    client.table("artifacts").insert(row).execute()
-    return row
+    return create_with_retry("artifacts", "ART", 4, payload)
 
 
 def find_by_path(experiment_id: str, storage_path: str) -> dict[str, Any] | None:

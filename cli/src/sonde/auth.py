@@ -64,9 +64,14 @@ def _ensure_config_dir() -> None:
 
 def save_session(session_data: dict[str, Any]) -> None:
     """Persist session to disk. Keyring used as secondary store if available."""
+    import os as _os
+
     _ensure_config_dir()
-    SESSION_FILE.write_text(json.dumps(session_data, default=str))
-    SESSION_FILE.chmod(0o600)
+    fd = _os.open(str(SESSION_FILE), _os.O_WRONLY | _os.O_CREAT | _os.O_TRUNC, 0o600)
+    try:
+        _os.write(fd, json.dumps(session_data, default=str).encode())
+    finally:
+        _os.close(fd)
 
     try:
         import keyring

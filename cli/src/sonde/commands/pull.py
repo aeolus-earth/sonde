@@ -123,8 +123,8 @@ def pull_experiment(ctx: click.Context, experiment_id: str) -> None:
         notes = rows(note_result.data)
         if notes:
             _write_notes(sonde_dir, record["id"], notes)
-    except Exception:
-        pass  # Notes table may not exist yet
+    except Exception as exc:
+        err.print(f"  [sonde.warning]Could not pull notes: {exc}[/]")
 
     print_success(f"Pulled {record['id']} → {path.relative_to(sonde_dir.parent)}")
 
@@ -261,7 +261,13 @@ def _download_artifacts(
         else:
             relative = art.get("filename", Path(storage_path).name)
 
-        local_path = exp_dir / relative
+        from sonde.db.validate import contained_path
+
+        try:
+            local_path = contained_path(exp_dir, relative)
+        except ValueError:
+            err.print(f"  [sonde.warning]Skipping artifact with unsafe path: {storage_path}[/]")
+            continue
 
         # Skip if file exists and size matches
         if local_path.exists():
@@ -273,8 +279,8 @@ def _download_artifacts(
             data = client.storage.from_("artifacts").download(storage_path)
             local_path.parent.mkdir(parents=True, exist_ok=True)
             local_path.write_bytes(data)
-        except Exception:
-            pass  # Skip failed downloads silently
+        except Exception as exc:
+            err.print(f"  [sonde.warning]Failed to download {storage_path}: {exc}[/]")
 
 
 def _write_notes(

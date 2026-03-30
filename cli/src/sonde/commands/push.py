@@ -205,9 +205,14 @@ def _upsert_experiment(fm: dict, body: str, filepath: Path) -> dict:
     # Rename local file to assigned ID
     new_path = filepath.parent / f"{new_id}.md"
     if filepath != new_path:
-        content = filepath.read_text(encoding="utf-8")
-        content = content.replace("---\n", f"---\nid: {new_id}\n", 1)
-        new_path.write_text(content, encoding="utf-8")
+        # Re-parse and inject the assigned ID into frontmatter
+        raw = filepath.read_text(encoding="utf-8")
+        fm, body = parse_markdown(raw)
+        fm["id"] = new_id
+        import yaml
+
+        new_content = f"---\n{yaml.dump(fm, default_flow_style=False).rstrip()}\n---\n\n{body}"
+        new_path.write_text(new_content, encoding="utf-8")
         filepath.unlink()
         err.print(f"  [sonde.muted]Renamed → {new_path.name}[/]")
 

@@ -54,6 +54,9 @@ def _load_dict_file(path: str) -> dict:
 def _columns_for_status(status: str | None):
     """Return (columns, row_builder) adapted to the status filter."""
 
+    def _short_source(src: str | None) -> str:
+        return src.split("/")[-1] if src and "/" in src else (src or "—")
+
     def _default(e):
         return {
             "id": e.id,
@@ -68,7 +71,7 @@ def _columns_for_status(status: str | None):
         return {
             "id": e.id,
             "program": e.program,
-            "source": e.source.split("/")[-1] if "/" in e.source else e.source,
+            "source": _short_source(e.source),
             "created": e.created_at.strftime("%Y-%m-%d") if e.created_at else "—",
             "summary": record_summary(e, 45),
         }
@@ -77,7 +80,7 @@ def _columns_for_status(status: str | None):
         return {
             "id": e.id,
             "program": e.program,
-            "source": e.source.split("/")[-1] if "/" in e.source else e.source,
+            "source": _short_source(e.source),
             "tags": ", ".join(e.tags)[:25] if e.tags else "—",
             "summary": record_summary(e, 45),
         }
@@ -94,7 +97,7 @@ def _columns_for_status(status: str | None):
         return {
             "id": e.id,
             "program": e.program,
-            "source": e.source.split("/")[-1] if "/" in e.source else e.source,
+            "source": _short_source(e.source),
             "tags": ", ".join(e.tags)[:25] if e.tags else "—",
             "summary": record_summary(e, 45),
         }
@@ -752,10 +755,17 @@ def search(
     experiments = experiments[:limit]
 
     if show_count:
-        if ctx.obj.get("json"):
-            print_json({"count": len(experiments)})
+        # Server-side count when no text search (accurate); fetched count for text search
+        if not text:
+            total = db.count_experiments(
+                program=resolved_program, status=status, tags=list(tag) or None,
+            )
         else:
-            click.echo(len(experiments))
+            total = len(experiments)
+        if ctx.obj.get("json"):
+            print_json({"count": total})
+        else:
+            click.echo(total)
         return
 
     if ctx.obj.get("json"):

@@ -139,7 +139,12 @@ def search(
                 f"[sonde.warning]Warning:[/] Full-text search unavailable "
                 f"({exc.code}: {exc.message}), using client-side filtering."
             )
-            query = client.table("experiments").select("*").order("created_at", desc=True)
+            query = (
+                client.table("experiments")
+                .select("*")
+                .order("created_at", desc=True)
+                .limit(limit + 1)
+            )
             query = _apply_filters(query, program=program, status=status, tags=tags)
             result = query.execute()
             text_lower = text.lower()

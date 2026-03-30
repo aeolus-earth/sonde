@@ -18,7 +18,7 @@ def next_sequential_id(table: str, prefix: str, digits: int = 4) -> str:
     Looks at the most recently created row to determine the next number.
     """
     client = get_client()
-    result = client.table(table).select("id").order("created_at", desc=True).limit(1).execute()
+    result = client.table(table).select("id").order("id", desc=True).limit(1).execute()
     existing = to_rows(result.data)
     if existing:
         last_num = int(existing[0]["id"].split("-")[1])

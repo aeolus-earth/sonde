@@ -345,6 +345,13 @@ def _brief_all(
 # ---------------------------------------------------------------------------
 
 
+def _short_source(src: str | None) -> str:
+    """Extract the short name from a source string (e.g. 'human/mason' → 'mason')."""
+    if not src:
+        return "—"
+    return src.split("/")[-1] if "/" in src else src
+
+
 def _render_human(
     data: dict,
     cross_coverage: dict | None,
@@ -386,7 +393,7 @@ def _render_human(
                 {
                     "id": e["id"],
                     "summary": truncate_text(e["summary"], 45),
-                    "source": (e["source"] or "").split("/")[-1] if e.get("source") and "/" in e["source"] else (e.get("source") or "—"),
+                    "source": _short_source(e.get("source")),
                     "created": e["created_at"][:10] if e["created_at"] else "—",
                 }
                 for e in data["open_experiments"]
@@ -401,7 +408,7 @@ def _render_human(
                 {
                     "id": e["id"],
                     "summary": truncate_text(e["summary"], 50),
-                    "source": (e["source"] or "").split("/")[-1] if e.get("source") and "/" in e["source"] else (e.get("source") or "—"),
+                    "source": _short_source(e.get("source")),
                 }
                 for e in data["running_experiments"]
             ],

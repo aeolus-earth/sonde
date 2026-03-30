@@ -548,7 +548,7 @@ class TestHealthCommand:
         assert result.exit_code == 0
         report = json.loads(result.output)
         # Only brief-stale checker fires (no .sonde/brief.meta.json); others should be clean
-        non_brief_issues = [i for i in report["issues"] if i.get("checker") != "brief_stale"]
+        non_brief_issues = [i for i in report["issues"] if i.get("category") != "brief"]
         assert non_brief_issues == [], f"Unexpected issues: {non_brief_issues}"
 
     def test_health_category_filter(self, runner: CliRunner, patched_db: MagicMock):

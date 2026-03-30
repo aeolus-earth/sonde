@@ -201,7 +201,7 @@ def _show_direction(ctx: click.Context, direction_id: str) -> None:
     if experiments:
         exp_rows = []
         for e in experiments:
-            source = e.source
+            source = e.source or "—"
             if "/" in source:
                 source = source.split("/")[-1]
             exp_rows.append(

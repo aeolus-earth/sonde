@@ -23,5 +23,7 @@ def apply_source_filter(query: Any, source: str) -> Any:
     >>> apply_source_filter(query, "human/mason")  # eq exact
     """
     if "/" not in source:
-        return query.ilike("source", f"{source}%")
+        from sonde.db.validate import escape_like
+
+        return query.ilike("source", f"{escape_like(source)}%")
     return query.eq("source", source)
