@@ -152,7 +152,7 @@ class TestList:
 
 
 class TestShow:
-    def _setup_show_mock(self, patched_db: MagicMock, exp_data: dict):
+    def _setup_show_mock(self, patched_db: MagicMock, exp_data: dict | None):
         """Set up mocks for show command which queries experiments + context tables."""
 
         # The mock uses a single table mock for all tables.

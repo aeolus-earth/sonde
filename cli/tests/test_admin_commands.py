@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
 from postgrest.exceptions import APIError
@@ -119,3 +119,65 @@ class TestRevokeToken:
         result = runner.invoke(cli, ["admin", "revoke-token", "nonexistent", "--force"])
         assert result.exit_code == 1
         assert "No active token" in result.output
+
+
+class TestArtifactAdmin:
+    def test_reconcile_artifacts_requires_service_role(
+        self, runner: CliRunner, patched_db: MagicMock
+    ):
+        with patch("sonde.commands.admin.has_service_role_key", return_value=False):
+            result = runner.invoke(cli, ["admin", "reconcile-artifacts"])
+
+        assert result.exit_code == 1
+        assert "service-role key" in result.output.lower()
+
+    def test_reconcile_artifacts_json(self, runner: CliRunner, patched_db: MagicMock):
+        with (
+            patch("sonde.commands.admin.has_service_role_key", return_value=True),
+            patch(
+                "sonde.commands.admin.artifact_db.reconcile_delete_queue",
+                return_value={
+                    "processed": 2,
+                    "deleted": 2,
+                    "already_absent": 0,
+                    "failed": 0,
+                    "remaining_pending": 0,
+                    "failures": [],
+                },
+            ),
+        ):
+            result = runner.invoke(cli, ["--json", "admin", "reconcile-artifacts"])
+
+        assert result.exit_code == 0
+        assert '"processed": 2' in result.output
+
+    def test_audit_artifacts_json(self, runner: CliRunner, patched_db: MagicMock):
+        with (
+            patch("sonde.commands.admin.has_service_role_key", return_value=True),
+            patch(
+                "sonde.commands.admin.artifact_db.audit_artifact_sync",
+                return_value={
+                    "summary": {
+                        "metadata_rows": 1,
+                        "duplicate_storage_paths": 0,
+                        "missing_checksum_rows": 0,
+                        "invalid_path_rows": 0,
+                        "missing_blob_rows": 0,
+                        "orphaned_blob_paths": 0,
+                        "pending_delete_rows": 0,
+                        "failed_delete_rows": 0,
+                    },
+                    "duplicate_storage_paths": [],
+                    "missing_checksum_rows": [],
+                    "invalid_path_rows": [],
+                    "missing_blob_rows": [],
+                    "orphaned_blob_paths": [],
+                    "pending_delete_rows": [],
+                    "failed_delete_rows": [],
+                },
+            ),
+        ):
+            result = runner.invoke(cli, ["--json", "admin", "audit-artifacts"])
+
+        assert result.exit_code == 0
+        assert '"metadata_rows": 1' in result.output

@@ -371,7 +371,7 @@ def archive_subtree(root_id: str) -> tuple[list[str], list[str]]:
     return archived, skipped
 
 
-def delete(experiment_id: str) -> dict[str, int]:
+def delete(experiment_id: str) -> dict[str, Any]:
     """Delete an experiment and cascade to notes, artifacts.
 
     Re-parents children to the deleted experiment's parent (or null).
@@ -379,6 +379,7 @@ def delete(experiment_id: str) -> dict[str, int]:
     Returns counts of deleted child records.
     """
     from sonde.db.validate import validate_id
+
     validate_id(experiment_id)
 
     client = get_client()
@@ -389,31 +390,34 @@ def delete(experiment_id: str) -> dict[str, int]:
     # Re-parent children to grandparent
     children = get_children(experiment_id)
     for child in children:
-        client.table("experiments").update(
-            {"parent_id": exp.parent_id}
-        ).eq("id", child.id).execute()
+        client.table("experiments").update({"parent_id": exp.parent_id}).eq(
+            "id", child.id
+        ).execute()
 
     # Cascade delete child records
     notes_result = (
-        client.table("experiment_notes")
-        .delete()
-        .eq("experiment_id", experiment_id)
-        .execute()
+        client.table("experiment_notes").delete().eq("experiment_id", experiment_id).execute()
     )
     artifacts_result = (
-        client.table("artifacts")
-        .delete()
-        .eq("experiment_id", experiment_id)
-        .execute()
+        client.table("artifacts").delete().eq("experiment_id", experiment_id).execute()
     )
 
     # Delete the experiment
     client.table("experiments").delete().eq("id", experiment_id).execute()
 
+    artifact_rows = to_rows(artifacts_result.data)
+
+    from sonde.db.artifacts import finalize_deleted_artifacts
+
+    artifact_cleanup = finalize_deleted_artifacts(
+        [row["storage_path"] for row in artifact_rows if row.get("storage_path")]
+    )
+
     return {
         "notes": len(to_rows(notes_result.data)),
-        "artifacts": len(to_rows(artifacts_result.data)),
+        "artifacts": len(artifact_rows),
         "children_reparented": len(children),
+        "artifact_cleanup": artifact_cleanup,
     }
 
 
@@ -528,11 +532,13 @@ def get_tree_summary(program: str | None = None) -> dict[str, Any]:
             if updated:
                 days = (now - updated).total_seconds() / 86400
                 if days > STALE_OPEN_DAYS:
-                    stale_open.append({
-                        "id": r["id"],
-                        "content_summary": (r.get("content") or "")[:80] or None,
-                        "days_idle": round(days),
-                    })
+                    stale_open.append(
+                        {
+                            "id": r["id"],
+                            "content_summary": (r.get("content") or "")[:80] or None,
+                            "days_idle": round(days),
+                        }
+                    )
 
     return {
         "total_roots": len(roots),

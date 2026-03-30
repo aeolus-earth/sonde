@@ -21,11 +21,14 @@ def _program_from_result(data: Any) -> Program:
 def create(data: ProgramCreate) -> Program:
     """Create a program via RPC. Creator gets admin role automatically."""
     client = get_client()
-    result = client.rpc("create_program", {
-        "program_id": data.id,
-        "program_name": data.name,
-        "program_description": data.description,
-    }).execute()
+    result = client.rpc(
+        "create_program",
+        {
+            "program_id": data.id,
+            "program_name": data.name,
+            "program_description": data.description,
+        },
+    ).execute()
     return _program_from_result(result.data)
 
 

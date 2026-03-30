@@ -475,9 +475,7 @@ def _render_human(
     # Research Tree summary
     ts = data.get("tree_summary")
     if ts and (
-        ts.get("active_branches", 0) > 0
-        or ts.get("dead_ends", 0) > 0
-        or ts.get("stale_open")
+        ts.get("active_branches", 0) > 0 or ts.get("dead_ends", 0) > 0 or ts.get("stale_open")
     ):
         err.print("\n[sonde.heading]Research Tree[/]")
         err.print(f"  Active branches:  {ts['active_branches']}")
@@ -494,12 +492,8 @@ def _render_human(
             err.print(f"\n  [sonde.warning]Stale work ({len(ts['stale_open'])} idle >7d):[/]")
             for s in ts["stale_open"][:5]:
                 summary = s.get("content_summary") or "no description"
-                err.print(
-                    f"    {s['id']}  {s['days_idle']}d idle  {summary}"
-                )
-                err.print(
-                    f"      [dim]→ sonde start {s['id']}  or  sonde close {s['id']}[/]"
-                )
+                err.print(f"    {s['id']}  {s['days_idle']}d idle  {summary}")
+                err.print(f"      [dim]→ sonde start {s['id']}  or  sonde close {s['id']}[/]")
 
     breadcrumbs = []
     if program and tag:

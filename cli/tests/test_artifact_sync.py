@@ -3,13 +3,20 @@
 from __future__ import annotations
 
 import hashlib
+from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from sonde.cli import cli
-from sonde.db.artifacts import is_text_artifact, upload_file
+from sonde.db.artifacts import (
+    audit_artifact_sync,
+    finalize_deleted_artifacts,
+    is_text_artifact,
+    reconcile_delete_queue,
+    upload_file,
+)
 from sonde.models.experiment import Experiment
 
 
@@ -30,8 +37,8 @@ def _experiment(exp_id: str) -> Experiment:
         metadata={},
         data_sources=[],
         related=[],
-        created_at="2026-03-30T00:00:00+00:00",
-        updated_at="2026-03-30T00:00:00+00:00",
+        created_at=datetime(2026, 3, 30, tzinfo=UTC),
+        updated_at=datetime(2026, 3, 30, tzinfo=UTC),
     )
 
 
@@ -40,6 +47,84 @@ class TestArtifactHelpers:
         assert is_text_artifact("notes.md")
         assert is_text_artifact("summary.csv")
         assert not is_text_artifact("plot.png", "image/png")
+
+    def test_finalize_deleted_artifacts_without_service_role(self):
+        with patch("sonde.db.artifacts.has_service_role_key", return_value=False):
+            summary = finalize_deleted_artifacts(["EXP-0001/plot.png", "EXP-0001/plot.png"])
+
+        assert summary["mode"] == "queued"
+        assert summary["queued"] == 1
+        assert summary["remaining_pending"] == 1
+
+    def test_reconcile_delete_queue_deletes_blob_and_marks_processed(self, mock_supabase):
+        update_result = MagicMock()
+        update_result.update.return_value = update_result
+        update_result.eq.return_value = update_result
+        update_result.execute.return_value = MagicMock(data=[])
+        mock_supabase.table.return_value = update_result
+        mock_supabase.storage.from_.return_value.exists.return_value = True
+
+        with (
+            patch("sonde.db.artifacts.get_admin_client", return_value=mock_supabase),
+            patch(
+                "sonde.db.artifacts.list_delete_queue",
+                side_effect=[
+                    [
+                        {
+                            "id": 1,
+                            "storage_path": "EXP-0001/plot.png",
+                            "attempt_count": 0,
+                            "processed_at": None,
+                        }
+                    ],
+                    [],
+                ],
+            ),
+        ):
+            summary = reconcile_delete_queue(limit=1)
+
+        assert summary["processed"] == 1
+        assert summary["deleted"] == 1
+        mock_supabase.storage.from_.return_value.remove.assert_called_once_with(
+            ["EXP-0001/plot.png"]
+        )
+        update_result.update.assert_called_once()
+
+    def test_audit_artifact_sync_reports_storage_drift(self, mock_supabase):
+        with (
+            patch("sonde.db.artifacts.get_admin_client", return_value=mock_supabase),
+            patch(
+                "sonde.db.artifacts._fetch_all_rows",
+                side_effect=[
+                    [
+                        {
+                            "id": "ART-0001",
+                            "storage_path": "EXP-0001/notes.md",
+                            "checksum_sha256": None,
+                            "experiment_id": "EXP-0001",
+                            "finding_id": None,
+                            "direction_id": None,
+                        }
+                    ],
+                    [
+                        {
+                            "id": 1,
+                            "storage_path": "EXP-0001/notes.md",
+                            "processed_at": None,
+                            "last_error": "boom",
+                        }
+                    ],
+                ],
+            ),
+            patch("sonde.db.artifacts._list_bucket_paths", return_value={"EXP-0001/extra.png"}),
+        ):
+            mock_supabase.storage.from_.return_value.exists.return_value = False
+            audit = audit_artifact_sync(sample_limit=5)
+
+        assert audit["summary"]["missing_checksum_rows"] == 1
+        assert audit["summary"]["missing_blob_rows"] == 1
+        assert audit["summary"]["orphaned_blob_paths"] == 1
+        assert audit["summary"]["failed_delete_rows"] == 1
 
 
 class TestArtifactUpload:
@@ -201,6 +286,41 @@ class TestPullCommands:
         assert (tmp_path / ".sonde/experiments/EXP-0001/summary.csv").exists()
         assert not (tmp_path / ".sonde/experiments/EXP-0001/plot.png").exists()
         assert "--artifacts media" in result.output
+
+    def test_delete_reports_queued_blob_cleanup(self, runner, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setattr(
+            "sonde.commands.experiment.db.get",
+            lambda _exp_id: _experiment("EXP-0001"),
+        )
+        monkeypatch.setattr("sonde.commands.experiment.db.get_children", lambda _exp_id: [])
+        monkeypatch.setattr(
+            "sonde.commands.experiment.db.delete",
+            lambda _exp_id: {
+                "notes": 1,
+                "artifacts": 1,
+                "children_reparented": 0,
+                "artifact_cleanup": {
+                    "mode": "queued",
+                    "queued": 1,
+                    "processed": 0,
+                    "deleted": 0,
+                    "already_absent": 0,
+                    "failed": 0,
+                    "remaining_pending": 1,
+                },
+            },
+        )
+        monkeypatch.setattr("sonde.db.notes.list_by_experiment", lambda _exp_id: [{"id": "NOTE-1"}])
+        monkeypatch.setattr(
+            "sonde.db.artifacts.list_artifacts",
+            lambda _exp_id: [{"id": "ART-1", "storage_path": "EXP-0001/plot.png"}],
+        )
+        monkeypatch.setattr("sonde.db.activity.log_activity", lambda *args, **kwargs: None)
+
+        result = runner.invoke(cli, ["experiment", "delete", "EXP-0001", "--confirm"])
+
+        assert result.exit_code == 0
+        assert "queued for storage cleanup" in result.output
 
     def test_multi_tree_pull_dedupes_overlapping_subtrees(
         self, runner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path

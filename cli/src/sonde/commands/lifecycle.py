@@ -331,14 +331,13 @@ def _change_status(
                 {
                     "error": "uncommitted_changes",
                     "experiment_id": experiment_id,
-                "modified_files": git_ctx.modified_files[:20],
-                "file_count": len(git_ctx.modified_files),
-                "suggested_commit": suggested,
-                "hint": (
-                    "Commit your changes, then retry. "
-                    "Use --force to close with dirty state."
-                ),
-            }
+                    "modified_files": git_ctx.modified_files[:20],
+                    "file_count": len(git_ctx.modified_files),
+                    "suggested_commit": suggested,
+                    "hint": (
+                        "Commit your changes, then retry. Use --force to close with dirty state."
+                    ),
+                }
             )
             return
         n_files = len(git_ctx.modified_files)

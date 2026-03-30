@@ -61,11 +61,13 @@ def test_experiment_create_invalid_status():
 
 def test_experiment_null_coercion():
     """Database can return null for list/dict fields."""
-    exp = ExperimentCreate(
-        program="test",
-        source="human/test",
-        tags=None,
-        parameters=None,
+    exp = ExperimentCreate.model_validate(
+        {
+            "program": "test",
+            "source": "human/test",
+            "tags": None,
+            "parameters": None,
+        }
     )
     assert exp.tags == []
     assert exp.parameters == {}

@@ -46,6 +46,10 @@ class Settings(BaseSettings):
     program: str = Field(default="", description="Default program namespace")
     source: str = Field(default="", description="Default source attribution")
     default_direction: str = Field(default="", description="Default research direction ID")
+    supabase_service_role_key: str = Field(
+        default="",
+        description="Privileged Supabase service-role key for admin reconciliation commands",
+    )
 
     # Subsystem access (from .aeolus.yaml or env vars)
     s3_bucket: str = Field(default="", description="S3 bucket for large datasets")

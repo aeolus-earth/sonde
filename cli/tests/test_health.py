@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime, timedelta
+from typing import Any, cast
 from unittest.mock import MagicMock
 
 from click.testing import CliRunner
@@ -354,7 +355,9 @@ class TestBriefStaleness:
         issues = check_brief_staleness(data)
         assert len(issues) == 1
         assert issues[0].severity == "stale"
-        assert "sonde brief --save" in issues[0].fix
+        brief_fix = issues[0].fix
+        assert brief_fix is not None
+        assert "sonde brief --save" in brief_fix
 
     def test_fresh_brief_no_issues(self):
         prov = BriefProvenance(
@@ -433,7 +436,9 @@ class TestHealthReport:
         issues = run_checkers(data)
         fixable = [i for i in issues if i.fix is not None]
         for issue in fixable:
-            assert issue.fix.startswith("sonde ")
+            fix_cmd = issue.fix
+            assert fix_cmd is not None
+            assert fix_cmd.startswith("sonde ")
 
     def test_unfixable_issues_have_no_fix(self):
         data = _unhealthy_program()
@@ -585,7 +590,7 @@ class TestHealthCommand:
         # Also patch db.health.get_client
         import sonde.db.health as health_mod
 
-        health_mod.get_client = lambda: patched_db
+        cast(Any, health_mod).get_client = lambda: patched_db
 
     def test_health_json_output(self, runner: CliRunner, patched_db: MagicMock):
         self._setup_health_mock(

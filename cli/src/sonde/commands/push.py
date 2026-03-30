@@ -25,7 +25,7 @@ from sonde.models.direction import DirectionCreate
 from sonde.models.experiment import ExperimentCreate
 from sonde.models.finding import FindingCreate
 from sonde.models.question import QuestionCreate
-from sonde.output import err, print_error, print_json, print_success
+from sonde.output import err, print_error, print_json, print_nudge, print_success
 
 _SKIP = {".DS_Store", "__pycache__"}
 
@@ -92,6 +92,7 @@ def push_experiment(ctx: click.Context, name: str) -> None:
         print_json(result)
     else:
         print_success(f"{result['action'].title()} {result['id']}")
+        _print_experiment_push_guidance(result)
 
 
 @push.command("experiments")
@@ -251,6 +252,34 @@ def _rename_local_record(filepath: Path, new_id: str) -> None:
     new_dir = filepath.parent / new_id
     if old_dir.is_dir() and not new_dir.exists():
         old_dir.rename(new_dir)
+
+
+def _print_experiment_push_guidance(result: dict[str, Any]) -> None:
+    exp_id = str(result["id"])
+    sync = result.get("_sync") or {}
+    artifact_sync = sync.get("artifacts") or {}
+    artifact_total = int(artifact_sync.get("total") or 0)
+    artifact_uploaded = int(artifact_sync.get("uploaded") or 0)
+    artifact_skipped = int(artifact_sync.get("skipped") or 0)
+
+    if artifact_total == 0:
+        print_nudge(
+            f"No local result files were found. Stage outputs under "
+            f".sonde/experiments/{exp_id}/results/ before the next push.",
+            f"mkdir -p .sonde/experiments/{exp_id}/results",
+        )
+        return
+
+    exp = exp_db.get(exp_id)
+    if (
+        exp
+        and exp.status in ("open", "running")
+        and (artifact_uploaded > 0 or artifact_skipped > 0)
+    ):
+        print_nudge(
+            "Artifacts are synced. If this run is done, record the takeaway and close it.",
+            f'sonde close {exp_id} --finding "..."',
+        )
 
 
 def _resolve_program(frontmatter: dict[str, Any]) -> str:

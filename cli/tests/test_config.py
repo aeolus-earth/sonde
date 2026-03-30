@@ -19,6 +19,12 @@ def test_settings_from_env():
     assert settings.program == "weather-intervention"
 
 
+def test_service_role_key_from_env():
+    with patch.dict("os.environ", {"AEOLUS_SUPABASE_SERVICE_ROLE_KEY": "secret-key"}):
+        settings = Settings()
+    assert settings.supabase_service_role_key == "secret-key"
+
+
 def test_project_config_overlay(tmp_path):
     config = tmp_path / ".aeolus.yaml"
     config.write_text("program: energy-trading\n")

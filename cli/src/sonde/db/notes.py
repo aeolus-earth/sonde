@@ -41,9 +41,9 @@ def get(note_id: str) -> dict | None:
 def update(note_id: str, content: str) -> dict | None:
     """Update a note's content."""
     client = get_client()
-    result = client.table("experiment_notes").update(
-        {"content": content}
-    ).eq("id", note_id).execute()
+    result = (
+        client.table("experiment_notes").update({"content": content}).eq("id", note_id).execute()
+    )
     rows = to_rows(result.data)
     return rows[0] if rows else None
 

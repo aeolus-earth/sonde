@@ -219,6 +219,7 @@ def direction_delete(ctx: click.Context, direction_id: str, confirm: bool) -> No
 
     if not confirm:
         from sonde.db import experiments as exp_db
+
         exp_count = len(exp_db.list_by_direction(direction_id))
         err.print(f"[sonde.warning]This will delete {direction_id}[/]")
         if exp_count:
@@ -227,14 +228,25 @@ def direction_delete(ctx: click.Context, direction_id: str, confirm: bool) -> No
         raise SystemExit(1)
 
     log_activity(direction_id, "direction", "deleted", {"deleted_by": resolve_source()})
-    cleared = db.delete(direction_id)
+    deleted = db.delete(direction_id)
 
     if ctx.obj.get("json"):
-        print_json({"deleted": {"id": direction_id}, "experiments_cleared": cleared})
+        print_json({"deleted": {"id": direction_id}, **deleted})
     else:
         print_success(f"Deleted {direction_id}")
-        if cleared:
-            err.print(f"  {cleared} experiment(s) had direction_id cleared")
+        if deleted.get("experiments_cleared"):
+            err.print(f"  {deleted['experiments_cleared']} experiment(s) had direction_id cleared")
+        if deleted.get("artifacts"):
+            err.print(f"  {deleted['artifacts']} artifact(s) removed")
+            cleanup = deleted.get("artifact_cleanup", {})
+            if cleanup.get("mode") == "queued":
+                err.print("  Artifact blobs queued for storage cleanup")
+            elif cleanup.get("mode") in {"reconciled", "partial"}:
+                err.print(f"  {cleanup.get('deleted', 0)} artifact blob(s) deleted from storage")
+                if cleanup.get("already_absent"):
+                    err.print(f"  {cleanup['already_absent']} artifact blob(s) were already absent")
+                if cleanup.get("failed"):
+                    err.print(f"  {cleanup['failed']} artifact blob(s) still need reconciliation")
 
 
 direction.add_command(new_direction)

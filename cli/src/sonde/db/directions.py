@@ -57,7 +57,7 @@ def update(direction_id: str, updates: dict[str, Any]) -> Direction | None:
     return Direction(**data[0]) if data else None
 
 
-def delete(direction_id: str) -> int:
+def delete(direction_id: str) -> dict[str, Any]:
     """Delete a direction. Clears direction_id on linked experiments.
 
     Returns count of experiments that had their direction_id cleared.
@@ -67,11 +67,22 @@ def delete(direction_id: str) -> int:
     exp_result = client.table("experiments").select("id").eq("direction_id", direction_id).execute()
     count = len(to_rows(exp_result.data))
     if count:
-        client.table("experiments").update(
-            {"direction_id": None}
-        ).eq("direction_id", direction_id).execute()
+        client.table("experiments").update({"direction_id": None}).eq(
+            "direction_id", direction_id
+        ).execute()
     # Delete artifacts linked to this direction
-    client.table("artifacts").delete().eq("direction_id", direction_id).execute()
+    artifacts_result = client.table("artifacts").delete().eq("direction_id", direction_id).execute()
     # Delete the direction
     client.table("directions").delete().eq("id", direction_id).execute()
-    return count
+
+    artifact_rows = to_rows(artifacts_result.data)
+
+    from sonde.db.artifacts import finalize_deleted_artifacts
+
+    return {
+        "experiments_cleared": count,
+        "artifacts": len(artifact_rows),
+        "artifact_cleanup": finalize_deleted_artifacts(
+            [row["storage_path"] for row in artifact_rows if row.get("storage_path")]
+        ),
+    }

@@ -247,12 +247,23 @@ def finding_delete(ctx: click.Context, finding_id: str, confirm: bool) -> None:
         raise SystemExit(1)
 
     log_activity(finding_id, "finding", "deleted", {"deleted_by": resolve_source()})
-    db.delete(finding_id)
+    deleted = db.delete(finding_id)
 
     if ctx.obj.get("json"):
-        print_json({"deleted": {"id": finding_id}})
+        print_json({"deleted": {"id": finding_id}, "cascade": deleted})
     else:
         print_success(f"Deleted {finding_id}")
+        if deleted.get("artifacts"):
+            err.print(f"  {deleted['artifacts']} artifact(s) removed")
+            cleanup = deleted.get("artifact_cleanup", {})
+            if cleanup.get("mode") == "queued":
+                err.print("  Artifact blobs queued for storage cleanup")
+            elif cleanup.get("mode") in {"reconciled", "partial"}:
+                err.print(f"  {cleanup.get('deleted', 0)} artifact blob(s) deleted from storage")
+                if cleanup.get("already_absent"):
+                    err.print(f"  {cleanup['already_absent']} artifact blob(s) were already absent")
+                if cleanup.get("failed"):
+                    err.print(f"  {cleanup['failed']} artifact blob(s) still need reconciliation")
 
 
 finding.add_command(new_finding)

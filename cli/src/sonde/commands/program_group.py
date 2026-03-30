@@ -42,13 +42,15 @@ def program_list(ctx: click.Context, show_all: bool = False) -> None:
     rows = []
     for p in programs:
         stats = db.get_stats(p.id)
-        rows.append({
-            "program": p.id,
-            "experiments": str(stats.get("experiments", 0)),
-            "findings": str(stats.get("findings", 0)),
-            "directions": str(stats.get("directions", 0)),
-            "status": "archived" if p.is_archived else "active",
-        })
+        rows.append(
+            {
+                "program": p.id,
+                "experiments": str(stats.get("experiments", 0)),
+                "findings": str(stats.get("findings", 0)),
+                "directions": str(stats.get("directions", 0)),
+                "status": "archived" if p.is_archived else "active",
+            }
+        )
     print_table(
         ["program", "experiments", "findings", "directions", "status"],
         rows,
@@ -148,17 +150,16 @@ def program_show(ctx: click.Context, id: str) -> None:
         err.print("  Status: [sonde.success]active[/]")
 
     # Stats table
-    stat_rows = [
-        {"noun": k, "count": str(v)}
-        for k, v in stats.items()
-    ]
+    stat_rows = [{"noun": k, "count": str(v)} for k, v in stats.items()]
     print_table(["noun", "count"], stat_rows, title="Records")
 
-    print_breadcrumbs([
-        f"sonde list -p {id}",
-        f"sonde tree -p {id}",
-        f"sonde brief -p {id}",
-    ])
+    print_breadcrumbs(
+        [
+            f"sonde list -p {id}",
+            f"sonde tree -p {id}",
+            f"sonde brief -p {id}",
+        ]
+    )
 
 
 @program.command("archive")
@@ -220,7 +221,10 @@ def program_unarchive(ctx: click.Context, id: str) -> None:
 @pass_output_options
 @click.pass_context
 def program_update(
-    ctx: click.Context, program_id: str, name: str | None, description: str | None,
+    ctx: click.Context,
+    program_id: str,
+    name: str | None,
+    description: str | None,
 ) -> None:
     """Update a program's name or description.
 

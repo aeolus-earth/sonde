@@ -707,6 +707,11 @@ def show(ctx: click.Context, experiment_id: str, graph: bool) -> None:
                 "This experiment is complete but has no finding recorded.",
                 f'sonde update {exp.id} --finding "What you learned"',
             )
+        elif exp.status in ("open", "running") and not artifacts:
+            print_nudge(
+                f"Stage result files under .sonde/experiments/{exp.id}/results/, then sync them.",
+                f"sonde experiment push {exp.id}",
+            )
         elif exp.status in ("open", "running") and not exp.direction_id:
             print_nudge(
                 "This experiment isn't linked to a research direction.",
@@ -1353,6 +1358,7 @@ def delete_experiment(ctx: click.Context, experiment_id: str, confirm: bool) -> 
     children = db.get_children(experiment_id)
     from sonde.db.artifacts import list_artifacts
     from sonde.db.notes import list_by_experiment
+
     notes = list_by_experiment(experiment_id)
     artifacts = list_artifacts(experiment_id)
 
@@ -1365,8 +1371,10 @@ def delete_experiment(ctx: click.Context, experiment_id: str, confirm: bool) -> 
         raise SystemExit(1)
 
     from sonde.db.activity import log_activity
+
     log_activity(experiment_id, "experiment", "deleted", {"deleted_by": resolve_source()})
     cascade = db.delete(experiment_id)
+    cleanup = cascade.get("artifact_cleanup", {})
 
     if ctx.obj.get("json"):
         print_json({"deleted": {"id": experiment_id}, "cascade": cascade})
@@ -1376,6 +1384,14 @@ def delete_experiment(ctx: click.Context, experiment_id: str, confirm: bool) -> 
             err.print(f"  {cascade['notes']} note(s) removed")
         if cascade.get("artifacts"):
             err.print(f"  {cascade['artifacts']} artifact(s) removed")
+            if cleanup.get("mode") == "queued":
+                err.print("  Artifact blobs queued for storage cleanup")
+            elif cleanup.get("mode") in {"reconciled", "partial"}:
+                err.print(f"  {cleanup.get('deleted', 0)} artifact blob(s) deleted from storage")
+                if cleanup.get("already_absent"):
+                    err.print(f"  {cleanup['already_absent']} artifact blob(s) were already absent")
+                if cleanup.get("failed"):
+                    err.print(f"  {cleanup['failed']} artifact blob(s) still need reconciliation")
         if cascade.get("children_reparented"):
             err.print(f"  {cascade['children_reparented']} child(ren) re-parented")
 

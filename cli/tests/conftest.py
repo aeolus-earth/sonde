@@ -9,6 +9,7 @@ Fixtures are organized by layer:
 
 from __future__ import annotations
 
+from collections.abc import Generator
 from io import StringIO
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -169,7 +170,7 @@ def mock_supabase() -> MagicMock:
 
 
 @pytest.fixture
-def patched_db(mock_supabase: MagicMock, authenticated: None) -> MagicMock:
+def patched_db(mock_supabase: MagicMock, authenticated: None) -> Generator[MagicMock, None, None]:
     """Mock Supabase client patched into the db layer, with auth already set up.
 
     This is the convenience fixture for testing commands end-to-end:
@@ -201,7 +202,7 @@ def patched_db(mock_supabase: MagicMock, authenticated: None) -> MagicMock:
         import sonde.db.questions as q_mod
         import sonde.db.tags as tags_mod
 
-        modules = [
+        modules: list[Any] = [
             admin_mod,
             activity_mod,
             art_mod,

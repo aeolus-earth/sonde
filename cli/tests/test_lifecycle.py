@@ -455,15 +455,32 @@ class TestCloseGitProvenance:
 # ---------------------------------------------------------------------------
 
 
-def _release_table_factory(exp_data: dict[str, Any]) -> Any:
+def _release_table_factory(exp_data: dict[str, Any] | None) -> Any:
     """Return a table factory for release tests (get, update)."""
 
     def factory(name: str) -> MagicMock:
         tbl = MagicMock()
         for method in (
-            "select", "insert", "update", "delete", "eq", "neq",
-            "gt", "lt", "gte", "lte", "like", "ilike", "is_",
-            "in_", "contains", "or_", "order", "limit", "range", "single",
+            "select",
+            "insert",
+            "update",
+            "delete",
+            "eq",
+            "neq",
+            "gt",
+            "lt",
+            "gte",
+            "lte",
+            "like",
+            "ilike",
+            "is_",
+            "in_",
+            "contains",
+            "or_",
+            "order",
+            "limit",
+            "range",
+            "single",
         ):
             getattr(tbl, method).return_value = tbl
         if name == "experiments":
