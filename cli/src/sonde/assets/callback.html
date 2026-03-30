@@ -16,57 +16,64 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            background: linear-gradient(160deg, #f0f7ff 0%, #ffffff 40%, #f7fbff 100%);
+            background: #FBF7F4;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            color: #1a2b3c;
+            color: #1a1a1a;
         }
 
         .container {
             text-align: center;
             padding: 3rem;
+            max-width: 400px;
         }
 
         .wordmark {
-            width: 200px;
+            width: 180px;
             height: auto;
-            color: #1a2b3c;
-            margin-bottom: 2.5rem;
+            color: #1a1a1a;
+            margin-bottom: 3rem;
         }
 
-        .check {
-            width: 48px;
-            height: 48px;
-            margin: 0 auto 1.5rem;
-            border-radius: 50%;
-            background: #e8f4ec;
+        .wave {
+            font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+            color: #E07B39;
+            font-size: 0.75rem;
+            line-height: 1.4;
+            letter-spacing: 0.02em;
+            margin-bottom: 2rem;
+            white-space: pre;
+        }
+
+        .status {
             display: flex;
             align-items: center;
             justify-content: center;
+            gap: 0.5rem;
+            margin-bottom: 0.75rem;
         }
 
-        .check svg {
-            width: 24px;
-            height: 24px;
-            color: #2d8a4e;
+        .status svg {
+            width: 18px;
+            height: 18px;
+            color: #4ADE80;
         }
 
-        h1 {
-            font-size: 1.25rem;
-            font-weight: 600;
-            margin-bottom: 0.5rem;
-            letter-spacing: -0.01em;
+        .status span {
+            font-size: 0.95rem;
+            font-weight: 500;
+            color: #1a1a1a;
         }
 
         p {
-            font-size: 0.9rem;
-            color: #6b7c8d;
+            font-size: 0.85rem;
+            color: #6B7280;
             line-height: 1.5;
         }
 
         .fade-hint {
-            margin-top: 2rem;
-            font-size: 0.8rem;
-            color: #9baab8;
+            margin-top: 1.5rem;
+            font-size: 0.75rem;
+            color: #9CA3AF;
         }
     </style>
 </head>
@@ -75,12 +82,15 @@
         <div class="wordmark">
             {{WORDMARK_SVG}}
         </div>
-        <div class="check">
+        <div class="wave">&#9472;&#9472;&#9472;&#9472;&#9472;&#9582;    &#9581;&#9472;&#9472;&#9472;&#9472;&#9582;    &#9581;&#9472;&#9472;&#9472;&#9472;&#9582;    &#9581;&#9472;&#9472;&#9472;&#9472;&#9472;
+        &#9474;    &#9474;    &#9474;    &#9474;    &#9474;    &#9474;
+        &#9584;&#9472;&#9472;&#9472;&#9472;&#9583;    &#9584;&#9472;&#9472;&#9472;&#9472;&#9583;    &#9584;&#9472;&#9472;&#9472;&#9472;&#9583;</div>
+        <div class="status">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
             </svg>
+            <span>Signed in</span>
         </div>
-        <h1>Signed in to Sonde</h1>
         <p>You can close this tab and return to your terminal.</p>
         <p class="fade-hint">This page will close automatically.</p>
     </div>
