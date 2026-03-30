@@ -222,13 +222,11 @@ def setup(
         err.print("\n[sonde.heading]Verifying connectivity...[/sonde.heading]")
 
     try:
-        from sonde.db import rows
-        from sonde.db.client import get_client
+        from sonde.db import programs as prog_db
 
-        client = get_client()
-        result = client.table("programs").select("id").execute()
-        programs = [r["id"] for r in rows(result.data)]
-        print_success(f"Connected — programs: {', '.join(programs)}")
+        programs = prog_db.list_programs()
+        program_ids = [p["id"] for p in programs]
+        print_success(f"Connected — programs: {', '.join(program_ids)}")
     except SystemExit:
         print_error(
             "Connection failed",

@@ -275,12 +275,7 @@ def update(experiment_id: str, updates: dict[str, Any]) -> Experiment | None:
 def get_reverse_related(experiment_id: str) -> list[Experiment]:
     """Get experiments that list this experiment in their related[] array."""
     client = get_client()
-    result = (
-        client.table("experiments")
-        .select("*")
-        .contains("related", [experiment_id])
-        .execute()
-    )
+    result = client.table("experiments").select("*").contains("related", [experiment_id]).execute()
     return [Experiment(**row) for row in to_rows(result.data) if row["id"] != experiment_id]
 
 

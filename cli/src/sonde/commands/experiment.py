@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 import click
 import yaml
@@ -15,7 +16,7 @@ from sonde.config import get_settings
 from sonde.db import experiments as db
 from sonde.git import detect_git_context
 from sonde.local import generate_body
-from sonde.models.experiment import ExperimentCreate
+from sonde.models.experiment import Experiment, ExperimentCreate
 from sonde.output import (
     err,
     print_breadcrumbs,
@@ -29,7 +30,7 @@ from sonde.output import (
 )
 
 
-def _load_dict_file(path: str) -> dict:
+def _load_dict_file(path: str) -> dict[str, Any]:
     """Load a YAML or JSON file and return a dict.
 
     Detects format by extension: .json → json, .yaml/.yml → yaml.
@@ -51,7 +52,9 @@ def _load_dict_file(path: str) -> dict:
         return yaml.safe_load(content) or {}
 
 
-def _columns_for_status(status: str | None):
+def _columns_for_status(
+    status: str | None,
+) -> tuple[list[str], Any]:
     """Return (columns, row_builder) adapted to the status filter."""
 
     def _short_source(src: str | None) -> str:
@@ -460,7 +463,7 @@ def list_cmd(
 @click.option("--graph", "-g", is_flag=True, help="Show all connected entities")
 @pass_output_options
 @click.pass_context
-def show(ctx: click.Context, experiment_id: str, graph: bool):
+def show(ctx: click.Context, experiment_id: str, graph: bool) -> None:
     """Show full details for an experiment.
 
     \b
@@ -469,8 +472,9 @@ def show(ctx: click.Context, experiment_id: str, graph: bool):
       sonde show EXP-0001 --json
       sonde show EXP-0001 --graph
     """
-    from sonde.db import rows as to_rows
-    from sonde.db.client import get_client
+    from sonde.db import findings as find_db
+    from sonde.db.activity import get_history
+    from sonde.db.artifacts import list_artifacts
 
     exp = db.get(experiment_id.upper())
 
@@ -482,40 +486,19 @@ def show(ctx: click.Context, experiment_id: str, graph: bool):
         )
         raise SystemExit(1)
 
-    # Fetch related context
-    client = get_client()
-    related_findings = to_rows(
-        client.table("findings")
-        .select("id,finding,confidence")
-        .contains("evidence", [exp.id])
-        .is_("valid_until", "null")
-        .execute()
-        .data
-    )
-    artifacts = to_rows(
-        client.table("artifacts")
-        .select("filename,type,size_bytes")
-        .eq("experiment_id", exp.id)
-        .execute()
-        .data
-    )
-    activity = to_rows(
-        client.table("activity_log")
-        .select("created_at,actor,action,details")
-        .eq("record_id", exp.id)
-        .order("created_at", desc=True)
-        .limit(5)
-        .execute()
-        .data
-    )
+    # Fetch related context via db layer
+    related_findings = find_db.find_by_evidence(exp.id)
+    artifacts = list_artifacts(exp.id)
+    activity = get_history(exp.id)[-5:]  # last 5 entries
 
     if ctx.obj.get("json"):
         data = exp.model_dump(mode="json")
-        data["_findings"] = related_findings
+        data["_findings"] = [f.model_dump(mode="json") for f in related_findings]
         data["_artifacts"] = artifacts
         data["_activity"] = activity
         if graph:
-            data["_graph"] = _build_graph_data(exp, client, to_rows)
+            graph_data = db.get_graph_neighborhood(exp)
+            data["_graph"] = _serialize_graph(graph_data)
         print_json(data)
     else:
         from rich.markdown import Markdown
@@ -581,9 +564,9 @@ def show(ctx: click.Context, experiment_id: str, graph: bool):
                 ["id", "finding", "confidence"],
                 [
                     {
-                        "id": f["id"],
-                        "finding": truncate_text(f.get("finding"), 55),
-                        "confidence": f.get("confidence", "medium"),
+                        "id": f.id,
+                        "finding": truncate_text(f.finding, 55),
+                        "confidence": f.confidence,
                     }
                     for f in related_findings
                 ],
@@ -610,7 +593,7 @@ def show(ctx: click.Context, experiment_id: str, graph: bool):
 
         # Graph traversal (--graph)
         if graph:
-            _render_graph(exp, client, to_rows)
+            _render_graph(exp)
 
         print_breadcrumbs(
             [
@@ -758,7 +741,9 @@ def search(
         # Server-side count when no text search (accurate); fetched count for text search
         if not text:
             total = db.count_experiments(
-                program=resolved_program, status=status, tags=list(tag) or None,
+                program=resolved_program,
+                status=status,
+                tags=list(tag) or None,
             )
         else:
             total = len(experiments)
@@ -850,7 +835,7 @@ def update(
         )
         raise SystemExit(1)
 
-    updates: dict = {}
+    updates: dict[str, Any] = {}
 
     if status is not None:
         updates["status"] = status
@@ -927,127 +912,88 @@ def update(
             err.print(f"  Status: {styled_status(updates['status'])}")
 
 
-def _build_graph_data(exp, client, to_rows) -> dict:
-    """Fetch all connected entities for an experiment."""
-    graph: dict = {
-        "related_experiments": [],
-        "reverse_related": [],
-        "questions_answered": [],
-        "direction": None,
-        "direction_siblings": [],
+def _serialize_graph(graph: dict[str, Any]) -> dict[str, Any]:
+    """Serialize graph neighborhood data for JSON output."""
+    return {
+        "related_experiments": [e.model_dump(mode="json") for e in graph["related_experiments"]],
+        "reverse_related": [e.model_dump(mode="json") for e in graph["reverse_related"]],
+        "questions_answered": [q.model_dump(mode="json") for q in graph["questions_answered"]],
+        "findings": [f.model_dump(mode="json") for f in graph["findings"]],
+        "direction": graph["direction"].model_dump(mode="json") if graph["direction"] else None,
+        "direction_siblings": [e.model_dump(mode="json") for e in graph["direction_siblings"]],
     }
 
-    # Resolve related experiments (forward links)
-    if exp.related:
-        result = (
-            client.table("experiments")
-            .select("id,status,program,content,finding")
-            .in_("id", exp.related)
-            .execute()
-        )
-        graph["related_experiments"] = to_rows(result.data)
 
-    # Reverse related: experiments that list this one in their related[]
-    result = (
-        client.table("experiments")
-        .select("id,status,program,content,finding")
-        .contains("related", [exp.id])
-        .execute()
-    )
-    reverse = [r for r in to_rows(result.data) if r["id"] != exp.id]
-    graph["reverse_related"] = reverse
-
-    # Questions that promoted to this experiment
-    result = (
-        client.table("questions")
-        .select("id,question,status")
-        .eq("promoted_to_id", exp.id)
-        .execute()
-    )
-    graph["questions_answered"] = to_rows(result.data)
-
-    # Direction and siblings
-    if exp.direction_id:
-        dir_result = client.table("directions").select("*").eq("id", exp.direction_id).execute()
-        dir_rows = to_rows(dir_result.data)
-        if dir_rows:
-            graph["direction"] = dir_rows[0]
-            sibling_result = (
-                client.table("experiments")
-                .select("id,status,content,finding")
-                .eq("direction_id", exp.direction_id)
-                .order("created_at", desc=True)
-                .limit(10)
-                .execute()
-            )
-            graph["direction_siblings"] = [
-                r for r in to_rows(sibling_result.data) if r["id"] != exp.id
-            ]
-
-    return graph
-
-
-def _render_graph(exp, client, to_rows) -> None:
+def _render_graph(exp: Experiment) -> None:
     """Render graph neighborhood for an experiment."""
-    graph = _build_graph_data(exp, client, to_rows)
+    graph = db.get_graph_neighborhood(exp)
 
     has_content = False
 
     # Related experiments (forward)
     if graph["related_experiments"]:
         has_content = True
-        rows_data = []
-        for r in graph["related_experiments"]:
-            rows_data.append(
-                {
-                    "id": r["id"],
-                    "status": r.get("status", ""),
-                    "rel": "related",
-                    "summary": record_summary(r, 45),
-                }
-            )
-        print_table(["id", "status", "rel", "summary"], rows_data, title="Related Experiments")
+        print_table(
+            ["id", "status", "rel", "summary"],
+            [
+                {"id": e.id, "status": e.status, "rel": "related", "summary": record_summary(e, 45)}
+                for e in graph["related_experiments"]
+            ],
+            title="Related Experiments",
+        )
 
     # Reverse related
     if graph["reverse_related"]:
         has_content = True
-        rows_data = []
-        for r in graph["reverse_related"]:
-            rows_data.append(
+        print_table(
+            ["id", "status", "rel", "summary"],
+            [
                 {
-                    "id": r["id"],
-                    "status": r.get("status", ""),
+                    "id": e.id,
+                    "status": e.status,
                     "rel": "references this",
-                    "summary": record_summary(r, 45),
+                    "summary": record_summary(e, 45),
                 }
-            )
-        print_table(["id", "status", "rel", "summary"], rows_data, title="Referenced By")
+                for e in graph["reverse_related"]
+            ],
+            title="Referenced By",
+        )
 
     # Questions answered
     if graph["questions_answered"]:
         has_content = True
-        rows_data = []
-        for q in graph["questions_answered"]:
-            rows_data.append(
-                {
-                    "id": q["id"],
-                    "status": q.get("status", ""),
-                    "question": truncate_text(q.get("question"), 55),
-                }
-            )
-        print_table(["id", "status", "question"], rows_data, title="Questions Answered")
+        print_table(
+            ["id", "status", "question"],
+            [
+                {"id": q.id, "status": q.status, "question": truncate_text(q.question, 55)}
+                for q in graph["questions_answered"]
+            ],
+            title="Questions Answered",
+        )
+
+    # Findings
+    if graph["findings"]:
+        has_content = True
+        print_table(
+            ["id", "finding", "confidence"],
+            [
+                {"id": f.id, "finding": truncate_text(f.finding, 50), "confidence": f.confidence}
+                for f in graph["findings"]
+            ],
+            title="Findings",
+        )
 
     # Direction
     if graph["direction"]:
         has_content = True
         d = graph["direction"]
         err.print("\n[sonde.heading]Direction[/]")
-        err.print(f"  {d['id']}  {d.get('title', '')}  [{d.get('status', '')}]")
-        err.print(f"  [sonde.muted]{d.get('question', '')}[/]")
+        err.print(f"  {d.id}  {d.title}  [{d.status}]")
+        err.print(f"  [sonde.muted]{d.question}[/]")
         if graph["direction_siblings"]:
             err.print("\n  [sonde.heading]Siblings in this direction:[/]")
             for s in graph["direction_siblings"]:
-                err.print(f"    {s['id']}  [{s.get('status', '')}]  {record_summary(s, 50)}")
+                err.print(f"    {s.id}  [{s.status}]  {record_summary(s, 50)}")
 
     if not has_content:
         err.print("\n[dim]No graph connections found for this experiment.[/dim]")

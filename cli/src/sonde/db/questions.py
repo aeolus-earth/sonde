@@ -82,12 +82,7 @@ def update(question_id: str, updates: dict[str, Any]) -> Question | None:
 def find_by_promoted_to(experiment_id: str) -> list[Question]:
     """Get questions that were promoted to a specific experiment."""
     client = get_client()
-    result = (
-        client.table("questions")
-        .select("*")
-        .eq("promoted_to_id", experiment_id)
-        .execute()
-    )
+    result = client.table("questions").select("*").eq("promoted_to_id", experiment_id).execute()
     return [Question(**row) for row in to_rows(result.data)]
 
 

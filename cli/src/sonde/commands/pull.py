@@ -6,10 +6,14 @@ from pathlib import Path
 from typing import Any
 
 import click
+from postgrest.exceptions import APIError
 
 from sonde.config import get_settings
-from sonde.db import rows
-from sonde.db.client import get_client
+from sonde.db import experiments as exp_db
+from sonde.db import findings as find_db
+from sonde.db import notes as notes_db
+from sonde.db import questions as q_db
+from sonde.db.artifacts import list_artifacts
 from sonde.local import (
     ensure_subdir,
     find_sonde_dir,
@@ -60,19 +64,14 @@ def pull_experiments(ctx: click.Context) -> None:
     """
     sonde_dir = find_sonde_dir()
     program = ctx.obj.get("pull_program")
-    client = get_client()
 
-    query = client.table("experiments").select("*").order("created_at", desc=True)
-    if program:
-        query = query.eq("program", program)
+    experiments = exp_db.list_for_brief(program=program)
+    for exp in experiments:
+        md = render_record(exp.model_dump(mode="json"))
+        write_record(sonde_dir, "experiments", exp.id, md)
+        ensure_subdir(sonde_dir, f"experiments/{exp.id}")
 
-    data = rows(query.execute().data)
-    for record in data:
-        md = render_record(record)
-        write_record(sonde_dir, "experiments", record["id"], md)
-        ensure_subdir(sonde_dir, f"experiments/{record['id']}")
-
-    print_success(f"Pulled {len(data)} experiment(s)")
+    print_success(f"Pulled {len(experiments)} experiment(s)")
 
 
 @pull.command("experiment")
@@ -86,11 +85,9 @@ def pull_experiment(ctx: click.Context, experiment_id: str) -> None:
       sonde pull experiment EXP-0001
     """
     sonde_dir = find_sonde_dir()
-    client = get_client()
 
-    result = client.table("experiments").select("*").eq("id", experiment_id.upper()).execute()
-    data = rows(result.data)
-    if not data:
+    exp = exp_db.get(experiment_id.upper())
+    if not exp:
         print_error(
             f"Experiment {experiment_id} not found",
             "No experiment with this ID in the database.",
@@ -98,35 +95,27 @@ def pull_experiment(ctx: click.Context, experiment_id: str) -> None:
         )
         raise SystemExit(1)
 
-    record = data[0]
+    record = exp.model_dump(mode="json")
     md = render_record(record)
-    path = write_record(sonde_dir, "experiments", record["id"], md)
+    path = write_record(sonde_dir, "experiments", exp.id, md)
 
     # Create experiment subdirectory for artifacts/notes
-    ensure_subdir(sonde_dir, f"experiments/{record['id']}")
+    ensure_subdir(sonde_dir, f"experiments/{exp.id}")
 
     # Pull artifacts if any
-    art_result = client.table("artifacts").select("*").eq("experiment_id", record["id"]).execute()
-    artifacts = rows(art_result.data)
+    artifacts = list_artifacts(exp.id)
     if artifacts:
-        _download_artifacts(client, sonde_dir, record["id"], artifacts)
+        _download_artifacts(sonde_dir, exp.id, artifacts)
 
     # Pull notes if any
     try:
-        note_result = (
-            client.table("experiment_notes")
-            .select("*")
-            .eq("experiment_id", record["id"])
-            .order("created_at")
-            .execute()
-        )
-        notes = rows(note_result.data)
+        notes = notes_db.list_by_experiment(exp.id)
         if notes:
-            _write_notes(sonde_dir, record["id"], notes)
-    except Exception as exc:
+            _write_notes(sonde_dir, exp.id, notes)
+    except APIError as exc:
         err.print(f"  [sonde.warning]Could not pull notes: {exc}[/]")
 
-    print_success(f"Pulled {record['id']} → {path.relative_to(sonde_dir.parent)}")
+    print_success(f"Pulled {exp.id} → {path.relative_to(sonde_dir.parent)}")
 
 
 @pull.command("findings")
@@ -140,18 +129,13 @@ def pull_findings(ctx: click.Context) -> None:
     """
     program = ctx.obj.get("pull_program")
     sonde_dir = find_sonde_dir()
-    client = get_client()
 
-    query = client.table("findings").select("*").order("created_at", desc=True)
-    if program:
-        query = query.eq("program", program)
+    findings = find_db.list_findings(program=program, include_superseded=True, limit=10000)
+    for f in findings:
+        md = render_record(f.model_dump(mode="json"))
+        write_record(sonde_dir, "findings", f.id, md)
 
-    data = rows(query.execute().data)
-    for record in data:
-        md = render_record(record)
-        write_record(sonde_dir, "findings", record["id"], md)
-
-    print_success(f"Pulled {len(data)} finding(s)")
+    print_success(f"Pulled {len(findings)} finding(s)")
 
 
 @pull.command("questions")
@@ -165,18 +149,13 @@ def pull_questions(ctx: click.Context) -> None:
     """
     program = ctx.obj.get("pull_program")
     sonde_dir = find_sonde_dir()
-    client = get_client()
 
-    query = client.table("questions").select("*").order("created_at", desc=True)
-    if program:
-        query = query.eq("program", program)
+    questions = q_db.list_questions(program=program, include_all=True, limit=10000)
+    for q in questions:
+        md = render_record(q.model_dump(mode="json"))
+        write_record(sonde_dir, "questions", q.id, md)
 
-    data = rows(query.execute().data)
-    for record in data:
-        md = render_record(record)
-        write_record(sonde_dir, "questions", record["id"], md)
-
-    print_success(f"Pulled {len(data)} question(s)")
+    print_success(f"Pulled {len(questions)} question(s)")
 
 
 # ---------------------------------------------------------------------------
@@ -187,66 +166,46 @@ def pull_questions(ctx: click.Context) -> None:
 def _pull_all(program: str, use_json: bool) -> None:
     """Pull experiments, findings, and questions for a program."""
     sonde_dir = find_sonde_dir()
-    client = get_client()
 
     if not use_json:
         err.print(f"[sonde.muted]Pulling {program}...[/]")
 
     # Experiments
-    exp_data = rows(
-        client.table("experiments")
-        .select("*")
-        .eq("program", program)
-        .order("created_at", desc=True)
-        .execute()
-        .data
-    )
-    for record in exp_data:
-        md = render_record(record)
-        write_record(sonde_dir, "experiments", record["id"], md)
-        ensure_subdir(sonde_dir, f"experiments/{record['id']}")
+    experiments = exp_db.list_for_brief(program=program)
+    for exp in experiments:
+        md = render_record(exp.model_dump(mode="json"))
+        write_record(sonde_dir, "experiments", exp.id, md)
+        ensure_subdir(sonde_dir, f"experiments/{exp.id}")
 
     # Findings
-    find_data = rows(
-        client.table("findings")
-        .select("*")
-        .eq("program", program)
-        .order("created_at", desc=True)
-        .execute()
-        .data
-    )
-    for record in find_data:
-        md = render_record(record)
-        write_record(sonde_dir, "findings", record["id"], md)
+    findings = find_db.list_findings(program=program, include_superseded=True, limit=10000)
+    for f in findings:
+        md = render_record(f.model_dump(mode="json"))
+        write_record(sonde_dir, "findings", f.id, md)
 
     # Questions
-    q_data = rows(
-        client.table("questions")
-        .select("*")
-        .eq("program", program)
-        .order("created_at", desc=True)
-        .execute()
-        .data
-    )
-    for record in q_data:
-        md = render_record(record)
-        write_record(sonde_dir, "questions", record["id"], md)
+    questions = q_db.list_questions(program=program, include_all=True, limit=10000)
+    for q in questions:
+        md = render_record(q.model_dump(mode="json"))
+        write_record(sonde_dir, "questions", q.id, md)
 
     print_success(
-        f"Pulled {len(exp_data)} experiment(s), "
-        f"{len(find_data)} finding(s), "
-        f"{len(q_data)} question(s)"
+        f"Pulled {len(experiments)} experiment(s), "
+        f"{len(findings)} finding(s), "
+        f"{len(questions)} question(s)"
     )
     err.print("  [sonde.muted]→ .sonde/[/]")
 
 
 def _download_artifacts(
-    client: Any,
     sonde_dir: Path,
     experiment_id: str,
     artifacts: list[dict[str, Any]],
 ) -> None:
     """Download artifact files from Supabase Storage, preserving directory structure."""
+    from sonde.db.client import get_client
+
+    client = get_client()
     exp_dir = sonde_dir / "experiments" / experiment_id
 
     for art in artifacts:
@@ -254,8 +213,6 @@ def _download_artifacts(
         if not storage_path:
             continue
 
-        # Preserve path structure: storage_path is "{EXP-ID}/subdir/file.ext"
-        # Strip the experiment ID prefix to get the relative path
         if storage_path.startswith(f"{experiment_id}/"):
             relative = storage_path[len(experiment_id) + 1 :]
         else:
@@ -269,7 +226,6 @@ def _download_artifacts(
             err.print(f"  [sonde.warning]Skipping artifact with unsafe path: {storage_path}[/]")
             continue
 
-        # Skip if file exists and size matches
         if local_path.exists():
             size = art.get("size_bytes")
             if size and local_path.stat().st_size == size:

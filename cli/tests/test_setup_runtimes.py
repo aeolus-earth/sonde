@@ -229,10 +229,14 @@ class TestSetupCommand:
                 return_value=type("U", (), {"email": "test@aeolus.earth"})(),
             ),
             patch("sonde.db.client.get_client") as mock_client,
+            patch("sonde.db.programs.get_client") as mock_prog_client,
         ):
-            # Mock the connectivity check
-            tbl = mock_client.return_value.table.return_value
-            tbl.select.return_value.execute.return_value.data = [{"id": "shared"}]
+            # Mock the connectivity check (setup now uses prog_db.list_programs())
+            for mc in (mock_client, mock_prog_client):
+                tbl = mc.return_value.table.return_value
+                tbl.select.return_value.order.return_value.execute.return_value.data = [
+                    {"id": "shared"}
+                ]
             result = runner.invoke(cli, ["-q", "setup", "--runtime", "codex", "--skip-mcp"])
 
         assert result.exit_code == 0
