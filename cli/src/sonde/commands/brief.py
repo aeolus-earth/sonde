@@ -386,7 +386,7 @@ def _render_human(
                 {
                     "id": e["id"],
                     "summary": truncate_text(e["summary"], 45),
-                    "source": e["source"].split("/")[-1] if "/" in e["source"] else e["source"],
+                    "source": (e["source"] or "").split("/")[-1] if e.get("source") and "/" in e["source"] else (e.get("source") or "—"),
                     "created": e["created_at"][:10] if e["created_at"] else "—",
                 }
                 for e in data["open_experiments"]
@@ -401,7 +401,7 @@ def _render_human(
                 {
                     "id": e["id"],
                     "summary": truncate_text(e["summary"], 50),
-                    "source": e["source"].split("/")[-1] if "/" in e["source"] else e["source"],
+                    "source": (e["source"] or "").split("/")[-1] if e.get("source") and "/" in e["source"] else (e.get("source") or "—"),
                 }
                 for e in data["running_experiments"]
             ],
@@ -462,10 +462,14 @@ def _render_human(
         err.print("\n[dim]Not enough multi-valued parameters for cross-coverage analysis.[/]")
 
     breadcrumbs = []
-    if program:
+    if program and tag:
+        tag_flags = " ".join(f"--tag {t}" for t in tag)
+        breadcrumbs.append(f"Experiments: sonde list -p {program} {tag_flags}")
+        breadcrumbs.append(f"Findings:   sonde findings -p {program}")
+    elif program:
         breadcrumbs.append(f"Drill down: sonde list --open -p {program}")
         breadcrumbs.append(f"Findings:   sonde findings -p {program}")
-    if tag:
+    elif tag:
         tag_flags = " ".join(f"--tag {t}" for t in tag)
         breadcrumbs.append(f"Experiments: sonde list {tag_flags}")
     if direction:

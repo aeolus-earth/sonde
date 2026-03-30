@@ -278,9 +278,10 @@ def tag_normalize(ctx: click.Context, program: str | None, force: bool) -> None:
 
     for exp_id, old_tags, new_tags in changes:
         db.set_tags(exp_id, new_tags)
-        # Log which tags changed
-        changed_tags = {old: new for old, new in zip(old_tags, new_tags, strict=True) if old != new}
-        log_activity(exp_id, "experiment", "tag_normalized", {"changes": changed_tags})
+        for old, new in zip(old_tags, new_tags, strict=True):
+            if old != new:
+                log_activity(exp_id, "experiment", "tag_removed", {"tag": old})
+                log_activity(exp_id, "experiment", "tag_added", {"tag": new})
 
     if not ctx.obj.get("json"):
         print_success(

@@ -87,6 +87,19 @@ def list_active(
     return [Finding(**row) for row in to_rows(query.execute().data)]
 
 
+def find_by_evidence(experiment_id: str) -> list[Finding]:
+    """Find active findings that cite a specific experiment in their evidence."""
+    client = get_client()
+    result = (
+        client.table("findings")
+        .select("*")
+        .contains("evidence", [experiment_id])
+        .is_("valid_until", "null")
+        .execute()
+    )
+    return [Finding(**row) for row in to_rows(result.data)]
+
+
 def supersede(finding_id: str, new_id: str) -> None:
     """Mark a finding as superseded by a newer one."""
     from datetime import UTC, datetime
@@ -121,5 +134,7 @@ def _apply_filters(
     if confidence:
         query = query.eq("confidence", confidence)
     if topic:
-        query = query.ilike("topic", f"%{topic}%")
+        from sonde.db.validate import escape_like
+
+        query = query.ilike("topic", f"%{escape_like(topic)}%")
     return query

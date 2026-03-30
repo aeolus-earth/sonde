@@ -13,7 +13,7 @@ from sonde.db import experiments as exp_db
 from sonde.db import findings as db
 from sonde.db.activity import log_activity
 from sonde.models.finding import FindingCreate
-from sonde.output import print_error, print_json, print_success
+from sonde.output import err, print_error, print_json, print_success
 
 
 @click.group(invoke_without_command=True)
@@ -169,6 +169,15 @@ def finding_extract(
             f"Add one: sonde update {experiment_id.upper()} --finding '...'",
         )
         raise SystemExit(1)
+
+    # Warn if findings already cite this experiment
+    existing = db.find_by_evidence(experiment_id.upper())
+    if existing:
+        ids = ", ".join(f.id for f in existing)
+        err.print(
+            f"[sonde.warning]Note: {len(existing)} finding(s) already cite "
+            f"{experiment_id.upper()}: {ids}[/]"
+        )
 
     resolved_source = source or resolve_source()
 

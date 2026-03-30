@@ -188,10 +188,19 @@ class TestNoFinding:
         assert check_no_finding(data) == []
 
     def test_complete_without_finding_flagged(self):
-        data = HealthData(experiments=[_make_experiment("EXP-0001", finding=None)])
+        data = HealthData(
+            experiments=[_make_experiment("EXP-0001", finding=None, content=None)]
+        )
         issues = check_no_finding(data)
         assert len(issues) == 1
         assert issues[0].fix is None  # requires judgment
+
+    def test_complete_with_content_not_flagged(self):
+        """Content-first experiments don't need the legacy finding field."""
+        data = HealthData(
+            experiments=[_make_experiment("EXP-0001", finding=None, content="# Rich content")]
+        )
+        assert check_no_finding(data) == []
 
     def test_open_without_finding_not_flagged(self):
         data = HealthData(experiments=[_make_experiment("EXP-0001", status="open", finding=None)])
@@ -534,11 +543,13 @@ class TestHealthCommand:
 
         from sonde.cli import cli
 
-        # Note: will still have "brief stale" issue since no .sonde/brief.meta.json
+        # Note: may have "brief stale" issue since no .sonde/brief.meta.json
         result = runner.invoke(cli, ["--json", "health"])
         assert result.exit_code == 0
         report = json.loads(result.output)
-        assert report["score"] <= 100
+        # Only brief-stale checker fires (no .sonde/brief.meta.json); others should be clean
+        non_brief_issues = [i for i in report["issues"] if i.get("checker") != "brief_stale"]
+        assert non_brief_issues == [], f"Unexpected issues: {non_brief_issues}"
 
     def test_health_category_filter(self, runner: CliRunner, patched_db: MagicMock):
         self._setup_health_mock(

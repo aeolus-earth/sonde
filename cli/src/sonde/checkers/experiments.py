@@ -37,16 +37,25 @@ def check_stale_running(data: HealthData) -> list[HealthIssue]:
 
 
 def check_no_finding(data: HealthData) -> list[HealthIssue]:
-    """Flag complete experiments with no finding recorded."""
+    """Flag complete experiments with no finding or content.
+
+    Experiments using the content-first model (rich markdown body) are
+    not penalized for missing the legacy `finding` field — the content
+    body IS the record.
+    """
     issues: list[HealthIssue] = []
     for e in data.experiments:
-        if e["status"] == "complete" and not e.get("finding"):
+        if e["status"] != "complete":
+            continue
+        has_finding = bool(e.get("finding"))
+        has_content = bool(e.get("content"))
+        if not has_finding and not has_content:
             issues.append(
                 HealthIssue(
                     category="experiment",
                     severity="warning",
                     record_id=e["id"],
-                    message="complete with no finding",
+                    message="complete with no finding or content",
                     fix=None,
                     penalty=3,
                 )
