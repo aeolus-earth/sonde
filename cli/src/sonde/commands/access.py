@@ -35,7 +35,7 @@ def s3(ctx: click.Context) -> None:
     """
     settings = get_settings()
 
-    config: dict = {
+    config: dict[str, str | None] = {
         "bucket": settings.s3_bucket or None,
         "prefix": settings.s3_prefix or None,
         "region": settings.s3_region,
@@ -100,7 +100,7 @@ def icechunk(ctx: click.Context) -> None:
     """
     settings = get_settings()
 
-    config: dict = {
+    config: dict[str, str | None] = {
         "repo": settings.icechunk_repo or None,
     }
 
@@ -126,7 +126,7 @@ def stac(ctx: click.Context) -> None:
     """
     settings = get_settings()
 
-    config: dict = {
+    config: dict[str, str | None] = {
         "catalog_url": settings.stac_catalog_url or None,
     }
 

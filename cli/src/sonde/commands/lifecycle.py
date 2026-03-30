@@ -73,7 +73,7 @@ def _change_status(
         print_success(f"{experiment_id} is already {new_status}")
         return
 
-    updates: dict = {"status": new_status}
+    updates: dict[str, str] = {"status": new_status}
     if finding:
         updates["finding"] = finding
 

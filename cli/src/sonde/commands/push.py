@@ -6,6 +6,7 @@ An experiment is a directory. Push uploads the markdown AND all files in it.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import click
 
@@ -163,7 +164,7 @@ def _upsert_experiment(fm: dict, body: str, filepath: Path) -> dict:
     # Auto-detect git context
     git_ctx = detect_git_context()
 
-    row: dict = {
+    row: dict[str, Any] = {
         "program": program,
         "source": source,
         "status": fm.get("status", "open"),
