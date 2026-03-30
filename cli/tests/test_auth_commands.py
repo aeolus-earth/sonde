@@ -95,3 +95,66 @@ def test_get_token_signs_in_with_bot_token(monkeypatch):
         assert auth.get_token() == "access-token"
 
     monkeypatch.delenv("SONDE_TOKEN", raising=False)
+
+
+def test_refresh_session_updates_stored_session(monkeypatch):
+    session = {
+        "access_token": "old-access-token",
+        "refresh_token": "refresh-token",
+        "user": {
+            "id": "00000000-0000-0000-0000-000000000001",
+            "email": "test@aeolus.earth",
+            "app_metadata": {"programs": ["shared"]},
+            "user_metadata": {},
+        },
+    }
+    saved: dict[str, object] = {}
+
+    refreshed_session = type(
+        "Session",
+        (),
+        {
+            "access_token": "new-access-token",
+            "refresh_token": "new-refresh-token",
+            "user": type(
+                "User",
+                (),
+                {
+                    "id": "00000000-0000-0000-0000-000000000001",
+                    "email": "test@aeolus.earth",
+                    "app_metadata": {"programs": ["dart-benchmarking", "shared"]},
+                    "user_metadata": {},
+                },
+            )(),
+        },
+    )()
+    fake_response = type("Response", (), {"session": refreshed_session})()
+    fake_client = type(
+        "Client",
+        (),
+        {
+            "auth": type(
+                "Auth",
+                (),
+                {
+                    "refresh_session": staticmethod(
+                        lambda token: token == "refresh-token" and fake_response
+                    )
+                },
+            )()
+        },
+    )()
+
+    monkeypatch.delenv("SONDE_TOKEN", raising=False)
+
+    with (
+        patch("sonde.auth.load_session", return_value=session),
+        patch("sonde.auth.save_session", side_effect=lambda data: saved.update(data)),
+        patch("sonde.auth._anon_client", return_value=fake_client),
+    ):
+        token = auth.refresh_session()
+
+    assert token == "new-access-token"
+    assert saved["access_token"] == "new-access-token"
+    assert saved["refresh_token"] == "new-refresh-token"
+    assert saved["user"]["app_metadata"]["programs"] == ["dart-benchmarking", "shared"]

@@ -159,29 +159,44 @@ def get_token() -> str:
 
     # Only refresh if token is expired (check exp claim)
     if _is_expired(access_token):
-        refresh_token = session.get("refresh_token")
-        if refresh_token:
-            try:
-                client = _anon_client()
-                refreshed = client.auth.refresh_session(refresh_token)
-                if refreshed and refreshed.session:
-                    new_session = {
-                        "access_token": refreshed.session.access_token,
-                        "refresh_token": refreshed.session.refresh_token,
-                        "user": _user_dict(refreshed.session.user),
-                    }
-                    save_session(new_session)
-                    return refreshed.session.access_token
-            except AuthApiError:
-                logger.debug("Token refresh failed", exc_info=True)
-                raise NotAuthenticatedError(
-                    "Session expired and refresh failed. Run: sonde login"
-                ) from None
-
-        # Token is expired but no refresh token available
+        refreshed_token = refresh_session()
+        if refreshed_token:
+            return refreshed_token
         raise NotAuthenticatedError("Session expired. Run: sonde login")
 
     return access_token
+
+
+def refresh_session() -> str | None:
+    """Refresh the stored human session and return the new access token."""
+    if os.environ.get("SONDE_TOKEN"):
+        return None
+
+    session = load_session()
+    if not session:
+        return None
+
+    refresh_token = session.get("refresh_token")
+    if not refresh_token:
+        return None
+
+    try:
+        client = _anon_client()
+        refreshed = client.auth.refresh_session(refresh_token)
+    except AuthApiError:
+        logger.debug("Token refresh failed", exc_info=True)
+        return None
+
+    if not refreshed or not refreshed.session:
+        return None
+
+    new_session = {
+        "access_token": refreshed.session.access_token,
+        "refresh_token": refreshed.session.refresh_token,
+        "user": _user_dict(refreshed.session.user),
+    }
+    save_session(new_session)
+    return refreshed.session.access_token
 
 
 def get_current_user() -> UserInfo | None:

@@ -30,6 +30,9 @@ def create(data: ProgramCreate) -> Program:
             "program_description": data.description,
         },
     ).execute()
+    from sonde.auth import refresh_session
+
+    refresh_session()
     return _program_from_result(result.data)
 
 

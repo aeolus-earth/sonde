@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
 from postgrest.exceptions import APIError
@@ -148,10 +148,11 @@ class TestProgramCreate:
     def test_create_success(self, runner: CliRunner, patched_db: MagicMock) -> None:
         patched_db.rpc.return_value.execute.return_value = MagicMock(data=_PROGRAM_ROW)
 
-        result = runner.invoke(
-            cli,
-            ["program", "create", "test-program", "--name", "Test Program"],
-        )
+        with patch("sonde.auth.refresh_session", return_value="new-access-token"):
+            result = runner.invoke(
+                cli,
+                ["program", "create", "test-program", "--name", "Test Program"],
+            )
         assert result.exit_code == 0
         assert "Created" in result.output
         assert "test-program" in result.output
@@ -161,18 +162,20 @@ class TestProgramCreate:
             {"message": "duplicate key value violates unique constraint", "code": "23505"}
         )
 
-        result = runner.invoke(
-            cli,
-            ["program", "create", "test-program", "--name", "Test Program"],
-        )
+        with patch("sonde.auth.refresh_session", return_value="new-access-token"):
+            result = runner.invoke(
+                cli,
+                ["program", "create", "test-program", "--name", "Test Program"],
+            )
         assert result.exit_code == 1
         assert "already exists" in result.output
 
     def test_create_invalid_slug(self, runner: CliRunner, patched_db: MagicMock) -> None:
-        result = runner.invoke(
-            cli,
-            ["program", "create", "Bad Slug", "--name", "Bad"],
-        )
+        with patch("sonde.auth.refresh_session", return_value="new-access-token"):
+            result = runner.invoke(
+                cli,
+                ["program", "create", "Bad Slug", "--name", "Bad"],
+            )
         assert result.exit_code == 2
         assert "Invalid" in result.output
 
