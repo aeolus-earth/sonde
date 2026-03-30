@@ -109,6 +109,35 @@ class TestProgramList:
         assert "old-program" in result.output
         assert "archived" in result.output
 
+    def test_list_falls_back_when_archived_at_column_missing(
+        self, runner: CliRunner, patched_db: MagicMock
+    ) -> None:
+        programs_table = _table_factory_for_stats([_PROGRAM_ROW])("programs")
+        filtered_table = _table_factory_for_stats([_PROGRAM_ROW])("programs")
+        filtered_table.execute.side_effect = APIError(
+            {
+                "message": "column programs.archived_at does not exist",
+                "code": "42703",
+                "details": None,
+                "hint": None,
+            }
+        )
+
+        def factory(name: str) -> MagicMock:
+            if name == "programs":
+                if filtered_table.execute.side_effect is not None:
+                    table = filtered_table
+                    filtered_table.execute.side_effect = None
+                    return table
+                return programs_table
+            return _table_factory_for_stats([_PROGRAM_ROW])(name)
+
+        patched_db.table.side_effect = factory
+
+        result = runner.invoke(cli, ["program", "list"])
+        assert result.exit_code == 0
+        assert "test-program" in result.output
+
 
 # ---------------------------------------------------------------------------
 # Create

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from postgrest.exceptions import APIError
 from postgrest.types import CountMethod
 
 from sonde.db import rows as to_rows
@@ -46,7 +47,22 @@ def list_programs(*, include_archived: bool = False) -> list[Program]:
     query = client.table("programs").select("*").order("id")
     if not include_archived:
         query = query.is_("archived_at", "null")
-    return [Program(**row) for row in to_rows(query.execute().data)]
+    try:
+        data = query.execute().data
+    except APIError as exc:
+        if include_archived or not _is_missing_archived_at(exc):
+            raise
+        # Older Sonde databases predate program archiving. In that schema every
+        # program is implicitly active, so fall back to the unfiltered query.
+        data = client.table("programs").select("*").order("id").execute().data
+    return [Program(**row) for row in to_rows(data)]
+
+
+def _is_missing_archived_at(exc: APIError) -> bool:
+    """Return True when the remote programs table predates archived_at."""
+    code = str(getattr(exc, "code", "") or "")
+    message = str(getattr(exc, "message", "") or exc)
+    return code == "42703" and "archived_at" in message
 
 
 def archive(program_id: str) -> Program:
