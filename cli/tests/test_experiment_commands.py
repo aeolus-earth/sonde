@@ -137,7 +137,7 @@ class TestList:
             0, 50
         ).execute.return_value = MagicMock(data=[_EXPERIMENT_ROW])
 
-        result = runner.invoke(cli, ["list", "-p", "weather-intervention"])
+        result = runner.invoke(cli, ["list", "--all", "-p", "weather-intervention"])
         assert result.exit_code == 0
         assert "EXP-0001" in result.output
 
@@ -146,7 +146,7 @@ class TestList:
             0, 50
         ).execute.return_value = MagicMock(data=[_EXPERIMENT_ROW])
 
-        result = runner.invoke(cli, ["--json", "list", "-p", "weather-intervention"])
+        result = runner.invoke(cli, ["--json", "list", "--all", "-p", "weather-intervention"])
         assert result.exit_code == 0
         assert '"EXP-0001"' in result.output
 
@@ -673,7 +673,7 @@ class TestListTree:
             0, 50
         ).execute.return_value = MagicMock(data=[row_with_parent])
 
-        result = runner.invoke(cli, ["--json", "list", "-p", "weather-intervention"])
+        result = runner.invoke(cli, ["--json", "list", "--all", "-p", "weather-intervention"])
         assert result.exit_code == 0
         import json
 

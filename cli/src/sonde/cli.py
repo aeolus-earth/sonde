@@ -34,6 +34,7 @@ class SondeCLI(click.Group):
         "close": ("experiment", "close"),
         "open": ("experiment", "open"),
         "start": ("experiment", "start"),
+        "release": ("experiment", "release"),
         "note": ("experiment", "note"),
         "attach": ("experiment", "attach"),
         "history": ("experiment", "history"),
@@ -42,6 +43,7 @@ class SondeCLI(click.Group):
         "new": ("experiment", "new"),
         "diff": ("experiment", "diff"),
         "fork": ("experiment", "fork"),
+        "archive": ("experiment", "archive"),
         # Noun group shortcuts (backward compat)
         "findings": ("finding", "list"),
         "questions": ("question", "list"),

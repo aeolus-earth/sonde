@@ -114,6 +114,38 @@ def start_experiment(
     _change_status(experiment_id, "running", ctx=ctx, force=force)
 
 
+@click.command("release")
+@click.argument("experiment_id")
+@pass_output_options
+@click.pass_context
+def release_experiment(ctx: click.Context, experiment_id: str) -> None:
+    """Release the claim on an experiment without changing its status.
+
+    Use this to free up an experiment claimed by a crashed or stalled agent.
+
+    \b
+    Examples:
+      sonde release EXP-0001
+    """
+    experiment_id = experiment_id.upper()
+    exp = db.get(experiment_id)
+    if not exp:
+        print_error(f"{experiment_id} not found", "No experiment with this ID.", "sonde list")
+        raise SystemExit(1)
+    if not exp.claimed_by:
+        print_success(f"{experiment_id} is not claimed")
+        return
+
+    old_claim = exp.claimed_by
+    db.update(experiment_id, {"claimed_by": None, "claimed_at": None})
+    log_activity(experiment_id, "experiment", "claim_released", {"released_from": old_claim})
+
+    if ctx.obj.get("json"):
+        print_json({"released": {"id": experiment_id, "previous_claim": old_claim}})
+    else:
+        print_success(f"Released claim on {experiment_id} (was: {old_claim})")
+
+
 # ---------------------------------------------------------------------------
 # Internal
 # ---------------------------------------------------------------------------

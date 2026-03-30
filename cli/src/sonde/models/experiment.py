@@ -18,6 +18,14 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
+BRANCH_TYPES: tuple[str, ...] = (
+    "exploratory",
+    "refinement",
+    "alternative",
+    "debug",
+    "replication",
+)
+
 
 class ExperimentCreate(BaseModel):
     """Input model for creating an experiment."""

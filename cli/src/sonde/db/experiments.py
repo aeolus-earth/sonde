@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 
 from postgrest.exceptions import APIError
@@ -48,6 +49,7 @@ def count_experiments(
     direction: str | None = None,
     since: str | None = None,
     before: str | None = None,
+    exclude_terminal: bool = False,
 ) -> int:
     """Return the total count of experiments matching filters (no limit)."""
     client = get_client()
@@ -61,6 +63,7 @@ def count_experiments(
         direction=direction,
         since=since,
         before=before,
+        exclude_terminal=exclude_terminal,
     )
     return query.execute().count or 0
 
@@ -78,6 +81,7 @@ def list_experiments(
     limit: int = 50,
     offset: int = 0,
     roots: bool = False,
+    exclude_terminal: bool = False,
 ) -> list[Experiment]:
     """List experiments with optional filters."""
     client = get_client()
@@ -98,6 +102,7 @@ def list_experiments(
         since=since,
         before=before,
         roots=roots,
+        exclude_terminal=exclude_terminal,
     )
     return [Experiment(**row) for row in to_rows(query.execute().data)]
 
@@ -338,6 +343,35 @@ def get_subtree(root_id: str, *, max_depth: int = 10) -> list[dict[str, Any]]:
     return to_rows(result.data)
 
 
+def archive_subtree(root_id: str) -> tuple[list[str], list[str]]:
+    """Mark all complete/failed experiments in a subtree as superseded.
+
+    Open and running experiments are left untouched.
+    Returns (archived_ids, skipped_ids).
+    """
+    from sonde.db.validate import validate_id
+
+    validate_id(root_id)
+    rows = get_subtree(root_id)
+    archived = []
+    skipped = []
+    client = get_client()
+
+    for row in rows:
+        exp_id = row["id"]
+        status = row.get("status")
+        if status in ("complete", "failed"):
+            client.table("experiments").update(
+                {"status": "superseded"}
+            ).eq("id", exp_id).execute()
+            archived.append(exp_id)
+        elif status in ("open", "running"):
+            skipped.append(exp_id)
+        # already superseded → ignore
+
+    return archived, skipped
+
+
 def get_ancestors(experiment_id: str) -> list[dict[str, Any]]:
     """Get the ancestry chain from this experiment to the root (leaf-to-root order).
 
@@ -374,13 +408,21 @@ def get_children(experiment_id: str) -> list[Experiment]:
     return [Experiment(**row) for row in to_rows(result.data)]
 
 
+def _parse_iso(value: str | None) -> datetime | None:
+    """Parse an ISO timestamp string, returning None on failure."""
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+
+
 def get_tree_summary(program: str | None = None) -> dict[str, Any]:
     """Compute tree statistics for the brief command.
 
     Lightweight columnar query + Python computation — no extra RPC.
     """
-    from datetime import UTC, datetime
-
     client = get_client()
     query = client.table("experiments").select(
         "id,parent_id,status,branch_type,source,content,claimed_by,claimed_at,updated_at"
@@ -414,8 +456,8 @@ def get_tree_summary(program: str | None = None) -> dict[str, Any]:
     stale_claims = []
     for r in all_rows:
         if r.get("status") == "running" and r.get("claimed_at"):
-            try:
-                claimed = datetime.fromisoformat(r["claimed_at"].replace("Z", "+00:00"))
+            claimed = _parse_iso(r["claimed_at"])
+            if claimed:
                 hours = (now - claimed).total_seconds() / 3600
                 if hours > 2:
                     stale_claims.append({
@@ -423,8 +465,6 @@ def get_tree_summary(program: str | None = None) -> dict[str, Any]:
                         "claimed_by": r["claimed_by"],
                         "claimed_hours_ago": round(hours, 1),
                     })
-            except (ValueError, TypeError):
-                pass
 
     return {
         "total_roots": len(roots),
@@ -446,12 +486,15 @@ def _apply_filters(
     since: str | None = None,
     before: str | None = None,
     roots: bool = False,
+    exclude_terminal: bool = False,
 ) -> Any:
     """Apply experiment-specific filters to a query."""
     if program:
         query = query.eq("program", program)
     if status:
         query = query.eq("status", status)
+    if exclude_terminal:
+        query = query.not_.in_("status", ["complete", "superseded"])
     if source:
         query = apply_source_filter(query, source)
     if tags:

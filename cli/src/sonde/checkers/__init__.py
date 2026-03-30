@@ -19,6 +19,7 @@ from sonde.checkers.experiments import (
     check_no_content,
     check_no_finding,
     check_no_tags,
+    check_stale_claims,
     check_stale_running,
 )
 from sonde.checkers.findings import check_weakened_evidence
@@ -30,6 +31,7 @@ Checker = Callable[[HealthData], list[HealthIssue]]
 CHECKERS: list[Checker] = [
     check_brief_staleness,
     check_stale_running,
+    check_stale_claims,
     check_no_finding,
     check_no_tags,
     check_no_content,

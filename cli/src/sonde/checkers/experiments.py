@@ -81,6 +81,35 @@ def check_no_tags(data: HealthData) -> list[HealthIssue]:
     return issues
 
 
+def check_stale_claims(data: HealthData) -> list[HealthIssue]:
+    """Flag experiments claimed >24h with no recent activity."""
+    issues: list[HealthIssue] = []
+    now = datetime.now(UTC)
+    for e in data.experiments:
+        if e["status"] != "running" or not e.get("claimed_at"):
+            continue
+        claimed_at = e["claimed_at"]
+        if isinstance(claimed_at, str):
+            claimed_at = datetime.fromisoformat(claimed_at)
+        hours = (now - claimed_at).total_seconds() / 3600
+        if hours > 24:
+            claimed_by = e.get("claimed_by", "unknown")
+            issues.append(
+                HealthIssue(
+                    category="experiment",
+                    severity="stale",
+                    message=(
+                        f"{e['id']} claimed by {claimed_by}"
+                        f" {hours:.0f}h ago — may be abandoned"
+                    ),
+                    record_id=e["id"],
+                    fix=f"sonde release {e['id']}",
+                    penalty=5,
+                )
+            )
+    return issues
+
+
 def check_no_content(data: HealthData) -> list[HealthIssue]:
     """Flag complete experiments with no content body."""
     issues: list[HealthIssue] = []

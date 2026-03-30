@@ -16,7 +16,7 @@ from sonde.config import get_settings
 from sonde.db import experiments as db
 from sonde.git import detect_git_context
 from sonde.local import generate_body
-from sonde.models.experiment import Experiment, ExperimentCreate
+from sonde.models.experiment import BRANCH_TYPES, Experiment, ExperimentCreate
 from sonde.output import (
     err,
     print_breadcrumbs,
@@ -324,6 +324,9 @@ def log(
 @click.option("--limit", "-n", default=50, help="Max results (default: 50)")
 @click.option("--offset", default=0, help="Skip first N results (for pagination)")
 @click.option("--page", type=int, help="Page number (1-based, combines with --limit)")
+@click.option(
+    "--all", "show_all", is_flag=True, help="Include completed and superseded experiments"
+)
 @click.option("--roots", is_flag=True, help="Show only root experiments (no parent)")
 @click.option("--children-of", "children_of", help="List children of this experiment")
 @pass_output_options
@@ -347,14 +350,16 @@ def list_cmd(
     limit: int,
     offset: int,
     page: int | None,
+    show_all: bool,
     roots: bool,
     children_of: str | None,
 ):
-    """List experiments.
+    """List experiments (actionable only by default).
 
     \b
     Examples:
-      sonde list                                  # all experiments
+      sonde list                                  # open + running + failed
+      sonde list --all                            # include completed/superseded
       sonde list --open                           # open experiments
       sonde list --complete -p weather-intervention
       sonde list --tag cloud-seeding
@@ -385,6 +390,9 @@ def list_cmd(
         raise SystemExit(2)
     if active:
         status = active[0][0]
+
+    # Default: show only actionable experiments unless explicit status filter or --all
+    exclude_terminal = not show_all and status is None
 
     settings = get_settings()
     resolved_program = program or settings.program or None
@@ -429,6 +437,7 @@ def list_cmd(
             direction=direction,
             since=since,
             before=before,
+            exclude_terminal=exclude_terminal,
         )
         if ctx.obj.get("json"):
             print_json({"count": total})
@@ -448,6 +457,7 @@ def list_cmd(
         limit=limit,
         offset=offset,
         roots=roots,
+        exclude_terminal=exclude_terminal,
     )
 
     has_more = len(experiments) > limit
@@ -1069,7 +1079,7 @@ def _format_size(size_bytes: int | None) -> str:
 @click.option(
     "--type",
     "branch_type",
-    type=click.Choice(["exploratory", "refinement", "alternative", "debug", "replication"]),
+    type=click.Choice(list(BRANCH_TYPES)),
     help="Branch type",
 )
 @click.argument("intent", required=False, default=None)
@@ -1185,6 +1195,77 @@ def fork(
         err.print(f"  Start:   sonde start {new_exp.id}")
 
 
+@experiment.command()
+@click.argument("experiment_id")
+@click.option("--dry-run", is_flag=True, help="Preview what would be archived")
+@pass_output_options
+@click.pass_context
+def archive(ctx: click.Context, experiment_id: str, dry_run: bool) -> None:
+    """Archive a completed experiment subtree.
+
+    Marks all complete/failed experiments in the subtree as superseded.
+    Open and running experiments are left untouched.
+    Archived experiments are hidden from `sonde list` by default (use --all to see them).
+
+    \b
+    Examples:
+      sonde archive EXP-0001 --dry-run   # preview
+      sonde archive EXP-0001             # archive the subtree
+    """
+    experiment_id = experiment_id.upper()
+    exp = db.get(experiment_id)
+    if not exp:
+        print_error(
+            f"Experiment {experiment_id} not found",
+            "No experiment with this ID.",
+            "List experiments: sonde list --all",
+        )
+        raise SystemExit(1)
+
+    subtree = db.get_subtree(experiment_id)
+    to_archive = [r for r in subtree if r.get("status") in ("complete", "failed")]
+    to_skip = [r for r in subtree if r.get("status") in ("open", "running")]
+
+    if not to_archive:
+        err.print("[dim]No complete/failed experiments to archive.[/dim]")
+        return
+
+    if dry_run:
+        if ctx.obj.get("json"):
+            print_json({
+                "dry_run": True,
+                "would_archive": [r["id"] for r in to_archive],
+                "would_skip": [r["id"] for r in to_skip],
+            })
+        else:
+            err.print(f"[sonde.heading]Would archive {len(to_archive)} experiment(s):[/]")
+            for r in to_archive:
+                summary = (r.get("content") or "")[:60] or "—"
+                err.print(f"  {r['id']}  [{r['status']}]  {summary}")
+            if to_skip:
+                err.print(f"\n[sonde.muted]Would skip {len(to_skip)} open/running:[/]")
+                for r in to_skip:
+                    err.print(f"  {r['id']}  [{r['status']}]")
+        return
+
+    archived, skipped = db.archive_subtree(experiment_id)
+
+    # Log activity for each archived experiment
+    from sonde.db.activity import log_activity
+
+    for aid in archived:
+        log_activity(aid, "experiment", "archived", {"archived_by": experiment_id})
+
+    if ctx.obj.get("json"):
+        print_json({"archived": archived, "skipped": skipped})
+    else:
+        print_success(f"Archived {len(archived)} experiment(s) under {experiment_id}")
+        if skipped:
+            err.print(f"  [sonde.muted]Skipped {len(skipped)} open/running[/]")
+        err.print("\n  View: sonde list --all")
+        err.print(f"  Tree: sonde tree {experiment_id}")
+
+
 # ---------------------------------------------------------------------------
 # Register subcommands from other modules
 # ---------------------------------------------------------------------------
@@ -1195,6 +1276,7 @@ from sonde.commands.history import history  # noqa: E402
 from sonde.commands.lifecycle import (  # noqa: E402
     close_experiment,
     open_experiment,
+    release_experiment,
     start_experiment,
 )
 from sonde.commands.new import new_experiment  # noqa: E402
@@ -1203,6 +1285,7 @@ from sonde.commands.tag import tag  # noqa: E402
 
 experiment.add_command(close_experiment)
 experiment.add_command(open_experiment)
+experiment.add_command(release_experiment)
 experiment.add_command(start_experiment)
 experiment.add_command(note)
 experiment.add_command(attach)
