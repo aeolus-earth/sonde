@@ -32,32 +32,96 @@ def _suggest_next(
     suggestions: list[dict[str, str]] = []
     siblings = siblings or []
     is_leaf = len(children) == 0
+    active_children = [c for c in children if c.status in ("open", "running")]
+    refinement_children = [c for c in active_children if c.branch_type == "refinement"]
 
     if exp.status == "failed" and is_leaf:
-        suggestions.append({
-            "command": f"sonde fork {exp.id} --type debug",
-            "reason": "Debug what went wrong",
-        })
-        suggestions.append({
-            "command": f"sonde fork {exp.id} --type alternative",
-            "reason": "Try a different approach",
-        })
+        suggestions.append(
+            {
+                "command": f"sonde fork {exp.id} --type debug",
+                "reason": "Debug what went wrong",
+            }
+        )
+        suggestions.append(
+            {
+                "command": f"sonde fork {exp.id} --type alternative",
+                "reason": "Try a different approach",
+            }
+        )
 
-    if exp.status == "complete" and is_leaf:
-        if exp.finding:
-            suggestions.append({
-                "command": f"sonde fork {exp.id} --type refinement",
-                "reason": "Refine the finding further",
-            })
-            suggestions.append({
-                "command": f"sonde fork {exp.id} --type replication",
-                "reason": "Replicate to confirm the result",
-            })
-        else:
-            suggestions.append({
-                "command": f'sonde update {exp.id} --finding "..."',
-                "reason": "Record what you learned",
-            })
+    if exp.status == "complete":
+        if refinement_children:
+            if len(refinement_children) == 1:
+                child = refinement_children[0]
+                suggestions.append(
+                    {
+                        "command": f"sonde show {child.id}",
+                        "reason": "Continue the active refinement branch",
+                    }
+                )
+            else:
+                suggestions.append(
+                    {
+                        "command": f"sonde tree {exp.id}",
+                        "reason": "Choose among multiple active refinement branches",
+                    }
+                )
+        elif active_children:
+            if len(active_children) == 1:
+                child = active_children[0]
+                suggestions.append(
+                    {
+                        "command": f"sonde show {child.id}",
+                        "reason": "A child branch is already carrying this work forward",
+                    }
+                )
+            else:
+                suggestions.append(
+                    {
+                        "command": f"sonde tree {exp.id}",
+                        "reason": "Multiple child branches are active from this experiment",
+                    }
+                )
+        elif is_leaf and exp.finding:
+            suggestions.append(
+                {
+                    "command": f"sonde fork {exp.id} --type refinement",
+                    "reason": "Refine the finding further",
+                }
+            )
+            suggestions.append(
+                {
+                    "command": f"sonde fork {exp.id} --type replication",
+                    "reason": "Replicate to confirm the result",
+                }
+            )
+        elif is_leaf:
+            suggestions.append(
+                {
+                    "command": f'sonde update {exp.id} --finding "..."',
+                    "reason": "Record what you learned",
+                }
+            )
+            suggestions.append(
+                {
+                    "command": f'sonde finding extract {exp.id} --topic "..."',
+                    "reason": "Promote the takeaway into a curated finding",
+                }
+            )
+        elif not exp.finding:
+            suggestions.append(
+                {
+                    "command": f'sonde finding extract {exp.id} --topic "..."',
+                    "reason": "Curate the completed result into a finding",
+                }
+            )
+        if not exp.direction_id:
+            suggestions.append(
+                {
+                    "command": f"sonde update {exp.id} --direction DIR-XXX",
+                    "reason": "Attach this work to a research direction before branching further",
+                }
+            )
 
     # Sibling-aware suggestions
     if siblings and exp.parent_id:
@@ -66,23 +130,37 @@ def _suggest_next(
 
         if running_sibs:
             sib_ids = ", ".join(s.id for s in running_sibs[:3])
-            suggestions.append({
-                "command": f"sonde show {running_sibs[0].id}",
-                "reason": f"Sibling(s) still running: {sib_ids}",
-            })
+            suggestions.append(
+                {
+                    "command": f"sonde show {running_sibs[0].id}",
+                    "reason": f"Sibling(s) still running: {sib_ids}",
+                }
+            )
         elif all_terminal:
-            suggestions.append({
-                "command": f"sonde show {exp.parent_id}",
-                "reason": "All branches from parent are done — review results",
-            })
+            suggestions.append(
+                {
+                    "command": f"sonde show {exp.parent_id}",
+                    "reason": "All branches from parent are done — review results",
+                }
+            )
 
-    if exp.parent_id is not None:
-        suggestions.append({
-            "command": f"sonde fork {exp.parent_id} --type refinement",
-            "reason": "Branch from the parent experiment",
-        })
+    if exp.parent_id is not None and not active_children:
+        suggestions.append(
+            {
+                "command": f"sonde fork {exp.parent_id} --type refinement",
+                "reason": "Branch from the parent experiment",
+            }
+        )
 
-    return suggestions
+    deduped: list[dict[str, str]] = []
+    seen_commands: set[str] = set()
+    for suggestion in suggestions:
+        command = suggestion["command"]
+        if command in seen_commands:
+            continue
+        seen_commands.add(command)
+        deduped.append(suggestion)
+    return deduped
 
 
 # ---------------------------------------------------------------------------
@@ -127,9 +205,7 @@ def open_experiment(ctx: click.Context, experiment_id: str) -> None:
 @click.option("--force", is_flag=True, help="Take over even if claimed by another source")
 @pass_output_options
 @click.pass_context
-def start_experiment(
-    ctx: click.Context, experiment_id: str, force: bool = False
-) -> None:
+def start_experiment(ctx: click.Context, experiment_id: str, force: bool = False) -> None:
     """Mark an experiment as running and claim it.
 
     \b
@@ -211,11 +287,7 @@ def _change_status(
 
     if new_status == "running":
         # Check for existing claim conflict
-        if (
-            exp.claimed_by
-            and exp.claimed_by != current_source
-            and not force
-        ):
+        if exp.claimed_by and exp.claimed_by != current_source and not force:
             age_minutes = None
             if exp.claimed_at:
                 delta = datetime.now(UTC) - exp.claimed_at
@@ -226,15 +298,16 @@ def _change_status(
                 "age_minutes": age_minutes,
             }
             if ctx.obj.get("json"):
-                print_json({
-                    "started": None,
-                    "conflict": conflict_info,
-                })
+                print_json(
+                    {
+                        "started": None,
+                        "conflict": conflict_info,
+                    }
+                )
                 return
             err.print(
                 f"[sonde.warning]Warning:[/] {experiment_id} is claimed by "
-                f"{exp.claimed_by}"
-                + (f" ({age_minutes:.0f}m ago)" if age_minutes else "")
+                f"{exp.claimed_by}" + (f" ({age_minutes:.0f}m ago)" if age_minutes else "")
             )
             err.print("  Use --force to take over.")
             raise SystemExit(1)
@@ -253,14 +326,19 @@ def _change_status(
     if new_status in ("complete", "failed") and git_ctx and git_ctx.dirty and not force:
         suggested = f"{experiment_id}: {finding or 'experiment complete'}"
         if ctx.obj.get("json"):
-            print_json({
-                "error": "uncommitted_changes",
-                "experiment_id": experiment_id,
+            print_json(
+                {
+                    "error": "uncommitted_changes",
+                    "experiment_id": experiment_id,
                 "modified_files": git_ctx.modified_files[:20],
                 "file_count": len(git_ctx.modified_files),
                 "suggested_commit": suggested,
-                "hint": "Commit your changes, then retry. Use --force to close with dirty state.",
-            })
+                "hint": (
+                    "Commit your changes, then retry. "
+                    "Use --force to close with dirty state."
+                ),
+            }
+            )
             return
         n_files = len(git_ctx.modified_files)
         err.print(f"\n[sonde.warning]Uncommitted changes ({n_files} file(s)):[/]")
@@ -293,22 +371,24 @@ def _change_status(
     )
 
     # Fetch updated experiment for suggestions
-    exp_after = db.get(experiment_id)
+    exp_after = exp.model_copy(update=updates)
 
     # JSON output for start
     if new_status == "running" and ctx.obj.get("json"):
-        print_json({
-            "started": {"id": experiment_id, "claimed_by": current_source},
-            "conflict": None,
-        })
+        print_json(
+            {
+                "started": {"id": experiment_id, "claimed_by": current_source},
+                "conflict": None,
+            }
+        )
         return
 
     # JSON output for close
     if new_status == "complete" and ctx.obj.get("json"):
         suggested: list[dict[str, str]] = []
-        if exp_after and exp_after.parent_id:
+        if exp_after:
             children = db.get_children(experiment_id)
-            siblings = db.get_siblings(experiment_id)
+            siblings = db.get_siblings(experiment_id) if exp_after.parent_id else []
             suggested = _suggest_next(exp_after, children, siblings)
         git_info = None
         if git_ctx:
@@ -318,20 +398,46 @@ def _change_status(
                 "dirty": git_ctx.dirty,
                 "start_commit": exp.git_commit,
             }
-        print_json({
-            "closed": {"id": experiment_id, "status": new_status},
-            "suggested_next": suggested,
-            "git": git_info,
-        })
+        print_json(
+            {
+                "closed": {"id": experiment_id, "status": new_status},
+                "suggested_next": suggested,
+                "git": git_info,
+            }
+        )
         return
 
     # Human output
     print_success(f"{experiment_id}: {old_status} → {new_status}")
 
+    # Nudge: missing content after start
+    if new_status == "running" and not ctx.obj.get("json") and exp_after and not exp_after.content:
+        from sonde.output import print_nudge
+
+        print_nudge(
+            "Document your approach before diving in:",
+            f'sonde update {experiment_id} "Method: ..."',
+        )
+
+    # Nudge: no finding recorded at close
+    if (
+        new_status in ("complete", "failed")
+        and not ctx.obj.get("json")
+        and not finding
+        and exp_after
+        and not exp_after.finding
+    ):
+        from sonde.output import print_nudge
+
+        print_nudge(
+            "Record what you learned:",
+            f'sonde update {experiment_id} --finding "..."',
+        )
+
     # Show suggestions after close/fail for tree nodes
-    if new_status in ("complete", "failed") and exp_after and exp_after.parent_id:
+    if new_status in ("complete", "failed") and exp_after:
         children = db.get_children(experiment_id)
-        siblings = db.get_siblings(experiment_id)
+        siblings = db.get_siblings(experiment_id) if exp_after.parent_id else []
         suggestions = _suggest_next(exp_after, children, siblings)
         if suggestions:
             err.print("\n[sonde.heading]Suggested next:[/]")

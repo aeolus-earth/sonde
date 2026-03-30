@@ -141,6 +141,16 @@ def print_error(what: str, why: str, fix: str):
     err.print(f"\n  {fix}\n")
 
 
+def print_nudge(message: str, command: str) -> None:
+    """Print a research hygiene nudge to stderr.
+
+    Used to encourage good practices (hypothesis, findings, evidence)
+    without blocking the operation. Never shown in JSON mode.
+    """
+    err.print(f"\n  [sonde.accent]\U0001f4a1[/] {message}")
+    err.print(f"     [dim]{command}[/]")
+
+
 def print_breadcrumbs(hints: list[str]) -> None:
     """Print drill-down hints on stderr."""
     err.print()

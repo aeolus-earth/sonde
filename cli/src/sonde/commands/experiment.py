@@ -23,6 +23,7 @@ from sonde.output import (
     print_breadcrumbs,
     print_error,
     print_json,
+    print_nudge,
     print_success,
     print_table,
     record_summary,
@@ -276,7 +277,7 @@ def log(
         git_commit=git_ref or (git_ctx.commit if git_ctx else None),
         git_repo=git_ctx.repo if git_ctx else None,
         git_branch=git_ctx.branch if git_ctx else None,
-        direction_id=direction,
+        direction_id=direction or settings.default_direction or None,
         related=[r.strip() for r in related.split(",")] if related else [],
         tags=list(tag),
     )
@@ -300,6 +301,18 @@ def log(
         err.print()
         err.print(f"  View:    sonde show {exp.id}")
         err.print(f"  Attach:  sonde attach {exp.id} <file>")
+
+        # Research hygiene nudge (max 1, only for non-JSON)
+        if not exp.content and not exp.hypothesis:
+            print_nudge(
+                "Add what you expect to happen:",
+                f'sonde update {exp.id} "Hypothesis: ..."',
+            )
+        elif not exp.direction_id:
+            print_nudge(
+                "Attach to a research direction:",
+                f"sonde update {exp.id} --direction DIR-XXX",
+            )
 
 
 @experiment.command("list")
@@ -521,6 +534,9 @@ def show(ctx: click.Context, experiment_id: str, graph: bool) -> None:
     parent = db.get(exp.parent_id) if exp.parent_id else None
     children = db.get_children(exp.id)
     siblings = db.get_siblings(exp.id) if exp.parent_id else []
+    from sonde.commands.lifecycle import _suggest_next
+
+    suggestions = _suggest_next(exp, children, siblings)
 
     if ctx.obj.get("json"):
         data = exp.model_dump(mode="json")
@@ -530,6 +546,7 @@ def show(ctx: click.Context, experiment_id: str, graph: bool) -> None:
         data["_parent"] = parent.model_dump(mode="json") if parent else None
         data["_children"] = [c.model_dump(mode="json") for c in children]
         data["_siblings"] = [s.model_dump(mode="json") for s in siblings]
+        data["_suggested_next"] = suggestions
         if graph:
             graph_data = db.get_graph_neighborhood(exp)
             data["_graph"] = _serialize_graph(graph_data)
@@ -656,6 +673,12 @@ def show(ctx: click.Context, experiment_id: str, graph: bool) -> None:
                 title="Child Experiments",
             )
 
+        if suggestions:
+            err.print("\n[sonde.heading]Suggested next[/]")
+            for suggestion in suggestions[:4]:
+                err.print(f"  {suggestion['command']}")
+                err.print(f"    [sonde.muted]{suggestion['reason']}[/]")
+
         # Recent activity
         if activity:
             err.print("\n[sonde.heading]Activity[/]")
@@ -677,6 +700,18 @@ def show(ctx: click.Context, experiment_id: str, graph: bool) -> None:
         if children or parent:
             breadcrumbs.append(f"Tree:    sonde tree {exp.id}")
         print_breadcrumbs(breadcrumbs)
+
+        # Research hygiene nudge (max 1, only for non-JSON)
+        if exp.status in ("complete", "failed") and not exp.finding:
+            print_nudge(
+                "This experiment is complete but has no finding recorded.",
+                f'sonde update {exp.id} --finding "What you learned"',
+            )
+        elif exp.status in ("open", "running") and not exp.direction_id:
+            print_nudge(
+                "This experiment isn't linked to a research direction.",
+                f"sonde update {exp.id} --direction DIR-XXX",
+            )
 
 
 @experiment.command()
@@ -874,6 +909,7 @@ def search(
 @click.option("--finding", help="Update finding")
 @click.option("--content", "-c", "content_text", help="Replace content body")
 @click.option("--content-file", type=click.Path(exists=True), help="Replace content from file")
+@click.option("--direction", help="Set or change the parent research direction")
 @click.option("--tag", multiple=True, help="Set tags (replaces existing)")
 @pass_output_options
 @click.pass_context
@@ -889,6 +925,7 @@ def update(
     finding: str | None,
     content_text: str | None,
     content_file: str | None,
+    direction: str | None,
     tag: tuple[str, ...],
 ):
     """Update fields on an existing experiment.
@@ -919,6 +956,8 @@ def update(
         updates["hypothesis"] = hypothesis
     if finding is not None:
         updates["finding"] = finding
+    if direction is not None:
+        updates["direction_id"] = direction
 
     # Content
     if content_file:
@@ -1195,11 +1234,13 @@ def fork(
     )
 
     if ctx.obj.get("json"):
-        print_json({
-            "created": new_exp.model_dump(mode="json"),
-            "siblings": [s.model_dump(mode="json") for s in siblings],
-            "parent": source_exp.model_dump(mode="json"),
-        })
+        print_json(
+            {
+                "created": new_exp.model_dump(mode="json"),
+                "siblings": [s.model_dump(mode="json") for s in siblings],
+                "parent": source_exp.model_dump(mode="json"),
+            }
+        )
     else:
         type_label = f" ({branch_type})" if branch_type else ""
         print_success(f"Forked {source_exp.id} → {new_exp.id}{type_label}")
@@ -1253,11 +1294,13 @@ def archive(ctx: click.Context, experiment_id: str, dry_run: bool) -> None:
 
     if dry_run:
         if ctx.obj.get("json"):
-            print_json({
-                "dry_run": True,
-                "would_archive": [r["id"] for r in to_archive],
-                "would_skip": [r["id"] for r in to_skip],
-            })
+            print_json(
+                {
+                    "dry_run": True,
+                    "would_archive": [r["id"] for r in to_archive],
+                    "would_skip": [r["id"] for r in to_skip],
+                }
+            )
         else:
             err.print(f"[sonde.heading]Would archive {len(to_archive)} experiment(s):[/]")
             for r in to_archive:
@@ -1302,6 +1345,9 @@ from sonde.commands.lifecycle import (  # noqa: E402
 )
 from sonde.commands.new import new_experiment  # noqa: E402
 from sonde.commands.note import note  # noqa: E402
+from sonde.commands.pull import pull_experiment  # noqa: E402
+from sonde.commands.push import push_experiment  # noqa: E402
+from sonde.commands.remove import remove_experiment  # noqa: E402
 from sonde.commands.tag import tag  # noqa: E402
 
 experiment.add_command(close_experiment)
@@ -1313,4 +1359,7 @@ experiment.add_command(attach)
 experiment.add_command(tag)
 experiment.add_command(history)
 experiment.add_command(new_experiment)
+experiment.add_command(pull_experiment, "pull")
+experiment.add_command(push_experiment, "push")
+experiment.add_command(remove_experiment)
 experiment.add_command(diff_cmd)

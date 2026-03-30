@@ -10,7 +10,7 @@ from postgrest.exceptions import APIError
 from sonde.auth import resolve_source
 from sonde.db import notes as db
 from sonde.local import ensure_subdir, find_sonde_dir
-from sonde.output import err, print_error, print_json, print_success
+from sonde.output import err, print_error, print_json, print_nudge, print_success
 
 
 @click.command()
@@ -89,3 +89,15 @@ def note(
     else:
         print_success(f"Note {note_id} added to {experiment_id}")
         err.print(f"  [sonde.muted]\u2192 {local_file.relative_to(sonde_dir.parent)}[/]")
+
+        # Research hygiene nudge when notes accumulate without a finding
+        from sonde.db import experiments as exp_db
+        from sonde.db.notes import list_by_experiment
+
+        notes_count = len(list_by_experiment(experiment_id))
+        exp = exp_db.get(experiment_id)
+        if notes_count >= 3 and exp and not exp.finding:
+            print_nudge(
+                f"This experiment has {notes_count} notes but no finding. Consider extracting one:",
+                f'sonde finding extract {experiment_id} --topic "..."',
+            )

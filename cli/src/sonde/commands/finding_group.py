@@ -9,9 +9,14 @@ import click
 from sonde.auth import resolve_source
 from sonde.cli_options import pass_output_options
 from sonde.commands.findings import findings_cmd
+from sonde.commands.new import new_finding
+from sonde.commands.pull import pull_finding
+from sonde.commands.push import push_finding
+from sonde.commands.remove import remove_finding
 from sonde.db import experiments as exp_db
 from sonde.db import findings as db
 from sonde.db.activity import log_activity
+from sonde.local import extract_finding_text
 from sonde.models.finding import FindingCreate
 from sonde.output import err, print_error, print_json, print_success
 
@@ -121,6 +126,13 @@ def finding_create(
             details=[f"Topic: {topic}", f"Confidence: {confidence}"],
             breadcrumbs=[f"View: sonde finding show {result.id}"],
         )
+        if not evidence:
+            from sonde.output import print_nudge
+
+            print_nudge(
+                "Link the experiments that support this finding:",
+                "sonde finding create ... --evidence EXP-XXXX",
+            )
 
 
 @finding.command("extract")
@@ -161,12 +173,15 @@ def finding_extract(
         )
         raise SystemExit(1)
 
-    finding_text = exp.finding
+    finding_text = exp.finding or extract_finding_text(exp.content or "")
     if not finding_text or not finding_text.strip():
         print_error(
             f"Experiment {experiment_id.upper()} has no finding",
-            "The finding field is empty.",
-            f"Add one: sonde update {experiment_id.upper()} --finding '...'",
+            "No legacy finding field or recognizable finding section was found.",
+            (
+                f"Add a '## Finding' section or run: "
+                f"sonde update {experiment_id.upper()} --finding '...'"
+            ),
         )
         raise SystemExit(1)
 
@@ -207,3 +222,9 @@ def finding_extract(
                 f"Evidence: sonde show {experiment_id.upper()}",
             ],
         )
+
+
+finding.add_command(new_finding)
+finding.add_command(pull_finding, "pull")
+finding.add_command(push_finding, "push")
+finding.add_command(remove_finding)
