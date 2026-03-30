@@ -42,7 +42,9 @@ def _show_finding(ctx: click.Context, finding_id: str) -> None:
     evidence_exps = exp_db.get_by_ids(f.evidence) if f.evidence else []
 
     # Fetch supersession chain
-    chain: list[tuple[str, object]] = []
+    from sonde.models.finding import Finding
+
+    chain: list[tuple[str, Finding]] = []
     if f.supersedes:
         prev = db.get(f.supersedes)
         if prev:

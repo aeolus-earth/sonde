@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from postgrest.exceptions import APIError
+from postgrest.types import CountMethod
 
 from sonde.db import apply_source_filter
 from sonde.db import rows as to_rows
@@ -50,7 +51,7 @@ def count_experiments(
 ) -> int:
     """Return the total count of experiments matching filters (no limit)."""
     client = get_client()
-    query = client.table("experiments").select("id", count="exact")
+    query = client.table("experiments").select("id", count=CountMethod.exact)
     query = _apply_filters(
         query,
         program=program,
@@ -269,6 +270,55 @@ def update(experiment_id: str, updates: dict[str, Any]) -> Experiment | None:
     result = client.table("experiments").update(updates).eq("id", experiment_id).execute()
     rows = to_rows(result.data)
     return Experiment(**rows[0]) if rows else None
+
+
+def get_reverse_related(experiment_id: str) -> list[Experiment]:
+    """Get experiments that list this experiment in their related[] array."""
+    client = get_client()
+    result = (
+        client.table("experiments")
+        .select("*")
+        .contains("related", [experiment_id])
+        .execute()
+    )
+    return [Experiment(**row) for row in to_rows(result.data) if row["id"] != experiment_id]
+
+
+def get_graph_neighborhood(exp: Experiment) -> dict[str, Any]:
+    """Fetch all entities connected to an experiment.
+
+    Returns dict with keys: related_experiments, reverse_related,
+    questions_answered, direction, direction_siblings.
+    Used by the show --graph command.
+    """
+    from sonde.db import directions as dir_db
+    from sonde.db import findings as find_db
+    from sonde.db import questions as q_db
+
+    graph: dict[str, Any] = {
+        "related_experiments": [],
+        "reverse_related": [],
+        "questions_answered": [],
+        "findings": [],
+        "direction": None,
+        "direction_siblings": [],
+    }
+
+    if exp.related:
+        graph["related_experiments"] = get_by_ids(exp.related)
+
+    graph["reverse_related"] = get_reverse_related(exp.id)
+    graph["questions_answered"] = q_db.find_by_promoted_to(exp.id)
+    graph["findings"] = find_db.find_by_evidence(exp.id)
+
+    if exp.direction_id:
+        direction = dir_db.get(exp.direction_id)
+        if direction:
+            graph["direction"] = direction
+            siblings = list_by_direction(exp.direction_id)
+            graph["direction_siblings"] = [s for s in siblings if s.id != exp.id][:10]
+
+    return graph
 
 
 def _apply_filters(

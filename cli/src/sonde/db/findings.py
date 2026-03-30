@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from postgrest.types import CountMethod
+
 from sonde.db import rows as to_rows
 from sonde.db.client import get_client
 from sonde.db.ids import create_with_retry
@@ -57,7 +59,7 @@ def count_findings(
 ) -> int:
     """Count findings matching filters (no limit)."""
     client = get_client()
-    query = client.table("findings").select("id", count="exact")
+    query = client.table("findings").select("id", count=CountMethod.exact)
     query = _apply_filters(
         query,
         program=program,

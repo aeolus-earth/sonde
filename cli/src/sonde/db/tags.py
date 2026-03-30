@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from sonde.db import rows as to_rows
 from sonde.db.client import get_client
 
@@ -24,7 +26,7 @@ def set_tags(record_id: str, tags: list[str]) -> None:
 
 def list_experiments_with_tags(
     program: str | None = None,
-) -> list[dict[str, list[str]]]:
+) -> list[dict[str, Any]]:
     """Return [(id, tags)] for all experiments, optionally filtered by program."""
     client = get_client()
     query = client.table("experiments").select("id,tags")

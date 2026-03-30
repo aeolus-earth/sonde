@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from postgrest.types import CountMethod
+
 from sonde.db import apply_source_filter
 from sonde.db import rows as to_rows
 from sonde.db.client import get_client
@@ -58,7 +60,7 @@ def count_questions(
 ) -> int:
     """Count questions matching filters (no limit)."""
     client = get_client()
-    query = client.table("questions").select("id", count="exact")
+    query = client.table("questions").select("id", count=CountMethod.exact)
     query = _apply_filters(
         query,
         program=program,
@@ -75,6 +77,18 @@ def update(question_id: str, updates: dict[str, Any]) -> Question | None:
     result = client.table("questions").update(updates).eq("id", question_id).execute()
     data = to_rows(result.data)
     return Question(**data[0]) if data else None
+
+
+def find_by_promoted_to(experiment_id: str) -> list[Question]:
+    """Get questions that were promoted to a specific experiment."""
+    client = get_client()
+    result = (
+        client.table("questions")
+        .select("*")
+        .eq("promoted_to_id", experiment_id)
+        .execute()
+    )
+    return [Question(**row) for row in to_rows(result.data)]
 
 
 def _apply_filters(
