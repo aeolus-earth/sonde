@@ -130,8 +130,8 @@ def finding_create(
             from sonde.output import print_nudge
 
             print_nudge(
-                "Link the experiments that support this finding:",
-                "sonde finding create ... --evidence EXP-XXXX",
+                "Findings without evidence can't be traced. Link the supporting experiments:",
+                f"sonde finding create ... --evidence {result.id}",
             )
 
 

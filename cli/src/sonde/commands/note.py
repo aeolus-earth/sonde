@@ -100,6 +100,6 @@ def note(
         exp = exp_db.get(experiment_id)
         if notes_count >= 3 and exp and not exp.finding:
             print_nudge(
-                f"This experiment has {notes_count} notes but no finding. Consider extracting one:",
-                f'sonde finding extract {experiment_id} --topic "..."',
+                f"This experiment has {notes_count} notes but no finding. Distill the key result:",
+                f'sonde finding extract {experiment_id} --topic "CCN sensitivity"',
             )

@@ -90,16 +90,25 @@ sonde tag add EXP-XXXX cloud-seeding
 sonde tag add EXP-XXXX spectral-bin
 ```
 
-**Finding** — if the experiment is complete, extract the key insight as a single sentence:
+**Finding** — if the experiment is complete, record what you learned. Findings can be a sentence or a paragraph — the goal is that someone grepping for this topic six months from now gets the full picture without opening the experiment:
 
 ```bash
-sonde update EXP-XXXX --finding "Spectral bin produces 8% less precipitation enhancement than bulk at CCN=1200 over maritime Cu domain"
+sonde update EXP-XXXX --finding "Spectral bin produces 8% less precipitation enhancement than bulk at CCN=1200 over North Atlantic maritime Cu domain (5.8% vs 13.6% baseline). Effect is strongest in the first 24h and diminishes as the domain equilibrates. Suggests microphysics scheme matters more than CCN concentration above the 1000 threshold."
 ```
 
-A good finding is:
-- One sentence, self-contained (makes sense without reading the full experiment)
-- Quantitative when possible ("8% less" not "less")
-- Specific about conditions ("at CCN=1200 over maritime Cu" not "in some cases")
+A good finding:
+- Self-contained — makes sense without reading the full experiment
+- Quantitative — includes numbers, comparisons, and conditions
+- Includes the "so what" — what this means for the research direction
+- Long enough to be useful, short enough to scan in a list
+
+Bad: "it worked" / "CCN looked good" / "results as expected"
+
+Good: "Spectral bin produces 8% less enhancement than bulk at CCN=1200 (5.8% vs 13.6%). Effect concentrated in first 24h. Microphysics scheme choice dominates above CCN=1000."
+
+Good: "Tiling at 32x32 gives 12.4 GFLOPS, 3x over naive. L2 miss rate dropped from 0.31 to 0.08. Diminishing returns above 32x32 due to register pressure — 64x64 causes spill and 40% regression."
+
+Good: "Register blocking at 64x64 recovers the spill penalty (9.1 GFLOPS vs 4.2 without blocking), but still underperforms 32x32 tiling (12.4 GFLOPS). The 32x32 sweet spot holds across A100 and H100."
 
 **Parameters** — if the experiment used specific configuration values, capture them as structured data so `sonde search --param` works:
 
