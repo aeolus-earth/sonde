@@ -200,13 +200,15 @@ export function createExperimentTools(sondeToken: string) {
 
     tool(
       "sonde_experiment_attach",
-      "Attach a file as an artifact to an experiment. The file must exist on disk.",
+      "Attach a file or directory as artifacts to an experiment. After attaching, use sonde_artifact_update on each artifact to set a description explaining what it shows and how it was generated.",
       {
         experiment_id: z.string().describe("Experiment ID"),
-        filepath: z.string().describe("Path to the file to attach"),
+        filepath: z.string().describe("Path to the file or directory to attach"),
+        description: z.string().optional().describe("Description/caption (applies to all files if attaching a directory — prefer sonde_artifact_update per-file for directories)"),
       },
       async (args) => {
         const flags = ["experiment", "attach", args.experiment_id, args.filepath, "--json"];
+        if (args.description) flags.push("-d", args.description);
         return runSonde(flags, sondeToken);
       }
     ),

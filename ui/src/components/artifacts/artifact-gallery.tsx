@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, memo } from "react";
+import { useState, useMemo, useCallback, memo, useEffect } from "react";
 import {
   ChevronLeft,
   ChevronRight,
@@ -12,7 +12,14 @@ import {
   File,
   Film,
 } from "lucide-react";
-import { useArtifacts, useArtifactUrl, useArtifactText } from "@/hooks/use-artifacts";
+import {
+  useArtifacts,
+  useArtifactUrl,
+  useArtifactText,
+  useArtifactBlob,
+  isBlobCacheable,
+  prefetchArtifactContent,
+} from "@/hooks/use-artifacts";
 import { useAuthStore } from "@/stores/auth";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MarkdownView } from "@/components/ui/markdown-view";
@@ -197,7 +204,14 @@ function FileTreeView({
         style={{ paddingLeft: depth * 12 + 4 }}
       >
         <Icon className="h-3 w-3 shrink-0" />
-        <span className="truncate text-[11px]">{node.name}</span>
+        <div className="min-w-0 flex-1">
+          <span className="truncate text-[11px]">{node.name}</span>
+          {node.artifact?.description && (
+            <p className="truncate text-[9px] text-text-quaternary">
+              {node.artifact.description}
+            </p>
+          )}
+        </div>
       </button>
     );
   }
@@ -271,12 +285,28 @@ function DownloadButton({ url, filename }: { url: string; filename: string }) {
 // ── Single artifact viewer ───────────────────────────────────────
 
 function ArtifactViewer({ artifact }: { artifact: Artifact }) {
-  const { data: url, isLoading: urlLoading, error: urlError } = useArtifactUrl(artifact.storage_path);
   const shouldFetchText = isTextRenderable(artifact);
+  /** Blob LRU + Object URL for cacheable binary preview; skip for text (useArtifactText) to avoid double fetch. */
+  const useBlobForDisplay =
+    isBlobCacheable(artifact.size_bytes) && !isPptx(artifact) && !shouldFetchText;
+
+  const { data: blobUrl, isLoading: blobLoading, error: blobError } = useArtifactBlob(
+    artifact.storage_path,
+    useBlobForDisplay ? artifact.size_bytes : null,
+  );
+  const needsSignedUrl = !useBlobForDisplay;
+  const { data: signedUrl, isLoading: signedLoading, error: signedError } = useArtifactUrl(
+    needsSignedUrl ? artifact.storage_path : null,
+  );
+
   const { data: text, isLoading: textLoading } = useArtifactText(
     artifact.storage_path,
     shouldFetchText,
   );
+
+  const url = useBlobForDisplay ? blobUrl : signedUrl;
+  const urlLoading = useBlobForDisplay ? blobLoading : signedLoading;
+  const urlError = useBlobForDisplay ? blobError : signedError;
 
   const loading = urlLoading || (shouldFetchText && textLoading);
 
@@ -461,6 +491,14 @@ export const ArtifactGallery = memo(function ArtifactGallery({
   const signIn = useAuthStore((s) => s.signInWithGoogle);
   const { data: artifacts, isLoading } = useArtifacts(parentId);
   const [selectedIndex, setSelectedIndex] = useState(0);
+
+  useEffect(() => {
+    if (!artifacts?.length) return;
+    const idx = Math.min(selectedIndex, artifacts.length - 1);
+    for (const a of [artifacts[idx - 1], artifacts[idx + 1]]) {
+      if (a) prefetchArtifactContent(a);
+    }
+  }, [artifacts, selectedIndex]);
 
   const tree = useMemo(() => buildFileTree(artifacts ?? []), [artifacts]);
   const handleTreeSelect = useCallback((i: number) => setSelectedIndex(i), []);

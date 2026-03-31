@@ -12,7 +12,13 @@ __all__ = ["artifact"]
 
 @click.group()
 def artifact():
-    """Artifact operations."""
+    """Artifact operations — list, annotate, and manage attached files."""
+
+
+# Register subcommands
+from sonde.commands.artifact_update import artifact_update  # noqa: E402
+
+artifact.add_command(artifact_update)
 
 
 @artifact.command("list")
