@@ -10,7 +10,7 @@ import yaml
 
 from sonde.auth import resolve_source
 from sonde.cli_options import pass_output_options
-from sonde.commands._helpers import load_dict_file
+from sonde.commands._helpers import load_dict_file, merge_structured_metadata, structured_metadata_options
 from sonde.config import get_settings
 from sonde.db import experiments as db
 from sonde.git import detect_git_context
@@ -51,6 +51,7 @@ from sonde.output import (
 @click.option("--status", default="complete", type=click.Choice(["open", "running", "complete"]))
 @click.option("--quick", is_flag=True, help="Minimal record — just params + result")
 @click.option("--open", "open_exp", is_flag=True, help="Log as open/backlog (not yet run)")
+@structured_metadata_options
 @pass_output_options
 @click.pass_context
 def log(
@@ -73,6 +74,10 @@ def log(
     status: str,
     quick: bool,
     open_exp: bool,
+    repro: str | None,
+    evidence: tuple[str, ...],
+    env_vars: tuple[str, ...],
+    blocker: str | None,
 ):
     """Log an experiment to the knowledge base.
 
@@ -167,6 +172,10 @@ def log(
     # Auto-detect git context
     git_ctx = detect_git_context()
 
+    metadata = merge_structured_metadata(
+        {}, repro=repro, evidence=evidence, env_vars=env_vars, blocker=blocker,
+    )
+
     data = ExperimentCreate(
         program=resolved_program,
         status=status,
@@ -176,6 +185,7 @@ def log(
         parameters=parsed_params,
         results=parsed_result,
         finding=finding,
+        metadata=metadata if metadata else {},
         git_commit=git_ref or (git_ctx.commit if git_ctx else None),
         git_repo=git_ctx.repo if git_ctx else None,
         git_branch=git_ctx.branch if git_ctx else None,

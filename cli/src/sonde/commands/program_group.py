@@ -9,7 +9,7 @@ from postgrest.exceptions import APIError
 from pydantic import ValidationError
 
 from sonde.cli_options import pass_output_options
-from sonde.db import programs as db
+from sonde.db import classify_api_error, programs as db
 from sonde.models.program import ProgramCreate
 from sonde.output import err, print_breadcrumbs, print_error, print_json, print_success, print_table
 
@@ -93,11 +93,8 @@ def program_create(ctx: click.Context, id: str, name: str, description: str | No
                 f"View it: sonde program show {id}",
             )
         else:
-            print_error(
-                f"Failed to create program {id}",
-                msg,
-                "Check your permissions and try again.",
-            )
+            what, why, fix = classify_api_error(exc, table="programs", action="create programs")
+            print_error(what, why, fix)
         raise SystemExit(1) from None
 
     if ctx.obj.get("json"):
@@ -179,7 +176,8 @@ def program_archive(ctx: click.Context, id: str) -> None:
                 "Ask an admin for help.",
             )
         else:
-            print_error(f"Failed to archive {id}", msg, "Check your permissions.")
+            what, why, fix = classify_api_error(exc, table="programs", action="archive programs")
+            print_error(what, why, fix)
         raise SystemExit(1) from None
 
     if ctx.obj.get("json"):
@@ -205,7 +203,8 @@ def program_unarchive(ctx: click.Context, id: str) -> None:
                 "Ask an admin for help.",
             )
         else:
-            print_error(f"Failed to unarchive {id}", msg, "Check your permissions.")
+            what, why, fix = classify_api_error(exc, table="programs", action="unarchive programs")
+            print_error(what, why, fix)
         raise SystemExit(1) from None
 
     if ctx.obj.get("json"):
@@ -289,7 +288,8 @@ def program_delete(ctx: click.Context, id: str, confirm_id: str | None) -> None:
                 "Contact a global admin for help.",
             )
         else:
-            print_error(f"Failed to delete {id}", msg, "Check your permissions.")
+            what, why, fix = classify_api_error(exc, table="programs", action="delete programs")
+            print_error(what, why, fix)
         raise SystemExit(1) from None
 
     if ctx.obj.get("json"):

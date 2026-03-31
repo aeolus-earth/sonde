@@ -91,9 +91,11 @@ class SondeCLI(click.Group):
             "tag": "Research",
             "pull": "Research",
             "push": "Research",
+            "sync": "Research",
             "status": "Research",
             "show": "Research",
             "brief": "Research",
+            "next": "Research",
             "recent": "Research",
             "health": "Research",
             "tree": "Research",
@@ -232,6 +234,7 @@ from sonde.commands.pull import pull  # noqa: E402
 from sonde.commands.push import push  # noqa: E402
 from sonde.commands.question_group import question  # noqa: E402
 from sonde.commands.recent import recent  # noqa: E402
+from sonde.commands.next import next_cmd  # noqa: E402
 from sonde.commands.setup import setup  # noqa: E402
 from sonde.commands.skills import skills  # noqa: E402
 from sonde.commands.status import status  # noqa: E402
@@ -257,11 +260,11 @@ cli.add_command(program)
 cli.add_command(question)
 cli.add_command(pull)
 cli.add_command(push)
-sync.hidden = True
 cli.add_command(sync)
 
 # Research — cross-cutting views
 cli.add_command(brief)
+cli.add_command(next_cmd)
 cli.add_command(recent)
 cli.add_command(tag)
 cli.add_command(status)
@@ -276,7 +279,7 @@ cli.add_command(tree_cmd)
 @pass_output_options
 @click.pass_context
 def show_cmd(ctx: click.Context, record_id: str, graph: bool) -> None:
-    """Show details for any record (experiment, finding, question, direction).
+    """Show details for any record (experiment, finding, question, direction, artifact).
 
     \b
     Detects entity type from ID prefix:
@@ -284,6 +287,7 @@ def show_cmd(ctx: click.Context, record_id: str, graph: bool) -> None:
       sonde show FIND-001       finding with evidence
       sonde show Q-001          question with context
       sonde show DIR-001        direction with experiments
+      sonde show ART-0003       artifact metadata
 
     \b
     Examples:

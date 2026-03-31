@@ -226,6 +226,57 @@ def _show_direction(ctx: click.Context, direction_id: str) -> None:
     )
 
 
+def _show_artifact(ctx: click.Context, artifact_id: str) -> None:
+    """Display artifact metadata."""
+    from sonde.db import artifacts as art_db
+
+    a = art_db.get(artifact_id)
+    if not a:
+        print_error(
+            f"Artifact {artifact_id} not found",
+            "No artifact with this ID.",
+            "List artifacts: sonde show <EXP-ID>",
+        )
+        raise SystemExit(1)
+
+    if ctx.obj.get("json"):
+        print_json(a)
+        return
+
+    from sonde.commands.experiment_show import _format_size
+
+    size = a.get("size_bytes")
+    size_str = f" ({_format_size(size)})" if size else ""
+
+    lines = [
+        f"[sonde.heading]{a['id']}[/]  {a.get('type', 'file')}",
+        f"[sonde.muted]Filename: {a['filename']}{size_str}[/]",
+        f"[sonde.muted]Experiment: {a.get('experiment_id', '—')}[/]",
+    ]
+    if a.get("mime_type"):
+        lines.append(f"[sonde.muted]MIME: {a['mime_type']}[/]")
+    if a.get("storage_path"):
+        lines.append(f"[sonde.muted]Path: {a['storage_path']}[/]")
+    if a.get("checksum_sha256"):
+        lines.append(f"[sonde.muted]SHA-256: {a['checksum_sha256']}[/]")
+    if a.get("source"):
+        lines.append(f"[sonde.muted]Source: {a['source']}[/]")
+    if a.get("created_at"):
+        lines.append(f"[sonde.muted]Created: {a['created_at'][:19].replace('T', ' ')}[/]")
+
+    err.print(
+        Panel(
+            "\n".join(lines),
+            title=f"[sonde.brand]{a['id']}[/]",
+            border_style="sonde.brand.dim",
+        )
+    )
+
+    exp_id = a.get("experiment_id")
+    if exp_id:
+        print_breadcrumbs([f"Experiment: sonde show {exp_id}"])
+
+
 def show_dispatch(ctx: click.Context, record_id: str, graph: bool) -> None:
     """Route show to the appropriate handler based on ID prefix."""
     rid = record_id.upper()
@@ -234,6 +285,8 @@ def show_dispatch(ctx: click.Context, record_id: str, graph: bool) -> None:
         _show_finding(ctx, rid)
     elif rid.startswith("Q-") or rid.startswith("QUES-"):
         _show_question(ctx, rid)
+    elif rid.startswith("ART-"):
+        _show_artifact(ctx, rid)
     elif rid.startswith("DIR-"):
         _show_direction(ctx, rid)
     elif rid.startswith("EXP-") or rid[0].isdigit():
@@ -243,7 +296,7 @@ def show_dispatch(ctx: click.Context, record_id: str, graph: bool) -> None:
             prefix = rid.split("-")[0]
             print_error(
                 f"Unknown record type: {prefix}",
-                "Recognized prefixes: EXP, FIND, Q, DIR.",
+                "Recognized prefixes: EXP, FIND, Q, DIR, ART.",
                 f"Try: sonde show EXP-{rid.split('-', 1)[1]}",
             )
             raise SystemExit(1)

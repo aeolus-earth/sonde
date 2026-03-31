@@ -10,7 +10,7 @@ import yaml
 
 from sonde.auth import resolve_source
 from sonde.cli_options import pass_output_options
-from sonde.commands._helpers import load_dict_file
+from sonde.commands._helpers import load_dict_file, merge_structured_metadata, structured_metadata_options
 from sonde.config import get_settings
 from sonde.db import experiments as db
 from sonde.git import detect_git_context
@@ -30,6 +30,8 @@ from sonde.output import (
     "--params-file", "params_file", type=click.Path(exists=True), help="Override params from file"
 )
 @click.option("--tag", multiple=True, help="Override tags (replaces source tags if provided)")
+@click.option("--add-tag", "add_tags", multiple=True, help="Add tag(s) to inherited set")
+@click.option("--drop-tag", "drop_tags", multiple=True, help="Remove tag(s) from inherited set")
 @click.option("--status", default="open", type=click.Choice(["open", "running"]))
 @click.option(
     "--type",
@@ -38,6 +40,7 @@ from sonde.output import (
     help="Branch type",
 )
 @click.argument("intent", required=False, default=None)
+@structured_metadata_options
 @pass_output_options
 @click.pass_context
 def fork(
@@ -46,9 +49,15 @@ def fork(
     params: str | None,
     params_file: str | None,
     tag: tuple[str, ...],
+    add_tags: tuple[str, ...],
+    drop_tags: tuple[str, ...],
     status: str,
     branch_type: str | None,
     intent: str | None,
+    repro: str | None,
+    evidence: tuple[str, ...],
+    env_vars: tuple[str, ...],
+    blocker: str | None,
 ):
     """Create a new experiment based on an existing one.
 
@@ -62,6 +71,7 @@ def fork(
       sonde fork EXP-0001 --type refinement "Increase CCN to 1800"
       sonde fork EXP-0001 --params '{"ccn": 1800}'
       sonde fork EXP-0001 --tag subtropical --tag high-ccn
+      sonde fork EXP-0001 --drop-tag qrain --add-tag multigate
     """
     source_exp = db.get(experiment_id.upper())
     if not source_exp:
@@ -86,7 +96,18 @@ def fork(
         print_error("Failed to read file", str(e), "Check your --params-file path")
         raise SystemExit(2) from None
 
-    resolved_tags = list(tag) if tag else list(source_exp.tags)
+    if tag:
+        # Full replace — --tag takes precedence
+        resolved_tags = list(tag)
+        if add_tags or drop_tags:
+            err.print("  [sonde.warning]--tag replaces all tags; --add-tag/--drop-tag ignored[/]")
+    else:
+        # Inherit from source, then apply incremental edits
+        resolved_tags = list(source_exp.tags)
+        if drop_tags:
+            resolved_tags = [t for t in resolved_tags if t not in drop_tags]
+        if add_tags:
+            resolved_tags.extend(t for t in add_tags if t not in resolved_tags)
 
     # Resolve source
     settings = get_settings()
@@ -95,13 +116,18 @@ def fork(
     # Auto-detect git context
     git_ctx = detect_git_context()
 
+    forked_metadata = merge_structured_metadata(
+        dict(source_exp.metadata),
+        repro=repro, evidence=evidence, env_vars=env_vars, blocker=blocker,
+    )
+
     data = ExperimentCreate(
         program=source_exp.program,
         status=status,
         source=resolved_source,
         tags=resolved_tags,
         parameters=override_params,
-        metadata=dict(source_exp.metadata),
+        metadata=forked_metadata,
         direction_id=source_exp.direction_id,
         data_sources=list(source_exp.data_sources),
         related=[source_exp.id],

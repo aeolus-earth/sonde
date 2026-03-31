@@ -62,11 +62,10 @@ def note(
     try:
         row = db.create(experiment_id, content, source)
     except APIError as exc:
-        print_error(
-            "Failed to save note",
-            str(exc),
-            "The experiment_notes table may need to be created. Run migrations.",
-        )
+        from sonde.db import classify_api_error
+
+        what, why, fix = classify_api_error(exc, table="experiment_notes", action="save notes")
+        print_error(what, why, fix)
         raise SystemExit(1) from None
 
     note_id = row["id"]

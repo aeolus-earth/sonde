@@ -10,7 +10,7 @@ import click
 import yaml
 
 from sonde.cli_options import pass_output_options
-from sonde.commands._helpers import load_dict_file
+from sonde.commands._helpers import load_dict_file, merge_structured_metadata, structured_metadata_options
 from sonde.db import experiments as db
 from sonde.output import (
     err,
@@ -41,6 +41,7 @@ from sonde.output import (
 @click.option("--content-file", type=click.Path(exists=True), help="Replace content from file")
 @click.option("--direction", help="Set or change the parent research direction")
 @click.option("--tag", multiple=True, help="Set tags (replaces existing)")
+@structured_metadata_options
 @pass_output_options
 @click.pass_context
 def update(
@@ -57,6 +58,10 @@ def update(
     content_file: str | None,
     direction: str | None,
     tag: tuple[str, ...],
+    repro: str | None,
+    evidence: tuple[str, ...],
+    env_vars: tuple[str, ...],
+    blocker: str | None,
 ):
     """Update fields on an existing experiment.
 
@@ -127,6 +132,12 @@ def update(
     # Tags: replace if provided
     if tag:
         updates["tags"] = list(tag)
+
+    # Structured metadata
+    if repro or evidence or env_vars or blocker:
+        updates["metadata"] = merge_structured_metadata(
+            dict(exp.metadata), repro=repro, evidence=evidence, env_vars=env_vars, blocker=blocker,
+        )
 
     if not updates:
         err.print("[sonde.muted]Nothing to update.[/]")

@@ -436,6 +436,15 @@ def _change_status(
             f' "CCN=1500 shows 8% less enhancement (5.8% vs 13.6%)"',
         )
 
+    # Nudge: finding was recorded inline — suggest promoting to curated Finding
+    if new_status == "complete" and finding and not ctx.obj.get("json"):
+        from sonde.output import print_nudge
+
+        print_nudge(
+            "Promote this to a curated Finding record with evidence link:",
+            f'sonde finding extract {experiment_id} --topic "..."',
+        )
+
     # Show suggestions after close/fail for tree nodes
     if new_status in ("complete", "failed") and exp_after:
         children = db.get_children(experiment_id)

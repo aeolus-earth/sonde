@@ -125,7 +125,8 @@ def render_record(record: dict[str, Any]) -> str:
 
     body = record.get("content") or generate_body(record)
 
-    return f"---\n{fm}---\n\n{body}\n"
+    header = "<!-- Pulled from remote — do not edit. Use sonde update/log to make changes. -->\n"
+    return f"{header}---\n{fm}---\n\n{body}\n"
 
 
 def generate_body(record: dict[str, Any]) -> str:
