@@ -6,6 +6,8 @@ export interface MentionRef {
   id: string;
   type: RecordType;
   label: string;
+  /** Program namespace for experiments (e.g. for `program/EXP-…` chips). */
+  program?: string;
 }
 
 export interface ToolUseData {
@@ -23,11 +25,17 @@ export interface AgentTask {
   status: "pending" | "in_progress" | "done" | "failed";
 }
 
+export interface ChatAttachmentMeta {
+  name: string;
+  mimeType?: string;
+}
+
 export interface ChatMessageData {
   id: string;
   role: "user" | "assistant" | "system";
   content: string;
   mentions?: MentionRef[];
+  attachments?: ChatAttachmentMeta[];
   toolUses?: ToolUseData[];
   timestamp: number;
 }
@@ -36,11 +44,27 @@ export type ConnectionStatus = "connecting" | "connected" | "disconnected";
 
 // -- WebSocket protocol: Client -> Server --
 
+export interface PageContextExperiment {
+  type: "experiment";
+  id: string;
+  label?: string;
+}
+
+export type PageContext = PageContextExperiment;
+
+export interface ChatAttachmentPayload {
+  name: string;
+  mimeType: string;
+  dataBase64?: string;
+}
+
 export interface ClientMessageChat {
   type: "message";
   content: string;
   mentions?: MentionRef[];
   sessionId?: string;
+  pageContext?: PageContext;
+  attachments?: ChatAttachmentPayload[];
 }
 
 export interface ClientMessageApproveTasks {

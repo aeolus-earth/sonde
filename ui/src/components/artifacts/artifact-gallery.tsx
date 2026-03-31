@@ -9,49 +9,25 @@ import {
   FileText,
   FileSpreadsheet,
   File,
+  Film,
 } from "lucide-react";
 import { useArtifacts, useArtifactUrl, useArtifactText } from "@/hooks/use-artifacts";
 import { useAuthStore } from "@/stores/auth";
-import { Spinner } from "@/components/ui/spinner";
+import { Skeleton } from "@/components/ui/skeleton";
 import { MarkdownView } from "@/components/ui/markdown-view";
 import { JsonView } from "@/components/ui/json-view";
 import type { Artifact, ArtifactType } from "@/types/sonde";
-
-// ── Helpers ───────────────────────────────────────────────────────
-
-function ext(filename: string): string {
-  return filename.split(".").pop()?.toLowerCase() ?? "";
-}
-
-function isImage(a: Artifact): boolean {
-  const mime = a.mime_type ?? "";
-  const e = ext(a.filename);
-  return (
-    mime.startsWith("image/") ||
-    ["png", "jpg", "jpeg", "gif", "svg", "webp"].includes(e)
-  );
-}
-
-function isPdf(a: Artifact): boolean {
-  return ext(a.filename) === "pdf" || a.mime_type === "application/pdf";
-}
-
-function isTextRenderable(a: Artifact): boolean {
-  const e = ext(a.filename);
-  return ["md", "csv", "tsv", "json", "yaml", "yml", "toml", "txt", "log"].includes(e);
-}
-
-function isCsv(a: Artifact): boolean {
-  return ["csv", "tsv"].includes(ext(a.filename));
-}
-
-function isJson(a: Artifact): boolean {
-  return ext(a.filename) === "json" || a.mime_type === "application/json";
-}
-
-function isMarkdown(a: Artifact): boolean {
-  return ext(a.filename) === "md";
-}
+import {
+  isAudio,
+  isCsv,
+  isGif,
+  isImage,
+  isJson,
+  isMarkdown,
+  isPdf,
+  isTextRenderable,
+  isVideo,
+} from "@/lib/artifact-kind";
 
 function formatBytes(bytes: number | null): string {
   if (bytes == null) return "";
@@ -71,7 +47,13 @@ const typeIcon: Record<ArtifactType, typeof File> = {
   other: File,
 };
 
-// ── CSV table renderer ────────────────────────────────────────────
+function iconForArtifact(a: Artifact): typeof File {
+  if (isVideo(a)) return Film;
+  if (isImage(a)) return Image;
+  return typeIcon[a.type];
+}
+
+// ── CSV table ────────────────────────────────────────────────────
 
 function CsvTable({ text }: { text: string }) {
   const lines = text.trim().split("\n");
@@ -82,15 +64,12 @@ function CsvTable({ text }: { text: string }) {
   const rows = lines.slice(1, 101);
 
   return (
-    <div className="max-h-[500px] overflow-auto">
+    <div className="max-h-[500px] overflow-auto rounded-[5.5px] border border-border">
       <table className="w-full text-left">
-        <thead>
+        <thead className="sticky top-0 bg-surface">
           <tr className="border-b border-border">
             {headers.map((h, i) => (
-              <th
-                key={i}
-                className="whitespace-nowrap px-2 py-1 text-[10px] font-medium text-text-tertiary"
-              >
+              <th key={i} className="whitespace-nowrap px-2 py-1.5 text-[10px] font-medium text-text-tertiary">
                 {h.trim()}
               </th>
             ))}
@@ -98,15 +77,9 @@ function CsvTable({ text }: { text: string }) {
         </thead>
         <tbody>
           {rows.map((row, ri) => (
-            <tr
-              key={ri}
-              className="border-b border-border-subtle last:border-0"
-            >
+            <tr key={ri} className="border-b border-border-subtle last:border-0">
               {row.split(separator).map((cell, ci) => (
-                <td
-                  key={ci}
-                  className="whitespace-nowrap px-2 py-1 text-[11px] text-text-secondary"
-                >
+                <td key={ci} className="whitespace-nowrap px-2 py-1 text-[11px] text-text-secondary">
                   {cell.trim()}
                 </td>
               ))}
@@ -115,7 +88,7 @@ function CsvTable({ text }: { text: string }) {
         </tbody>
       </table>
       {lines.length > 101 && (
-        <p className="px-2 py-1.5 text-[10px] text-text-quaternary">
+        <p className="border-t border-border px-2 py-1.5 text-[10px] text-text-quaternary">
           Showing first 100 of {lines.length - 1} rows
         </p>
       )}
@@ -123,10 +96,25 @@ function CsvTable({ text }: { text: string }) {
   );
 }
 
-// ── Single artifact viewer ────────────────────────────────────────
+// ── Download button ──────────────────────────────────────────────
+
+function DownloadButton({ url, filename }: { url: string; filename: string }) {
+  return (
+    <a
+      href={url}
+      download={filename}
+      className="inline-flex items-center gap-1 rounded-[5.5px] px-2 py-1 text-[11px] text-text-tertiary transition-colors hover:bg-surface-hover hover:text-text"
+    >
+      <Download className="h-3 w-3" />
+      Download
+    </a>
+  );
+}
+
+// ── Single artifact viewer ───────────────────────────────────────
 
 function ArtifactViewer({ artifact }: { artifact: Artifact }) {
-  const { data: url, isLoading: urlLoading } = useArtifactUrl(artifact.storage_path);
+  const { data: url, isLoading: urlLoading, error: urlError } = useArtifactUrl(artifact.storage_path);
   const shouldFetchText = isTextRenderable(artifact);
   const { data: text, isLoading: textLoading } = useArtifactText(
     artifact.storage_path,
@@ -137,40 +125,90 @@ function ArtifactViewer({ artifact }: { artifact: Artifact }) {
 
   if (loading) {
     return (
-      <div className="flex h-64 items-center justify-center">
-        <Spinner className="h-5 w-5" />
+      <div className="flex h-48 flex-col justify-center gap-3 rounded-[8px] border border-border-subtle bg-bg p-4">
+        <Skeleton className="mx-auto h-[min(280px,40vh)] w-full max-w-full rounded-[5.5px]" />
+        <div className="flex justify-center gap-2">
+          <Skeleton className="h-3 w-24 rounded" />
+          <Skeleton className="h-3 w-16 rounded" />
+        </div>
       </div>
     );
   }
 
-  // Image
+  if (urlError) {
+    return (
+      <div className="flex h-32 flex-col items-center justify-center gap-2 rounded-[8px] border border-border-subtle text-text-quaternary">
+        <Paperclip className="h-5 w-5" />
+        <p className="text-[12px]">Unable to load artifact</p>
+        <p className="max-w-[300px] text-center text-[10px]">{(urlError as Error).message}</p>
+      </div>
+    );
+  }
+
+  // ── Image (PNG, JPG, GIF, SVG, WebP) ──────────────────────────
   if (isImage(artifact) && url) {
     return (
-      <div className="flex flex-col items-center gap-2">
-        <img
-          src={url}
-          alt={artifact.filename}
-          className="max-h-[500px] w-auto rounded-[8px] object-contain"
-        />
-        <a
-          href={url}
-          download={artifact.filename}
-          className="inline-flex items-center gap-1 rounded-[5.5px] px-2 py-1 text-[11px] text-text-tertiary transition-colors hover:bg-surface-hover hover:text-text"
-        >
-          <Download className="h-3 w-3" />
-          Download
-        </a>
+      <div className="space-y-2">
+        <div className="flex justify-center rounded-[8px] border border-border-subtle bg-bg p-2">
+          <img
+            src={url}
+            alt={artifact.filename}
+            loading="lazy"
+            className="max-h-[500px] max-w-full rounded-[5.5px] object-contain"
+          />
+        </div>
+        <div className="flex justify-center">
+          <DownloadButton url={url} filename={artifact.filename} />
+        </div>
       </div>
     );
   }
 
-  // PDF
+  // ── Video (MP4, WebM, MOV) ────────────────────────────────────
+  if (isVideo(artifact) && url) {
+    return (
+      <div className="space-y-2">
+        <div className="overflow-hidden rounded-[8px] border border-border-subtle bg-bg">
+          <video
+            src={url}
+            controls
+            playsInline
+            preload="metadata"
+            className="max-h-[500px] w-full"
+          >
+            Your browser does not support video playback.
+          </video>
+        </div>
+        <div className="flex justify-center">
+          <DownloadButton url={url} filename={artifact.filename} />
+        </div>
+      </div>
+    );
+  }
+
+  // ── Audio (MP3, WAV, OGG) ─────────────────────────────────────
+  if (isAudio(artifact) && url) {
+    return (
+      <div className="space-y-2">
+        <div className="rounded-[8px] border border-border-subtle bg-bg p-3">
+          <audio src={url} controls preload="metadata" className="w-full">
+            Your browser does not support audio playback.
+          </audio>
+        </div>
+        <div className="flex justify-center">
+          <DownloadButton url={url} filename={artifact.filename} />
+        </div>
+      </div>
+    );
+  }
+
+  // ── PDF ────────────────────────────────────────────────────────
   if (isPdf(artifact) && url) {
     return (
       <div className="space-y-2">
         <iframe
           src={url}
-          className="h-[500px] w-full rounded-[8px] border-0"
+          className="h-[500px] w-full rounded-[8px] border border-border-subtle"
           title={artifact.filename}
         />
         <div className="flex items-center justify-center gap-3">
@@ -183,20 +221,13 @@ function ArtifactViewer({ artifact }: { artifact: Artifact }) {
             <ExternalLink className="h-3 w-3" />
             Open
           </a>
-          <a
-            href={url}
-            download={artifact.filename}
-            className="inline-flex items-center gap-1 rounded-[5.5px] px-2 py-1 text-[11px] text-text-tertiary transition-colors hover:bg-surface-hover hover:text-text"
-          >
-            <Download className="h-3 w-3" />
-            Download
-          </a>
+          <DownloadButton url={url} filename={artifact.filename} />
         </div>
       </div>
     );
   }
 
-  // Text-renderable content
+  // ── Text-renderable (MD, CSV, JSON, YAML, code) ───────────────
   if (shouldFetchText && text) {
     let content: React.ReactNode;
 
@@ -204,27 +235,18 @@ function ArtifactViewer({ artifact }: { artifact: Artifact }) {
       content = <CsvTable text={text} />;
     } else if (isJson(artifact)) {
       try {
-        const parsed = JSON.parse(text);
-        content = <JsonView data={parsed} />;
+        content = <JsonView data={JSON.parse(text)} />;
       } catch {
-        content = (
-          <pre className="max-h-[500px] overflow-auto rounded-[8px] bg-bg p-3 font-mono text-[12px] leading-relaxed text-text-secondary">
-            {text}
-          </pre>
-        );
+        content = <CodeBlock text={text} />;
       }
     } else if (isMarkdown(artifact)) {
       content = (
-        <div className="max-h-[500px] overflow-auto">
+        <div className="max-h-[500px] overflow-auto rounded-[8px] border border-border-subtle p-3">
           <MarkdownView content={text} />
         </div>
       );
     } else {
-      content = (
-        <pre className="max-h-[500px] overflow-auto rounded-[8px] bg-bg p-3 font-mono text-[12px] leading-relaxed text-text-secondary">
-          {text}
-        </pre>
-      );
+      content = <CodeBlock text={text} />;
     }
 
     return (
@@ -232,24 +254,17 @@ function ArtifactViewer({ artifact }: { artifact: Artifact }) {
         {content}
         {url && (
           <div className="flex justify-center">
-            <a
-              href={url}
-              download={artifact.filename}
-              className="inline-flex items-center gap-1 rounded-[5.5px] px-2 py-1 text-[11px] text-text-tertiary transition-colors hover:bg-surface-hover hover:text-text"
-            >
-              <Download className="h-3 w-3" />
-              Download
-            </a>
+            <DownloadButton url={url} filename={artifact.filename} />
           </div>
         )}
       </div>
     );
   }
 
-  // Fallback: download-only
+  // ── Fallback: download-only ───────────────────────────────────
   if (url) {
     return (
-      <div className="flex flex-col items-center gap-3 py-10">
+      <div className="flex flex-col items-center gap-3 rounded-[8px] border border-border-subtle py-10">
         <Paperclip className="h-8 w-8 text-text-quaternary" />
         <p className="text-[13px] text-text-quaternary">{artifact.filename}</p>
         <a
@@ -265,13 +280,21 @@ function ArtifactViewer({ artifact }: { artifact: Artifact }) {
   }
 
   return (
-    <div className="flex h-32 items-center justify-center text-[13px] text-text-quaternary">
+    <div className="flex h-32 items-center justify-center rounded-[8px] border border-border-subtle text-[13px] text-text-quaternary">
       Unable to load artifact
     </div>
   );
 }
 
-// ── Gallery with toggle ───────────────────────────────────────────
+function CodeBlock({ text }: { text: string }) {
+  return (
+    <pre className="max-h-[500px] overflow-auto rounded-[8px] border border-border-subtle bg-bg p-3 font-mono text-[12px] leading-relaxed text-text-secondary">
+      {text}
+    </pre>
+  );
+}
+
+// ── Gallery ──────────────────────────────────────────────────────
 
 interface ArtifactGalleryProps {
   parentId: string;
@@ -289,9 +312,7 @@ export const ArtifactGallery = memo(function ArtifactGallery({
     return (
       <div className="rounded-[8px] border border-border-subtle py-6 text-center">
         <Paperclip className="mx-auto h-5 w-5 text-text-quaternary" />
-        <p className="mt-2 text-[13px] text-text-tertiary">
-          Sign in to view artifacts
-        </p>
+        <p className="mt-2 text-[13px] text-text-tertiary">Sign in to view artifacts</p>
         <button
           onClick={() => void signIn()}
           className="mt-2 rounded-[5.5px] bg-accent px-3 py-1.5 text-[12px] font-medium text-on-accent transition-colors hover:bg-accent-hover"
@@ -305,10 +326,8 @@ export const ArtifactGallery = memo(function ArtifactGallery({
   if (isLoading) {
     return (
       <div className="flex items-center gap-2 py-4">
-        <Spinner className="h-4 w-4" />
-        <span className="text-[12px] text-text-quaternary">
-          Loading artifacts...
-        </span>
+        <Skeleton className="h-4 w-4 shrink-0 rounded" />
+        <Skeleton className="h-3.5 w-36 rounded" />
       </div>
     );
   }
@@ -317,9 +336,7 @@ export const ArtifactGallery = memo(function ArtifactGallery({
     return (
       <div className="rounded-[8px] border border-border-subtle py-8 text-center">
         <Paperclip className="mx-auto h-5 w-5 text-text-quaternary" />
-        <p className="mt-2 text-[13px] text-text-quaternary">
-          No artifacts attached
-        </p>
+        <p className="mt-2 text-[13px] text-text-quaternary">No artifacts attached</p>
       </div>
     );
   }
@@ -331,14 +348,14 @@ export const ArtifactGallery = memo(function ArtifactGallery({
 
   return (
     <div className="space-y-3">
-      {/* Count + tab bar */}
+      {/* Tab bar */}
       <div className="space-y-2">
         <div className="text-[12px] text-text-secondary">
           {artifacts.length} artifact{artifacts.length !== 1 && "s"}
         </div>
-        <div className="flex items-center gap-1 overflow-x-auto scrollbar-none border-b border-border-subtle pb-2">
+        <div className="flex items-center gap-1 overflow-x-auto pb-2 scrollbar-none">
           {artifacts.map((a, i) => {
-            const Icon = typeIcon[a.type];
+            const Icon = iconForArtifact(a);
             return (
               <button
                 key={a.id}
@@ -357,21 +374,25 @@ export const ArtifactGallery = memo(function ArtifactGallery({
         </div>
       </div>
 
-      {/* Current filename */}
+      {/* Header */}
       <div className="flex items-center justify-between">
-        <span className="font-mono text-[12px] font-medium text-text">
-          {selected.filename}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="font-mono text-[12px] font-medium text-text">{selected.filename}</span>
+          {isGif(selected) && (
+            <span className="rounded-[3px] bg-surface-raised px-1 py-0.5 text-[9px] font-medium uppercase text-text-quaternary">GIF</span>
+          )}
+          {isVideo(selected) && (
+            <span className="rounded-[3px] bg-surface-raised px-1 py-0.5 text-[9px] font-medium uppercase text-text-quaternary">Video</span>
+          )}
+        </div>
         <span className="text-[11px] text-text-quaternary">
           {clampedIndex + 1} / {artifacts.length}
-          {selected.size_bytes != null && (
-            <> &middot; {formatBytes(selected.size_bytes)}</>
-          )}
+          {selected.size_bytes != null && <> &middot; {formatBytes(selected.size_bytes)}</>}
         </span>
       </div>
 
       {/* Viewer with nav arrows */}
-      <div className="relative min-h-[200px]">
+      <div className="relative">
         {hasPrev && (
           <button
             onClick={() => setSelectedIndex((i) => i - 1)}
@@ -388,17 +409,14 @@ export const ArtifactGallery = memo(function ArtifactGallery({
             <ChevronRight className="h-4 w-4" />
           </button>
         )}
-
         <div className="px-6">
           <ArtifactViewer key={selected.id} artifact={selected} />
         </div>
       </div>
 
-      {/* Description footer */}
+      {/* Description */}
       {selected.description && (
-        <div className="text-center text-[11px] text-text-quaternary">
-          {selected.description}
-        </div>
+        <div className="text-center text-[11px] text-text-quaternary">{selected.description}</div>
       )}
     </div>
   );

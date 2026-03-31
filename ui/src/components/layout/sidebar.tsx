@@ -10,6 +10,7 @@ import {
   FileText,
   Activity,
   X,
+  MessageSquare,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -21,7 +22,8 @@ import {
 import { ProgramSwitcher } from "./program-switcher";
 
 const navItems = [
-  { to: "/", label: "Dashboard", icon: LayoutDashboard },
+  { to: "/", label: "Assistant", icon: MessageSquare },
+  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/brief", label: "Brief", icon: FileText },
   { to: "/experiments", label: "Experiments", icon: FlaskConical },
   { to: "/tree", label: "Tree", icon: GitBranch },

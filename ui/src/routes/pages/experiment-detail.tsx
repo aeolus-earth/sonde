@@ -20,6 +20,8 @@ import { NoteForm } from "@/components/experiments/note-form";
 import { StatusControls } from "@/components/experiments/status-controls";
 import { TagEditor } from "@/components/experiments/tag-editor";
 import { GitProvenance } from "@/components/experiments/git-provenance";
+import { ChatPanel } from "@/components/chat/chat-panel";
+import { ChatPageProvider } from "@/contexts/chat-page-context";
 import { ArrowLeft, MessageSquare } from "lucide-react";
 
 const routeApi = getRouteApi(ROUTE_API.authExperimentDetail);
@@ -47,15 +49,12 @@ export default function ExperimentDetailPage() {
           <Skeleton className="h-5 w-28" />
           <Skeleton className="h-5 w-16" />
         </div>
-        <div className="grid gap-3 lg:grid-cols-[1fr_280px]">
+        <div className="grid gap-3 lg:grid-cols-[1fr_minmax(400px,440px)]">
           <div className="space-y-3">
             <DetailSectionSkeleton />
             <DetailSectionSkeleton />
           </div>
-          <div className="space-y-3">
-            <DetailSectionSkeleton />
-            <DetailSectionSkeleton />
-          </div>
+          <Skeleton className="h-[min(70vh,520px)] w-full rounded-[8px]" />
         </div>
       </div>
     );
@@ -94,9 +93,9 @@ export default function ExperimentDetailPage() {
         </span>
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-[1fr_280px]">
-        {/* Main */}
-        <div className="space-y-3">
+      <div className="grid gap-3 lg:grid-cols-[1fr_minmax(400px,440px)] lg:items-start">
+        {/* Main + meta (single column) */}
+        <div className="min-w-0 space-y-3">
           {exp.hypothesis && (
             <Section title="Hypothesis">
               {looksLikeMarkdown(exp.hypothesis) ? (
@@ -135,7 +134,7 @@ export default function ExperimentDetailPage() {
 
           {/* Notes */}
           {notes && notes.length > 0 && (
-            <Section title="Notes" count={notes.length}>
+            <Section id="notes" title="Notes" count={notes.length}>
               <div className="space-y-3">
                 {notes.map((note) => (
                   <div
@@ -190,10 +189,7 @@ export default function ExperimentDetailPage() {
                 No hypothesis, finding, notes, or artifacts recorded yet.
               </div>
             )}
-        </div>
 
-        {/* Sidebar */}
-        <div className="space-y-3">
           <Section title="Details">
             <div className="divide-y divide-border-subtle">
               <DetailRow label="Program">{exp.program}</DetailRow>
@@ -263,6 +259,18 @@ export default function ExperimentDetailPage() {
             </Section>
           )}
         </div>
+
+        <ChatPageProvider
+          value={{
+            type: "experiment",
+            id: exp.id,
+            label: (exp.hypothesis ?? exp.finding ?? "").slice(0, 200) || undefined,
+          }}
+        >
+          <div className="sticky top-0 h-[min(100vh-7rem,720px)] min-h-[420px] lg:h-[calc(100vh-7rem)]">
+            <ChatPanel />
+          </div>
+        </ChatPageProvider>
       </div>
     </div>
   );

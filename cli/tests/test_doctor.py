@@ -13,12 +13,18 @@ from sonde.diagnostics import (
     run_doctor,
     summarize_sections,
 )
-from sonde.models.doctor import DoctorCheck, DoctorReport, DoctorSection, DoctorSummary
+from sonde.models.doctor import (
+    DoctorCheck,
+    DoctorReport,
+    DoctorSection,
+    DoctorStatus,
+    DoctorSummary,
+)
 
 
 def _check(
     check_id: str,
-    status: str,
+    status: DoctorStatus,
     *,
     required: bool = False,
     fix: str | None = None,

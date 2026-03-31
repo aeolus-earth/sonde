@@ -119,6 +119,11 @@ def finding_create(
 
     log_activity(result.id, "finding", "created")
 
+    # Refresh saved brief
+    from sonde.commands.brief import refresh_brief
+
+    refresh_brief(program=program)
+
     if ctx.obj.get("json"):
         print_json(result.model_dump(mode="json"))
     else:
@@ -208,6 +213,11 @@ def finding_extract(
 
     result = db.create(data)
     log_activity(result.id, "finding", "created")
+
+    # Refresh saved brief
+    from sonde.commands.brief import refresh_brief
+
+    refresh_brief(program=exp.program)
 
     if ctx.obj.get("json"):
         print_json(result.model_dump(mode="json"))

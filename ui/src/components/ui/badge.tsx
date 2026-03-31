@@ -15,7 +15,7 @@ const badgeVariants = cva(
         high: "text-confidence-high",
         medium: "text-confidence-medium",
         low: "text-confidence-low",
-        tag: "rounded-[3px] bg-surface-raised px-1.5 py-0.5 text-[10px] text-text-secondary",
+        tag: "rounded-[5px] border border-border-subtle bg-surface-raised/90 px-1.5 py-0.5 text-[10px] font-medium text-text-secondary",
       },
     },
     defaultVariants: { variant: "default" },

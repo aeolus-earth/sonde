@@ -2,11 +2,14 @@ import { useCallback, useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth";
 import { useChatStore } from "@/stores/chat";
+import { useChatPageContext } from "@/contexts/chat-page-context";
+import { filesToAttachmentPayloads } from "@/lib/chat-attachments";
 import type {
   MentionRef,
   ServerMessage,
   ClientMessage,
 } from "@/types/chat";
+import { expandDefendExistenceCommand } from "@/lib/defend-existence";
 
 function getAgentWsBase(): string {
   const explicit = import.meta.env.VITE_AGENT_WS_URL as string | undefined;
@@ -96,6 +99,7 @@ function handleServerMessage(msg: ServerMessage) {
 }
 
 export function useChat() {
+  const pageContext = useChatPageContext();
   const accessToken = useAuthStore((s) => s.session?.access_token);
   const authLoading = useAuthStore((s) => s.loading);
 
@@ -242,29 +246,42 @@ export function useChat() {
   }, [accessToken, authLoading, connect, clearReconnectTimer]);
 
   const send = useCallback(
-    (content: string, mentions: MentionRef[] = []) => {
+    async (content: string, mentions: MentionRef[] = [], files: File[] = []) => {
       const ws = wsRef.current;
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
       const s = useChatStore.getState();
+
+      const attachmentPayload =
+        files.length > 0 ? await filesToAttachmentPayloads(files) : undefined;
+
+      const attachmentMeta = files.map((f) => ({
+        name: f.name,
+        mimeType: f.type || undefined,
+      }));
+
+      const wireContent = expandDefendExistenceCommand(content) ?? content;
 
       s.addMessage({
         id: crypto.randomUUID(),
         role: "user",
         content,
         mentions: mentions.length > 0 ? mentions : undefined,
+        attachments: attachmentMeta.length > 0 ? attachmentMeta : undefined,
         timestamp: Date.now(),
       });
 
       const payload: ClientMessage = {
         type: "message",
-        content,
+        content: wireContent,
         mentions,
         sessionId: s.sessionId ?? undefined,
+        pageContext: pageContext ?? undefined,
+        attachments: attachmentPayload,
       };
       ws.send(JSON.stringify(payload));
     },
-    []
+    [pageContext]
   );
 
   const cancel = useCallback(() => {

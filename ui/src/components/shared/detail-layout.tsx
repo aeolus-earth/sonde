@@ -4,13 +4,15 @@ export function Section({
   title,
   children,
   count,
+  id,
 }: {
   title: string;
   children: ReactNode;
   count?: number;
+  id?: string;
 }) {
   return (
-    <div className="rounded-[8px] border border-border bg-surface">
+    <div id={id} className="rounded-[8px] border border-border bg-surface scroll-mt-4">
       <div className="flex items-center justify-between border-b border-border px-3 py-2">
         <h3 className="text-[13px] font-medium text-text-secondary">{title}</h3>
         {count != null && (

@@ -4,6 +4,7 @@
 export const queryKeys = {
   experiments: {
     all: (program: string) => ["experiments", program] as const,
+    byProgram: (program: string) => ["experiments", "byProgram", program] as const,
     detail: (id: string) => ["experiments", "detail", id] as const,
     tree: (rootId: string) => ["experiments", "tree", rootId] as const,
     search: (program: string, q: string) =>
@@ -25,9 +26,11 @@ export const queryKeys = {
   },
   artifacts: {
     byParent: (parentId: string) => ["artifacts", parentId] as const,
+    detail: (artifactId: string) => ["artifacts", "detail", artifactId] as const,
   },
   notes: {
     byExperiment: (expId: string) => ["notes", expId] as const,
+    search: (expId: string, q: string) => ["notes", "search", expId, q] as const,
   },
   activity: {
     recent: (program: string) => ["activity", "recent", program] as const,

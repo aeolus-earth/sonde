@@ -88,6 +88,7 @@ class SondeCLI(click.Group):
             "finding": "Research",
             "program": "Research",
             "question": "Research",
+            "artifact": "Research",
             "tag": "Research",
             "pull": "Research",
             "push": "Research",
@@ -98,6 +99,8 @@ class SondeCLI(click.Group):
             "focus": "Research",
             "unfocus": "Research",
             "next": "Research",
+            "handoff": "Research",
+            "takeaway": "Research",
             "recent": "Research",
             "health": "Research",
             "tree": "Research",
@@ -226,6 +229,7 @@ def cli(ctx: click.Context, use_json: bool, quiet: bool, verbose: bool, no_color
 
 from sonde.commands.access import access  # noqa: E402
 from sonde.commands.admin import admin  # noqa: E402
+from sonde.commands.artifact_group import artifact  # noqa: E402
 from sonde.commands.auth import login, logout, whoami  # noqa: E402
 from sonde.commands.brief import brief  # noqa: E402
 from sonde.commands.direction_group import direction  # noqa: E402
@@ -233,6 +237,7 @@ from sonde.commands.doctor import doctor  # noqa: E402
 from sonde.commands.experiment import experiment  # noqa: E402
 from sonde.commands.finding_group import finding  # noqa: E402
 from sonde.commands.focus import focus, unfocus  # noqa: E402
+from sonde.commands.handoff import handoff  # noqa: E402
 from sonde.commands.health import health  # noqa: E402
 from sonde.commands.init import init_cmd  # noqa: E402
 from sonde.commands.next import next_cmd  # noqa: E402
@@ -246,6 +251,7 @@ from sonde.commands.skills import skills  # noqa: E402
 from sonde.commands.status import status  # noqa: E402
 from sonde.commands.sync import sync  # noqa: E402
 from sonde.commands.tag import tag  # noqa: E402
+from sonde.commands.takeaway import takeaway  # noqa: E402
 from sonde.commands.tree import tree_cmd  # noqa: E402
 
 # Auth & Setup
@@ -264,6 +270,7 @@ cli.add_command(direction)
 cli.add_command(finding)
 cli.add_command(program)
 cli.add_command(question)
+cli.add_command(artifact)
 cli.add_command(pull)
 cli.add_command(push)
 cli.add_command(sync)
@@ -273,6 +280,8 @@ cli.add_command(brief)
 cli.add_command(focus)
 cli.add_command(unfocus)
 cli.add_command(next_cmd)
+cli.add_command(handoff)
+cli.add_command(takeaway)
 cli.add_command(recent)
 cli.add_command(tag)
 cli.add_command(status)

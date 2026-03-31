@@ -1,5 +1,6 @@
 import { useState, memo, useCallback } from "react";
 import { X, Plus } from "lucide-react";
+import { TagChip } from "@/components/ui/tag-chip";
 import { useAddTag, useRemoveTag } from "@/hooks/use-mutations";
 
 interface TagEditorProps {
@@ -40,20 +41,18 @@ export const TagEditor = memo(function TagEditor({
   );
 
   return (
-    <div className="flex flex-wrap items-center gap-1">
+    <div className="flex flex-wrap items-center gap-1.5">
       {tags.map((t) => (
-        <span
-          key={t}
-          className="group inline-flex items-center gap-0.5 rounded-[3px] bg-surface-raised px-1.5 py-0.5 text-[10px] text-text-secondary"
-        >
-          {t}
+        <TagChip key={t} tag={t}>
           <button
+            type="button"
             onClick={() => handleRemove(t)}
-            className="rounded-sm text-text-quaternary opacity-0 transition-opacity group-hover:opacity-100 hover:text-text-tertiary"
+            className="shrink-0 rounded-sm text-current/60 opacity-0 transition-opacity group-hover:opacity-100 hover:text-current"
+            aria-label={`Remove tag ${t}`}
           >
             <X className="h-2.5 w-2.5" />
           </button>
-        </span>
+        </TagChip>
       ))}
       {adding ? (
         <input

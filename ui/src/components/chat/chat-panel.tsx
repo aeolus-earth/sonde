@@ -1,5 +1,6 @@
 import { memo, Component, type ReactNode } from "react";
 import { useChat } from "@/hooks/use-chat";
+import { useChatPageContext } from "@/contexts/chat-page-context";
 import { useChatStore } from "@/stores/chat";
 import { ChatHeader } from "./chat-header";
 import { ChatMessages } from "./chat-messages";
@@ -39,6 +40,7 @@ class ChatErrorBoundary extends Component<
 }
 
 function ChatPanelInner() {
+  const pageContext = useChatPageContext();
   const {
     send,
     cancel,
@@ -54,11 +56,12 @@ function ChatPanelInner() {
   const setTasks = useChatStore((s) => s.setTasks);
 
   return (
-    <div className="flex h-full flex-col rounded-[8px] border border-border bg-surface">
+    <div className="flex h-full w-full min-h-0 flex-col overflow-hidden rounded-[10px] border border-border-subtle bg-surface shadow-sm">
       <ChatHeader
         connectionStatus={connectionStatus}
         hasMessages={messages.length > 0}
         onClearConversation={clearConversation}
+        pageContext={pageContext}
       />
 
       <ChatMessages messages={messages} isStreaming={isStreaming} />
@@ -70,6 +73,7 @@ function ChatPanelInner() {
       />
 
       <ChatInput
+        pageContext={pageContext}
         onSend={send}
         onCancel={cancel}
         isStreaming={isStreaming}

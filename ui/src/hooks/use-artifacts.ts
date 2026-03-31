@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueries } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { queryKeys } from "@/lib/query-keys";
 import type { Artifact } from "@/types/sonde";
@@ -26,6 +26,46 @@ export function useArtifacts(parentId: string) {
       return data;
     },
     enabled: !!parentId,
+  });
+}
+
+/** Fetch a single artifact by id (e.g. ART-0010) for inline chat previews. */
+export function useArtifactById(artifactId: string | null) {
+  return useQuery({
+    queryKey: artifactId
+      ? queryKeys.artifacts.detail(artifactId)
+      : (["artifacts", "detail", "none"] as const),
+    queryFn: async (): Promise<Artifact | null> => {
+      const { data, error } = await supabase
+        .from("artifacts")
+        .select("*")
+        .eq("id", artifactId!)
+        .maybeSingle();
+
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!artifactId,
+  });
+}
+
+/** Parallel fetch for multiple artifact ids (order preserved). */
+export function useArtifactsByIds(artifactIds: string[]) {
+  return useQueries({
+    queries: artifactIds.map((id) => ({
+      queryKey: queryKeys.artifacts.detail(id),
+      queryFn: async (): Promise<Artifact | null> => {
+        const { data, error } = await supabase
+          .from("artifacts")
+          .select("*")
+          .eq("id", id)
+          .maybeSingle();
+
+        if (error) throw error;
+        return data;
+      },
+      enabled: !!id,
+    })),
   });
 }
 

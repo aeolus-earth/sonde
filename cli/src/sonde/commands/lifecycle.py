@@ -152,6 +152,15 @@ def _suggest_next(
             }
         )
 
+    # Always suggest takeaway update after completion
+    if exp.status == "complete":
+        suggestions.append(
+            {
+                "command": 'sonde takeaway "..."',
+                "reason": "Synthesize what this means for the program",
+            }
+        )
+
     deduped: list[dict[str, str]] = []
     seen_commands: set[str] = set()
     for suggestion in suggestions:
@@ -171,11 +180,16 @@ def _suggest_next(
 @click.command("close")
 @click.argument("experiment_id", required=False, default=None)
 @click.option("--finding", "-f", help="Final finding to record")
+@click.option("--takeaway", "-t", help="Program-level synthesis (appended to takeaways)")
 @click.option("--force", is_flag=True, help="Close even with uncommitted changes")
 @pass_output_options
 @click.pass_context
 def close_experiment(
-    ctx: click.Context, experiment_id: str | None, finding: str | None, force: bool = False
+    ctx: click.Context,
+    experiment_id: str | None,
+    finding: str | None,
+    takeaway: str | None,
+    force: bool = False,
 ) -> None:
     """Mark an experiment as complete.
 
@@ -185,11 +199,12 @@ def close_experiment(
     Examples:
       sonde close EXP-0001
       sonde close --finding "CCN saturates at 1500"
+      sonde close --finding "60% host compile" --takeaway "Host compile dominates. Next: warm cache."
     """
     from sonde.commands._helpers import resolve_experiment_id
 
     experiment_id = resolve_experiment_id(experiment_id)
-    _change_status(experiment_id, "complete", finding=finding, ctx=ctx, force=force)
+    _change_status(experiment_id, "complete", finding=finding, takeaway=takeaway, ctx=ctx, force=force)
 
 
 @click.command("open")
@@ -272,6 +287,7 @@ def _change_status(
     new_status: str,
     *,
     finding: str | None = None,
+    takeaway: str | None = None,
     ctx: click.Context,
     force: bool = False,
 ) -> None:
@@ -403,6 +419,8 @@ def _change_status(
             children = db.get_children(experiment_id)
             siblings = db.get_siblings(experiment_id) if exp_after.parent_id else []
             suggested = _suggest_next(exp_after, children, siblings)
+            if takeaway:
+                suggested = [s for s in suggested if "sonde takeaway" not in s.get("command", "")]
         git_info = None
         if git_ctx:
             git_info = {
@@ -411,13 +429,14 @@ def _change_status(
                 "dirty": git_ctx.dirty,
                 "start_commit": exp.git_commit,
             }
-        print_json(
-            {
-                "closed": {"id": experiment_id, "status": new_status},
-                "suggested_next": suggested,
-                "git": git_info,
-            }
-        )
+        result: dict[str, object] = {
+            "closed": {"id": experiment_id, "status": new_status},
+            "suggested_next": suggested,
+            "git": git_info,
+        }
+        if takeaway:
+            result["takeaway_recorded"] = takeaway
+        print_json(result)
         return
 
     # Human output
@@ -477,8 +496,30 @@ def _change_status(
         children = db.get_children(experiment_id)
         siblings = db.get_siblings(experiment_id) if exp_after.parent_id else []
         suggestions = _suggest_next(exp_after, children, siblings)
+        # Filter out takeaway suggestion if one was already provided
+        if takeaway:
+            suggestions = [s for s in suggestions if "sonde takeaway" not in s.get("command", "")]
         if suggestions:
             err.print("\n[sonde.heading]Suggested next:[/]")
             for s in suggestions:
                 err.print(f"  {s['command']}")
                 err.print(f"    [sonde.muted]{s['reason']}[/]")
+
+    # Write takeaway if provided (before brief refresh so it's included)
+    if takeaway and new_status in ("complete", "failed"):
+        try:
+            from sonde.commands.takeaway import _append_takeaway
+
+            source = resolve_source()
+            _append_takeaway(takeaway, source)
+        except Exception:
+            pass
+
+    # Refresh saved brief after close/fail (last — after all output)
+    if new_status in ("complete", "failed"):
+        try:
+            from sonde.commands.brief import refresh_brief
+
+            refresh_brief(program=exp.program)
+        except Exception:
+            pass

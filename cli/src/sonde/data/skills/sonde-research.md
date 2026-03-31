@@ -395,6 +395,46 @@ sonde note EXP-0001 "Retried with higher CCN, same saturation pattern"
 sonde note EXP-0001 --file analysis-notes.md
 ```
 
+## Takeaways
+
+Takeaways are your running synthesis of what the program has learned.
+Findings record individual facts. Takeaways connect them into a narrative.
+
+Update takeaways **every time you close an experiment**. `sonde close` will
+remind you. Good takeaways answer:
+
+1. **What did we learn?** — Synthesize, don't restate individual findings
+2. **What does it mean?** — Connect to the broader research question
+3. **What's next?** — State the logical next step
+
+```bash
+# Add a takeaway after closing an experiment
+sonde takeaway "CCN saturates at ~1500 across all schemes. Next: BL heating."
+
+# Read from a file
+sonde takeaway -f synthesis.md
+
+# View current takeaways
+sonde takeaway --show
+
+# Consolidate when takeaways get long
+sonde takeaway --replace "Fresh consolidated summary of the program"
+```
+
+Takeaways appear at the top of `sonde brief`. They are the first thing
+the next agent or human reads when picking up the work.
+
+### Takeaways vs findings
+
+| | Finding | Takeaway |
+|---|---------|----------|
+| Scope | Single fact | Program-level synthesis |
+| Example | "CCN=1500 shows 8% less enhancement" | "We've confirmed CCN saturation. Threshold is ~1500. Next: BL heating." |
+| Storage | Database (syncs everywhere) | Local `.sonde/takeaways.md` |
+| Appears in | `sonde findings` | `sonde brief` |
+
+Keep findings atomic and evidence-linked. Keep takeaways narrative and forward-looking.
+
 ## Activity tracking
 
 ```bash

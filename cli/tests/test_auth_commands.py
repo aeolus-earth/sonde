@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Any, cast
 from unittest.mock import patch
 
 from click.testing import CliRunner
@@ -157,4 +158,6 @@ def test_refresh_session_updates_stored_session(monkeypatch):
     assert token == "new-access-token"
     assert saved["access_token"] == "new-access-token"
     assert saved["refresh_token"] == "new-refresh-token"
-    assert saved["user"]["app_metadata"]["programs"] == ["dart-benchmarking", "shared"]
+    user = cast(dict[str, Any], saved["user"])
+    meta = cast(dict[str, Any], user["app_metadata"])
+    assert meta["programs"] == ["dart-benchmarking", "shared"]

@@ -16,6 +16,7 @@ from sonde.db import experiments as exp_db
 from sonde.db import findings as find_db
 from sonde.db import questions as q_db
 from sonde.local import find_sonde_dir
+from sonde.local import get_focused_experiment
 from sonde.models.experiment import Experiment
 from sonde.models.finding import Finding
 from sonde.models.question import Question
@@ -35,6 +36,174 @@ def _merged_params(e: Experiment) -> dict[str, Any]:
     return {**(e.metadata or {}), **(e.parameters or {})}
 
 
+def _read_takeaways() -> str | None:
+    """Read takeaways from .sonde/takeaways.md, or None if missing/empty."""
+    from pathlib import Path
+
+    path = Path.cwd() / ".sonde" / "takeaways.md"
+    if not path.exists():
+        return None
+    text = path.read_text(encoding="utf-8").strip()
+    body = text.removeprefix("# Takeaways").strip()
+    return body if body else None
+
+
+# ---------------------------------------------------------------------------
+# Active context — "what's happening right now?"
+# ---------------------------------------------------------------------------
+
+
+def _select_active_experiment(experiments: list[Experiment]) -> Experiment | None:
+    """Pick the most relevant active experiment.
+
+    Priority: focused > most-recently-updated running > most-recently-updated open.
+    """
+    focused_id = get_focused_experiment()
+    if focused_id:
+        for e in experiments:
+            if e.id == focused_id and e.status in ("running", "open"):
+                return e
+
+    running = [e for e in experiments if e.status == "running"]
+    if running:
+        return max(running, key=lambda e: e.updated_at or e.created_at)
+
+    open_exps = [e for e in experiments if e.status == "open"]
+    if open_exps:
+        return max(open_exps, key=lambda e: e.updated_at or e.created_at)
+
+    return None
+
+
+def _build_active_context(
+    experiments: list[Experiment],
+    findings: list[Finding],
+    questions: list[Question],
+    program: str | None,
+) -> dict[str, Any] | None:
+    """Build the active-context block for the brief."""
+    active = _select_active_experiment(experiments)
+    if not active:
+        return None
+
+    # Direction context
+    direction_data = None
+    if active.direction_id:
+        from sonde.db import directions as dir_db
+
+        d = dir_db.get(active.direction_id)
+        if d:
+            direction_data = {"id": d.id, "title": d.title, "question": d.question}
+
+    # Linked questions: same direction, or promoted to this experiment
+    linked_questions: list[dict[str, str]] = []
+    if active.direction_id:
+        linked_questions = [
+            {"id": q.id, "question": q.question, "status": q.status}
+            for q in questions
+            if hasattr(q, "promoted_to_id")
+            and (
+                # Question on same direction (if question tracks direction — not all do)
+                False
+            )
+        ]
+    # Also check questions promoted to this experiment
+    from sonde.db import questions as q_db_inner
+
+    promoted = q_db_inner.find_by_promoted_to(active.id)
+    for q in promoted:
+        if not any(lq["id"] == q.id for lq in linked_questions):
+            linked_questions.append(
+                {"id": q.id, "question": q.question, "status": q.status}
+            )
+    # If still no linked questions and we have a direction, look for open questions in same program
+    if not linked_questions and active.direction_id and questions:
+        # Best effort: surface open questions as context
+        for q in questions[:2]:
+            linked_questions.append(
+                {"id": q.id, "question": q.question, "status": q.status}
+            )
+
+    # Latest finding
+    latest_finding = None
+    if findings:
+        latest_finding = {
+            "id": findings[0].id,
+            "finding": findings[0].finding,
+            "confidence": findings[0].confidence,
+            "topic": findings[0].topic,
+        }
+
+    # Next actions
+    next_actions: list[dict[str, str]] = []
+    if program:
+        try:
+            from sonde.commands.next import build_suggestions
+            from sonde.db import directions as dir_db2
+
+            directions = dir_db2.list_directions(program=program, statuses=None, limit=10000)
+            all_suggestions = build_suggestions(experiments, findings, questions, directions)
+            next_actions = all_suggestions[:3]
+        except Exception:
+            pass
+
+    return {
+        "experiment": {
+            "id": active.id,
+            "status": active.status,
+            "summary": record_summary(active, 200),
+            "parameters": active.parameters,
+            "direction_id": active.direction_id,
+            "parent_id": active.parent_id,
+            "branch_type": active.branch_type,
+            "tags": active.tags,
+            "claimed_by": active.claimed_by,
+            "source": active.source,
+            "updated_at": (active.updated_at or active.created_at).isoformat()
+            if (active.updated_at or active.created_at)
+            else None,
+        },
+        "direction": direction_data,
+        "linked_questions": linked_questions,
+        "latest_finding": latest_finding,
+        "next_actions": next_actions,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Active-branch coverage
+# ---------------------------------------------------------------------------
+
+
+def _active_branch_ids(experiments: list[Experiment]) -> set[str] | None:
+    """Get experiment IDs on the active branch (subtree of running experiment's root).
+
+    Returns None if no running experiments exist.
+    """
+    running = [e for e in experiments if e.status == "running"]
+    if not running:
+        return None
+
+    active_exp = running[0]
+    try:
+        from sonde.db.experiments.tree import get_ancestors, get_subtree
+
+        # Walk to root
+        ancestors = get_ancestors(active_exp.id)
+        if ancestors:
+            root_id = ancestors[-1]["id"]
+        else:
+            root_id = active_exp.id
+
+        # Get full subtree
+        subtree = get_subtree(root_id)
+        ids = {row["id"] for row in subtree}
+        ids.add(root_id)
+        return ids
+    except Exception:
+        return None
+
+
 # ---------------------------------------------------------------------------
 # Data assembly — turns Pydantic models into structured brief dicts
 # ---------------------------------------------------------------------------
@@ -45,6 +214,8 @@ def _build_brief_data(
     experiments: list[Experiment],
     findings: list[Finding],
     questions: list[Question],
+    *,
+    program: str | None = None,
 ) -> dict[str, Any]:
     """Assemble structured brief data from model lists."""
     now = datetime.now(UTC).isoformat()
@@ -54,7 +225,7 @@ def _build_brief_data(
     running = [e for e in experiments if e.status == "running"]
     failed = [e for e in experiments if e.status == "failed"]
 
-    # Coverage and gaps
+    # Coverage and gaps (all complete experiments)
     coverage: dict[str, list[str]] = {}
     gaps: list[dict] = []
     if complete:
@@ -65,9 +236,28 @@ def _build_brief_data(
         coverage = {k: sorted(v) for k, v in sorted(cov.items())} if cov else {}
         gaps = [{"parameter": k, "values_tested": sorted(v)} for k, v in cov.items() if len(v) == 1]
 
-    return {
+    # Active-branch coverage
+    coverage_active: dict[str, list[str]] = {}
+    branch_ids = _active_branch_ids(experiments)
+    if branch_ids and complete:
+        branch_complete = [e for e in complete if e.id in branch_ids]
+        if branch_complete:
+            cov_active: dict[str, set[str]] = defaultdict(set)
+            for e in branch_complete:
+                for k, v in _merged_params(e).items():
+                    cov_active[k].add(str(v))
+            coverage_active = {k: sorted(v) for k, v in sorted(cov_active.items())}
+
+    # Active context
+    active_context = _build_active_context(experiments, findings, questions, program)
+
+    data: dict[str, Any] = {
         "title": title,
         "generated_at": now,
+        # Section 1: What's happening right now
+        "active": active_context,
+        "takeaways": _read_takeaways(),
+        # Section 2: What we know
         "stats": {
             "total": len(experiments),
             "complete": len(complete),
@@ -87,6 +277,10 @@ def _build_brief_data(
             }
             for f in findings
         ],
+        "open_questions": [
+            {"id": q.id, "question": q.question, "status": q.status} for q in questions
+        ],
+        # Section 3: What we've explored
         "open_experiments": [
             {
                 "id": e.id,
@@ -118,15 +312,15 @@ def _build_brief_data(
             }
             for e in complete[:5]
         ],
-        "open_questions": [
-            {"id": q.id, "question": q.question, "status": q.status} for q in questions
-        ],
         "coverage": coverage,
+        "coverage_active": coverage_active,
         "gaps": gaps,
         "tree_summary": exp_db.get_tree_summary(
             program=experiments[0].program if experiments else None
         ),
     }
+
+    return data
 
 
 def _build_cross_coverage(
@@ -179,6 +373,33 @@ def _build_cross_coverage(
 
 
 # ---------------------------------------------------------------------------
+# Refresh — silent brief regeneration for lifecycle hooks
+# ---------------------------------------------------------------------------
+
+
+def refresh_brief(program: str) -> None:
+    """Silently regenerate .sonde/brief.md for a program.
+
+    Called after lifecycle events (close, finding create) to keep the brief current.
+    No-op if .sonde/ directory doesn't exist.
+    """
+    from pathlib import Path
+
+    sonde_dir = Path.cwd() / ".sonde"
+    if not sonde_dir.is_dir():
+        return
+
+    try:
+        experiments = exp_db.list_for_brief(program=program)
+        findings = find_db.list_active(program=program)
+        questions = q_db.list_questions(program=program)
+        data = _build_brief_data(program, experiments, findings, questions, program=program)
+        _save_markdown(data)
+    except Exception:
+        pass  # Silent — don't break the calling command
+
+
+# ---------------------------------------------------------------------------
 # Command
 # ---------------------------------------------------------------------------
 
@@ -189,6 +410,7 @@ def _build_cross_coverage(
 @click.option("--tag", multiple=True, help="Filter by tag (repeatable)")
 @click.option("--since", help="Only include experiments after this date (YYYY-MM-DD)")
 @click.option("--all", "show_all", is_flag=True, help="Brief across all programs")
+@click.option("--active", "show_active", is_flag=True, help="Show only the live context")
 @click.option("--save", is_flag=True, help="Also save to .sonde/brief.md")
 @click.option("--gaps", is_flag=True, help="Show cross-parameter gap analysis")
 @click.option(
@@ -206,18 +428,20 @@ def brief(
     tag: tuple[str, ...],
     since: str | None,
     show_all: bool,
+    show_active: bool,
     save: bool,
     gaps: bool,
     gap_params: tuple[str, ...],
 ) -> None:
     """Generate a research summary.
 
-    By default, summarizes a single program. Use filters to scope the brief
-    to a direction, tag, time window, or view all programs at once.
+    By default, summarizes a single program with active context first.
+    Use --active to show only the live experiment, question, and next actions.
 
     \b
     Examples:
       sonde brief -p weather-intervention
+      sonde brief -p weather-intervention --active
       sonde brief -p weather-intervention --json
       sonde brief --all
       sonde brief -p weather-intervention -d DIR-001
@@ -240,6 +464,13 @@ def brief(
         show_all = True
 
     if show_all:
+        if show_active:
+            print_error(
+                "Conflicting options",
+                "Cannot use --all with --active.",
+                "Use --active with a specific program.",
+            )
+            raise SystemExit(2)
         _brief_all(ctx, gaps, gap_params, since, save)
         return
 
@@ -260,7 +491,7 @@ def brief(
     findings = find_db.list_active(program=resolved)
     questions = q_db.list_questions(program=resolved)
 
-    data = _build_brief_data(title, experiments, findings, questions)
+    data = _build_brief_data(title, experiments, findings, questions, program=resolved)
 
     cross_coverage = None
     if gaps:
@@ -272,12 +503,23 @@ def brief(
             data["cross_coverage"] = cross_coverage
 
     if ctx.obj.get("json"):
-        print_json(data)
+        if show_active:
+            # Slim output: only active context + stats
+            print_json({
+                "active": data.get("active"),
+                "stats": data["stats"],
+                "generated_at": data["generated_at"],
+            })
+        else:
+            print_json(data)
         return
 
-    _render_human(
-        data, cross_coverage, gaps, program=resolved, direction=direction, tag=tag, since=since
-    )
+    if show_active:
+        _render_active_only(data, program=resolved)
+    else:
+        _render_human(
+            data, cross_coverage, gaps, program=resolved, direction=direction, tag=tag, since=since
+        )
 
     if save:
         _save_markdown(data)
@@ -305,7 +547,9 @@ def _brief_all(
         for prog, exps in sorted(by_program.items()):
             prog_findings = [f for f in findings if f.program == prog]
             prog_questions = [q for q in questions if q.program == prog]
-            programs_data.append(_build_brief_data(prog, exps, prog_findings, prog_questions))
+            programs_data.append(
+                _build_brief_data(prog, exps, prog_findings, prog_questions, program=prog)
+            )
         print_json({"programs": programs_data, "generated_at": datetime.now(UTC).isoformat()})
         return
 
@@ -340,7 +584,9 @@ def _brief_all(
     print_breadcrumbs(["Drill down: sonde brief -p <program>", "Status:     sonde status"])
 
     if save:
-        data = _build_brief_data("all programs", experiments, findings, questions)
+        data = _build_brief_data(
+            "all programs", experiments, findings, questions, program=None
+        )
         _save_markdown(data)
 
 
@@ -354,6 +600,86 @@ def _short_source(src: str | None) -> str:
     if not src:
         return "—"
     return src.split("/")[-1] if "/" in src else src
+
+
+def _render_active_context(data: dict) -> None:
+    """Render the active context block to stderr."""
+    ac = data.get("active")
+    if not ac:
+        err.print("  [sonde.muted]No active experiment[/]\n")
+        return
+
+    exp = ac["experiment"]
+    err.print(f"\n[sonde.heading]Active[/]")
+    status_style = f"sonde.{exp['status']}" if exp['status'] in ('open', 'running', 'complete', 'failed') else "sonde.muted"
+    err.print(
+        f"  [{status_style}]{exp['id']}[/]  {exp['status']}  "
+        f"{truncate_text(exp.get('summary') or '', 80)}"
+    )
+
+    # Parameters (show the actual experiment params, not merged coverage)
+    if exp.get("parameters"):
+        param_str = ", ".join(f"{k}={v}" for k, v in exp["parameters"].items())
+        if len(param_str) > 100:
+            param_str = param_str[:97] + "..."
+        err.print(f"    [sonde.muted]{param_str}[/]")
+
+    if exp.get("parent_id"):
+        branch_label = f" ({exp['branch_type']})" if exp.get("branch_type") else ""
+        err.print(f"    Parent: {exp['parent_id']}{branch_label}")
+
+    # Direction
+    if ac.get("direction"):
+        d = ac["direction"]
+        err.print(f"    Direction: [sonde.brand]{d['id']}[/] — {d['title']}")
+
+    # Linked question
+    if ac.get("linked_questions"):
+        for q in ac["linked_questions"][:2]:
+            err.print(f"    Question: [sonde.brand]{q['id']}[/] — {truncate_text(q['question'], 70)}")
+
+    # Latest finding
+    if ac.get("latest_finding"):
+        f = ac["latest_finding"]
+        err.print(
+            f"\n  Latest finding: [sonde.brand]{f['id']}[/] — "
+            f"{truncate_text(f['finding'], 70)} [{f['confidence']}]"
+        )
+
+    # Next actions
+    if ac.get("next_actions"):
+        err.print(f"\n  [sonde.heading]Next[/]")
+        icons = {
+            "high": "[sonde.error]●[/]",
+            "medium": "[sonde.warning]●[/]",
+            "low": "[sonde.muted]○[/]",
+        }
+        for s in ac["next_actions"][:3]:
+            icon = icons.get(s.get("priority", "low"), "[sonde.muted]○[/]")
+            err.print(f"    {icon} {s['reason']}")
+            err.print(f"      [sonde.brand]{s['command']}[/]")
+
+
+def _render_active_only(data: dict, *, program: str | None = None) -> None:
+    """Render only the active context (--active mode)."""
+    title = data["title"]
+    stats = data["stats"]
+    err.print(f"\n[sonde.heading]{title} — active context[/]")
+    err.print(
+        f"[sonde.muted]{stats['total']} experiments, {stats['findings']} finding(s), "
+        f"{stats['open_questions']} question(s)[/]"
+    )
+    _render_active_context(data)
+
+    if data.get("takeaways"):
+        err.print(f"\n[sonde.heading]Takeaways[/]")
+        err.print(data["takeaways"])
+
+    breadcrumbs = []
+    if program:
+        breadcrumbs.append(f"Full brief: sonde brief -p {program}")
+    breadcrumbs.append("Handoff:    sonde handoff")
+    print_breadcrumbs(breadcrumbs)
 
 
 def _render_human(
@@ -372,8 +698,17 @@ def _render_human(
     err.print(
         f"[sonde.muted]{stats['complete']} complete, {stats['running']} running, "
         f"{stats['open']} open, {stats['findings']} finding(s), "
-        f"{stats['open_questions']} question(s)[/]\n"
+        f"{stats['open_questions']} question(s)[/]"
     )
+
+    # Active context — always first
+    _render_active_context(data)
+
+    if data.get("takeaways"):
+        err.print(f"\n[sonde.heading]Takeaways[/]")
+        err.print(data["takeaways"])
+
+    err.print()
 
     if data["findings"]:
         print_table(
@@ -443,8 +778,15 @@ def _render_human(
             title="Open Questions",
         )
 
+    # Coverage — active branch first if available
+    if data.get("coverage_active"):
+        err.print("\n[sonde.heading]Coverage (active branch)[/]")
+        for param, values in data["coverage_active"].items():
+            err.print(f"  [sonde.muted]{param}:[/] {', '.join(values)}")
+
     if data["coverage"]:
-        err.print("\n[sonde.heading]Coverage[/]")
+        label = "Coverage (all experiments)" if data.get("coverage_active") else "Coverage"
+        err.print(f"\n[sonde.heading]{label}[/]")
         for param, values in data["coverage"].items():
             err.print(f"  [sonde.muted]{param}:[/] {', '.join(values)}")
         if data["gaps"]:
@@ -502,6 +844,7 @@ def _render_human(
         breadcrumbs.append(f"Findings:   sonde findings -p {program}")
     elif program:
         breadcrumbs.append(f"Drill down: sonde list --open -p {program}")
+        breadcrumbs.append(f"Active:     sonde brief -p {program} --active")
         breadcrumbs.append(f"Findings:   sonde findings -p {program}")
     elif tag:
         tag_flags = " ".join(f"--tag {t}" for t in tag)
@@ -578,6 +921,36 @@ def _render_markdown(data: dict) -> str:
         f"{stats['open_questions']} question(s)\n",
     ]
 
+    # Active context in markdown
+    ac = data.get("active")
+    if ac:
+        exp = ac["experiment"]
+        lines.append("## Active\n")
+        lines.append(f"**{exp['id']}** ({exp['status']}) — {exp.get('summary', '')}\n")
+        if exp.get("parameters"):
+            params = ", ".join(f"{k}={v}" for k, v in exp["parameters"].items())
+            lines.append(f"Parameters: {params}\n")
+        if ac.get("direction"):
+            d = ac["direction"]
+            lines.append(f"Direction: **{d['id']}** — {d['title']}\n")
+        if ac.get("linked_questions"):
+            for q in ac["linked_questions"]:
+                lines.append(f"Question: **{q['id']}** — {q['question']}\n")
+        if ac.get("latest_finding"):
+            f = ac["latest_finding"]
+            lines.append(f"Latest finding: **{f['id']}** — {f['finding']} [{f['confidence']}]\n")
+        if ac.get("next_actions"):
+            lines.append("\nNext actions:\n")
+            for s in ac["next_actions"][:3]:
+                lines.append(f"- {s['reason']}: `{s['command']}`")
+            lines.append("")
+        lines.append("")
+
+    if data.get("takeaways"):
+        lines.append("## Takeaways\n")
+        lines.append(data["takeaways"])
+        lines.append("")
+
     if data["findings"]:
         lines.append("## Findings\n")
         for f in data["findings"]:
@@ -609,8 +982,17 @@ def _render_markdown(data: dict) -> str:
             lines.append(f"- **{q['id']}** {q['question']}")
         lines.append("")
 
+    if data.get("coverage_active"):
+        lines.append("## Coverage (active branch)\n")
+        lines.append("| Parameter | Values tested |")
+        lines.append("|-----------|--------------|")
+        for param, values in data["coverage_active"].items():
+            lines.append(f"| {param} | {', '.join(values)} |")
+        lines.append("")
+
     if data["coverage"]:
-        lines.append("## Coverage\n")
+        label = "Coverage (all experiments)" if data.get("coverage_active") else "Coverage"
+        lines.append(f"## {label}\n")
         lines.append("| Parameter | Values tested |")
         lines.append("|-----------|--------------|")
         for param, values in data["coverage"].items():

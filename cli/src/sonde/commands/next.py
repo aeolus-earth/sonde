@@ -161,3 +161,7 @@ def _build_suggestions(
     priority_order = {"high": 0, "medium": 1, "low": 2}
     suggestions.sort(key=lambda s: priority_order.get(s["priority"], 99))
     return suggestions
+
+
+# Public alias for reuse in brief/handoff
+build_suggestions = _build_suggestions

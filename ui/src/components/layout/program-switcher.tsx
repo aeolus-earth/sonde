@@ -1,11 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { Check, ChevronDown } from "lucide-react";
-import { supabase } from "@/lib/supabase";
-import { queryKeys } from "@/lib/query-keys";
 import { cn } from "@/lib/utils";
+import { usePrograms } from "@/hooks/use-programs";
 import { useActiveProgram, useSetActiveProgram } from "@/stores/program";
-import type { Program } from "@/types/sonde";
 
 export function ProgramSwitcher() {
   const active = useActiveProgram();
@@ -13,18 +10,7 @@ export function ProgramSwitcher() {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const { data: programs, isLoading } = useQuery({
-    queryKey: queryKeys.programs.all(),
-    queryFn: async (): Promise<Program[]> => {
-      const { data, error } = await supabase
-        .from("programs")
-        .select("*")
-        .order("name");
-      if (error) throw error;
-      return data;
-    },
-    staleTime: 5 * 60_000,
-  });
+  const { data: programs, isLoading } = usePrograms();
 
   const activeProgram = programs?.find((p) => p.id === active);
   const label = activeProgram?.name ?? (isLoading ? "Loading…" : "Program");

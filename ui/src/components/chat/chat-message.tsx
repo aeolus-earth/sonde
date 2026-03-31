@@ -1,102 +1,144 @@
 import { memo, lazy, Suspense } from "react";
 import { Link } from "@tanstack/react-router";
-import { User, Bot, AlertCircle } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { ChatReferencedArtifacts } from "./chat-referenced-artifacts";
 import { ChatToolActivity } from "./chat-tool-activity";
-import type { ChatMessageData } from "@/types/chat";
+import type { ChatMessageData, MentionRef } from "@/types/chat";
+import { isDefendExistenceCommand } from "@/lib/defend-existence";
 
-const ReactMarkdown = lazy(() => import("react-markdown"));
-
-const roleConfig = {
-  user: {
-    icon: User,
-    bg: "bg-accent/10",
-    align: "ml-8",
-    label: "You",
-  },
-  assistant: {
-    icon: Bot,
-    bg: "bg-surface",
-    align: "mr-8",
-    label: "Sonde",
-  },
-  system: {
-    icon: AlertCircle,
-    bg: "bg-status-failed/10",
-    align: "",
-    label: "System",
-  },
-} as const;
+const AssistantMarkdown = lazy(() =>
+  import("./assistant-markdown").then((m) => ({ default: m.AssistantMarkdown }))
+);
 
 interface ChatMessageProps {
   message: ChatMessageData;
 }
 
 export const ChatMessage = memo(function ChatMessage({ message }: ChatMessageProps) {
-  const config = roleConfig[message.role];
-  const Icon = config.icon;
+  if (message.role === "system") {
+    return (
+      <div className="flex justify-center px-1">
+        <div className="max-w-[min(100%,36rem)] rounded-[8px] border border-status-failed/25 bg-status-failed/8 px-3 py-2 text-center text-[12px] leading-relaxed text-text-secondary">
+          {message.content}
+        </div>
+      </div>
+    );
+  }
+
+  if (message.role === "user") {
+    return (
+      <div className="flex justify-end px-1">
+        <div className="max-w-[min(100%,85%)] space-y-1.5">
+          <div className="flex justify-end">
+            <span className="text-[10px] tabular-nums text-text-quaternary">
+              {formatTime(message.timestamp)}
+            </span>
+          </div>
+          {message.mentions && message.mentions.length > 0 && (
+            <div className="flex flex-wrap justify-end gap-1">
+              {message.mentions.map((m, idx) => (
+                <Link
+                  key={`${m.id}-${idx}`}
+                  to={mentionRoute(m.type)}
+                  params={{ id: m.id }}
+                  title={mentionTitle(m)}
+                  className="inline-flex max-w-[min(100%,260px)] items-center gap-0.5 truncate rounded-full bg-accent/15 px-2 py-0.5 text-[11px] font-mono text-accent hover:bg-accent/25"
+                >
+                  <MentionChipText m={m} />
+                </Link>
+              ))}
+            </div>
+          )}
+          {message.attachments && message.attachments.length > 0 && (
+            <div className="flex flex-wrap justify-end gap-1">
+              {message.attachments.map((a, i) => (
+                <span
+                  key={`${a.name}-${i}`}
+                  className="max-w-[220px] truncate rounded-full border border-border-subtle bg-surface px-2 py-0.5 text-[10px] text-text-secondary"
+                  title={a.mimeType ? `${a.name} (${a.mimeType})` : a.name}
+                >
+                  {a.name}
+                </span>
+              ))}
+            </div>
+          )}
+          {isDefendExistenceCommand(message.content) && (
+            <div className="flex justify-end">
+              <span className="rounded-full border border-accent/20 bg-accent/8 px-2 py-0.5 text-[9px] font-medium uppercase tracking-wide text-accent">
+                Defend existence
+              </span>
+            </div>
+          )}
+          <div className="rounded-[22px] bg-surface-raised px-4 py-2.5 text-[13px] leading-relaxed text-text shadow-sm">
+            <p className="whitespace-pre-wrap">{message.content}</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className={cn("flex gap-2", config.align)}>
-      <div className={cn(
-        "mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full",
-        message.role === "user" ? "bg-accent/20" : "bg-surface-raised"
-      )}>
-        <Icon className="h-3.5 w-3.5 text-text-secondary" />
-      </div>
-
-      <div className="min-w-0 flex-1 space-y-1">
-        <div className="flex items-center gap-1.5">
-          <span className="text-[11px] font-medium text-text-secondary">
-            {config.label}
-          </span>
-          <span className="text-[10px] text-text-quaternary">
+    <div className="flex justify-start px-1">
+      <div className="w-full max-w-[min(100%,42rem)] space-y-2">
+        <div className="flex items-baseline gap-2">
+          <span className="text-[11px] font-medium text-text-tertiary">Sonde</span>
+          <span className="text-[10px] tabular-nums text-text-quaternary">
             {formatTime(message.timestamp)}
           </span>
         </div>
 
-        {/* Mentions as linked badges */}
         {message.mentions && message.mentions.length > 0 && (
-          <div className="flex flex-wrap gap-1">
-            {message.mentions.map((m) => (
+          <div className="flex flex-wrap gap-1.5">
+            {message.mentions.map((m, idx) => (
               <Link
-                key={m.id}
+                key={`${m.id}-${idx}`}
                 to={mentionRoute(m.type)}
                 params={{ id: m.id }}
-                className="inline-flex items-center gap-0.5 rounded-[3px] bg-accent/10 px-1.5 py-0.5 text-[11px] font-mono text-accent hover:bg-accent/20"
+                title={mentionTitle(m)}
+                className="inline-flex max-w-[min(100%,260px)] items-center gap-0.5 truncate rounded-full bg-accent/10 px-2 py-0.5 text-[11px] font-mono text-accent hover:bg-accent/18"
               >
-                @{m.id}
+                <MentionChipText m={m} />
               </Link>
             ))}
           </div>
         )}
 
-        {/* Tool activity */}
         {message.toolUses?.map((tu) => (
           <ChatToolActivity key={tu.id} toolUse={tu} />
         ))}
 
-        {/* Content */}
         {message.content && (
-          <div className={cn(
-            "rounded-[5.5px] px-3 py-2 text-[13px] leading-relaxed",
-            config.bg
-          )}>
-            {message.role === "assistant" ? (
-              <Suspense fallback={<span>{message.content}</span>}>
-                <div className="prose prose-sm max-w-none text-text prose-headings:text-text prose-code:text-text-secondary prose-code:bg-surface-raised prose-code:rounded-[3px] prose-code:px-1 prose-pre:bg-surface-raised prose-pre:rounded-[5.5px]">
-                  <ReactMarkdown>{message.content}</ReactMarkdown>
-                </div>
+          <>
+            <div className="rounded-[5.5px] bg-surface px-3 py-2 text-[13px] leading-relaxed text-text">
+              <Suspense fallback={<span className="whitespace-pre-wrap">{message.content}</span>}>
+                <AssistantMarkdown content={message.content} />
               </Suspense>
-            ) : (
-              <p className="text-text whitespace-pre-wrap">{message.content}</p>
-            )}
-          </div>
+            </div>
+            <ChatReferencedArtifacts content={message.content} />
+          </>
         )}
       </div>
     </div>
   );
 });
+
+function mentionTitle(m: MentionRef): string {
+  if (m.type === "experiment" && m.program) {
+    return `${m.program}/${m.id}`;
+  }
+  return m.id;
+}
+
+function MentionChipText({ m }: { m: MentionRef }) {
+  if (m.type === "experiment" && m.program) {
+    return (
+      <>
+        <span className="shrink-0 text-[10px] text-text-tertiary">{m.program}/</span>
+        <span className="min-w-0 truncate">{m.id}</span>
+      </>
+    );
+  }
+  return <>@{m.id}</>;
+}
 
 function formatTime(ts: number): string {
   return new Date(ts).toLocaleTimeString(undefined, {
@@ -107,9 +149,13 @@ function formatTime(ts: number): string {
 
 function mentionRoute(type: string): string {
   switch (type) {
-    case "experiment": return "/experiments/$id";
-    case "finding": return "/findings/$id";
-    case "direction": return "/directions/$id";
-    default: return "/experiments/$id";
+    case "experiment":
+      return "/experiments/$id";
+    case "finding":
+      return "/findings/$id";
+    case "direction":
+      return "/directions/$id";
+    default:
+      return "/experiments/$id";
   }
 }

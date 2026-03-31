@@ -43,6 +43,7 @@ from sonde.output import (
     type=click.Choice(list(BRANCH_TYPES)),
     help="Branch type",
 )
+@click.option("--clean/--keep-all", default=True, help="Strip stale inherited fields (default: clean)")
 @click.argument("intent", required=False, default=None)
 @structured_metadata_options
 @pass_output_options
@@ -57,6 +58,7 @@ def fork(
     drop_tags: tuple[str, ...],
     status: str,
     branch_type: str | None,
+    clean: bool,
     intent: str | None,
     repro: str | None,
     evidence: tuple[str, ...],
@@ -128,13 +130,17 @@ def fork(
         blocker=blocker,
     )
 
+    clean_params, clean_metadata, stale_warnings = _clean_stale_fields(
+        override_params, forked_metadata, strip=clean
+    )
+
     data = ExperimentCreate(
         program=source_exp.program,
         status=status,
         source=resolved_source,
         tags=resolved_tags,
-        parameters=override_params,
-        metadata=forked_metadata,
+        parameters=clean_params,
+        metadata=clean_metadata,
         direction_id=source_exp.direction_id,
         data_sources=list(source_exp.data_sources),
         related=[source_exp.id],
@@ -163,9 +169,6 @@ def fork(
         {"forked_from": source_exp.id, "branch_type": branch_type},
     )
 
-    # Detect likely-stale inherited fields
-    stale_warnings = _detect_stale_fields(override_params, forked_metadata)
-
     if ctx.obj.get("json"):
         data = {
             "created": new_exp.model_dump(mode="json"),
@@ -173,7 +176,10 @@ def fork(
             "parent": source_exp.model_dump(mode="json"),
         }
         if stale_warnings:
-            data["_stale_warnings"] = stale_warnings
+            if clean:
+                data["_stripped_fields"] = stale_warnings
+            else:
+                data["_stale_warnings"] = stale_warnings
         print_json(data)
     else:
         type_label = f" ({branch_type})" if branch_type else ""
@@ -189,7 +195,11 @@ def fork(
             err.print(f"  Siblings: {', '.join(sibling_strs)}")
 
         # Stale field warnings
-        if stale_warnings:
+        if stale_warnings and clean:
+            stripped_names = ", ".join(f"{w['source']}.{w['key']}" for w in stale_warnings)
+            err.print(f"\n  [sonde.muted]Stripped {len(stale_warnings)} stale field(s): {stripped_names}[/]")
+            err.print("  [sonde.muted]Use --keep-all to preserve inherited paths[/]")
+        elif stale_warnings:
             err.print("\n  [sonde.warning]Inherited fields that may need updating:[/]")
             for w in stale_warnings:
                 err.print(f"    [sonde.muted]{w['source']}.{w['key']}[/] = {w['value']}")
@@ -209,15 +219,27 @@ def fork(
 # Fork helpers
 # ---------------------------------------------------------------------------
 
-_STALE_KEY_PATTERNS = {"dir", "path", "file", "output", "log", "artifact", "result"}
+_STALE_KEY_PATTERNS = {"dir", "path", "file", "output", "log", "artifact", "result", "cache", "tmp", "scratch", "checkpoint"}
 
 
-def _detect_stale_fields(
-    params: dict[str, object], metadata: dict[str, object]
-) -> list[dict[str, str]]:
-    """Find inherited fields that look path-like or run-specific."""
+def _clean_stale_fields(
+    params: dict[str, object],
+    metadata: dict[str, object],
+    *,
+    strip: bool = True,
+) -> tuple[dict[str, object], dict[str, object], list[dict[str, str]]]:
+    """Find and optionally remove inherited fields that look path-like or run-specific.
+
+    Returns (cleaned_params, cleaned_metadata, removed_or_warned_fields).
+    """
     warnings: list[dict[str, str]] = []
-    for source_name, d in [("parameters", params), ("metadata", metadata)]:
+    cleaned_params = dict(params)
+    cleaned_metadata = dict(metadata)
+
+    for source_name, d, cleaned in [
+        ("parameters", params, cleaned_params),
+        ("metadata", metadata, cleaned_metadata),
+    ]:
         for key, value in d.items():
             if not isinstance(value, str):
                 continue
@@ -226,7 +248,10 @@ def _detect_stale_fields(
             is_path_value = "/" in value
             if is_path_key and is_path_value:
                 warnings.append({"source": source_name, "key": key, "value": value})
-    return warnings
+                if strip:
+                    del cleaned[key]
+
+    return cleaned_params, cleaned_metadata, warnings
 
 
 def _fork_content_nudge(exp_id: str, branch_type: str | None) -> tuple[str, str]:

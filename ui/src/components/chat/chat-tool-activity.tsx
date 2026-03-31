@@ -2,6 +2,12 @@ import { memo, useState } from "react";
 import { ChevronDown, ChevronRight, Loader2, CheckCircle2, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ToolUseData } from "@/types/chat";
+import {
+  ChatArtifactPreviewStrip,
+  artifactPreviewParentId,
+  parseArtifactOutputCount,
+  parseExperimentShowArtifactCount,
+} from "@/components/chat/chat-artifact-preview";
 
 function toolDisplayName(tool: string): string {
   return tool
@@ -23,6 +29,13 @@ export const ChatToolActivity = memo(function ChatToolActivity({
   toolUse,
 }: ChatToolActivityProps) {
   const [expanded, setExpanded] = useState(false);
+  const artifactParentId = artifactPreviewParentId(toolUse.tool, toolUse.input);
+  const artifactCountHint =
+    toolUse.tool === "sonde_artifacts_list"
+      ? parseArtifactOutputCount(toolUse.output)
+      : toolUse.tool === "sonde_experiment_show"
+        ? parseExperimentShowArtifactCount(toolUse.output)
+        : null;
 
   return (
     <div className="my-1 rounded-[5.5px] border border-border-subtle bg-surface text-[12px]">
@@ -43,6 +56,13 @@ export const ChatToolActivity = memo(function ChatToolActivity({
           <span className="text-text-quaternary">running...</span>
         )}
       </button>
+
+      {artifactParentId && toolUse.status === "done" && (
+        <ChatArtifactPreviewStrip
+          parentId={artifactParentId}
+          outputCountHint={artifactCountHint}
+        />
+      )}
 
       {expanded && (
         <div className="border-t border-border-subtle px-2 py-1.5 space-y-1">
