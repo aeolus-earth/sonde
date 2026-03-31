@@ -31,7 +31,10 @@ def check_orphan_experiments(data: HealthData) -> list[HealthIssue]:
                 HealthIssue(
                     category="graph",
                     severity="warning",
-                    message=f"{exp_id} has no project or direction — floating in the knowledge graph",
+                    message=(
+                        f"{exp_id} has no project or direction"
+                        " — floating in the knowledge graph"
+                    ),
                     record_id=exp_id,
                     fix=f"sonde update {exp_id} --project PROJ-XXX",
                     penalty=2,
@@ -76,7 +79,10 @@ def check_broken_parent_refs(data: HealthData) -> list[HealthIssue]:
                 HealthIssue(
                     category="graph",
                     severity="error",
-                    message=f"{exp_id} references parent {parent} which does not exist — broken tree link",
+                    message=(
+                        f"{exp_id} references parent {parent}"
+                        " which does not exist — broken tree link"
+                    ),
                     record_id=exp_id,
                     penalty=5,
                 )
@@ -109,7 +115,10 @@ def check_empty_projects(data: HealthData) -> list[HealthIssue]:
                 HealthIssue(
                     category="graph",
                     severity="warning",
-                    message=f"{proj_id} ({proj_name}) is active but has no directions or experiments",
+                    message=(
+                        f"{proj_id} ({proj_name}) is active"
+                        " but has no directions or experiments"
+                    ),
                     record_id=proj_id,
                     penalty=2,
                 )

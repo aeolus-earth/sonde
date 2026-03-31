@@ -7,6 +7,7 @@ import { ChatConnectionDot } from "./chat-connection-dot";
 import { ChatMessages } from "./chat-messages";
 import { ChatInput } from "./chat-input";
 import { ChatTaskList } from "./chat-task-list";
+import { ChatToolApproval } from "./chat-tool-approval";
 import { ChatSessionTabs } from "./chat-session-tabs";
 
 class ChatErrorBoundary extends Component<
@@ -46,7 +47,8 @@ function ChatPanelInner() {
   const {
     send,
     cancel,
-    approveTasks,
+    approveTool,
+    denyTool,
     messages,
     tasks,
     agentModel,
@@ -69,6 +71,10 @@ function ChatPanelInner() {
   const closeTab = useChatStore((s) => s.closeTab);
   const setActiveTab = useChatStore((s) => s.setActiveTab);
   const setTasks = useChatStore((s) => s.setTasks);
+  const pendingToolApprovals = useChatStore((s) => {
+    const t = s.tabs.find((x) => x.id === s.activeTabId);
+    return t?.pendingToolApprovals ?? [];
+  });
 
   return (
     <div className="relative flex h-full w-full min-h-0 flex-col overflow-hidden rounded-[10px] border border-border-subtle bg-surface shadow-sm">
@@ -88,9 +94,14 @@ function ChatPanelInner() {
 
       <ChatMessages messages={messages} isStreaming={isStreaming} />
 
+      <ChatToolApproval
+        pending={pendingToolApprovals}
+        onApprove={approveTool}
+        onDeny={denyTool}
+      />
+
       <ChatTaskList
         tasks={tasks}
-        onApprove={approveTasks}
         onDismiss={() => setTasks(activeTabId, [])}
       />
 

@@ -47,10 +47,25 @@ export interface ClientMessageCancel {
   type: "cancel";
 }
 
+export interface ClientMessageApproveTool {
+  type: "approve_tool";
+  approvalId: string;
+  toolUseID?: string;
+}
+
+export interface ClientMessageDenyTool {
+  type: "deny_tool";
+  approvalId: string;
+  toolUseID?: string;
+  reason?: string;
+}
+
 export type ClientMessage =
   | ClientMessageChat
   | ClientMessageApproveTasks
-  | ClientMessageCancel;
+  | ClientMessageCancel
+  | ClientMessageApproveTool
+  | ClientMessageDenyTool;
 
 // -- Server -> Client --
 
@@ -89,6 +104,15 @@ export interface ServerToolUseEnd {
   output: string;
 }
 
+export interface ServerToolApprovalRequired {
+  type: "tool_approval_required";
+  approvalId: string;
+  toolUseID: string;
+  tool: string;
+  input: Record<string, unknown>;
+  destructive?: boolean;
+}
+
 export interface ServerTasks {
   type: "tasks";
   tasks: AgentTask[];
@@ -110,6 +134,7 @@ export type ServerMessage =
   | ServerTextDone
   | ServerToolUseStart
   | ServerToolUseEnd
+  | ServerToolApprovalRequired
   | ServerTasks
   | ServerError
   | ServerDone;

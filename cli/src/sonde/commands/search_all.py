@@ -8,7 +8,7 @@ from sonde.cli_options import pass_output_options
 from sonde.commands._context import use_json
 from sonde.config import get_settings
 from sonde.db.client import get_client
-from sonde.output import err, print_error, print_json, print_table, record_summary
+from sonde.output import err, print_error, print_json, print_table
 
 
 @click.command("search-all")

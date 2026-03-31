@@ -46,6 +46,8 @@ def _make_experiment(
     finding: str | None = "Found something interesting",
     tags: list[str] | None = None,
     direction_id: str | None = None,
+    project_id: str | None = None,
+    parent_id: str | None = None,
     updated_at: str | None = None,
 ) -> dict:
     return {
@@ -59,6 +61,8 @@ def _make_experiment(
         "parameters": {"ccn": 1200},
         "metadata": {},
         "direction_id": direction_id,
+        "project_id": project_id,
+        "parent_id": parent_id,
         "created_at": updated_at or _ago(24),
         "updated_at": updated_at or _ago(24),
     }
@@ -68,9 +72,12 @@ def _healthy_program() -> HealthData:
     """A program with no issues — 100/100 score."""
     return HealthData(
         experiments=[
-            _make_experiment("EXP-0001", status="complete"),
-            _make_experiment("EXP-0002", status="complete"),
-            _make_experiment("EXP-0003", status="running", updated_at=_ago(1)),
+            _make_experiment("EXP-0001", status="complete", project_id="PROJ-001"),
+            _make_experiment("EXP-0002", status="complete", project_id="PROJ-001"),
+            _make_experiment("EXP-0003", status="running", updated_at=_ago(1), project_id="PROJ-001"),
+        ],
+        projects=[
+            {"id": "PROJ-001", "name": "Test Project", "status": "active", "program": "weather-intervention"},
         ],
         findings=[
             {
@@ -622,7 +629,8 @@ class TestHealthCommand:
     def test_health_no_issues(self, runner: CliRunner, patched_db: MagicMock):
         self._setup_health_mock(
             patched_db,
-            experiments=[_make_experiment("EXP-0001")],
+            experiments=[_make_experiment("EXP-0001", project_id="PROJ-001")],
+            projects=[{"id": "PROJ-001", "name": "Test", "status": "active", "program": "weather-intervention"}],
             activity=[{"record_id": "EXP-0001", "action": "created", "created_at": _now()}],
         )
 

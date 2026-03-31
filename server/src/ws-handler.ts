@@ -3,6 +3,7 @@ import type { WSEvents, WSContext } from "hono/ws";
 import type { WebSocket } from "ws";
 import { verifyToken } from "./auth.js";
 import { createAgentSession, type AgentSession } from "./agent.js";
+import { createToolApprovalBridge } from "./tool-approval-bridge.js";
 import type {
   ClientMessage,
   ServerMessage,
@@ -29,6 +30,7 @@ export function handleWebSocket(
   const token = parseRequestUrl(c.req.url).searchParams.get("token");
 
   let session: AgentSession | null = null;
+  let approvalBridge: ReturnType<typeof createToolApprovalBridge> | null = null;
 
   return {
     async onOpen(_evt, ws) {
@@ -45,7 +47,10 @@ export function handleWebSocket(
         return;
       }
 
-      session = createAgentSession(token);
+      approvalBridge = createToolApprovalBridge(ws);
+      session = createAgentSession(token, {
+        canUseTool: approvalBridge.canUseTool,
+      });
       send(ws, { type: "session", sessionId: session.sessionId });
     },
 
@@ -82,7 +87,13 @@ export function handleWebSocket(
           );
           break;
         case "approve_tasks":
-          send(ws, { type: "done" });
+          // Legacy no-op: proposed tasks are preview-only; mutating tools use approve_tool.
+          break;
+        case "approve_tool":
+          approvalBridge?.resolveApproval(msg.approvalId, true);
+          break;
+        case "deny_tool":
+          approvalBridge?.resolveApproval(msg.approvalId, false, msg.reason);
           break;
         case "cancel":
           session.abort();
@@ -94,6 +105,8 @@ export function handleWebSocket(
     },
 
     onClose() {
+      approvalBridge?.dispose();
+      approvalBridge = null;
       if (session) {
         session.close();
         session = null;
@@ -101,6 +114,8 @@ export function handleWebSocket(
     },
 
     onError(_evt) {
+      approvalBridge?.dispose();
+      approvalBridge = null;
       if (session) {
         session.close();
         session = null;

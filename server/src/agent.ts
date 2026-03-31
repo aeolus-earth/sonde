@@ -1,4 +1,5 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
+import type { CanUseTool } from "@anthropic-ai/claude-agent-sdk";
 import { createSondeMcpServer } from "./mcp/sonde-server.js";
 import { getPendingTasks, clearPendingTasks } from "./mcp/tools/tasks.js";
 import type { AgentEvent } from "./types.js";
@@ -6,6 +7,12 @@ import type { AgentEvent } from "./types.js";
 const SYSTEM_PROMPT = `You are a Sonde research assistant for the Aeolus atmospheric science team. You help scientists inspect, log, and manage experiments, findings, directions, and questions using the Sonde tools.
 
 You have access to the full Sonde CLI through structured tools. Each tool maps to a sonde CLI command and returns JSON data.
+
+Approval and writes:
+- Read-only Sonde tools (list, show, search, brief, tree, etc.) run immediately.
+- **Mutating** Sonde tools (log, create, update, delete, attach, tag changes, focus, etc.) require the user to click **Approve** in the chat UI before they execute. If the user denies, do not retry the same mutation unless they ask you to.
+- Before calling a mutating tool, briefly state what you will change (record IDs, create vs update vs delete) so the user can decide. For multi-step work, prefer \`sonde_propose_tasks\` so the UI shows a plan card; execution of those steps still goes through per-tool approval for mutating tools.
+- Do not assume a mutating tool ran until after approval — the run is blocked until the user confirms.
 
 Formatting (user-visible replies):
 - Use Markdown: short ### headings, bullet lists, and GitHub-style tables when comparing records or fields.
@@ -43,7 +50,14 @@ export interface AgentSession {
   close(): void;
 }
 
-export function createAgentSession(sondeToken: string): AgentSession {
+export interface CreateAgentSessionOptions {
+  canUseTool: CanUseTool;
+}
+
+export function createAgentSession(
+  sondeToken: string,
+  sessionOptions: CreateAgentSessionOptions
+): AgentSession {
   const firstSessionId: string = crypto.randomUUID();
   let sessionId: string = firstSessionId;
   let abortController = new AbortController();
@@ -72,8 +86,8 @@ export function createAgentSession(sondeToken: string): AgentSession {
           systemPrompt: SYSTEM_PROMPT,
           resume,
           mcpServers: { sonde: createSondeMcpServer(sondeToken) },
-          permissionMode: "bypassPermissions",
-          allowDangerouslySkipPermissions: true,
+          permissionMode: "default",
+          canUseTool: sessionOptions.canUseTool,
           maxTurns: MAX_TURNS,
           maxBudgetUsd: MAX_BUDGET_USD,
           includePartialMessages: true,

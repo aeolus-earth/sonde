@@ -5,9 +5,10 @@ import type {
   AgentTask,
   ConnectionStatus,
   ToolUseData,
+  PendingToolApproval,
 } from "@/types/chat";
 
-const PERSIST_VERSION = 2;
+const PERSIST_VERSION = 3;
 
 export interface ChatTab {
   id: string;
@@ -15,6 +16,7 @@ export interface ChatTab {
   messages: ChatMessageData[];
   tasks: AgentTask[];
   agentSessionId: string | null;
+  pendingToolApprovals: PendingToolApproval[];
 }
 
 function createEmptyTab(title: string): ChatTab {
@@ -24,6 +26,7 @@ function createEmptyTab(title: string): ChatTab {
     messages: [],
     tasks: [],
     agentSessionId: null,
+    pendingToolApprovals: [],
   };
 }
 
@@ -60,6 +63,12 @@ interface ChatState {
     toolUseId: string,
     update: Partial<ToolUseData>
   ) => void;
+  addPendingToolApproval: (
+    tabId: string,
+    approval: PendingToolApproval
+  ) => void;
+  removePendingToolApproval: (tabId: string, approvalId: string) => void;
+  clearPendingToolApprovals: (tabId: string) => void;
   setTasks: (tabId: string, tasks: AgentTask[]) => void;
   updateTaskStatus: (
     tabId: string,
@@ -165,17 +174,58 @@ export const useChatStore = create<ChatState>()(
 
       updateToolUse: (tabId, toolUseId, update) =>
         set((s) => ({
-          tabs: mapTabsMessages(s.tabs, tabId, (msgs) => {
-            const copy = [...msgs];
-            const last = copy[copy.length - 1];
-            if (last?.role === "assistant" && last.toolUses) {
-              const toolUses = last.toolUses.map((tu) =>
-                tu.id === toolUseId ? { ...tu, ...update } : tu
-              );
-              copy[copy.length - 1] = { ...last, toolUses };
-            }
-            return copy;
+          tabs: s.tabs.map((t) => {
+            if (t.id !== tabId) return t;
+            return {
+              ...t,
+              messages: t.messages.map((m) => {
+                if (m.role !== "assistant" || !m.toolUses) return m;
+                return {
+                  ...m,
+                  toolUses: m.toolUses.map((tu) =>
+                    tu.id === toolUseId ? { ...tu, ...update } : tu
+                  ),
+                };
+              }),
+            };
           }),
+        })),
+
+      addPendingToolApproval: (tabId, approval) =>
+        set((s) => ({
+          tabs: s.tabs.map((t) => {
+            if (t.id !== tabId) return t;
+            return {
+              ...t,
+              pendingToolApprovals: [
+                ...t.pendingToolApprovals.filter(
+                  (p) => p.approvalId !== approval.approvalId
+                ),
+                approval,
+              ],
+            };
+          }),
+        })),
+
+      removePendingToolApproval: (tabId, approvalId) =>
+        set((s) => ({
+          tabs: s.tabs.map((t) =>
+            t.id === tabId
+              ? {
+                  ...t,
+                  pendingToolApprovals: t.pendingToolApprovals.filter(
+                    (p) => p.approvalId !== approvalId
+                  ),
+                }
+              : t
+          ),
+        })),
+
+      clearPendingToolApprovals: (tabId) =>
+        set((s) => ({
+          tabs: s.tabs.map((t) =>
+            t.id === tabId ? { ...t, pendingToolApprovals: [] } : t
+          ),
         })),
 
       setTasks: (tabId, tasks) =>
@@ -211,7 +261,13 @@ export const useChatStore = create<ChatState>()(
           return {
             tabs: s.tabs.map((t) =>
               t.id === id
-                ? { ...t, messages: [], tasks: [], agentSessionId: null }
+                ? {
+                    ...t,
+                    messages: [],
+                    tasks: [],
+                    agentSessionId: null,
+                    pendingToolApprovals: [],
+                  }
                 : t
             ),
             isStreaming: false,
@@ -228,7 +284,13 @@ export const useChatStore = create<ChatState>()(
         if (version >= PERSIST_VERSION) return persistedState;
         const legacy = persistedState as LegacyPersistedV1;
         if (legacy.tabs && legacy.activeTabId) {
-          return persistedState;
+          return {
+            ...legacy,
+            tabs: legacy.tabs.map((t) => ({
+              ...t,
+              pendingToolApprovals: [],
+            })),
+          };
         }
         const tab = createEmptyTab("Chat 1");
         tab.messages = (legacy.messages ?? []).slice(-100);
@@ -242,6 +304,7 @@ export const useChatStore = create<ChatState>()(
         tabs: state.tabs.map((t) => ({
           ...t,
           messages: t.messages.slice(-100),
+          pendingToolApprovals: [],
         })),
         activeTabId: state.activeTabId,
       }),

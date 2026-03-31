@@ -86,12 +86,44 @@ function handleServerMessage(msg: ServerMessage) {
       break;
     }
 
-    case "tool_use_end":
-      s.updateToolUse(resolveTargetTabId(), msg.id, {
-        output: msg.output,
-        status: "done",
+    case "tool_approval_required": {
+      const tabId = resolveTargetTabId();
+      s.addPendingToolApproval(tabId, {
+        approvalId: msg.approvalId,
+        toolUseID: msg.toolUseID,
+        tool: msg.tool,
+        input: msg.input,
+        destructive: msg.destructive,
+      });
+      s.updateToolUse(tabId, msg.toolUseID, {
+        status: "awaiting_approval",
+        input: msg.input,
       });
       break;
+    }
+
+    case "tool_use_end": {
+      const tabId = resolveTargetTabId();
+      let skipDone = false;
+      const tab = s.tabs.find((t) => t.id === tabId);
+      if (tab) {
+        for (const m of tab.messages) {
+          if (m.role !== "assistant" || !m.toolUses) continue;
+          const tu = m.toolUses.find((x) => x.id === msg.id);
+          if (tu?.status === "error") {
+            skipDone = true;
+            break;
+          }
+        }
+      }
+      if (!skipDone) {
+        s.updateToolUse(tabId, msg.id, {
+          output: msg.output,
+          status: "done",
+        });
+      }
+      break;
+    }
 
     case "tasks":
       s.setTasks(resolveTargetTabId(), msg.tasks);
@@ -106,10 +138,13 @@ function handleServerMessage(msg: ServerMessage) {
       });
       break;
 
-    case "done":
+    case "done": {
+      const tabId = resolveTargetTabId();
       s.setStreaming(false);
       s.setStreamingTabId(null);
+      s.clearPendingToolApprovals(tabId);
       break;
+    }
   }
 }
 
@@ -209,9 +244,11 @@ export function useChat() {
     ws.onclose = (ev) => {
       wsRef.current = null;
       const st = useChatStore.getState();
+      const tabId = st.streamingTabId ?? st.activeTabId;
       st.setConnectionStatus("disconnected");
       st.setStreaming(false);
       st.setStreamingTabId(null);
+      st.clearPendingToolApprovals(tabId);
 
       if (ev.code === WS_CLOSE_UNAUTHORIZED) {
         void (async () => {
@@ -322,17 +359,37 @@ export function useChat() {
     ws.send(JSON.stringify(payload));
   }, []);
 
-  const approveTasks = useCallback(() => {
+  const approveTool = useCallback((approvalId: string) => {
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    const payload: ClientMessage = { type: "approve_tasks" };
+    const s0 = useChatStore.getState();
+    const tabId = s0.streamingTabId ?? s0.activeTabId;
+    s0.removePendingToolApproval(tabId, approvalId);
+    s0.updateToolUse(tabId, approvalId, { status: "running" });
+    const payload: ClientMessage = { type: "approve_tool", approvalId };
+    ws.send(JSON.stringify(payload));
+  }, []);
+
+  const denyTool = useCallback((approvalId: string, reason?: string) => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    const s0 = useChatStore.getState();
+    const tabId = s0.streamingTabId ?? s0.activeTabId;
+    s0.removePendingToolApproval(tabId, approvalId);
+    s0.updateToolUse(tabId, approvalId, { status: "error" });
+    const payload: ClientMessage = {
+      type: "deny_tool",
+      approvalId,
+      reason,
+    };
     ws.send(JSON.stringify(payload));
   }, []);
 
   return {
     send,
     cancel,
-    approveTasks,
+    approveTool,
+    denyTool,
     messages,
     tasks,
     agentModel,

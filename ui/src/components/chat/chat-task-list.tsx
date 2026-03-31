@@ -4,8 +4,7 @@ import {
   Circle,
   Loader2,
   XCircle,
-  ListChecks,
-  Play,
+  LayoutGrid,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -20,13 +19,11 @@ const statusIcon = {
 
 interface ChatTaskListProps {
   tasks: AgentTask[];
-  onApprove: () => void;
   onDismiss: () => void;
 }
 
 export const ChatTaskList = memo(function ChatTaskList({
   tasks,
-  onApprove,
   onDismiss,
 }: ChatTaskListProps) {
   if (tasks.length === 0) return null;
@@ -35,42 +32,48 @@ export const ChatTaskList = memo(function ChatTaskList({
   const completedCount = tasks.filter((t) => t.status === "done").length;
 
   return (
-    <div className="mx-3 my-2 rounded-[8px] border border-border bg-surface">
-      <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
-        <div className="flex items-center gap-1.5">
-          <ListChecks className="h-3.5 w-3.5 text-text-tertiary" />
-          <span className="text-[12px] font-medium text-text-secondary">
-            Task Plan
-          </span>
+    <div
+      className={cn(
+        "mx-3 my-2 rounded-[8px] border border-dashed border-border-subtle",
+        "bg-surface-raised/50"
+      )}
+    >
+      <div className="flex items-center justify-between border-b border-dashed border-border-subtle px-3 py-1.5">
+        <div className="flex min-w-0 flex-1 items-center gap-1.5">
+          <LayoutGrid className="h-3.5 w-3.5 shrink-0 text-text-quaternary" />
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+              <span className="text-[12px] font-medium text-text-secondary">
+                Plan preview
+              </span>
+              <span className="text-[10px] font-mono uppercase tracking-wide text-text-quaternary">
+                Not executed
+              </span>
+            </div>
+            <p className="text-[10px] text-text-quaternary">
+              Steps are shown for review. Mutating Sonde tools still require
+              per-tool approval in chat.
+            </p>
+          </div>
           {!allPending && (
-            <span className="text-[10px] text-text-quaternary">
+            <span className="shrink-0 text-[10px] text-text-quaternary">
               {completedCount}/{tasks.length}
             </span>
           )}
         </div>
         {allPending && (
-          <div className="flex items-center gap-1">
-            <button
-              onClick={onApprove}
-              className={cn(
-                "flex items-center gap-1 rounded-[5.5px] px-2 py-1 text-[11px] font-medium",
-                "bg-accent text-on-accent hover:bg-accent-hover transition-colors"
-              )}
-            >
-              <Play className="h-3 w-3" />
-              Run
-            </button>
-            <button
-              onClick={onDismiss}
-              className="rounded-[5.5px] p-1 text-text-tertiary transition-colors hover:bg-surface-hover"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={onDismiss}
+            className="shrink-0 rounded-[5.5px] p-1 text-text-tertiary transition-colors hover:bg-surface-hover"
+            aria-label="Dismiss plan"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
         )}
       </div>
 
-      <div className="divide-y divide-border-subtle">
+      <div className="divide-y divide-border-subtle/80">
         {tasks.map((task, i) => (
           <div
             key={task.id}

@@ -1,5 +1,12 @@
 import { memo, useState } from "react";
-import { ChevronDown, ChevronRight, Loader2, CheckCircle2, XCircle } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  Loader2,
+  CheckCircle2,
+  XCircle,
+  Shield,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ToolUseData } from "@/types/chat";
 import {
@@ -11,12 +18,16 @@ import {
 
 function toolDisplayName(tool: string): string {
   return tool
+    .replace(/^mcp__sonde__/, "")
     .replace(/^sonde_/, "")
     .replace(/_/g, " ");
 }
 
 const statusIcon = {
   running: <Loader2 className="h-3 w-3 animate-spin text-status-running" />,
+  awaiting_approval: (
+    <Shield className="h-3 w-3 text-accent" />
+  ),
   done: <CheckCircle2 className="h-3 w-3 text-status-complete" />,
   error: <XCircle className="h-3 w-3 text-status-failed" />,
 };
@@ -29,11 +40,12 @@ export const ChatToolActivity = memo(function ChatToolActivity({
   toolUse,
 }: ChatToolActivityProps) {
   const [expanded, setExpanded] = useState(false);
-  const artifactParentId = artifactPreviewParentId(toolUse.tool, toolUse.input);
+  const toolNorm = toolUse.tool.replace(/^mcp__sonde__/, "");
+  const artifactParentId = artifactPreviewParentId(toolNorm, toolUse.input);
   const artifactCountHint =
-    toolUse.tool === "sonde_artifacts_list"
+    toolNorm === "sonde_artifacts_list"
       ? parseArtifactOutputCount(toolUse.output)
-      : toolUse.tool === "sonde_experiment_show"
+      : toolNorm === "sonde_experiment_show"
         ? parseExperimentShowArtifactCount(toolUse.output)
         : null;
 
@@ -54,6 +66,9 @@ export const ChatToolActivity = memo(function ChatToolActivity({
         </span>
         {toolUse.status === "running" && (
           <span className="text-text-quaternary">running...</span>
+        )}
+        {toolUse.status === "awaiting_approval" && (
+          <span className="text-text-quaternary">awaiting approval…</span>
         )}
       </button>
 
