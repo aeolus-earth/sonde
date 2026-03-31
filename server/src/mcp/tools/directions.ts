@@ -47,5 +47,37 @@ export function createDirectionTools(sondeToken: string) {
         return runSonde(flags, sondeToken);
       }
     ),
+
+    tool(
+      "sonde_direction_update",
+      "Update a direction's title, question, status, or parent project.",
+      {
+        direction_id: z.string().describe("Direction ID"),
+        title: z.string().optional().describe("New title"),
+        question: z.string().optional().describe("New guiding question"),
+        status: z.enum(["proposed", "active", "paused", "completed", "abandoned"]).optional(),
+        project: z.string().optional().describe("Parent project ID (e.g. PROJ-001)"),
+      },
+      async (args) => {
+        const flags = ["direction", "update", args.direction_id, "--json"];
+        if (args.title) flags.push("--title", args.title);
+        if (args.question) flags.push("--question", args.question);
+        if (args.status) flags.push("--status", args.status);
+        if (args.project) flags.push("--project", args.project);
+        return runSonde(flags, sondeToken);
+      }
+    ),
+
+    tool(
+      "sonde_direction_delete",
+      "Delete a direction. Clears direction_id on linked experiments.",
+      {
+        direction_id: z.string().describe("Direction ID to delete"),
+      },
+      async (args) => {
+        const flags = ["direction", "delete", args.direction_id, "--confirm", "--json"];
+        return runSonde(flags, sondeToken);
+      }
+    ),
   ];
 }

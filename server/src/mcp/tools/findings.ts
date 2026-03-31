@@ -53,5 +53,17 @@ export function createFindingTools(sondeToken: string) {
         return runSonde(flags, sondeToken);
       }
     ),
+
+    tool(
+      "sonde_finding_delete",
+      "Delete a finding. Use when a finding is incorrect or no longer relevant.",
+      {
+        finding_id: z.string().describe("Finding ID to delete"),
+      },
+      async (args) => {
+        const flags = ["finding", "delete", args.finding_id, "--confirm", "--json"];
+        return runSonde(flags, sondeToken);
+      }
+    ),
   ];
 }

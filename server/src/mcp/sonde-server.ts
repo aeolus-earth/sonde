@@ -8,6 +8,7 @@ import { createTaskTools } from "./tools/tasks.js";
 import { createArtifactTools } from "./tools/artifacts.js";
 import { createProjectTools } from "./tools/projects.js";
 import { createSearchTools } from "./tools/search.js";
+import { createTagTools } from "./tools/tags.js";
 
 export function createSondeMcpServer(sondeToken: string) {
   return createSdkMcpServer({
@@ -22,6 +23,7 @@ export function createSondeMcpServer(sondeToken: string) {
       ...createArtifactTools(sondeToken),
       ...createProjectTools(sondeToken),
       ...createSearchTools(sondeToken),
+      ...createTagTools(sondeToken),
       ...createTaskTools(),
     ],
   });

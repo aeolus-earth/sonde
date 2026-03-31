@@ -64,5 +64,17 @@ export function createProjectTools(sondeToken: string) {
         return runSonde(flags, sondeToken);
       }
     ),
+
+    tool(
+      "sonde_project_delete",
+      "Delete a project. Clears project_id on linked directions and experiments.",
+      {
+        project_id: z.string().describe("Project ID to delete"),
+      },
+      async (args) => {
+        const flags = ["project", "delete", args.project_id, "--confirm", "--json"];
+        return runSonde(flags, sondeToken);
+      }
+    ),
   ];
 }

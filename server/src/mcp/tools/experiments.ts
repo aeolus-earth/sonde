@@ -147,5 +147,66 @@ export function createExperimentTools(sondeToken: string) {
         return runSonde(flags, sondeToken);
       }
     ),
+
+    tool(
+      "sonde_experiment_start",
+      "Claim an experiment and set it to running status. Marks you as the active worker.",
+      {
+        experiment_id: z.string().describe("Experiment ID to start working on"),
+      },
+      async (args) => {
+        const flags = ["experiment", "start", args.experiment_id, "--json"];
+        return runSonde(flags, sondeToken);
+      }
+    ),
+
+    tool(
+      "sonde_experiment_release",
+      "Release your claim on a running experiment without closing it.",
+      {
+        experiment_id: z.string().describe("Experiment ID to release"),
+      },
+      async (args) => {
+        const flags = ["experiment", "release", args.experiment_id, "--json"];
+        return runSonde(flags, sondeToken);
+      }
+    ),
+
+    tool(
+      "sonde_experiment_open",
+      "Reopen a completed or failed experiment for further work.",
+      {
+        experiment_id: z.string().describe("Experiment ID to reopen"),
+      },
+      async (args) => {
+        const flags = ["experiment", "open", args.experiment_id, "--json"];
+        return runSonde(flags, sondeToken);
+      }
+    ),
+
+    tool(
+      "sonde_experiment_delete",
+      "Permanently delete an experiment and its artifacts. Use with caution.",
+      {
+        experiment_id: z.string().describe("Experiment ID to delete"),
+      },
+      async (args) => {
+        const flags = ["experiment", "delete", args.experiment_id, "--confirm", "--json"];
+        return runSonde(flags, sondeToken);
+      }
+    ),
+
+    tool(
+      "sonde_experiment_attach",
+      "Attach a file as an artifact to an experiment. The file must exist on disk.",
+      {
+        experiment_id: z.string().describe("Experiment ID"),
+        filepath: z.string().describe("Path to the file to attach"),
+      },
+      async (args) => {
+        const flags = ["experiment", "attach", args.experiment_id, args.filepath, "--json"];
+        return runSonde(flags, sondeToken);
+      }
+    ),
   ];
 }

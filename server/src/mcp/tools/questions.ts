@@ -47,5 +47,29 @@ export function createQuestionTools(sondeToken: string) {
         return runSonde(flags, sondeToken);
       }
     ),
+
+    tool(
+      "sonde_question_show",
+      "Show full details for a research question.",
+      {
+        question_id: z.string().describe("Question ID (e.g. Q-001)"),
+      },
+      async (args) => {
+        const flags = ["question", "show", args.question_id, "--json"];
+        return runSonde(flags, sondeToken);
+      }
+    ),
+
+    tool(
+      "sonde_question_delete",
+      "Delete a research question from the inbox.",
+      {
+        question_id: z.string().describe("Question ID to delete"),
+      },
+      async (args) => {
+        const flags = ["question", "delete", args.question_id, "--confirm", "--json"];
+        return runSonde(flags, sondeToken);
+      }
+    ),
   ];
 }

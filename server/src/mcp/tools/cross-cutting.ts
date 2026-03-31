@@ -57,12 +57,47 @@ export function createCrossCuttingTools(sondeToken: string) {
 
     tool(
       "sonde_show",
-      "Show details for any record by ID. Accepts experiment (EXP-*), finding (FIND-*), direction (DIR-*), or question (Q-*) IDs.",
+      "Show details for any record by ID. Accepts experiment (EXP-*), finding (FIND-*), direction (DIR-*), project (PROJ-*), or question (Q-*) IDs.",
       {
-        id: z.string().describe("Record ID (e.g. EXP-0001, FIND-0001, DIR-001, Q-001)"),
+        id: z.string().describe("Record ID (e.g. EXP-0001, FIND-0001, DIR-001, PROJ-001, Q-001)"),
       },
       async (args) => {
         const flags = ["show", args.id, "--json"];
+        return runSonde(flags, sondeToken);
+      }
+    ),
+
+    tool(
+      "sonde_health",
+      "Run knowledge base health diagnostics. Detects stale experiments, orphaned records, broken references, missing findings, and graph connectivity issues. Returns a scored report with fixable suggestions.",
+      {
+        category: z.string().optional().describe("Filter to one category: experiment, finding, tag, direction, coverage, graph, brief"),
+      },
+      async (args) => {
+        const flags = ["health", "--json"];
+        if (args.category) flags.push("--category", args.category);
+        return runSonde(flags, sondeToken);
+      }
+    ),
+
+    tool(
+      "sonde_handoff",
+      "Generate a structured handoff document for the next agent. Summarizes active work, open questions, and suggested next steps.",
+      {},
+      async () => {
+        const flags = ["handoff", "--json"];
+        return runSonde(flags, sondeToken);
+      }
+    ),
+
+    tool(
+      "sonde_focus",
+      "Set the focused experiment for the current session. Other commands will use this as the default experiment ID.",
+      {
+        experiment_id: z.string().describe("Experiment ID to focus on"),
+      },
+      async (args) => {
+        const flags = ["focus", args.experiment_id, "--json"];
         return runSonde(flags, sondeToken);
       }
     ),
