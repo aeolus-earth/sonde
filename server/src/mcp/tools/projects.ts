@@ -49,18 +49,20 @@ export function createProjectTools(sondeToken: string) {
 
     tool(
       "sonde_project_update",
-      "Update a project's name, objective, or status.",
+      "Update a project's name, objective, status, or Linear link.",
       {
         project_id: z.string().describe("Project ID"),
         name: z.string().optional().describe("New name"),
         objective: z.string().optional().describe("New objective"),
         status: z.enum(["proposed", "active", "paused", "completed", "archived"]).optional(),
+        linear: z.string().optional().describe("Link to a Linear project/issue ID"),
       },
       async (args) => {
         const flags = ["project", "update", args.project_id, "--json"];
         if (args.name) flags.push("--name", args.name);
         if (args.objective) flags.push("--objective", args.objective);
         if (args.status) flags.push("--status", args.status);
+        if (args.linear) flags.push("--linear", args.linear);
         return runSonde(flags, sondeToken);
       }
     ),

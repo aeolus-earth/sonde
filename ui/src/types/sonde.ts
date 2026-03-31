@@ -103,6 +103,7 @@ export interface Experiment {
   tags: string[];
   direction_id: string | null;
   project_id: string | null;
+  linear_id: string | null;
   related: string[];
 
   // Tree

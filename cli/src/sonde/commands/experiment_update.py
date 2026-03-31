@@ -106,6 +106,8 @@ def update(
         updates["direction_id"] = direction
     if project is not None:
         updates["project_id"] = project
+    if linear is not None:
+        updates["linear_id"] = linear
 
     # Content
     if content_file:

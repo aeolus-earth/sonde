@@ -50,13 +50,14 @@ export function createDirectionTools(sondeToken: string) {
 
     tool(
       "sonde_direction_update",
-      "Update a direction's title, question, status, or parent project.",
+      "Update a direction's title, question, status, parent project, or Linear link.",
       {
         direction_id: z.string().describe("Direction ID"),
         title: z.string().optional().describe("New title"),
         question: z.string().optional().describe("New guiding question"),
         status: z.enum(["proposed", "active", "paused", "completed", "abandoned"]).optional(),
         project: z.string().optional().describe("Parent project ID (e.g. PROJ-001)"),
+        linear: z.string().optional().describe("Link to a Linear issue ID (e.g. AEO-123)"),
       },
       async (args) => {
         const flags = ["direction", "update", args.direction_id, "--json"];
@@ -64,6 +65,7 @@ export function createDirectionTools(sondeToken: string) {
         if (args.question) flags.push("--question", args.question);
         if (args.status) flags.push("--status", args.status);
         if (args.project) flags.push("--project", args.project);
+        if (args.linear) flags.push("--linear", args.linear);
         return runSonde(flags, sondeToken);
       }
     ),

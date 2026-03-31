@@ -150,6 +150,7 @@ def project_create(
     type=click.Choice(["proposed", "active", "paused", "completed", "archived"]),
     help="Update status",
 )
+@click.option("--linear", help="Link to a Linear issue/project ID")
 @pass_output_options
 @click.pass_context
 def project_update(
@@ -158,6 +159,7 @@ def project_update(
     name: str | None,
     objective: str | None,
     status: str | None,
+    linear: str | None,
 ) -> None:
     """Update a project."""
     project_id = project_id.upper()
@@ -176,6 +178,7 @@ def project_update(
             "name": name,
             "objective": objective,
             "status": status,
+            "linear_id": linear,
         }.items()
         if value is not None
     }

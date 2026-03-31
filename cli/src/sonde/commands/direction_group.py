@@ -149,6 +149,7 @@ def direction_create(
     help="Update status",
 )
 @click.option("--project", help="Set or change the parent project")
+@click.option("--linear", help="Link to a Linear issue ID (e.g. AEO-123)")
 @pass_output_options
 @click.pass_context
 def direction_update(
@@ -158,6 +159,7 @@ def direction_update(
     question: str | None,
     status: str | None,
     project: str | None,
+    linear: str | None,
 ) -> None:
     """Update a direction."""
     direction_id = direction_id.upper()
@@ -177,6 +179,7 @@ def direction_update(
             "question": question,
             "status": status,
             "project_id": project,
+            "linear_id": linear,
         }.items()
         if value is not None
     }

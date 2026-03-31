@@ -82,13 +82,14 @@ export function createExperimentTools(sondeToken: string) {
 
     tool(
       "sonde_experiment_update",
-      "Update an experiment's finding, hypothesis, status, tags, direction, or project. Use this to assign experiments to projects or directions.",
+      "Update an experiment's finding, hypothesis, status, tags, direction, project, or Linear link. Use this to assign experiments to projects/directions or link to Linear issues.",
       {
         experiment_id: z.string().describe("Experiment ID"),
         finding: z.string().optional().describe("Set the finding/result"),
         hypothesis: z.string().optional().describe("Update the hypothesis"),
         direction: z.string().optional().describe("Link to a direction ID"),
         project: z.string().optional().describe("Link to a project ID (e.g. PROJ-001)"),
+        linear: z.string().optional().describe("Link to a Linear issue ID (e.g. AEO-123)"),
         tag: z.array(z.string()).optional().describe("Tags to add"),
       },
       async (args) => {
@@ -97,6 +98,7 @@ export function createExperimentTools(sondeToken: string) {
         if (args.hypothesis) flags.push("--hypothesis", args.hypothesis);
         if (args.direction) flags.push("--direction", args.direction);
         if (args.project) flags.push("--project", args.project);
+        if (args.linear) flags.push("--linear", args.linear);
         if (args.tag) for (const t of args.tag) flags.push("--tag", t);
         return runSonde(flags, sondeToken);
       }
