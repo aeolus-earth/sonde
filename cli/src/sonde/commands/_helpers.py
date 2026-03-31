@@ -10,6 +10,8 @@ from typing import Any
 import click
 import yaml
 
+from sonde.local import get_focused_experiment
+
 
 def load_dict_file(path: str) -> dict[str, Any]:
     """Load a YAML or JSON file and return a dict.
@@ -31,6 +33,31 @@ def load_dict_file(path: str) -> dict[str, Any]:
         return json.loads(content)
     except json.JSONDecodeError:
         return yaml.safe_load(content) or {}
+
+
+# ---------------------------------------------------------------------------
+# Focus-aware experiment ID resolution
+# ---------------------------------------------------------------------------
+
+
+def resolve_experiment_id(experiment_id: str | None) -> str:
+    """Resolve experiment ID: use explicit value or fall back to focused experiment.
+
+    Raises SystemExit with a helpful message if neither is available.
+    """
+    if experiment_id:
+        return experiment_id.upper()
+    focused = get_focused_experiment()
+    if focused:
+        return focused.upper()
+    from sonde.output import print_error
+
+    print_error(
+        "No experiment specified",
+        "Provide an experiment ID or set a focus.",
+        "Usage: sonde focus EXP-XXXX",
+    )
+    raise SystemExit(2)
 
 
 # ---------------------------------------------------------------------------

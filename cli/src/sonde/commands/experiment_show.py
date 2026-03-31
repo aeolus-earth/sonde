@@ -242,6 +242,7 @@ def show(ctx: click.Context, experiment_id: str, graph: bool) -> None:
         breadcrumbs = [
             f"History: sonde history {exp.id}",
             f'Note:    sonde note {exp.id} "observation"',
+            'Search:  sonde search --text "query"',
         ]
         if children or parent:
             breadcrumbs.append(f"Tree:    sonde tree {exp.id}")

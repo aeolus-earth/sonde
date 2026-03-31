@@ -169,59 +169,70 @@ def _suggest_next(
 
 
 @click.command("close")
-@click.argument("experiment_id")
+@click.argument("experiment_id", required=False, default=None)
 @click.option("--finding", "-f", help="Final finding to record")
 @click.option("--force", is_flag=True, help="Close even with uncommitted changes")
 @pass_output_options
 @click.pass_context
 def close_experiment(
-    ctx: click.Context, experiment_id: str, finding: str | None, force: bool = False
+    ctx: click.Context, experiment_id: str | None, finding: str | None, force: bool = False
 ) -> None:
     """Mark an experiment as complete.
+
+    If no experiment ID is given, uses the focused experiment (sonde focus).
 
     \b
     Examples:
       sonde close EXP-0001
-      sonde close EXP-0001 --finding "CCN saturates at 1500"
+      sonde close --finding "CCN saturates at 1500"
     """
+    from sonde.commands._helpers import resolve_experiment_id
+
+    experiment_id = resolve_experiment_id(experiment_id)
     _change_status(experiment_id, "complete", finding=finding, ctx=ctx, force=force)
 
 
 @click.command("open")
-@click.argument("experiment_id")
+@click.argument("experiment_id", required=False, default=None)
 @pass_output_options
 @click.pass_context
-def open_experiment(ctx: click.Context, experiment_id: str) -> None:
-    """Reopen an experiment.
+def open_experiment(ctx: click.Context, experiment_id: str | None) -> None:
+    """Reopen an experiment. Uses focused experiment if no ID given.
 
     \b
     Examples:
       sonde open EXP-0001
     """
+    from sonde.commands._helpers import resolve_experiment_id
+
+    experiment_id = resolve_experiment_id(experiment_id)
     _change_status(experiment_id, "open", ctx=ctx)
 
 
 @click.command("start")
-@click.argument("experiment_id")
+@click.argument("experiment_id", required=False, default=None)
 @click.option("--force", is_flag=True, help="Take over even if claimed by another source")
 @pass_output_options
 @click.pass_context
-def start_experiment(ctx: click.Context, experiment_id: str, force: bool = False) -> None:
-    """Mark an experiment as running and claim it.
+def start_experiment(ctx: click.Context, experiment_id: str | None, force: bool = False) -> None:
+    """Mark an experiment as running and claim it. Uses focused experiment if no ID given.
 
     \b
     Examples:
       sonde start EXP-0001
-      sonde start EXP-0001 --force
+      sonde start --force
     """
+    from sonde.commands._helpers import resolve_experiment_id
+
+    experiment_id = resolve_experiment_id(experiment_id)
     _change_status(experiment_id, "running", ctx=ctx, force=force)
 
 
 @click.command("release")
-@click.argument("experiment_id")
+@click.argument("experiment_id", required=False, default=None)
 @pass_output_options
 @click.pass_context
-def release_experiment(ctx: click.Context, experiment_id: str) -> None:
+def release_experiment(ctx: click.Context, experiment_id: str | None) -> None:
     """Release the claim on an experiment without changing its status.
 
     Use this to free up an experiment claimed by a crashed or stalled agent.
@@ -230,7 +241,9 @@ def release_experiment(ctx: click.Context, experiment_id: str) -> None:
     Examples:
       sonde release EXP-0001
     """
-    experiment_id = experiment_id.upper()
+    from sonde.commands._helpers import resolve_experiment_id
+
+    experiment_id = resolve_experiment_id(experiment_id)
     exp = db.get(experiment_id)
     if not exp:
         print_error(f"{experiment_id} not found", "No experiment with this ID.", "sonde list")

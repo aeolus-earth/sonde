@@ -27,7 +27,7 @@ from sonde.output import (
 
 
 @click.command("update")
-@click.argument("experiment_id")
+@click.argument("experiment_id", required=False, default=None)
 @click.option(
     "--status", type=click.Choice(["open", "running", "complete", "failed", "superseded"])
 )
@@ -50,7 +50,7 @@ from sonde.output import (
 @click.pass_context
 def update(
     ctx: click.Context,
-    experiment_id: str,
+    experiment_id: str | None,
     status: str | None,
     hypothesis: str | None,
     params: str | None,
@@ -69,14 +69,17 @@ def update(
 ):
     """Update fields on an existing experiment.
 
+    If no experiment ID is given, uses the focused experiment (sonde focus).
+
     \b
     Examples:
       sonde update EXP-0042 --status complete --result '{"rmse": 2.3}'
-      sonde update EXP-0042 --finding "CCN saturates at 1500"
-      sonde update EXP-0042 --params-file config.yaml
-      sonde update EXP-0042 --tag cloud-seeding --tag subtropical
+      sonde update --finding "CCN saturates at 1500"
+      sonde update --blocker "waiting for GPU allocation"
     """
-    experiment_id = experiment_id.upper()
+    from sonde.commands._helpers import resolve_experiment_id
+
+    experiment_id = resolve_experiment_id(experiment_id)
 
     exp = db.get(experiment_id)
     if not exp:

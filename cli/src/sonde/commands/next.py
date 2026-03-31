@@ -71,6 +71,8 @@ def next_cmd(ctx: click.Context, program: str | None, limit: int) -> None:
         err.print(f"  {icon} {s['reason']}")
         err.print(f"    [sonde.brand]{s['command']}[/]")
     err.print()
+    err.print('  [sonde.muted]Search past work: sonde search --text "query"[/]')
+    err.print()
 
 
 def _build_suggestions(

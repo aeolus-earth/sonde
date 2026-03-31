@@ -33,7 +33,7 @@ class AttachStats:
 
 
 @click.command()
-@click.argument("experiment_id")
+@click.argument("experiment_id", required=False, default=None)
 @click.argument("files", nargs=-1, required=True, type=click.Path(exists=True))
 @click.option("--type", "artifact_type", help="Override artifact type")
 @click.option("--description", "-d", help="Description of the artifact")
@@ -41,20 +41,24 @@ class AttachStats:
 @click.pass_context
 def attach(
     ctx: click.Context,
-    experiment_id: str,
+    experiment_id: str | None,
     files: tuple[str, ...],
     artifact_type: str | None,
     description: str | None,
 ) -> None:
     """Import external files into an experiment and upload them.
 
+    If no experiment ID is given, uses the focused experiment (sonde focus).
+
     \b
     Examples:
       sonde attach EXP-0001 figures/precip_delta.png
-      sonde attach EXP-0001 report.pdf --type paper
-      sonde attach EXP-0001 output/*.nc
+      sonde attach report.pdf --type paper
+      sonde attach output/*.nc
     """
-    experiment_id = experiment_id.upper()
+    from sonde.commands._helpers import resolve_experiment_id
+
+    experiment_id = resolve_experiment_id(experiment_id)
 
     # Verify experiment exists
     if not exp_db.exists(experiment_id):
