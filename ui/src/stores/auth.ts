@@ -65,6 +65,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       provider: "google",
       options: {
         redirectTo,
+        // Keep in sync with cli/src/sonde/auth.py sign_in_with_oauth query_params.hd
         queryParams: {
           hd: "aeolus.earth",
         },

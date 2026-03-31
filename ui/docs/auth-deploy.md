@@ -1,5 +1,7 @@
 # Web UI auth (Google + Supabase)
 
+See also: **[OAuth: CLI vs web UI](../../docs/oauth-flows.md)** (two callback URLs, VM vs hosted).
+
 The UI uses the **same Supabase project and Google OAuth** as the Sonde CLI. Access to data is enforced by **Row Level Security** and the **`custom_access_token_hook`**, which only issues JWTs for **`@aeolus.earth`** addresses (see `supabase/migrations/`).
 
 ## Vercel (or any hosted UI): avoid redirect to localhost

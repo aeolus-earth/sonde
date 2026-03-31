@@ -19,11 +19,25 @@ function AuthCallbackPage() {
         stored ?? params.get("redirect") ?? undefined
       );
 
+      const code = params.get("code");
+
       const finish = async () => {
-        const {
+        let {
           data: { session },
           error,
         } = await supabase.auth.getSession();
+
+        if (!session && code) {
+          const exchanged = await supabase.auth.exchangeCodeForSession(code);
+          if (exchanged.data.session) {
+            session = exchanged.data.session;
+          } else if (exchanged.error) {
+            const again = await supabase.auth.getSession();
+            session = again.data.session;
+            error = again.error ?? exchanged.error;
+          }
+        }
+
         if (!alive) return;
         if (error) {
           navigate({

@@ -351,6 +351,8 @@ Two paths, one interface:
 
 Both paths produce a JWT that `get_client()` attaches as a Bearer token. The CLI code doesn't distinguish between human and agent after authentication.
 
+**CLI vs web UI OAuth:** Human sign-in also exists in the Vite app (`/auth/callback` on the deployed origin). That flow is separate from `sonde login` (localhost `/callback`). Same Supabase project; different redirect URLs by design. See [`docs/oauth-flows.md`](docs/oauth-flows.md) and [`ui/docs/auth-deploy.md`](ui/docs/auth-deploy.md).
+
 ---
 
 ## Design principles

@@ -307,7 +307,7 @@ def login() -> UserInfo:
     port = _find_open_port()
     redirect_url = f"http://localhost:{port}/callback"
 
-    # Start OAuth — get the URL to open
+    # Start OAuth — get the URL to open (keep Google query_params in sync with ui auth store)
     auth_response = client.auth.sign_in_with_oauth(
         {
             "provider": "google",
