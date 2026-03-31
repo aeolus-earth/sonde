@@ -10,7 +10,7 @@ import type { ExperimentSummary } from "@/types/sonde";
  *   - https://github.com/user/repo.git
  *   - git@github.com:user/repo.git
  */
-function parseRepoUrl(
+export function parseRepoUrl(
   gitRepo: string
 ): { host: string; owner: string; repo: string } | null {
   // HTTPS: https://github.com/user/repo.git
@@ -40,7 +40,7 @@ function parseRepoUrl(
   return null;
 }
 
-function commitUrl(gitRepo: string, sha: string): string | null {
+export function commitUrl(gitRepo: string, sha: string): string | null {
   const parsed = parseRepoUrl(gitRepo);
   if (!parsed) return null;
 
@@ -48,14 +48,14 @@ function commitUrl(gitRepo: string, sha: string): string | null {
   return `https://${parsed.host}/${parsed.owner}/${parsed.repo}/commit/${sha}`;
 }
 
-function branchUrl(gitRepo: string, branch: string): string | null {
+export function branchUrl(gitRepo: string, branch: string): string | null {
   const parsed = parseRepoUrl(gitRepo);
   if (!parsed) return null;
 
   return `https://${parsed.host}/${parsed.owner}/${parsed.repo}/tree/${branch}`;
 }
 
-function repoDisplayName(gitRepo: string): string {
+export function repoDisplayName(gitRepo: string): string {
   const parsed = parseRepoUrl(gitRepo);
   if (!parsed) return gitRepo;
   return `${parsed.owner}/${parsed.repo}`;

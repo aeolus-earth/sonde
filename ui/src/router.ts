@@ -15,6 +15,9 @@ import { Route as directionDetailRoute } from "./routes/directions/$id";
 import { Route as questionsRoute } from "./routes/questions";
 import { Route as activityRoute } from "./routes/activity";
 import { Route as briefRoute } from "./routes/brief";
+import { Route as projectsRoute } from "./routes/projects/index";
+import { Route as projectDetailRoute } from "./routes/projects/$id";
+import { Route as timelineRoute } from "./routes/timeline";
 import { Route as notFoundRoute } from "./routes/$";
 
 const routeTree = rootRoute.addChildren([
@@ -33,6 +36,9 @@ const routeTree = rootRoute.addChildren([
     questionsRoute,
     activityRoute,
     briefRoute,
+    projectsRoute,
+    projectDetailRoute,
+    timelineRoute,
     notFoundRoute,
   ]),
 ]);

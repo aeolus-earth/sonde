@@ -31,6 +31,12 @@ export const RecordLink = memo(function RecordLink({
           {recordId}
         </Link>
       );
+    case "PROJ":
+      return (
+        <Link to="/projects/$id" params={{ id: recordId }} className={className}>
+          {recordId}
+        </Link>
+      );
     default:
       return <span className={className}>{recordId}</span>;
   }

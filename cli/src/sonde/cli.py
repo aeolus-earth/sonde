@@ -34,6 +34,7 @@ class SondeCLI(click.Group):
         "log": ("experiment", "log"),
         "list": ("experiment", "list"),
         "search": ("experiment", "search"),
+        "projects": ("project", "list"),
         # Newly consolidated
         "update": ("experiment", "update"),
         "close": ("experiment", "close"),
@@ -101,7 +102,9 @@ class SondeCLI(click.Group):
             "next": "Research",
             "handoff": "Research",
             "takeaway": "Research",
+            "project": "Research",
             "recent": "Research",
+            "search-all": "Research",
             "health": "Research",
             "tree": "Research",
             "init": "Auth & Setup",
@@ -242,10 +245,12 @@ from sonde.commands.health import health  # noqa: E402
 from sonde.commands.init import init_cmd  # noqa: E402
 from sonde.commands.next import next_cmd  # noqa: E402
 from sonde.commands.program_group import program  # noqa: E402
+from sonde.commands.project_group import project  # noqa: E402
 from sonde.commands.pull import pull  # noqa: E402
 from sonde.commands.push import push  # noqa: E402
 from sonde.commands.question_group import question  # noqa: E402
 from sonde.commands.recent import recent  # noqa: E402
+from sonde.commands.search_all import search_all_cmd  # noqa: E402
 from sonde.commands.setup import setup  # noqa: E402
 from sonde.commands.skills import skills  # noqa: E402
 from sonde.commands.status import status  # noqa: E402
@@ -269,6 +274,7 @@ cli.add_command(experiment)
 cli.add_command(direction)
 cli.add_command(finding)
 cli.add_command(program)
+cli.add_command(project)
 cli.add_command(question)
 cli.add_command(artifact)
 cli.add_command(pull)
@@ -287,6 +293,7 @@ cli.add_command(tag)
 cli.add_command(status)
 cli.add_command(health)
 cli.add_command(tree_cmd)
+cli.add_command(search_all_cmd)
 
 
 # -- Polymorphic show (works with EXP-, FIND-, Q-, DIR- prefixes) --

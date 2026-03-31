@@ -3,7 +3,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Download,
-  ExternalLink,
   Paperclip,
   Image,
   FileText,
@@ -16,6 +15,7 @@ import { useAuthStore } from "@/stores/auth";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MarkdownView } from "@/components/ui/markdown-view";
 import { JsonView } from "@/components/ui/json-view";
+import { PdfArtifactEmbed } from "@/components/artifacts/pdf-artifact-embed";
 import type { Artifact, ArtifactType } from "@/types/sonde";
 import {
   isAudio,
@@ -204,27 +204,7 @@ function ArtifactViewer({ artifact }: { artifact: Artifact }) {
 
   // ── PDF ────────────────────────────────────────────────────────
   if (isPdf(artifact) && url) {
-    return (
-      <div className="space-y-2">
-        <iframe
-          src={url}
-          className="h-[500px] w-full rounded-[8px] border border-border-subtle"
-          title={artifact.filename}
-        />
-        <div className="flex items-center justify-center gap-3">
-          <a
-            href={url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 rounded-[5.5px] px-2 py-1 text-[11px] text-text-tertiary transition-colors hover:bg-surface-hover hover:text-text"
-          >
-            <ExternalLink className="h-3 w-3" />
-            Open
-          </a>
-          <DownloadButton url={url} filename={artifact.filename} />
-        </div>
-      </div>
-    );
+    return <PdfArtifactEmbed url={url} title={artifact.filename} />;
   }
 
   // ── Text-renderable (MD, CSV, JSON, YAML, code) ───────────────

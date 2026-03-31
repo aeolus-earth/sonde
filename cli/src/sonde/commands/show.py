@@ -277,6 +277,73 @@ def _show_artifact(ctx: click.Context, artifact_id: str) -> None:
         print_breadcrumbs([f"Experiment: sonde show {exp_id}"])
 
 
+def _show_project(ctx: click.Context, project_id: str) -> None:
+    """Display a project with its directions and experiments."""
+    from sonde.db import directions as dir_db
+    from sonde.db import projects as db
+
+    p = db.get(project_id)
+    if not p:
+        print_error(f"Project {project_id} not found", "No project with this ID.", "sonde project list")
+        raise SystemExit(1)
+
+    # Fetch directions and experiments under this project
+    client = __import__("sonde.db.client", fromlist=["get_client"]).get_client()
+    dirs_result = client.table("directions").select("id,title,status").eq("project_id", project_id).execute()
+    exps_result = (
+        client.table("experiments")
+        .select("id,status,hypothesis,finding")
+        .eq("project_id", project_id)
+        .order("created_at", desc=True)
+        .limit(20)
+        .execute()
+    )
+
+    if ctx.obj.get("json"):
+        data = p.model_dump(mode="json")
+        data["_directions"] = dirs_result.data or []
+        data["_experiments"] = exps_result.data or []
+        print_json(data)
+        return
+
+    header = [
+        f"[sonde.heading]{p.id}[/]  {styled_status(p.status)}  {p.program}",
+        f"[sonde.muted]Name: {p.name}[/]",
+    ]
+    if p.objective:
+        header.append(f"\n{p.objective}")
+    header.append(
+        f"\n[sonde.muted]Source: {p.source}  Created: {p.created_at.strftime('%Y-%m-%d')}[/]"
+    )
+    err.print(Panel("\n".join(header), title=f"[sonde.brand]{p.id}[/]", border_style="sonde.brand.dim"))
+
+    dirs = dirs_result.data or []
+    if dirs:
+        print_table(
+            ["id", "status", "title"],
+            [{"id": d["id"], "status": d["status"], "title": d["title"]} for d in dirs],
+            title=f"Directions ({len(dirs)})",
+        )
+
+    exps = exps_result.data or []
+    if exps:
+        print_table(
+            ["id", "status", "hypothesis", "finding"],
+            [
+                {
+                    "id": e["id"],
+                    "status": e["status"],
+                    "hypothesis": truncate_text(e.get("hypothesis") or "", 50),
+                    "finding": truncate_text(e.get("finding") or "", 50),
+                }
+                for e in exps
+            ],
+            title=f"Experiments ({len(exps)})",
+        )
+
+    print_breadcrumbs([f"Directions: sonde direction list --all", f"Experiments: sonde list --all"])
+
+
 def show_dispatch(ctx: click.Context, record_id: str, graph: bool) -> None:
     """Route show to the appropriate handler based on ID prefix."""
     rid = record_id.upper()
@@ -287,6 +354,8 @@ def show_dispatch(ctx: click.Context, record_id: str, graph: bool) -> None:
         _show_question(ctx, rid)
     elif rid.startswith("ART-"):
         _show_artifact(ctx, rid)
+    elif rid.startswith("PROJ-"):
+        _show_project(ctx, rid)
     elif rid.startswith("DIR-"):
         _show_direction(ctx, rid)
     elif rid.startswith("EXP-") or rid[0].isdigit():
@@ -296,7 +365,7 @@ def show_dispatch(ctx: click.Context, record_id: str, graph: bool) -> None:
             prefix = rid.split("-")[0]
             print_error(
                 f"Unknown record type: {prefix}",
-                "Recognized prefixes: EXP, FIND, Q, DIR, ART.",
+                "Recognized prefixes: EXP, FIND, Q, DIR, PROJ, ART.",
                 f"Try: sonde show EXP-{rid.split('-', 1)[1]}",
             )
             raise SystemExit(1)

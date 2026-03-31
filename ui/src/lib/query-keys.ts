@@ -36,7 +36,16 @@ export const queryKeys = {
     recent: (program: string) => ["activity", "recent", program] as const,
     byRecord: (recordId: string) => ["activity", recordId] as const,
   },
+  projects: {
+    all: (program: string) => ["projects", program] as const,
+    detail: (id: string) => ["projects", "detail", id] as const,
+    status: (program: string) => ["projects", "status", program] as const,
+  },
   programs: {
     all: () => ["programs"] as const,
+  },
+  github: {
+    allCommits: (owner: string, repo: string, branch: string) =>
+      ["github", "commits", owner, repo, branch] as const,
   },
 } as const;

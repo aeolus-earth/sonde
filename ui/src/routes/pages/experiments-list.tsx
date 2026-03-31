@@ -8,11 +8,12 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { ExperimentRowSkeleton } from "@/components/ui/skeleton";
 import { formatDateTimeShort, formatDateTime } from "@/lib/utils";
-import type { ExperimentStatus, ExperimentSummary } from "@/types/sonde";
+import type { ArtifactType, ExperimentStatus, ExperimentSummary } from "@/types/sonde";
 
 export type ExperimentsSearch = {
   q?: string;
   status?: ExperimentStatus | "all";
+  artifact?: ArtifactType | "any" | undefined;
 };
 
 const routeApi = getRouteApi(ROUTE_API.authExperiments);
@@ -74,15 +75,23 @@ const ExperimentRow = memo(function ExperimentRow({
 export default function ExperimentsListPage() {
   const { data: experiments, isLoading } = useExperiments();
   const navigate = routeApi.useNavigate();
-  const { q, status } = routeApi.useSearch();
+  const { q, status, artifact } = routeApi.useSearch();
   const filter = q ?? "";
   const statusFilter = status ?? "all";
+  const artifactFilter = artifact ?? undefined;
 
   const filtered = useMemo(() => {
     if (!experiments) return [];
     let result = experiments;
     if (statusFilter !== "all") {
       result = result.filter((e) => e.status === statusFilter);
+    }
+    if (artifactFilter === "any") {
+      result = result.filter((e) => e.artifact_count > 0);
+    } else if (artifactFilter) {
+      result = result.filter(
+        (e) => e.artifact_types?.includes(artifactFilter) ?? false
+      );
     }
     if (filter) {
       const ql = filter.toLowerCase();
@@ -91,11 +100,12 @@ export default function ExperimentsListPage() {
           e.id.toLowerCase().includes(ql) ||
           e.hypothesis?.toLowerCase().includes(ql) ||
           e.finding?.toLowerCase().includes(ql) ||
-          e.tags.some((t) => t.toLowerCase().includes(ql))
+          e.tags.some((t) => t.toLowerCase().includes(ql)) ||
+          e.artifact_filenames?.some((f) => f.toLowerCase().includes(ql))
       );
     }
     return result;
-  }, [experiments, filter, statusFilter]);
+  }, [experiments, filter, statusFilter, artifactFilter]);
 
   const handleRowClick = useCallback(
     (id: string) => {
@@ -170,9 +180,9 @@ export default function ExperimentsListPage() {
         </span>
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Input
-          placeholder="Filter…"
+          placeholder="Filter by ID, text, tag, or filename…"
           value={filter}
           onChange={(e) =>
             navigate({
@@ -183,7 +193,7 @@ export default function ExperimentsListPage() {
               replace: true,
             })
           }
-          className="max-w-[240px]"
+          className="max-w-[280px]"
         />
         <div className="flex h-8 shrink-0 overflow-hidden rounded-[5.5px] border border-border bg-surface">
           {statuses.map((s) => (
@@ -206,6 +216,31 @@ export default function ExperimentsListPage() {
               }`}
             >
               {s}
+            </button>
+          ))}
+        </div>
+        {/* Artifact type filters */}
+        <div className="flex h-8 shrink-0 overflow-hidden rounded-[5.5px] border border-border bg-surface">
+          {(["any", "figure", "dataset", "paper", "notebook", "config", "log"] as const).map((a) => (
+            <button
+              key={a}
+              type="button"
+              onClick={() =>
+                navigate({
+                  search: (prev: ExperimentsSearch) => ({
+                    ...prev,
+                    artifact: artifactFilter === a ? undefined : a,
+                  }),
+                  replace: true,
+                })
+              }
+              className={`flex h-full min-w-0 items-center justify-center px-2.5 text-[12px] capitalize leading-none transition-colors first:rounded-l-[5.5px] last:rounded-r-[5.5px] ${
+                artifactFilter === a
+                  ? "bg-surface-hover text-text"
+                  : "text-text-quaternary hover:text-text-tertiary"
+              }`}
+            >
+              {a === "any" ? "Has files" : a}
             </button>
           ))}
         </div>

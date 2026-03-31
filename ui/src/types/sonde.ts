@@ -40,7 +40,34 @@ export type ArtifactType =
   | "report"
   | "other";
 
-export type RecordType = "experiment" | "finding" | "question" | "direction";
+export type RecordType = "experiment" | "finding" | "question" | "direction" | "project";
+
+export type ProjectStatus =
+  | "proposed"
+  | "active"
+  | "paused"
+  | "completed"
+  | "archived";
+
+export interface Project {
+  id: string;
+  program: string;
+  name: string;
+  objective: string | null;
+  status: ProjectStatus;
+  source: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProjectSummary extends Project {
+  direction_count: number;
+  experiment_count: number;
+  complete_count: number;
+  open_count: number;
+  running_count: number;
+  failed_count: number;
+}
 
 // ── Core entities ──────────────────────────────────────────────
 
@@ -75,6 +102,7 @@ export interface Experiment {
   data_sources: string[];
   tags: string[];
   direction_id: string | null;
+  project_id: string | null;
   related: string[];
 
   // Tree
@@ -91,6 +119,20 @@ export interface Experiment {
 
 export interface ExperimentSummary extends Experiment {
   artifact_count: number;
+  artifact_types: ArtifactType[] | null;
+  artifact_filenames: string[] | null;
+}
+
+/** Result from search_all RPC */
+export interface SearchResult {
+  id: string;
+  record_type: "experiment" | "finding" | "direction" | "question" | "artifact";
+  title: string | null;
+  subtitle: string | null;
+  program: string | null;
+  parent_id: string | null;
+  rank: number;
+  created_at: string;
 }
 
 export interface Finding {

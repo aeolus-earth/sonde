@@ -16,5 +16,8 @@ export const ROUTE_API = {
   authDirectionDetail: "/_authenticated/directions/$id",
   authQuestions: "/_authenticated/questions",
   authActivity: "/_authenticated/activity",
+  authProjects: "/_authenticated/projects",
+  authProjectDetail: "/_authenticated/projects/$id",
+  authTimeline: "/_authenticated/timeline",
   authNotFound: "/_authenticated/$",
 } as const;

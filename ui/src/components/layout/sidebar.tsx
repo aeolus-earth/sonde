@@ -9,6 +9,8 @@ import {
   LayoutDashboard,
   FileText,
   Activity,
+  GitCommitHorizontal,
+  FolderKanban,
   X,
   MessageSquare,
 } from "lucide-react";
@@ -27,6 +29,8 @@ const navItems = [
   { to: "/brief", label: "Brief", icon: FileText },
   { to: "/experiments", label: "Experiments", icon: FlaskConical },
   { to: "/tree", label: "Tree", icon: GitBranch },
+  { to: "/timeline", label: "Timeline", icon: GitCommitHorizontal },
+  { to: "/projects", label: "Projects", icon: FolderKanban },
   { to: "/directions", label: "Directions", icon: Compass },
   { to: "/findings", label: "Findings", icon: Lightbulb },
   { to: "/questions", label: "Inbox", icon: MessageCircleQuestion },

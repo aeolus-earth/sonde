@@ -16,6 +16,7 @@ const typeIcon: Record<RecordType, typeof FlaskConical> = {
   finding: Lightbulb,
   direction: Compass,
   question: MessageCircleQuestion,
+  project: Folder,
 };
 
 interface ChatMentionPopoverProps {

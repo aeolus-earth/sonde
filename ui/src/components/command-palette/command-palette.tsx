@@ -1,134 +1,130 @@
 import { useState, useMemo, useCallback, useRef, useEffect, memo } from "react";
 import { useNavigate } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
 import {
   Search,
   FlaskConical,
   Lightbulb,
   Compass,
   MessageCircleQuestion,
+  Paperclip,
 } from "lucide-react";
-import { useExperimentSearch } from "@/hooks/use-experiments";
-import { useCurrentFindings } from "@/hooks/use-findings";
-import { useDirections } from "@/hooks/use-directions";
+import { supabase } from "@/lib/supabase";
+import { useActiveProgram } from "@/stores/program";
 import { useUIStore } from "@/stores/ui";
-import { fuzzyFilter } from "@/lib/fuzzy-match";
-import type { RecordType } from "@/types/sonde";
+import { Badge } from "@/components/ui/badge";
+import type { RecordType, SearchResult as SearchResultType } from "@/types/sonde";
 
-interface SearchResult {
-  id: string;
-  type: RecordType;
-  title: string;
-  subtitle?: string;
-}
-
-const typeIcon: Record<RecordType, typeof FlaskConical> = {
+const typeIcon: Record<string, typeof FlaskConical> = {
   experiment: FlaskConical,
   finding: Lightbulb,
   direction: Compass,
   question: MessageCircleQuestion,
+  artifact: Paperclip,
 };
 
-const typeRoute: Record<RecordType, string> = {
+const typeRoute: Record<string, string> = {
   experiment: "/experiments/$id",
   finding: "/findings/$id",
   direction: "/directions/$id",
   question: "/questions",
 };
 
+function useSearchAll(query: string, program: string) {
+  return useQuery({
+    queryKey: ["search-all", query, program] as const,
+    queryFn: async (): Promise<SearchResultType[]> => {
+      const { data, error } = await supabase.rpc("search_all", {
+        query,
+        filter_program: program || null,
+        max_results: 25,
+      });
+      if (error) throw error;
+      return data;
+    },
+    enabled: query.length > 1,
+    staleTime: 30_000,
+  });
+}
+
 function CommandPalette() {
   const navigate = useNavigate();
+  const program = useActiveProgram();
   const close = useUIStore((s) => s.setCommandPaletteOpen);
   const recentItems = useUIStore((s) => s.recentItems);
   const addRecent = useUIStore((s) => s.addRecentItem);
 
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
   // Debounced query for server search
   const [debouncedQuery, setDebouncedQuery] = useState("");
   useEffect(() => {
-    const t = setTimeout(() => setDebouncedQuery(query), 200);
+    const t = setTimeout(() => setDebouncedQuery(query.trim()), 250);
     return () => clearTimeout(t);
   }, [query]);
 
-  // Server-side experiment search
-  const { data: serverExperiments } = useExperimentSearch(debouncedQuery);
+  const { data: searchResults, isLoading } = useSearchAll(debouncedQuery, program);
 
-  // Client-side data (already cached from sidebar navigation)
-  const { data: findings } = useCurrentFindings();
-  const { data: directions } = useDirections();
+  interface PaletteResult {
+    id: string;
+    type: RecordType;
+    title: string;
+    subtitle?: string;
+    parent_id: string | null;
+    record_type: string;
+  }
 
-  // Build unified results
-  const results: SearchResult[] = useMemo(() => {
+  // Build results
+  const results: PaletteResult[] = useMemo(() => {
     if (!query.trim()) {
-      // Show recents when empty
-      return recentItems;
+      return recentItems.map((r) => ({
+        ...r,
+        parent_id: null,
+        record_type: r.type,
+      }));
     }
 
-    const items: SearchResult[] = [];
+    if (!searchResults) return [];
 
-    // Server experiments
-    if (serverExperiments) {
-      for (const e of serverExperiments.slice(0, 8)) {
-        items.push({
-          id: e.id,
-          type: "experiment",
-          title: e.id,
-          subtitle: e.hypothesis ?? e.finding ?? undefined,
-        });
-      }
-    }
+    return searchResults.map((r) => ({
+      id: r.id,
+      type: (r.record_type === "artifact" ? "experiment" : r.record_type) as RecordType,
+      title: r.title ?? r.id,
+      subtitle: r.subtitle ?? undefined,
+      parent_id: r.parent_id,
+      record_type: r.record_type,
+    }));
+  }, [query, searchResults, recentItems]);
 
-    // Client-side fuzzy on findings
-    if (findings) {
-      const matched = fuzzyFilter(query, findings, (f) => `${f.topic} ${f.finding}`);
-      for (const f of matched.slice(0, 5)) {
-        items.push({
-          id: f.id,
-          type: "finding",
-          title: f.topic,
-          subtitle: f.finding,
-        });
-      }
-    }
-
-    // Client-side fuzzy on directions
-    if (directions) {
-      const matched = fuzzyFilter(query, directions, (d) => `${d.title} ${d.question}`);
-      for (const d of matched.slice(0, 5)) {
-        items.push({
-          id: d.id,
-          type: "direction",
-          title: d.title,
-          subtitle: d.question,
-        });
-      }
-    }
-
-    return items;
-  }, [query, serverExperiments, findings, directions, recentItems]);
-
-  // Reset selection when results change
   useEffect(() => {
     setSelectedIndex(0);
   }, [results.length]);
 
-  // Scroll selected item into view
   useEffect(() => {
     const el = listRef.current?.children[selectedIndex] as HTMLElement | undefined;
     el?.scrollIntoView({ block: "nearest" });
   }, [selectedIndex]);
 
   const selectResult = useCallback(
-    (result: SearchResult) => {
-      addRecent(result);
+    (result: (typeof results)[0]) => {
+      // For artifacts, navigate to the parent record
+      const navId = result.record_type === "artifact" && result.parent_id
+        ? result.parent_id
+        : result.id;
+      const navType = result.record_type === "artifact" && result.parent_id
+        ? result.parent_id.split("-")[0] === "EXP" ? "experiment"
+          : result.parent_id.split("-")[0] === "FIND" ? "finding"
+          : "direction"
+        : result.type;
+
+      addRecent({ id: navId, type: navType as RecordType, title: result.title, subtitle: result.subtitle });
       close(false);
 
-      const route = typeRoute[result.type];
+      const route = typeRoute[navType] ?? "/experiments";
       if (route.includes("$id")) {
-        navigate({ to: route, params: { id: result.id } } as never);
+        navigate({ to: route, params: { id: navId } } as never);
       } else {
         navigate({ to: route } as never);
       }
@@ -157,7 +153,7 @@ function CommandPalette() {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-transparent pt-[15vh] backdrop-blur-md"
+      className="fixed inset-0 z-50 flex items-start justify-center bg-scrim pt-[15vh] backdrop-blur-sm"
       onClick={() => close(false)}
     >
       <div
@@ -169,13 +165,15 @@ function CommandPalette() {
         <div className="flex items-center gap-2.5 border-b border-border px-3">
           <Search className="h-4 w-4 shrink-0 text-text-tertiary" />
           <input
-            ref={inputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search experiments, findings, directions…"
+            placeholder="Search experiments, findings, artifacts…"
             autoFocus
             className="h-11 w-full bg-transparent text-[14px] text-text placeholder:text-text-quaternary focus:outline-none"
           />
+          {isLoading && debouncedQuery && (
+            <span className="shrink-0 text-[10px] text-text-quaternary">searching…</span>
+          )}
           <kbd className="shrink-0 rounded-[3px] border border-border px-1.5 py-0.5 text-[10px] text-text-quaternary">
             esc
           </kbd>
@@ -183,22 +181,23 @@ function CommandPalette() {
 
         {/* Results */}
         <div ref={listRef} className="max-h-[360px] overflow-y-auto py-1.5">
-          {results.length === 0 && query.trim() && (
+          {results.length === 0 && query.trim() && !isLoading && (
             <div className="px-3 py-8 text-center text-[13px] text-text-quaternary">
               No results for &ldquo;{query}&rdquo;
             </div>
           )}
-          {results.length === 0 && !query.trim() && (
+          {results.length === 0 && !query.trim() && recentItems.length === 0 && (
             <div className="px-3 py-8 text-center text-[13px] text-text-quaternary">
-              Type to search across all records
+              Type to search across all records and artifacts
             </div>
           )}
           {results.map((result, i) => {
-            const Icon = typeIcon[result.type];
+            const rt = (result as { record_type?: string }).record_type ?? result.type;
+            const Icon = typeIcon[rt] ?? FlaskConical;
             const isSelected = i === selectedIndex;
             return (
               <button
-                key={`${result.type}-${result.id}`}
+                key={`${rt}-${result.id}-${i}`}
                 onClick={() => selectResult(result)}
                 onMouseEnter={() => setSelectedIndex(i)}
                 className={`flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors ${
@@ -208,12 +207,15 @@ function CommandPalette() {
                 <Icon className="h-4 w-4 shrink-0 text-text-tertiary" />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <span className="text-[13px] font-medium text-text">
+                    <span className="truncate text-[13px] font-medium text-text">
                       {result.title}
                     </span>
-                    <span className="rounded-[3px] bg-surface-raised px-1 py-0.5 text-[10px] text-text-quaternary">
+                    <span className="shrink-0 rounded-[3px] bg-surface-raised px-1 py-0.5 text-[10px] text-text-quaternary">
                       {result.id}
                     </span>
+                    {rt === "artifact" && (
+                      <Badge variant="tag" dot={false}>artifact</Badge>
+                    )}
                   </div>
                   {result.subtitle && (
                     <p className="mt-0.5 truncate text-[12px] text-text-tertiary">
@@ -229,8 +231,8 @@ function CommandPalette() {
         {/* Footer */}
         <div className="flex items-center justify-between border-t border-border px-3 py-1.5 text-[11px] text-text-quaternary">
           <span>
-            <kbd className="rounded-[2px] border border-border px-1">↑↓</kbd> navigate{" "}
-            <kbd className="ml-1 rounded-[2px] border border-border px-1">↵</kbd> open{" "}
+            <kbd className="rounded-[2px] border border-border px-1">&uarr;&darr;</kbd> navigate{" "}
+            <kbd className="ml-1 rounded-[2px] border border-border px-1">&crarr;</kbd> open{" "}
             <kbd className="ml-1 rounded-[2px] border border-border px-1">esc</kbd> close
           </span>
           <span>{results.length} results</span>
