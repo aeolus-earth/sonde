@@ -637,8 +637,7 @@ def check_schema_version() -> DoctorCheck:
             return {
                 "status": "error",
                 "summary": (
-                    f"Schema version mismatch: "
-                    f"remote={remote}, required>={MINIMUM_SCHEMA_VERSION}."
+                    f"Schema version mismatch: remote={remote}, required>={MINIMUM_SCHEMA_VERSION}."
                 ),
                 "details": [
                     "The hosted database is behind this CLI version.",
@@ -662,12 +661,12 @@ def check_schema_version() -> DoctorCheck:
 def check_write_capabilities(program: str) -> DoctorCheck:
     """Probe per-table accessibility for the resolved program."""
 
-    _TABLES = [
+    tables = [
         ("experiments", "program"),
         ("directions", "program"),
         ("findings", "program"),
         ("questions", "program"),
-        ("artifacts", "experiment_id"),  # no program column — just test read access
+        ("artifacts", "experiment_id"),
         ("experiment_notes", "experiment_id"),
     ]
 
@@ -699,7 +698,7 @@ def check_write_capabilities(program: str) -> DoctorCheck:
         accessible: list[str] = []
         blocked: list[str] = []
 
-        for table, filter_col in _TABLES:
+        for table, filter_col in tables:
             try:
                 query = client.table(table).select("id", count=CountMethod.exact).limit(0)
                 if filter_col == "program":

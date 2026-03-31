@@ -10,7 +10,11 @@ import yaml
 
 from sonde.auth import resolve_source
 from sonde.cli_options import pass_output_options
-from sonde.commands._helpers import load_dict_file, merge_structured_metadata, structured_metadata_options
+from sonde.commands._helpers import (
+    load_dict_file,
+    merge_structured_metadata,
+    structured_metadata_options,
+)
 from sonde.config import get_settings
 from sonde.db import experiments as db
 from sonde.git import detect_git_context
@@ -118,7 +122,10 @@ def fork(
 
     forked_metadata = merge_structured_metadata(
         dict(source_exp.metadata),
-        repro=repro, evidence=evidence, env_vars=env_vars, blocker=blocker,
+        repro=repro,
+        evidence=evidence,
+        env_vars=env_vars,
+        blocker=blocker,
     )
 
     data = ExperimentCreate(

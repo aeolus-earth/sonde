@@ -57,7 +57,14 @@ def structured_metadata_options(fn):
     @click.option("--blocker", help="Current blocker or next obstacle")
     @functools.wraps(fn)
     def wrapper(*args, repro=None, evidence=(), env_vars=(), blocker=None, **kwargs):
-        return fn(*args, repro=repro, evidence=evidence, env_vars=env_vars, blocker=blocker, **kwargs)
+        return fn(
+            *args,
+            repro=repro,
+            evidence=evidence,
+            env_vars=env_vars,
+            blocker=blocker,
+            **kwargs,
+        )
 
     return wrapper
 

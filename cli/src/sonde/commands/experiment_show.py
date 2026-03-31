@@ -173,10 +173,11 @@ def show(ctx: click.Context, experiment_id: str, graph: bool) -> None:
             )
 
         # Structured metadata (repro, evidence, env, blocker)
-        from sonde.commands._helpers import META_BLOCKER, META_EVIDENCE, META_ENV, META_REPRO
+        from sonde.commands._helpers import META_BLOCKER, META_ENV, META_EVIDENCE, META_REPRO
 
         meta = exp.metadata or {}
-        has_structured = any(meta.get(k) for k in (META_REPRO, META_EVIDENCE, META_ENV, META_BLOCKER))
+        structured_keys = (META_REPRO, META_EVIDENCE, META_ENV, META_BLOCKER)
+        has_structured = any(meta.get(k) for k in structured_keys)
         if has_structured:
             err.print("\n[sonde.heading]Research context[/]")
             if meta.get(META_REPRO):

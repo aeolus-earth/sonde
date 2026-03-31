@@ -62,9 +62,12 @@ def next_cmd(ctx: click.Context, program: str | None, limit: int) -> None:
 
     err.print(f"\n[sonde.heading]Next steps for {program}[/]\n")
     for s in suggestions:
-        icon = {"high": "[sonde.error]●[/]", "medium": "[sonde.warning]●[/]", "low": "[sonde.muted]○[/]"}.get(
-            s["priority"], "[sonde.muted]○[/]"
-        )
+        icons = {
+            "high": "[sonde.error]●[/]",
+            "medium": "[sonde.warning]●[/]",
+            "low": "[sonde.muted]○[/]",
+        }
+        icon = icons.get(s["priority"], "[sonde.muted]○[/]")
         err.print(f"  {icon} {s['reason']}")
         err.print(f"    [sonde.brand]{s['command']}[/]")
     err.print()
@@ -83,13 +86,15 @@ def _build_suggestions(
     # 1. Complete experiments with no finding — knowledge not captured
     complete_no_finding = [e for e in experiments if e.status == "complete" and not e.finding]
     for e in complete_no_finding[:3]:
-        suggestions.append({
-            "priority": "high",
-            "type": "uncaptured_finding",
-            "record": e.id,
-            "reason": f"{e.id} is complete but has no finding recorded",
-            "command": f"sonde update {e.id} --finding \"<one-line result>\"",
-        })
+        suggestions.append(
+            {
+                "priority": "high",
+                "type": "uncaptured_finding",
+                "record": e.id,
+                "reason": f"{e.id} is complete but has no finding recorded",
+                "command": f'sonde update {e.id} --finding "<one-line result>"',
+            }
+        )
 
     # 2. Stale running experiments — running with no recent update
     running = [e for e in experiments if e.status == "running"]
@@ -97,47 +102,58 @@ def _build_suggestions(
         age_hours = (now - e.updated_at).total_seconds() / 3600 if e.updated_at else 999
         if age_hours > 24:
             days = int(age_hours / 24)
-            suggestions.append({
-                "priority": "high",
-                "type": "stale_running",
-                "record": e.id,
-                "reason": f"{e.id} has been running for {days}d with no update",
-                "command": f"sonde show {e.id}",
-            })
+            suggestions.append(
+                {
+                    "priority": "high",
+                    "type": "stale_running",
+                    "record": e.id,
+                    "reason": f"{e.id} has been running for {days}d with no update",
+                    "command": f"sonde show {e.id}",
+                }
+            )
 
     # 3. Open questions with no evidence
     open_questions = [q for q in questions if q.status == "open"]
     for q in open_questions[:3]:
-        suggestions.append({
-            "priority": "medium",
-            "type": "unanswered_question",
-            "record": q.id,
-            "reason": f"{q.id}: {q.question[:60]}",
-            "command": f"sonde show {q.id}",
-        })
+        suggestions.append(
+            {
+                "priority": "medium",
+                "type": "unanswered_question",
+                "record": q.id,
+                "reason": f"{q.id}: {q.question[:60]}",
+                "command": f"sonde show {q.id}",
+            }
+        )
 
     # 4. Directions with no active experiments
-    active_exp_directions = {e.direction_id for e in experiments if e.status in ("open", "running") and e.direction_id}
+    active_exp_directions = {
+        e.direction_id for e in experiments if e.status in ("open", "running") and e.direction_id
+    }
     for d in directions:
         if d.status == "active" and d.id not in active_exp_directions:
-            suggestions.append({
-                "priority": "medium",
-                "type": "idle_direction",
-                "record": d.id,
-                "reason": f"Direction {d.id} ({d.title}) has no active experiments",
-                "command": f"sonde new -p {experiments[0].program if experiments else 'PROGRAM'} --direction {d.id}",
-            })
+            prog = experiments[0].program if experiments else "PROGRAM"
+            suggestions.append(
+                {
+                    "priority": "medium",
+                    "type": "idle_direction",
+                    "record": d.id,
+                    "reason": f"Direction {d.id} ({d.title}) has no active experiments",
+                    "command": f"sonde new -p {prog} --direction {d.id}",
+                }
+            )
 
     # 5. Open experiments that could be started
     open_exps = [e for e in experiments if e.status == "open"]
     for e in open_exps[:2]:
-        suggestions.append({
-            "priority": "low",
-            "type": "ready_to_start",
-            "record": e.id,
-            "reason": f"{e.id} is open and ready to start",
-            "command": f"sonde start {e.id}",
-        })
+        suggestions.append(
+            {
+                "priority": "low",
+                "type": "ready_to_start",
+                "record": e.id,
+                "reason": f"{e.id} is open and ready to start",
+                "command": f"sonde start {e.id}",
+            }
+        )
 
     # Sort by priority
     priority_order = {"high": 0, "medium": 1, "low": 2}

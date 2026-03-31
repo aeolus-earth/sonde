@@ -9,7 +9,8 @@ from postgrest.exceptions import APIError
 from pydantic import ValidationError
 
 from sonde.cli_options import pass_output_options
-from sonde.db import classify_api_error, programs as db
+from sonde.db import classify_api_error
+from sonde.db import programs as db
 from sonde.models.program import ProgramCreate
 from sonde.output import err, print_breadcrumbs, print_error, print_json, print_success, print_table
 

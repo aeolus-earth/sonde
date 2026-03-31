@@ -229,12 +229,12 @@ from sonde.commands.experiment import experiment  # noqa: E402
 from sonde.commands.finding_group import finding  # noqa: E402
 from sonde.commands.health import health  # noqa: E402
 from sonde.commands.init import init_cmd  # noqa: E402
+from sonde.commands.next import next_cmd  # noqa: E402
 from sonde.commands.program_group import program  # noqa: E402
 from sonde.commands.pull import pull  # noqa: E402
 from sonde.commands.push import push  # noqa: E402
 from sonde.commands.question_group import question  # noqa: E402
 from sonde.commands.recent import recent  # noqa: E402
-from sonde.commands.next import next_cmd  # noqa: E402
 from sonde.commands.setup import setup  # noqa: E402
 from sonde.commands.skills import skills  # noqa: E402
 from sonde.commands.status import status  # noqa: E402

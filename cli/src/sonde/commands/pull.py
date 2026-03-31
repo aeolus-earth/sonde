@@ -568,7 +568,11 @@ def _sync_experiments(
         except APIError as exc:
             from sonde.db import classify_api_error
 
-            what, _why, _fix = classify_api_error(exc, table="experiment_notes", action="read notes")
+            what, _why, _fix = classify_api_error(
+                exc,
+                table="experiment_notes",
+                action="read notes",
+            )
             err.print(f"  [sonde.warning]Could not pull notes for {exp['id']}: {what}[/]")
 
     return _download_selected_artifacts(

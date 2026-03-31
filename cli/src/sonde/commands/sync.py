@@ -87,9 +87,6 @@ def sync(ctx: click.Context, program: str | None) -> None:
 
     # -- Generate brief.md --
     from sonde.commands.brief import _build_brief_data, _render_markdown
-    from sonde.models.experiment import Experiment
-    from sonde.models.finding import Finding
-    from sonde.models.question import Question
 
     brief_data = _build_brief_data(
         title=f"{program} Brief",
@@ -102,29 +99,32 @@ def sync(ctx: click.Context, program: str | None) -> None:
     brief_path.write_text(brief_md, encoding="utf-8")
 
     if not use_json:
-        err.print(f"  [sonde.muted]Generated brief.md[/]")
+        err.print("  [sonde.muted]Generated brief.md[/]")
 
     # -- Generate index.jsonl --
     index_path = sonde_dir / "index.jsonl"
+
+    def _jsonl(record_type: str, obj: Any) -> str:
+        row = {"type": record_type, **obj.model_dump(mode="json")}
+        return json.dumps(row, default=str) + "\n"
+
     with open(index_path, "w", encoding="utf-8") as f:
         for exp in experiments:
-            f.write(json.dumps({"type": "experiment", **exp.model_dump(mode="json")}, default=str) + "\n")
+            f.write(_jsonl("experiment", exp))
         for finding in all_findings:
-            f.write(json.dumps({"type": "finding", **finding.model_dump(mode="json")}, default=str) + "\n")
+            f.write(_jsonl("finding", finding))
         for q in questions:
-            f.write(json.dumps({"type": "question", **q.model_dump(mode="json")}, default=str) + "\n")
+            f.write(_jsonl("question", q))
         for d in directions:
-            f.write(json.dumps({"type": "direction", **d.model_dump(mode="json")}, default=str) + "\n")
+            f.write(_jsonl("direction", d))
 
     if not use_json:
-        err.print(f"  [sonde.muted]Generated index.jsonl[/]")
+        err.print("  [sonde.muted]Generated index.jsonl[/]")
 
     # -- Summary --
     running = [e for e in experiments if e.status == "running"]
     open_exps = [e for e in experiments if e.status == "open"]
-    complete_no_finding = [
-        e for e in experiments if e.status == "complete" and not e.finding
-    ]
+    complete_no_finding = [e for e in experiments if e.status == "complete" and not e.finding]
 
     summary = {
         "program": program,

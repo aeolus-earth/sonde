@@ -102,7 +102,7 @@ def skills_show(ctx: click.Context, name: str) -> None:
         print_error(
             f"Unknown skill: {name}",
             f"Available skills: {', '.join(available)}",
-            f"Run: sonde skills",
+            "Run: sonde skills",
         )
         raise SystemExit(1)
 

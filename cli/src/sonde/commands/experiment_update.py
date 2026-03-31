@@ -10,7 +10,11 @@ import click
 import yaml
 
 from sonde.cli_options import pass_output_options
-from sonde.commands._helpers import load_dict_file, merge_structured_metadata, structured_metadata_options
+from sonde.commands._helpers import (
+    load_dict_file,
+    merge_structured_metadata,
+    structured_metadata_options,
+)
 from sonde.db import experiments as db
 from sonde.output import (
     err,
@@ -136,7 +140,11 @@ def update(
     # Structured metadata
     if repro or evidence or env_vars or blocker:
         updates["metadata"] = merge_structured_metadata(
-            dict(exp.metadata), repro=repro, evidence=evidence, env_vars=env_vars, blocker=blocker,
+            dict(exp.metadata),
+            repro=repro,
+            evidence=evidence,
+            env_vars=env_vars,
+            blocker=blocker,
         )
 
     if not updates:
