@@ -1,23 +1,13 @@
 import { memo } from "react";
-import { useAuthStore } from "@/stores/auth";
 import { BrailleAtmosphere } from "./braille-activity";
-
-function extractFirstName(user: { user_metadata?: Record<string, unknown> } | null): string {
-  const fullName = user?.user_metadata?.full_name as string | undefined;
-  if (!fullName) return "there";
-  return fullName.split(" ")[0];
-}
 
 /** In-flow empty chat — flex children (not position:absolute) so flex-1 height is reliable. */
 export const ChatEmptyState = memo(function ChatEmptyState() {
-  const user = useAuthStore((s) => s.user);
-  const firstName = extractFirstName(user);
-
   return (
     <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-3 py-6 sm:px-5">
       <div className="flex w-full max-w-[52rem] flex-col items-center gap-6 text-center sm:gap-7">
-        <p className="text-[15px] font-semibold tracking-[-0.02em] text-text">
-          Welcome back, {firstName}
+        <p className="font-display text-[1.5rem] font-normal leading-snug tracking-[0.06em] text-text sm:text-[1.75rem]">
+          Welcome back, Mason
         </p>
         <div className="w-full min-w-0 overflow-x-auto overflow-y-visible px-0 sm:px-1">
           <BrailleAtmosphere />
