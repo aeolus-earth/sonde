@@ -35,6 +35,10 @@ def _columns_for_status(
     def _short_source(src: str | None) -> str:
         return src.split("/")[-1] if src and "/" in src else (src or "—")
 
+    def _blocker_prefix(e) -> str:
+        meta = getattr(e, "metadata", None) or {}
+        return "\u26d4 " if meta.get("blocker") else ""
+
     def _default(e):
         return {
             "id": e.id,
@@ -42,7 +46,7 @@ def _columns_for_status(
             "program": e.program,
             "updated": e.updated_at.strftime("%Y-%m-%d") if e.updated_at else "—",
             "tags": ", ".join(e.tags)[:30] if e.tags else "—",
-            "summary": record_summary(e, 50),
+            "summary": _blocker_prefix(e) + record_summary(e, 50),
         }
 
     def _open(e):
@@ -51,7 +55,7 @@ def _columns_for_status(
             "program": e.program,
             "source": _short_source(e.source),
             "created": e.created_at.strftime("%Y-%m-%d") if e.created_at else "—",
-            "summary": record_summary(e, 45),
+            "summary": _blocker_prefix(e) + record_summary(e, 45),
         }
 
     def _running(e):
@@ -60,7 +64,7 @@ def _columns_for_status(
             "program": e.program,
             "source": _short_source(e.source),
             "tags": ", ".join(e.tags)[:25] if e.tags else "—",
-            "summary": record_summary(e, 45),
+            "summary": _blocker_prefix(e) + record_summary(e, 45),
         }
 
     def _complete(e):
@@ -77,7 +81,7 @@ def _columns_for_status(
             "program": e.program,
             "source": _short_source(e.source),
             "tags": ", ".join(e.tags)[:25] if e.tags else "—",
-            "summary": record_summary(e, 45),
+            "summary": _blocker_prefix(e) + record_summary(e, 45),
         }
 
     mapping = {

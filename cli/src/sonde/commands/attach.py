@@ -114,6 +114,13 @@ def attach(
 
             if not ctx.obj.get("json"):
                 err.print(f"  [sonde.muted]{status}: {relative_str}[/]")
+                if not description:
+                    art_id = row.get("id", "ART-????")
+                    err.print(
+                        f"  [sonde.warning]\u26a0  No description."
+                        f" Run: sonde artifact update {art_id}"
+                        f' -d "what this shows"[/]'
+                    )
         except ArtifactTooLargeError as exc:
             stats.oversized += 1
             failures.append({"path": relative_str, "error": str(exc), "kind": "oversized"})

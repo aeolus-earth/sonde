@@ -18,6 +18,7 @@ from sonde.output import err, print_error, print_json, print_nudge, print_succes
 @click.argument("experiment_id", required=False, default=None)
 @click.argument("content", required=False)
 @click.option("--file", "-f", "note_file", type=click.Path(exists=True), help="Note from file")
+@click.option("--stdin", "read_stdin", is_flag=True, help="Read note from stdin")
 @pass_output_options
 @click.pass_context
 def note(
@@ -25,6 +26,7 @@ def note(
     experiment_id: str | None,
     content: str | None,
     note_file: str | None,
+    read_stdin: bool,
 ) -> None:
     """Add a note to an experiment.
 
@@ -35,6 +37,7 @@ def note(
       sonde note EXP-0001 "This might interact with BL heating"
       sonde note "observation about CCN response"
       sonde note -f observations.md
+      cat analysis.md | sonde note EXP-0001 --stdin
     """
     from sonde.commands._helpers import resolve_experiment_id
 
@@ -44,10 +47,21 @@ def note(
         from pathlib import Path
 
         content = Path(note_file).read_text(encoding="utf-8")
+    elif read_stdin:
+        import sys
+
+        if sys.stdin.isatty():
+            print_error(
+                "No input on stdin",
+                "Use --stdin with piped input, not interactively.",
+                'echo "note" | sonde note EXP-0001 --stdin',
+            )
+            raise SystemExit(2)
+        content = sys.stdin.read().strip()
     elif not content:
         print_error(
             "No note content",
-            "Provide a note as an argument or --file.",
+            "Provide a note as an argument, --file, or --stdin.",
             'sonde note EXP-0001 "your note here"',
         )
         raise SystemExit(2)
