@@ -6,11 +6,16 @@ import {
   Film,
   Image,
   Music,
+  Presentation,
 } from "lucide-react";
 import { useArtifactUrl } from "@/hooks/use-artifacts";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { isAudio, isGif, isImage, isVideo } from "@/lib/artifact-kind";
+import {
+  EmbeddedDocumentPreview,
+  officeOnlineEmbedUrl,
+} from "@/components/artifacts/embedded-document-preview";
+import { isAudio, isGif, isImage, isPdf, isPptx, isVideo } from "@/lib/artifact-kind";
 import type { Artifact, ArtifactType } from "@/types/sonde";
 
 const typeIcon: Record<ArtifactType, typeof File> = {
@@ -69,11 +74,15 @@ export const ArtifactMediaPreview = memo(function ArtifactMediaPreview({
       : typeIcon[artifact.type] ?? File;
 
   if (isLoading) {
-    return size === "thumb" ? (
-      <ThumbSkeleton variant={variant} />
-    ) : (
-      <InlineSkeleton variant={variant} />
-    );
+    if (size === "thumb") {
+      return <ThumbSkeleton variant={variant} />;
+    }
+    if (isPdf(artifact) || isPptx(artifact)) {
+      return (
+        <Skeleton className="h-[min(500px,50vh)] w-full max-w-full rounded-[6px]" />
+      );
+    }
+    return <InlineSkeleton variant={variant} />;
   }
 
   if (isVideo(artifact) && url) {
@@ -131,6 +140,64 @@ export const ArtifactMediaPreview = memo(function ArtifactMediaPreview({
           Audio
         </audio>
       </div>
+    );
+  }
+
+  if (isPdf(artifact) && url) {
+    if (size === "thumb") {
+      return (
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="group block shrink-0"
+          title={artifact.filename}
+        >
+          <div className="flex h-14 w-14 flex-col items-center justify-center gap-0.5 rounded-[4px] border border-border-subtle bg-surface-raised transition-colors group-hover:bg-surface-hover">
+            <FileText className="h-5 w-5 shrink-0 text-text-tertiary" />
+            <span className="text-[7px] font-medium uppercase leading-none text-text-secondary">
+              PDF
+            </span>
+          </div>
+        </a>
+      );
+    }
+    return (
+      <EmbeddedDocumentPreview
+        fileUrl={url}
+        embedUrl={url}
+        title={artifact.filename}
+        iframeClassName="h-[min(500px,50vh)] rounded-[6px]"
+      />
+    );
+  }
+
+  if (isPptx(artifact) && url) {
+    if (size === "thumb") {
+      return (
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="group block shrink-0"
+          title={artifact.filename}
+        >
+          <div className="flex h-14 w-14 flex-col items-center justify-center gap-0.5 rounded-[4px] border border-border-subtle bg-surface-raised transition-colors group-hover:bg-surface-hover">
+            <Presentation className="h-5 w-5 shrink-0 text-text-tertiary" />
+            <span className="text-[7px] font-medium uppercase leading-none text-text-secondary">
+              PPTX
+            </span>
+          </div>
+        </a>
+      );
+    }
+    return (
+      <EmbeddedDocumentPreview
+        fileUrl={url}
+        embedUrl={officeOnlineEmbedUrl(url)}
+        title={artifact.filename}
+        iframeClassName="h-[min(500px,50vh)] rounded-[6px]"
+      />
     );
   }
 

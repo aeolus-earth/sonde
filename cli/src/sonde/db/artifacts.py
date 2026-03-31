@@ -29,6 +29,7 @@ _TYPE_MAP = {
     ".svg": "figure",
     ".gif": "figure",
     ".pdf": "paper",
+    ".pptx": "report",
     ".nc": "dataset",
     ".jld2": "dataset",
     ".csv": "dataset",

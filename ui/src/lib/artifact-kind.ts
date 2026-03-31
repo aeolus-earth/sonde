@@ -39,6 +39,14 @@ export function isPdf(a: Artifact): boolean {
   return ext(a.filename) === "pdf" || a.mime_type === "application/pdf";
 }
 
+export function isPptx(a: Artifact): boolean {
+  const mime = a.mime_type ?? "";
+  return (
+    ext(a.filename) === "pptx" ||
+    mime === "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+  );
+}
+
 export function isTextRenderable(a: Artifact): boolean {
   const e = ext(a.filename);
   return [

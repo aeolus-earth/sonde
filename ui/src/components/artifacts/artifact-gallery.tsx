@@ -15,7 +15,10 @@ import { useAuthStore } from "@/stores/auth";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MarkdownView } from "@/components/ui/markdown-view";
 import { JsonView } from "@/components/ui/json-view";
-import { PdfArtifactEmbed } from "@/components/artifacts/pdf-artifact-embed";
+import {
+  EmbeddedDocumentPreview,
+  officeOnlineEmbedUrl,
+} from "@/components/artifacts/embedded-document-preview";
 import type { Artifact, ArtifactType } from "@/types/sonde";
 import {
   isAudio,
@@ -25,6 +28,7 @@ import {
   isJson,
   isMarkdown,
   isPdf,
+  isPptx,
   isTextRenderable,
   isVideo,
 } from "@/lib/artifact-kind";
@@ -204,7 +208,24 @@ function ArtifactViewer({ artifact }: { artifact: Artifact }) {
 
   // ── PDF ────────────────────────────────────────────────────────
   if (isPdf(artifact) && url) {
-    return <PdfArtifactEmbed url={url} title={artifact.filename} />;
+    return (
+      <EmbeddedDocumentPreview
+        fileUrl={url}
+        embedUrl={url}
+        title={artifact.filename}
+      />
+    );
+  }
+
+  // ── PPTX (Office Online embed) ────────────────────────────────
+  if (isPptx(artifact) && url) {
+    return (
+      <EmbeddedDocumentPreview
+        fileUrl={url}
+        embedUrl={officeOnlineEmbedUrl(url)}
+        title={artifact.filename}
+      />
+    );
   }
 
   // ── Text-renderable (MD, CSV, JSON, YAML, code) ───────────────
