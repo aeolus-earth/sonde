@@ -5,6 +5,7 @@ import type { ExperimentsSearch } from "../pages/experiments-list";
 
 const VALID_STATUSES = ["all", "open", "running", "complete", "failed", "superseded"];
 const VALID_ARTIFACT_TYPES = ["any", "figure", "paper", "dataset", "notebook", "config", "log", "report", "other"];
+const VALID_VIEWS = ["list", "grouped"] as const;
 
 export const Route = createRoute({
   getParentRoute: () => authenticatedRoute,
@@ -19,6 +20,10 @@ export const Route = createRoute({
     artifact:
       typeof search.artifact === "string" && VALID_ARTIFACT_TYPES.includes(search.artifact)
         ? (search.artifact as ArtifactType | "any")
+        : undefined,
+    view:
+      typeof search.view === "string" && VALID_VIEWS.includes(search.view as (typeof VALID_VIEWS)[number])
+        ? (search.view as "list" | "grouped")
         : undefined,
   }),
 });
