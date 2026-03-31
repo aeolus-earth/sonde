@@ -10,6 +10,7 @@ def test_emit_login_browser_instructions_shows_url(monkeypatch, capfd) -> None:
     auth._emit_login_browser_instructions(8443, "https://example.com/oauth?state=abc")
     captured = capfd.readouterr()
     assert "https://example.com/oauth?state=abc" in captured.err
+    assert "http://localhost:*/callback" in captured.err
 
 
 def test_emit_login_browser_open_false_shows_warning(monkeypatch, capfd) -> None:

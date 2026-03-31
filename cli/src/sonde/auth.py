@@ -478,6 +478,11 @@ def _emit_login_browser_instructions(port: int, auth_url: str) -> None:
     )
     err.print(f"  [link={auth_url}]Open Aeolus sign-in[/link]")
     err.print(f"  [sonde.muted]{auth_url}[/]")
+    err.print(
+        "  [sonde.muted]If the browser opens your hosted app instead of localhost after "
+        "Google sign-in, add http://localhost:*/callback to Supabase → Authentication → "
+        "Redirect URLs.[/]"
+    )
 
     if os.environ.get("SSH_CONNECTION"):
         err.print(

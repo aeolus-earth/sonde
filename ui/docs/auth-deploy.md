@@ -15,6 +15,7 @@ The app code uses `redirectTo = {window.location.origin}/auth/callback` at runti
 ### Checklist (Supabase Dashboard)
 
 1. **Authentication → URL configuration → Redirect URLs** — add:
+   - **`http://localhost:*/callback`** — **required for `sonde login` (CLI)**; uses a random port each run. Without this, OAuth may redirect to **Site URL** (e.g. Vercel) instead of the CLI’s loopback listener. See [`docs/oauth-flows.md`](../../docs/oauth-flows.md).
    - `http://localhost:5173/auth/callback` (local Vite)
    - `https://<your-vercel-deployment>.vercel.app/auth/callback` (production or preview host; replace with your real hostname)
    - **Optional (preview builds):** `https://*.vercel.app/**` if your Supabase project accepts this wildcard (saves adding each preview URL)
