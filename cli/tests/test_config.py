@@ -8,20 +8,20 @@ from sonde.config import Settings, _find_project_config
 
 
 def test_settings_defaults():
-    settings = Settings(_env_file=None)
+    settings = Settings.model_validate({})
     assert settings.program == ""
     assert settings.source == ""
 
 
 def test_settings_from_env():
     with patch.dict("os.environ", {"AEOLUS_PROGRAM": "weather-intervention"}):
-        settings = Settings(_env_file=None)
+        settings = Settings()
     assert settings.program == "weather-intervention"
 
 
 def test_service_role_key_from_env():
     with patch.dict("os.environ", {"AEOLUS_SUPABASE_SERVICE_ROLE_KEY": "secret-key"}):
-        settings = Settings(_env_file=None)
+        settings = Settings()
     assert settings.supabase_service_role_key == "secret-key"
 
 
@@ -33,7 +33,7 @@ def test_project_config_does_not_overlay_service_role_key(tmp_path):
         patch.dict("os.environ", {"AEOLUS_SUPABASE_SERVICE_ROLE_KEY": ""}),
         patch("sonde.config.Path.cwd", return_value=tmp_path),
     ):
-        settings = Settings(_env_file=None).with_project_config()
+        settings = Settings.model_validate({}).with_project_config()
 
     assert settings.supabase_service_role_key == ""
 
@@ -94,7 +94,7 @@ def test_settings_env_overrides_project(tmp_path):
         patch.dict("os.environ", {"AEOLUS_PROGRAM": "from-env"}),
         patch("sonde.config.Path.cwd", return_value=tmp_path),
     ):
-        settings = Settings(_env_file=None).with_project_config()
+        settings = Settings().with_project_config()
 
     # Env var takes precedence over .aeolus.yaml
     assert settings.program == "from-env"

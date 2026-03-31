@@ -172,13 +172,36 @@ def show(ctx: click.Context, experiment_id: str, graph: bool) -> None:
                 title="Findings from this experiment",
             )
 
+        # Structured metadata (repro, evidence, env, blocker)
+        from sonde.commands._helpers import META_BLOCKER, META_ENV, META_EVIDENCE, META_REPRO
+
+        meta = exp.metadata or {}
+        structured_keys = (META_REPRO, META_EVIDENCE, META_ENV, META_BLOCKER)
+        has_structured = any(meta.get(k) for k in structured_keys)
+        if has_structured:
+            err.print("\n[sonde.heading]Research context[/]")
+            if meta.get(META_REPRO):
+                err.print(f"  [sonde.muted]Repro:[/]  {meta[META_REPRO]}")
+            if meta.get(META_EVIDENCE):
+                for path in meta[META_EVIDENCE]:
+                    err.print(f"  [sonde.muted]Evidence:[/]  {path}")
+            if meta.get(META_ENV):
+                for k, v in meta[META_ENV].items():
+                    err.print(f"  [sonde.muted]Env:[/]  {k}={v}")
+            if meta.get(META_BLOCKER):
+                err.print(f"  [sonde.warning]Blocker:[/]  {meta[META_BLOCKER]}")
+
         # Artifacts
         if artifacts:
             err.print("\n[sonde.heading]Artifacts[/]")
             for a in artifacts:
                 size = a.get("size_bytes")
                 size_str = f" ({_format_size(size)})" if size else ""
-                err.print(f"  [sonde.muted]{a.get('type', 'file')}[/]  {a['filename']}{size_str}")
+                aid = a.get("id", "")
+                err.print(
+                    f"  [sonde.brand]{aid}[/]  [sonde.muted]{a.get('type', 'file')}[/]"
+                    f"  {a['filename']}{size_str}"
+                )
 
         # Children
         if children:
@@ -219,6 +242,7 @@ def show(ctx: click.Context, experiment_id: str, graph: bool) -> None:
         breadcrumbs = [
             f"History: sonde history {exp.id}",
             f'Note:    sonde note {exp.id} "observation"',
+            'Search:  sonde search --text "query"',
         ]
         if children or parent:
             breadcrumbs.append(f"Tree:    sonde tree {exp.id}")

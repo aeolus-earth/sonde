@@ -8,6 +8,12 @@ import click
 
 from sonde.auth import resolve_source
 from sonde.cli_options import pass_output_options
+from sonde.commands._context import use_json
+from sonde.commands._experiment_query import (
+    CommandInputError,
+    resolve_page_offset,
+    resolve_status_filter,
+)
 from sonde.config import get_settings
 from sonde.db import experiments as db
 from sonde.output import (
@@ -155,26 +161,17 @@ def list_cmd(
       sonde list --count --open                   # just the count
     """
     # Resolve convenience flags to status
-    flags = [
-        ("open", filter_open),
-        ("running", filter_running),
-        ("complete", filter_complete),
-        ("failed", filter_failed),
-    ]
-    active = [(name, flag) for name, flag in flags if flag]
-    if active and status:
-        print_error(
-            "Conflicting filters",
-            f"Cannot use --{active[0][0]} with --status.",
-            "Use one or the other.",
+    try:
+        status = resolve_status_filter(
+            status=status,
+            filter_open=filter_open,
+            filter_running=filter_running,
+            filter_complete=filter_complete,
+            filter_failed=filter_failed,
         )
-        raise SystemExit(2)
-    if len(active) > 1:
-        names = ", ".join(f"--{name}" for name, _ in active)
-        print_error("Conflicting filters", f"Cannot combine {names}.", "Use one at a time.")
-        raise SystemExit(2)
-    if active:
-        status = active[0][0]
+    except CommandInputError as exc:
+        print_error(exc.what, exc.why, exc.fix)
+        raise SystemExit(2) from None
 
     # Default: show only actionable experiments unless explicit status filter or --all
     exclude_terminal = not show_all and status is None
@@ -194,16 +191,16 @@ def list_cmd(
         source = resolve_source()
 
     # Resolve --page to offset
-    if page is not None:
-        if page < 1:
-            print_error("Invalid page", "Page must be >= 1.", "Use --page 1 for the first page.")
-            raise SystemExit(2)
-        offset = (page - 1) * limit
+    try:
+        offset = resolve_page_offset(page=page, limit=limit, offset=offset)
+    except CommandInputError as exc:
+        print_error(exc.what, exc.why, exc.fix)
+        raise SystemExit(2) from None
 
     # --children-of: short-circuit to direct children query
     if children_of:
         experiments = db.get_children(children_of.upper())
-        if ctx.obj.get("json"):
+        if use_json(ctx):
             print_json([e.model_dump(mode="json") for e in experiments])
         elif not experiments:
             err.print(f"[dim]No children found for {children_of.upper()}.[/dim]")
@@ -224,7 +221,7 @@ def list_cmd(
             before=before,
             exclude_terminal=exclude_terminal,
         )
-        if ctx.obj.get("json"):
+        if use_json(ctx):
             print_json({"count": total})
         else:
             click.echo(total)
@@ -248,7 +245,7 @@ def list_cmd(
     has_more = len(experiments) > limit
     experiments = experiments[:limit]
 
-    if ctx.obj.get("json"):
+    if use_json(ctx):
         print_json([e.model_dump(mode="json") for e in experiments])
     elif not experiments:
         err.print("[dim]No experiments found.[/dim]")

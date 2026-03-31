@@ -17,13 +17,11 @@ class TestSyncGroup:
     def test_sync_help(self, runner: CliRunner):
         result = runner.invoke(cli, ["sync", "--help"])
         assert result.exit_code == 0
-        assert "pull" in result.output
-        assert "push" in result.output
+        assert "Sync" in result.output or "sync" in result.output.lower()
 
-    def test_sync_no_subcommand_shows_help(self, runner: CliRunner):
+    def test_sync_no_program_shows_error(self, runner: CliRunner):
         result = runner.invoke(cli, ["sync"])
-        assert result.exit_code == 0
-        assert "pull" in result.output
+        assert result.exit_code != 0
 
 
 class TestSyncShortcuts:

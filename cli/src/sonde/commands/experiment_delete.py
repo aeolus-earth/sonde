@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import click
 
-from sonde.auth import resolve_source
 from sonde.cli_options import pass_output_options
 from sonde.db import experiments as db
 from sonde.output import (
@@ -50,10 +49,9 @@ def delete_experiment(ctx: click.Context, experiment_id: str, confirm: bool) -> 
         err.print("\n  Use --confirm to proceed.")
         raise SystemExit(1)
 
-    from sonde.db.activity import log_activity
+    from sonde.services.experiments import delete_experiment
 
-    log_activity(experiment_id, "experiment", "deleted", {"deleted_by": resolve_source()})
-    cascade = db.delete(experiment_id)
+    cascade = delete_experiment(experiment_id)
     cleanup = cascade.get("artifact_cleanup", {})
 
     if ctx.obj.get("json"):

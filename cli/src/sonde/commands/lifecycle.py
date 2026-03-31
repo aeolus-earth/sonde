@@ -169,59 +169,70 @@ def _suggest_next(
 
 
 @click.command("close")
-@click.argument("experiment_id")
+@click.argument("experiment_id", required=False, default=None)
 @click.option("--finding", "-f", help="Final finding to record")
 @click.option("--force", is_flag=True, help="Close even with uncommitted changes")
 @pass_output_options
 @click.pass_context
 def close_experiment(
-    ctx: click.Context, experiment_id: str, finding: str | None, force: bool = False
+    ctx: click.Context, experiment_id: str | None, finding: str | None, force: bool = False
 ) -> None:
     """Mark an experiment as complete.
+
+    If no experiment ID is given, uses the focused experiment (sonde focus).
 
     \b
     Examples:
       sonde close EXP-0001
-      sonde close EXP-0001 --finding "CCN saturates at 1500"
+      sonde close --finding "CCN saturates at 1500"
     """
+    from sonde.commands._helpers import resolve_experiment_id
+
+    experiment_id = resolve_experiment_id(experiment_id)
     _change_status(experiment_id, "complete", finding=finding, ctx=ctx, force=force)
 
 
 @click.command("open")
-@click.argument("experiment_id")
+@click.argument("experiment_id", required=False, default=None)
 @pass_output_options
 @click.pass_context
-def open_experiment(ctx: click.Context, experiment_id: str) -> None:
-    """Reopen an experiment.
+def open_experiment(ctx: click.Context, experiment_id: str | None) -> None:
+    """Reopen an experiment. Uses focused experiment if no ID given.
 
     \b
     Examples:
       sonde open EXP-0001
     """
+    from sonde.commands._helpers import resolve_experiment_id
+
+    experiment_id = resolve_experiment_id(experiment_id)
     _change_status(experiment_id, "open", ctx=ctx)
 
 
 @click.command("start")
-@click.argument("experiment_id")
+@click.argument("experiment_id", required=False, default=None)
 @click.option("--force", is_flag=True, help="Take over even if claimed by another source")
 @pass_output_options
 @click.pass_context
-def start_experiment(ctx: click.Context, experiment_id: str, force: bool = False) -> None:
-    """Mark an experiment as running and claim it.
+def start_experiment(ctx: click.Context, experiment_id: str | None, force: bool = False) -> None:
+    """Mark an experiment as running and claim it. Uses focused experiment if no ID given.
 
     \b
     Examples:
       sonde start EXP-0001
-      sonde start EXP-0001 --force
+      sonde start --force
     """
+    from sonde.commands._helpers import resolve_experiment_id
+
+    experiment_id = resolve_experiment_id(experiment_id)
     _change_status(experiment_id, "running", ctx=ctx, force=force)
 
 
 @click.command("release")
-@click.argument("experiment_id")
+@click.argument("experiment_id", required=False, default=None)
 @pass_output_options
 @click.pass_context
-def release_experiment(ctx: click.Context, experiment_id: str) -> None:
+def release_experiment(ctx: click.Context, experiment_id: str | None) -> None:
     """Release the claim on an experiment without changing its status.
 
     Use this to free up an experiment claimed by a crashed or stalled agent.
@@ -230,7 +241,9 @@ def release_experiment(ctx: click.Context, experiment_id: str) -> None:
     Examples:
       sonde release EXP-0001
     """
-    experiment_id = experiment_id.upper()
+    from sonde.commands._helpers import resolve_experiment_id
+
+    experiment_id = resolve_experiment_id(experiment_id)
     exp = db.get(experiment_id)
     if not exp:
         print_error(f"{experiment_id} not found", "No experiment with this ID.", "sonde list")
@@ -410,15 +423,29 @@ def _change_status(
     # Human output
     print_success(f"{experiment_id}: {old_status} → {new_status}")
 
-    # Nudge: missing content after start
+    # Nudge: missing content after start (branch-type-aware)
     if new_status == "running" and not ctx.obj.get("json") and exp_after and not exp_after.content:
         from sonde.output import print_nudge
 
-        print_nudge(
-            "Document your approach — method, parameters, expected outcome:",
-            f'sonde update {experiment_id} "## Method\\n'
-            f'Spectral bin, CCN=1500, 25km\\n\\n## Expected\\nSaturation"',
-        )
+        bt = exp_after.branch_type
+        if bt == "debug":
+            print_nudge(
+                "Document the bug you're investigating — observed behavior, repro, hypothesis:",
+                f'sonde update {experiment_id} "## Observed\\n<what went wrong>\\n\\n'
+                f'## Repro\\n<exact command>\\n\\n## Hypothesis\\n<suspected cause>"',
+            )
+        elif bt == "refinement":
+            print_nudge(
+                "Document what changed from the parent and why:",
+                f'sonde update {experiment_id} "## Changed\\n<what is different>\\n\\n'
+                f'## Hypothesis\\n<expected improvement>"',
+            )
+        else:
+            print_nudge(
+                "Document your approach — method, parameters, expected outcome:",
+                f'sonde update {experiment_id} "## Objective\\n<what & why>\\n\\n'
+                f'## Setup\\n<config, hardware, command>\\n\\n## Expected\\n<success criteria>"',
+            )
 
     # Nudge: no finding recorded at close
     if (
@@ -434,6 +461,15 @@ def _change_status(
             "Record what you learned — be quantitative and specific:",
             f"sonde update {experiment_id} --finding"
             f' "CCN=1500 shows 8% less enhancement (5.8% vs 13.6%)"',
+        )
+
+    # Nudge: finding was recorded inline — suggest promoting to curated Finding
+    if new_status == "complete" and finding and not ctx.obj.get("json"):
+        from sonde.output import print_nudge
+
+        print_nudge(
+            "Promote this to a curated Finding record with evidence link:",
+            f'sonde finding extract {experiment_id} --topic "..."',
         )
 
     # Show suggestions after close/fail for tree nodes

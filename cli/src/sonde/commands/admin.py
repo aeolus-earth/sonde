@@ -61,7 +61,10 @@ def create_token(ctx: click.Context, name: str, programs: str, expires: int) -> 
                 "Valid programs: sonde program list",
             )
         else:
-            print_error("Failed to create token", msg, "Check your permissions.")
+            from sonde.db import classify_api_error
+
+            what, why, fix = classify_api_error(e, table="agent_tokens", action="create tokens")
+            print_error(what, why, fix)
         raise SystemExit(1) from None
     except Exception as e:
         print_error("Failed to create token", str(e), "Check your permissions.")

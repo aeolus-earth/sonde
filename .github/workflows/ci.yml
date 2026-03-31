@@ -59,7 +59,7 @@ jobs:
         run: supabase start
 
       - name: Apply all migrations from scratch
-        run: supabase db reset --linked=false
+        run: supabase db reset --local --yes
 
       - name: Capture local credentials
         id: sb

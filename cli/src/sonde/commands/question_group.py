@@ -11,13 +11,13 @@ from sonde.commands.pull import pull_question
 from sonde.commands.push import push_question
 from sonde.commands.questions import questions_cmd
 from sonde.commands.remove import remove_question
-from sonde.config import get_settings
-from sonde.db import directions as dir_db
 from sonde.db import questions as db
 from sonde.db.activity import log_activity
-from sonde.models.direction import DirectionCreate
 from sonde.models.question import QuestionCreate
 from sonde.output import err, print_error, print_json, print_success
+from sonde.services import WorkflowError
+from sonde.services.questions import delete_question as delete_question_record
+from sonde.services.questions import promote_question
 
 
 @click.group(invoke_without_command=True)
@@ -134,97 +134,34 @@ def question_promote(
       sonde question promote Q-001
       sonde question promote Q-001 --to direction -t "CCN sensitivity"
     """
-    from sonde.db import experiments as exp_db
-    from sonde.models.experiment import ExperimentCreate
-
-    q = db.get(question_id.upper())
-    if not q:
-        print_error(
-            f"Question {question_id} not found",
-            "No question with this ID.",
-            "List questions: sonde questions",
+    question_id = question_id.upper()
+    q = db.get(question_id)
+    question_text = q.question if q else question_id
+    resolved_program = program or (q.program if q else None)
+    try:
+        promoted = promote_question(
+            question_id=question_id,
+            target_type=target_type,
+            program=program,
+            title=title,
         )
-        raise SystemExit(1)
+    except WorkflowError as exc:
+        print_error(exc.what, exc.why, exc.fix)
+        raise SystemExit(1) from None
 
-    if q.status == "promoted":
-        print_error(
-            f"Question {question_id} already promoted",
-            f"Promoted to {q.promoted_to_type} {q.promoted_to_id}.",
-            f"View: sonde show {q.promoted_to_id}",
-        )
-        raise SystemExit(1)
-
-    settings = get_settings()
-    source = settings.source or resolve_source()
-
-    resolved_program = program or q.program
-    if not resolved_program:
-        print_error(
-            "No program",
-            "Specify --program or ensure the question has a program.",
-            "Use --program <name> or set 'program' in .aeolus.yaml",
-        )
-        raise SystemExit(2)
-
-    promoted_ctx = f"Promoted from {question_id.upper()}"
-    promoted_to_id: str
-
-    if target_type == "direction":
-        direction_title = title or q.question
-        direction = dir_db.create(
-            DirectionCreate(
-                program=resolved_program,
-                title=direction_title,
-                question=q.question,
-                status="active",
-                source=source,
-            )
-        )
-        promoted_to_id = direction.id
-        log_activity(direction.id, "direction", "created")
-    else:
-        content_body = q.context or promoted_ctx
-        exp_data = ExperimentCreate(
-            program=resolved_program,
-            status="open",
-            source=source,
-            content=f"# {q.question}\n\n{content_body}",
-            tags=q.tags,
-            direction_id=settings.default_direction or None,
-        )
-        exp = exp_db.create(exp_data)
-        promoted_to_id = exp.id
-        log_activity(exp.id, "experiment", "created")
-
-    # Update the question
-    db.update(
-        question_id.upper(),
-        {
-            "status": "promoted",
-            "promoted_to_type": target_type,
-            "promoted_to_id": promoted_to_id,
-        },
-    )
-
-    log_activity(
-        question_id.upper(),
-        "question",
-        "status_changed",
-        {"from": q.status, "to": "promoted"},
-    )
     if ctx.obj.get("json"):
         print_json(
             {
-                "question_id": question_id.upper(),
-                "promoted_to_type": target_type,
-                "promoted_to_id": promoted_to_id,
+                "question_id": promoted.question_id,
+                "promoted_to_type": promoted.promoted_to_type,
+                "promoted_to_id": promoted.promoted_to_id,
             }
         )
     else:
         print_success(
-            f"Promoted {question_id.upper()} \u2192 {promoted_to_id}",
-            details=[f"Question: {q.question}", f"Program: {resolved_program}"],
-            breadcrumbs=[f"View: sonde show {promoted_to_id}"],
+            f"Promoted {promoted.question_id} \u2192 {promoted.promoted_to_id}",
+            details=[f"Question: {question_text}", f"Program: {resolved_program}"],
+            breadcrumbs=[f"View: sonde show {promoted.promoted_to_id}"],
         )
 
 
@@ -246,8 +183,7 @@ def question_delete(ctx: click.Context, question_id: str, confirm: bool) -> None
         err.print("  Use --confirm to proceed.")
         raise SystemExit(1)
 
-    log_activity(question_id, "question", "deleted", {"deleted_by": resolve_source()})
-    db.delete(question_id)
+    delete_question_record(question_id)
 
     if ctx.obj.get("json"):
         print_json({"deleted": {"id": question_id}})

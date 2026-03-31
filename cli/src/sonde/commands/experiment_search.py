@@ -5,6 +5,12 @@ from __future__ import annotations
 import click
 
 from sonde.cli_options import pass_output_options
+from sonde.commands._context import use_json
+from sonde.commands._experiment_query import (
+    CommandInputError,
+    resolve_page_offset,
+    resolve_status_filter,
+)
 from sonde.config import get_settings
 from sonde.db import experiments as db
 from sonde.output import (
@@ -63,35 +69,25 @@ def search(
       sonde experiment search --since 2026-03-01
     """
     # Resolve convenience status flags
-    status_flags = [
-        ("open", filter_open),
-        ("running", filter_running),
-        ("complete", filter_complete),
-        ("failed", filter_failed),
-    ]
-    active = [(name, flag) for name, flag in status_flags if flag]
-    if active and status:
-        print_error(
-            "Conflicting filters",
-            f"Cannot use --{active[0][0]} with --status.",
-            "Use one or the other.",
+    try:
+        status = resolve_status_filter(
+            status=status,
+            filter_open=filter_open,
+            filter_running=filter_running,
+            filter_complete=filter_complete,
+            filter_failed=filter_failed,
         )
-        raise SystemExit(2)
-    if len(active) > 1:
-        names = ", ".join(f"--{name}" for name, _ in active)
-        print_error("Conflicting filters", f"Cannot combine {names}.", "Use one at a time.")
-        raise SystemExit(2)
-    if active:
-        status = active[0][0]
+    except CommandInputError as exc:
+        print_error(exc.what, exc.why, exc.fix)
+        raise SystemExit(2) from None
     settings = get_settings()
     resolved_program = program or settings.program or None
 
-    # Resolve --page to offset
-    if page is not None:
-        if page < 1:
-            print_error("Invalid page", "Page must be >= 1.", "Use --page 1 for the first page.")
-            raise SystemExit(2)
-        offset = (page - 1) * limit
+    try:
+        offset = resolve_page_offset(page=page, limit=limit, offset=offset)
+    except CommandInputError as exc:
+        print_error(exc.what, exc.why, exc.fix)
+        raise SystemExit(2) from None
 
     param_filters = []
     for p in param:
@@ -160,13 +156,13 @@ def search(
             )
         else:
             total = len(experiments)
-        if ctx.obj.get("json"):
+        if use_json(ctx):
             print_json({"count": total})
         else:
             click.echo(total)
         return
 
-    if ctx.obj.get("json"):
+    if use_json(ctx):
         print_json([e.model_dump(mode="json") for e in experiments])
     elif not experiments:
         err.print("[dim]No experiments found.[/dim]")

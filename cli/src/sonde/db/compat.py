@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any, cast
 
 from sonde.config import SUPABASE_ANON_KEY, SUPABASE_URL
 
@@ -44,7 +45,7 @@ def check_schema_compat() -> int:
     If the RPC is missing entirely (pre-versioning DB), logs a warning and
     returns 0 without raising — this allows a graceful transition period.
     """
-    global _checked, _remote_version  # noqa: PLW0603
+    global _checked, _remote_version
 
     if _checked:
         if _remote_version is not None and _remote_version >= MINIMUM_SCHEMA_VERSION:
@@ -59,13 +60,19 @@ def check_schema_compat() -> int:
 
         client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
         result = client.rpc("get_schema_version", {}).execute()
-        version = result.data
+        raw: Any = result.data
         # PostgREST returns a bare integer for scalar functions
-        if isinstance(version, list) and version:
-            version = version[0]
-        if isinstance(version, dict):
-            version = version.get("get_schema_version", version.get("version"))
-        _remote_version = int(version) if version is not None else None
+        if isinstance(raw, list) and raw:
+            raw = raw[0]
+        if isinstance(raw, dict):
+            vdict = cast(dict[str, Any], raw)
+            raw = vdict.get("get_schema_version", vdict.get("version"))
+        if raw is None:
+            _remote_version = None
+        elif isinstance(raw, (int, str, float)):
+            _remote_version = int(raw)
+        else:
+            _remote_version = None
     except Exception:
         logger.debug("Schema version check failed", exc_info=True)
         _remote_version = None
@@ -93,6 +100,6 @@ def get_cached_version() -> int | None:
 
 def reset_cache() -> None:
     """Reset the compatibility cache (for testing)."""
-    global _checked, _remote_version  # noqa: PLW0603
+    global _checked, _remote_version
     _checked = False
     _remote_version = None

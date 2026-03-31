@@ -65,6 +65,28 @@ def find_sonde_dir() -> Path:
     return sonde_dir
 
 
+def get_focused_experiment() -> str | None:
+    """Return the focused experiment ID, or None if not set."""
+    focus_file = Path.cwd() / ".sonde" / "focus"
+    if focus_file.exists():
+        content = focus_file.read_text(encoding="utf-8").strip()
+        return content if content else None
+    return None
+
+
+def set_focused_experiment(experiment_id: str) -> None:
+    """Set the focused experiment ID."""
+    sonde_dir = find_sonde_dir()
+    (sonde_dir / "focus").write_text(experiment_id.strip() + "\n", encoding="utf-8")
+
+
+def clear_focused_experiment() -> None:
+    """Clear the focused experiment."""
+    focus_file = Path.cwd() / ".sonde" / "focus"
+    if focus_file.exists():
+        focus_file.unlink()
+
+
 def ensure_subdir(sonde_dir: Path, name: str) -> Path:
     """Ensure a subdirectory exists under .sonde/."""
     sub = (sonde_dir / name).resolve()
@@ -75,25 +97,38 @@ def ensure_subdir(sonde_dir: Path, name: str) -> Path:
 
 
 def resolve_record_path(sonde_dir: Path, category: str, name: str) -> Path | None:
-    """Resolve an existing record path under ``.sonde/<category>`` safely."""
+    """Resolve an existing record path under ``.sonde/<category>`` safely.
+
+    Handles two layouts:
+      - ``<category>/EXP-0001.md``          (file-only, from log/new)
+      - ``<category>/EXP-0001/EXP-0001.md`` (directory, from pull with artifacts)
+    """
     from sonde.db.validate import contained_path
 
     base_dir = sonde_dir / category
-    candidates: list[str] = []
-    for candidate in (
-        name,
-        f"{name}.md" if not name.endswith(".md") else None,
-        f"{name.upper()}.md" if not name.endswith(".md") else None,
-    ):
-        if candidate and candidate not in candidates:
-            candidates.append(candidate)
+    stem = name.removesuffix(".md")
 
-    for candidate in candidates:
+    # Build candidates: flat files first, then files inside directories
+    candidates = [
+        f"{stem}.md",
+        f"{stem.upper()}.md",
+        f"{stem}/{stem}.md",
+        f"{stem}/{stem.upper()}.md",
+    ]
+    # Deduplicate while preserving order
+    seen: set[str] = set()
+    unique: list[str] = []
+    for c in candidates:
+        if c not in seen:
+            seen.add(c)
+            unique.append(c)
+
+    for candidate in unique:
         try:
             path = contained_path(base_dir, candidate)
         except ValueError:
             raise ValueError(f"Unsafe local record path: {name!r}") from None
-        if path.exists():
+        if path.exists() and path.is_file():
             return path
     return None
 
@@ -125,7 +160,8 @@ def render_record(record: dict[str, Any]) -> str:
 
     body = record.get("content") or generate_body(record)
 
-    return f"---\n{fm}---\n\n{body}\n"
+    header = "<!-- Pulled from remote — do not edit. Use sonde update/log to make changes. -->\n"
+    return f"{header}---\n{fm}---\n\n{body}\n"
 
 
 def generate_body(record: dict[str, Any]) -> str:

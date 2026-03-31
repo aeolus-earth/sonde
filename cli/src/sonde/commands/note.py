@@ -15,25 +15,30 @@ from sonde.output import err, print_error, print_json, print_nudge, print_succes
 
 
 @click.command()
-@click.argument("experiment_id")
+@click.argument("experiment_id", required=False, default=None)
 @click.argument("content", required=False)
 @click.option("--file", "-f", "note_file", type=click.Path(exists=True), help="Note from file")
 @pass_output_options
 @click.pass_context
 def note(
     ctx: click.Context,
-    experiment_id: str,
+    experiment_id: str | None,
     content: str | None,
     note_file: str | None,
 ) -> None:
     """Add a note to an experiment.
 
+    If no experiment ID is given, uses the focused experiment (sonde focus).
+
     \b
     Examples:
       sonde note EXP-0001 "This might interact with BL heating"
-      sonde note EXP-0001 -f observations.md
+      sonde note "observation about CCN response"
+      sonde note -f observations.md
     """
-    experiment_id = experiment_id.upper()
+    from sonde.commands._helpers import resolve_experiment_id
+
+    experiment_id = resolve_experiment_id(experiment_id)
 
     if note_file:
         from pathlib import Path
@@ -62,11 +67,10 @@ def note(
     try:
         row = db.create(experiment_id, content, source)
     except APIError as exc:
-        print_error(
-            "Failed to save note",
-            str(exc),
-            "The experiment_notes table may need to be created. Run migrations.",
-        )
+        from sonde.db import classify_api_error
+
+        what, why, fix = classify_api_error(exc, table="experiment_notes", action="save notes")
+        print_error(what, why, fix)
         raise SystemExit(1) from None
 
     note_id = row["id"]

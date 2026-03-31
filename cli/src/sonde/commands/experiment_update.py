@@ -10,7 +10,11 @@ import click
 import yaml
 
 from sonde.cli_options import pass_output_options
-from sonde.commands._helpers import load_dict_file
+from sonde.commands._helpers import (
+    load_dict_file,
+    merge_structured_metadata,
+    structured_metadata_options,
+)
 from sonde.db import experiments as db
 from sonde.output import (
     err,
@@ -23,7 +27,7 @@ from sonde.output import (
 
 
 @click.command("update")
-@click.argument("experiment_id")
+@click.argument("experiment_id", required=False, default=None)
 @click.option(
     "--status", type=click.Choice(["open", "running", "complete", "failed", "superseded"])
 )
@@ -41,11 +45,12 @@ from sonde.output import (
 @click.option("--content-file", type=click.Path(exists=True), help="Replace content from file")
 @click.option("--direction", help="Set or change the parent research direction")
 @click.option("--tag", multiple=True, help="Set tags (replaces existing)")
+@structured_metadata_options
 @pass_output_options
 @click.pass_context
 def update(
     ctx: click.Context,
-    experiment_id: str,
+    experiment_id: str | None,
     status: str | None,
     hypothesis: str | None,
     params: str | None,
@@ -57,17 +62,24 @@ def update(
     content_file: str | None,
     direction: str | None,
     tag: tuple[str, ...],
+    repro: str | None,
+    evidence: tuple[str, ...],
+    env_vars: tuple[str, ...],
+    blocker: str | None,
 ):
     """Update fields on an existing experiment.
+
+    If no experiment ID is given, uses the focused experiment (sonde focus).
 
     \b
     Examples:
       sonde update EXP-0042 --status complete --result '{"rmse": 2.3}'
-      sonde update EXP-0042 --finding "CCN saturates at 1500"
-      sonde update EXP-0042 --params-file config.yaml
-      sonde update EXP-0042 --tag cloud-seeding --tag subtropical
+      sonde update --finding "CCN saturates at 1500"
+      sonde update --blocker "waiting for GPU allocation"
     """
-    experiment_id = experiment_id.upper()
+    from sonde.commands._helpers import resolve_experiment_id
+
+    experiment_id = resolve_experiment_id(experiment_id)
 
     exp = db.get(experiment_id)
     if not exp:
@@ -127,6 +139,16 @@ def update(
     # Tags: replace if provided
     if tag:
         updates["tags"] = list(tag)
+
+    # Structured metadata
+    if repro or evidence or env_vars or blocker:
+        updates["metadata"] = merge_structured_metadata(
+            dict(exp.metadata),
+            repro=repro,
+            evidence=evidence,
+            env_vars=env_vars,
+            blocker=blocker,
+        )
 
     if not updates:
         err.print("[sonde.muted]Nothing to update.[/]")

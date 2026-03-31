@@ -92,7 +92,19 @@ def _experiment_pull_options(fn):
 @pass_output_options
 @click.pass_context
 def pull(ctx: click.Context, program: str | None, artifacts: str) -> None:
-    """Pull research data to local .sonde/ directory."""
+    """Pull research data to local .sonde/ directory.
+
+    \b
+    With no subcommand, pulls everything for the program:
+      sonde pull -p dart-benchmarking           # pull all record types
+      sonde pull -p dart-benchmarking all       # same thing, explicit
+
+    \b
+    Or pull specific record types:
+      sonde pull experiments                    # experiments for default program
+      sonde pull experiment EXP-0154            # single experiment + artifacts
+      sonde pull findings                       # findings only
+    """
     settings = get_settings()
     ctx.ensure_object(dict)
     ctx.obj["pull_program"] = program or settings.program or None
@@ -100,6 +112,14 @@ def pull(ctx: click.Context, program: str | None, artifacts: str) -> None:
 
     if ctx.invoked_subcommand is None:
         _pull_all(ctx)
+
+
+@pull.command("all")
+@pass_output_options
+@click.pass_context
+def pull_all_cmd(ctx: click.Context) -> None:
+    """Pull all record types for the program (experiments, findings, questions, directions)."""
+    _pull_all(ctx)
 
 
 @pull.command("experiment")
@@ -195,6 +215,9 @@ def pull_findings(ctx: click.Context) -> None:
     findings = find_db.list_findings(program=program, include_superseded=True, limit=10000)
     for finding in findings:
         _write_record_with_body(sonde_dir, "findings", finding.id, finding.model_dump(mode="json"))
+    if ctx.obj.get("json"):
+        print_json({"count": len(findings), "ids": [f.id for f in findings]})
+        return
     print_success(f"Pulled {len(findings)} finding(s)")
 
 
@@ -235,6 +258,9 @@ def pull_questions(ctx: click.Context) -> None:
         _write_record_with_body(
             sonde_dir, "questions", question.id, question.model_dump(mode="json")
         )
+    if ctx.obj.get("json"):
+        print_json({"count": len(questions), "ids": [q.id for q in questions]})
+        return
     print_success(f"Pulled {len(questions)} question(s)")
 
 
@@ -275,6 +301,9 @@ def pull_directions(ctx: click.Context) -> None:
         _write_record_with_body(
             sonde_dir, "directions", direction.id, direction.model_dump(mode="json")
         )
+    if ctx.obj.get("json"):
+        print_json({"count": len(directions), "ids": [d.id for d in directions]})
+        return
     print_success(f"Pulled {len(directions)} direction(s)")
 
 
@@ -537,7 +566,14 @@ def _sync_experiments(
             if notes:
                 _write_notes(sonde_dir, exp["id"], notes)
         except APIError as exc:
-            err.print(f"  [sonde.warning]Could not pull notes for {exp['id']}: {exc}[/]")
+            from sonde.db import classify_api_error
+
+            what, _why, _fix = classify_api_error(
+                exc,
+                table="experiment_notes",
+                action="read notes",
+            )
+            err.print(f"  [sonde.warning]Could not pull notes for {exp['id']}: {what}[/]")
 
     return _download_selected_artifacts(
         sonde_dir,

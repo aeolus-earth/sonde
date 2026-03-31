@@ -91,9 +91,13 @@ class SondeCLI(click.Group):
             "tag": "Research",
             "pull": "Research",
             "push": "Research",
+            "sync": "Research",
             "status": "Research",
             "show": "Research",
             "brief": "Research",
+            "focus": "Research",
+            "unfocus": "Research",
+            "next": "Research",
             "recent": "Research",
             "health": "Research",
             "tree": "Research",
@@ -164,7 +168,10 @@ class SondeCLI(click.Group):
                 'sonde log "Ran CCN sweep at 1200, saw 8% less enhancement"\n'
                 "sonde direction list                      # research threads\n"
                 "sonde experiment list                     # experiments\n"
-                "sonde show EXP-0001                       # any record (EXP, FIND, DIR, Q)",
+                "sonde show EXP-0001                       # any record (EXP, FIND, DIR, Q)\n"
+                'sonde search --text "CCN saturation"      # search experiments\n'
+                "sonde focus EXP-0001                      # set current experiment\n"
+                "sonde sync -p shared                      # refresh local workspace",
                 title="[sonde.heading]Quick start[/]",
                 border_style="sonde.brand.dim",
                 padding=(0, 1),
@@ -225,8 +232,10 @@ from sonde.commands.direction_group import direction  # noqa: E402
 from sonde.commands.doctor import doctor  # noqa: E402
 from sonde.commands.experiment import experiment  # noqa: E402
 from sonde.commands.finding_group import finding  # noqa: E402
+from sonde.commands.focus import focus, unfocus  # noqa: E402
 from sonde.commands.health import health  # noqa: E402
 from sonde.commands.init import init_cmd  # noqa: E402
+from sonde.commands.next import next_cmd  # noqa: E402
 from sonde.commands.program_group import program  # noqa: E402
 from sonde.commands.pull import pull  # noqa: E402
 from sonde.commands.push import push  # noqa: E402
@@ -257,11 +266,13 @@ cli.add_command(program)
 cli.add_command(question)
 cli.add_command(pull)
 cli.add_command(push)
-sync.hidden = True
 cli.add_command(sync)
 
 # Research — cross-cutting views
 cli.add_command(brief)
+cli.add_command(focus)
+cli.add_command(unfocus)
+cli.add_command(next_cmd)
 cli.add_command(recent)
 cli.add_command(tag)
 cli.add_command(status)
@@ -271,12 +282,12 @@ cli.add_command(tree_cmd)
 
 # -- Polymorphic show (works with EXP-, FIND-, Q-, DIR- prefixes) --
 @cli.command("show")
-@click.argument("record_id")
+@click.argument("record_id", required=False, default=None)
 @click.option("--graph", "-g", is_flag=True, help="Show all connected entities (experiments only)")
 @pass_output_options
 @click.pass_context
-def show_cmd(ctx: click.Context, record_id: str, graph: bool) -> None:
-    """Show details for any record (experiment, finding, question, direction).
+def show_cmd(ctx: click.Context, record_id: str | None, graph: bool) -> None:
+    """Show details for any record (experiment, finding, question, direction, artifact).
 
     \b
     Detects entity type from ID prefix:
@@ -284,12 +295,18 @@ def show_cmd(ctx: click.Context, record_id: str, graph: bool) -> None:
       sonde show FIND-001       finding with evidence
       sonde show Q-001          question with context
       sonde show DIR-001        direction with experiments
+      sonde show ART-0003       artifact metadata
 
     \b
     Examples:
       sonde show EXP-0001 --graph   # show all connected entities
       sonde show FIND-001 --json    # finding as JSON
     """
+    if record_id is None:
+        from sonde.commands._helpers import resolve_experiment_id
+
+        record_id = resolve_experiment_id(None)
+
     from sonde.commands.show import show_dispatch
 
     show_dispatch(ctx, record_id, graph)

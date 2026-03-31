@@ -19,6 +19,7 @@ from sonde.db.activity import log_activity
 from sonde.local import extract_finding_text
 from sonde.models.finding import FindingCreate
 from sonde.output import err, print_error, print_json, print_success
+from sonde.services.findings import delete_finding as delete_finding_record
 
 
 @click.group(invoke_without_command=True)
@@ -246,8 +247,7 @@ def finding_delete(ctx: click.Context, finding_id: str, confirm: bool) -> None:
         err.print("  Use --confirm to proceed.")
         raise SystemExit(1)
 
-    log_activity(finding_id, "finding", "deleted", {"deleted_by": resolve_source()})
-    deleted = db.delete(finding_id)
+    deleted = delete_finding_record(finding_id)
 
     if ctx.obj.get("json"):
         print_json({"deleted": {"id": finding_id}, "cascade": deleted})

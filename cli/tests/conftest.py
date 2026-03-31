@@ -194,6 +194,10 @@ def patched_db(mock_supabase: MagicMock, authenticated: None) -> Generator[Magic
         import sonde.db.artifacts as art_mod
         import sonde.db.directions as dir_mod
         import sonde.db.experiments as exp_mod
+        import sonde.db.experiments.maintenance as exp_maintenance_mod
+        import sonde.db.experiments.read as exp_read_mod
+        import sonde.db.experiments.stats as exp_stats_mod
+        import sonde.db.experiments.tree as exp_tree_mod
         import sonde.db.findings as find_mod
         import sonde.db.health as health_mod
         import sonde.db.ids as ids_mod
@@ -208,6 +212,10 @@ def patched_db(mock_supabase: MagicMock, authenticated: None) -> Generator[Magic
             art_mod,
             dir_mod,
             exp_mod,
+            exp_maintenance_mod,
+            exp_read_mod,
+            exp_stats_mod,
+            exp_tree_mod,
             find_mod,
             health_mod,
             ids_mod,
