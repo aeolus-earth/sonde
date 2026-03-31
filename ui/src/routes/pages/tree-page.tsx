@@ -38,19 +38,17 @@ export default function TreePage() {
   const isLoading = loadingExp || loadingDir;
 
   return (
-    <div className="flex h-full flex-col space-y-4">
+    <div className="space-y-4">
       <div>
-        <h1 className="text-lg font-semibold text-text">Experiment Map</h1>
-        <p className="text-xs text-text-secondary">
+        <h1 className="text-[15px] font-semibold tracking-[-0.015em] text-text">Experiment Map</h1>
+        <p className="text-[12px] text-text-secondary">
           Experiments grouped by direction. Click a node to view details.
         </p>
       </div>
 
-      <div className="min-h-0 flex-1">
+      <div className="h-[calc(100vh-10rem)]">
         {isLoading ? (
-          <div className="flex h-full items-center justify-center">
-            <Skeleton className="h-full w-full rounded-[8px]" />
-          </div>
+          <Skeleton className="h-full w-full rounded-[8px]" />
         ) : experiments && experiments.length > 0 ? (
           <Suspense
             fallback={
@@ -66,7 +64,7 @@ export default function TreePage() {
             />
           </Suspense>
         ) : (
-          <div className="flex h-full items-center justify-center text-sm text-text-tertiary">
+          <div className="flex h-full items-center justify-center text-[13px] text-text-tertiary">
             No experiments yet.
           </div>
         )}
