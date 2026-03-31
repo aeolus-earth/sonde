@@ -8,6 +8,17 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  /** Same-origin WebSocket in dev (localhost vs 127.0.0.1, no cross-origin upgrade issues). */
+  server: {
+    proxy: {
+      "/agent": {
+        target: "http://127.0.0.1:3001",
+        ws: true,
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/agent/, ""),
+      },
+    },
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "src"),

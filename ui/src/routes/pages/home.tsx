@@ -109,152 +109,160 @@ export default function HomePage() {
   const failed = exps.filter((e) => e.status === "failed").length;
 
   return (
-    <div className="space-y-5">
-      <h1 className="text-[15px] font-semibold tracking-[-0.015em] text-text">
-        Dashboard
-      </h1>
+    <div className="flex gap-5 xl:flex-row flex-col">
+      {/* Dashboard content */}
+      <div className="min-w-0 flex-1 space-y-5">
+        <h1 className="text-[15px] font-semibold tracking-[-0.015em] text-text">
+          Dashboard
+        </h1>
 
-      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
-        <StatBlock value={exps.length} label="Experiments" />
-        <StatBlock
-          value={running}
-          label="Running"
-          color="text-status-running"
-        />
-        <StatBlock
-          value={complete}
-          label="Complete"
-          color="text-status-complete"
-        />
-        <StatBlock value={failed} label="Failed" color="text-status-failed" />
-      </div>
-
-      <div className="grid gap-2.5 lg:grid-cols-2">
-        <div className="rounded-[8px] border border-border bg-surface p-3">
-          <p className="mb-2 text-[13px] font-medium text-text-secondary">
-            Status
-          </p>
-          <Suspense fallback={<ChartFallback />}>
-            <StatusChart experiments={exps} />
-          </Suspense>
+        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+          <StatBlock value={exps.length} label="Experiments" />
+          <StatBlock
+            value={running}
+            label="Running"
+            color="text-status-running"
+          />
+          <StatBlock
+            value={complete}
+            label="Complete"
+            color="text-status-complete"
+          />
+          <StatBlock value={failed} label="Failed" color="text-status-failed" />
         </div>
-        <div className="rounded-[8px] border border-border bg-surface p-3">
-          <p className="mb-2 text-[13px] font-medium text-text-secondary">
-            Activity
-          </p>
-          <Suspense fallback={<ChartFallback />}>
-            <ActivityTimeline records={exps} />
-          </Suspense>
-        </div>
-      </div>
 
-      <div className="grid gap-2.5 lg:grid-cols-3">
-        <div className="rounded-[8px] border border-border bg-surface">
-          <div className="flex items-center justify-between border-b border-border px-3 py-2">
-            <span className="text-[13px] font-medium text-text-secondary">
-              Directions
-            </span>
-            <span className="text-[11px] text-text-quaternary">
-              {dirs.length}
-            </span>
+        <div className="grid gap-2.5 lg:grid-cols-2">
+          <div className="rounded-[8px] border border-border bg-surface p-3">
+            <p className="mb-2 text-[13px] font-medium text-text-secondary">
+              Status
+            </p>
+            <Suspense fallback={<ChartFallback />}>
+              <StatusChart experiments={exps} />
+            </Suspense>
           </div>
-          <div>
-            {dirs.slice(0, 6).map((d) => (
-              <div
-                key={d.id}
-                className="flex items-center justify-between border-b border-border-subtle px-3 py-2 last:border-0"
-              >
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-[13px] text-text">{d.title}</p>
-                  <p className="text-[11px] text-text-quaternary">{d.id}</p>
-                </div>
-                <div className="flex items-center gap-2 text-[11px]">
-                  <Badge variant="complete">{d.complete_count}</Badge>
-                  <Badge variant="running">{d.running_count}</Badge>
-                  <Badge variant="open">{d.open_count}</Badge>
-                </div>
-              </div>
-            ))}
+          <div className="rounded-[8px] border border-border bg-surface p-3">
+            <p className="mb-2 text-[13px] font-medium text-text-secondary">
+              Activity
+            </p>
+            <Suspense fallback={<ChartFallback />}>
+              <ActivityTimeline records={exps} />
+            </Suspense>
           </div>
         </div>
 
-        <div className="rounded-[8px] border border-border bg-surface">
-          <div className="flex items-center justify-between border-b border-border px-3 py-2">
-            <span className="text-[13px] font-medium text-text-secondary">
-              Current Findings
-            </span>
-            <span className="text-[11px] text-text-quaternary">
-              {finds.length}
-            </span>
-          </div>
-          <div>
-            {finds.slice(0, 6).map((f) => (
-              <div
-                key={f.id}
-                className="flex items-center justify-between gap-3 border-b border-border-subtle px-3 py-2 last:border-0"
-              >
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-[13px] text-text">{f.topic}</p>
-                  <p className="truncate text-[11px] text-text-tertiary">
-                    {f.finding}
-                  </p>
-                </div>
-                <Badge variant={f.confidence}>{f.confidence}</Badge>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="rounded-[8px] border border-border bg-surface">
-          <div className="flex items-center justify-between border-b border-border px-3 py-2">
-            <span className="text-[13px] font-medium text-text-secondary">
-              Recent Activity
-            </span>
-            <Link
-              to="/activity"
-              className="text-[11px] text-accent hover:underline"
-            >
-              View all
-            </Link>
-          </div>
-          <div>
-            {activity?.slice(0, 8).map((a) => (
-              <div
-                key={a.id}
-                className="flex items-start justify-between gap-2 border-b border-border-subtle px-3 py-2 last:border-0"
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[12px] font-medium text-text">
-                      {a.action.replace("_", " ")}
-                    </span>
-                    <Link
-                      to="/experiments/$id"
-                      params={{ id: a.record_id }}
-                      className="font-mono text-[11px] text-accent hover:underline"
-                    >
-                      {a.record_id}
-                    </Link>
-                  </div>
-                  <p className="text-[11px] text-text-quaternary">
-                    {a.actor_name ?? a.actor}
-                  </p>
-                </div>
-                <span
-                  className="shrink-0 text-[10px] text-text-quaternary"
-                  title={formatDateTime(a.created_at)}
+        <div className="grid gap-2.5 lg:grid-cols-3">
+          <div className="rounded-[8px] border border-border bg-surface">
+            <div className="flex items-center justify-between border-b border-border px-3 py-2">
+              <span className="text-[13px] font-medium text-text-secondary">
+                Directions
+              </span>
+              <span className="text-[11px] text-text-quaternary">
+                {dirs.length}
+              </span>
+            </div>
+            <div>
+              {dirs.slice(0, 6).map((d) => (
+                <div
+                  key={d.id}
+                  className="flex items-center justify-between border-b border-border-subtle px-3 py-2 last:border-0"
                 >
-                  {formatDateTimeShort(a.created_at)}
-                </span>
-              </div>
-            ))}
-            {(!activity || activity.length === 0) && (
-              <div className="py-6 text-center text-[12px] text-text-quaternary">
-                No activity yet
-              </div>
-            )}
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[13px] text-text">{d.title}</p>
+                    <p className="text-[11px] text-text-quaternary">{d.id}</p>
+                  </div>
+                  <div className="flex items-center gap-2 text-[11px]">
+                    <Badge variant="complete">{d.complete_count}</Badge>
+                    <Badge variant="running">{d.running_count}</Badge>
+                    <Badge variant="open">{d.open_count}</Badge>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-[8px] border border-border bg-surface">
+            <div className="flex items-center justify-between border-b border-border px-3 py-2">
+              <span className="text-[13px] font-medium text-text-secondary">
+                Current Findings
+              </span>
+              <span className="text-[11px] text-text-quaternary">
+                {finds.length}
+              </span>
+            </div>
+            <div>
+              {finds.slice(0, 6).map((f) => (
+                <div
+                  key={f.id}
+                  className="flex items-center justify-between gap-3 border-b border-border-subtle px-3 py-2 last:border-0"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[13px] text-text">{f.topic}</p>
+                    <p className="truncate text-[11px] text-text-tertiary">
+                      {f.finding}
+                    </p>
+                  </div>
+                  <Badge variant={f.confidence}>{f.confidence}</Badge>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-[8px] border border-border bg-surface">
+            <div className="flex items-center justify-between border-b border-border px-3 py-2">
+              <span className="text-[13px] font-medium text-text-secondary">
+                Recent Activity
+              </span>
+              <Link
+                to="/activity"
+                className="text-[11px] text-accent hover:underline"
+              >
+                View all
+              </Link>
+            </div>
+            <div>
+              {activity?.slice(0, 8).map((a) => (
+                <div
+                  key={a.id}
+                  className="flex items-start justify-between gap-2 border-b border-border-subtle px-3 py-2 last:border-0"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[12px] font-medium text-text">
+                        {a.action.replace("_", " ")}
+                      </span>
+                      <Link
+                        to="/experiments/$id"
+                        params={{ id: a.record_id }}
+                        className="font-mono text-[11px] text-accent hover:underline"
+                      >
+                        {a.record_id}
+                      </Link>
+                    </div>
+                    <p className="text-[11px] text-text-quaternary">
+                      {a.actor_name ?? a.actor}
+                    </p>
+                  </div>
+                  <span
+                    className="shrink-0 text-[10px] text-text-quaternary"
+                    title={formatDateTime(a.created_at)}
+                  >
+                    {formatDateTimeShort(a.created_at)}
+                  </span>
+                </div>
+              ))}
+              {(!activity || activity.length === 0) && (
+                <div className="py-6 text-center text-[12px] text-text-quaternary">
+                  No activity yet
+                </div>
+              )}
+            </div>
           </div>
         </div>
+      </div>
+
+      {/* Chat panel */}
+      <div className="xl:w-[380px] xl:shrink-0 h-[calc(100vh-7rem)] sticky top-0">
+        <ChatPanel />
       </div>
     </div>
   );
