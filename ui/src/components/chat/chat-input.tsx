@@ -11,6 +11,13 @@ import {
 
 const MAX_FILES = 12;
 
+/** Max textarea height (px); keep in sync with autoResize and max-h class. */
+const TEXTAREA_MAX_HEIGHT_PX = 192;
+
+function isFileDragEvent(e: React.DragEvent): boolean {
+  return e.dataTransfer.types.includes("Files");
+}
+
 interface ChatInputProps {
   pageContext?: PageContext | null;
   onSend: (
@@ -36,6 +43,8 @@ export const ChatInput = memo(function ChatInput({
   const [cursorPos, setCursorPos] = useState(0);
   const [mentions, setMentions] = useState<MentionRef[]>([]);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [fileDragActive, setFileDragActive] = useState(false);
+  const fileDragDepthRef = useRef(0);
   const mentionState = useChatMentions(pageContext ?? null);
 
   const defendCompletion = useMemo(
@@ -47,7 +56,7 @@ export const ChatInput = memo(function ChatInput({
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+    el.style.height = `${Math.min(el.scrollHeight, TEXTAREA_MAX_HEIGHT_PX)}px`;
   }, []);
 
   useEffect(autoResize, [value, autoResize]);
@@ -70,6 +79,55 @@ export const ChatInput = memo(function ChatInput({
       e.target.value = "";
     },
     [addFiles]
+  );
+
+  const resetFileDragState = useCallback(() => {
+    fileDragDepthRef.current = 0;
+    setFileDragActive(false);
+  }, []);
+
+  useEffect(() => {
+    if (disabled) resetFileDragState();
+  }, [disabled, resetFileDragState]);
+
+  const handleComposerDragEnter = useCallback(
+    (e: React.DragEvent) => {
+      if (disabled || !isFileDragEvent(e)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      fileDragDepthRef.current += 1;
+      setFileDragActive(true);
+    },
+    [disabled]
+  );
+
+  const handleComposerDragLeave = useCallback(
+    (e: React.DragEvent) => {
+      if (disabled || fileDragDepthRef.current === 0) return;
+      e.preventDefault();
+      fileDragDepthRef.current = Math.max(0, fileDragDepthRef.current - 1);
+      if (fileDragDepthRef.current === 0) setFileDragActive(false);
+    },
+    [disabled]
+  );
+
+  const handleComposerDragOver = useCallback(
+    (e: React.DragEvent) => {
+      if (disabled || !isFileDragEvent(e)) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "copy";
+    },
+    [disabled]
+  );
+
+  const handleComposerDrop = useCallback(
+    (e: React.DragEvent) => {
+      if (disabled) return;
+      e.preventDefault();
+      resetFileDragState();
+      addFiles(e.dataTransfer.files);
+    },
+    [disabled, addFiles, resetFileDragState]
   );
 
   const removeFile = useCallback((index: number) => {
@@ -274,6 +332,8 @@ export const ChatInput = memo(function ChatInput({
   const canSend =
     !disabled && (value.trim().length > 0 || pendingFiles.length > 0);
 
+  const showFileDropChrome = fileDragActive && !disabled;
+
   return (
     <div className="relative w-full shrink-0 border-t border-border-subtle bg-surface px-3 py-3 md:px-4">
       <input
@@ -349,11 +409,41 @@ export const ChatInput = memo(function ChatInput({
 
       <div className="flex w-full justify-center">
         <div
+          className="relative"
+          onDragEnter={handleComposerDragEnter}
+          onDragLeave={handleComposerDragLeave}
+          onDragOver={handleComposerDragOver}
+          onDrop={handleComposerDrop}
+          aria-dropeffect={showFileDropChrome ? "copy" : undefined}
+        >
+          <div
+            className={cn(
+              "pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-[26px]",
+              "bg-accent/[0.07] ring-2 ring-accent/40 ring-inset",
+              "transition-opacity duration-300 ease-in-out",
+              showFileDropChrome ? "opacity-100" : "opacity-0"
+            )}
+            aria-hidden={!showFileDropChrome}
+          >
+            <span className="text-sm font-medium text-text-secondary">
+              Drop files to attach
+            </span>
+          </div>
+        <div
           className={cn(
-            "inline-flex w-max max-w-full min-w-0 flex-col gap-0.5 rounded-[26px] border border-border-subtle bg-bg px-2 py-1.5 shadow-sm transition-[box-shadow,border-color]",
-            "max-w-[min(100%,calc(28ch*1.4+6rem))] focus-within:border-border focus-within:shadow-md md:px-2.5"
+            "inline-flex w-max max-w-full min-w-0 flex-col rounded-[26px] border border-border-subtle bg-bg px-2 py-1.5 shadow-sm",
+            "transition-[box-shadow,border-color,ring] duration-300 ease-in-out",
+            "max-w-[min(100%,calc(28ch*1.4+6rem))] focus-within:border-border focus-within:shadow-md md:px-2.5",
+            showFileDropChrome && "border-accent/45 ring-2 ring-accent/35"
           )}
         >
+          <div
+            className={cn(
+              "flex min-w-0 w-full flex-col gap-0.5",
+              "transition-opacity duration-300 ease-in-out",
+              showFileDropChrome && "pointer-events-none opacity-0"
+            )}
+          >
           {defendCompletion && (
             <div className="flex w-full min-w-0 items-center gap-1.5 border-b border-border-subtle/80 px-0.5 pb-1 text-[11px] leading-tight">
               <kbd className="shrink-0 rounded-[2px] border border-border px-1 py-px text-[10px] text-text-tertiary">
@@ -407,7 +497,7 @@ export const ChatInput = memo(function ChatInput({
             disabled={disabled}
             rows={1}
             className={cn(
-              "min-h-[40px] max-h-[160px] w-[calc(28ch*1.4)] min-w-0 shrink resize-none bg-transparent py-2 text-[14px] leading-5 text-text placeholder:text-text-quaternary",
+              "min-h-[52px] max-h-[192px] w-[calc(28ch*1.4)] min-w-0 shrink resize-none bg-transparent py-4 text-[14px] leading-5 text-text placeholder:text-text-quaternary",
               "focus:outline-none disabled:opacity-40"
             )}
             style={{ fieldSizing: "content" } as React.CSSProperties}
@@ -441,6 +531,8 @@ export const ChatInput = memo(function ChatInput({
             </button>
           )}
           </div>
+          </div>
+        </div>
         </div>
       </div>
 
