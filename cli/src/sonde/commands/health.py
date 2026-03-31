@@ -18,7 +18,7 @@ from sonde.output import err, print_breadcrumbs, print_json, print_table
 @click.option(
     "--category",
     "-c",
-    help="Filter to one category (experiment, finding, tag, direction, brief, coverage)",
+    help="Filter to one category (experiment, finding, tag, direction, brief, coverage, graph)",
 )
 @click.option("--fixable", is_flag=True, help="Show only issues with automatable fix commands")
 @pass_output_options
@@ -62,6 +62,7 @@ def health(
         findings=raw["findings"],
         questions=raw["questions"],
         directions=raw["directions"],
+        projects=raw.get("projects", []),
         activity=raw["activity"],
         brief_provenance=brief_prov,
     )

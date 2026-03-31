@@ -54,7 +54,7 @@ class HealthIssue(BaseModel):
     Issues with fix=None require reading context and making a judgment call.
     """
 
-    category: Literal["brief", "experiment", "finding", "tag", "direction", "coverage"]
+    category: Literal["brief", "experiment", "finding", "tag", "direction", "coverage", "graph"]
     severity: Literal["error", "warning", "stale"]
     message: str
     record_id: str | None = None
@@ -88,5 +88,6 @@ class HealthData(BaseModel):
     findings: list[dict[str, Any]] = Field(default_factory=list)
     questions: list[dict[str, Any]] = Field(default_factory=list)
     directions: list[dict[str, Any]] = Field(default_factory=list)
+    projects: list[dict[str, Any]] = Field(default_factory=list)
     activity: list[dict[str, Any]] = Field(default_factory=list)
     brief_provenance: BriefProvenance | None = None

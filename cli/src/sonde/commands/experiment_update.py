@@ -44,6 +44,7 @@ from sonde.output import (
 @click.option("--content", "-c", "content_text", help="Replace content body")
 @click.option("--content-file", type=click.Path(exists=True), help="Replace content from file")
 @click.option("--direction", help="Set or change the parent research direction")
+@click.option("--project", help="Set or change the parent project")
 @click.option("--tag", multiple=True, help="Set tags (replaces existing)")
 @structured_metadata_options
 @pass_output_options
@@ -61,6 +62,7 @@ def update(
     content_text: str | None,
     content_file: str | None,
     direction: str | None,
+    project: str | None,
     tag: tuple[str, ...],
     repro: str | None,
     evidence: tuple[str, ...],
@@ -100,6 +102,8 @@ def update(
         updates["finding"] = finding
     if direction is not None:
         updates["direction_id"] = direction
+    if project is not None:
+        updates["project_id"] = project
 
     # Content
     if content_file:

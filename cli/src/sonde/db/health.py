@@ -26,7 +26,7 @@ def fetch_health_data(*, program: str | None = None) -> dict[str, Any]:
         client.table("experiments")
         .select(
             "id,status,content,finding,tags,parameters,metadata,"
-            "source,created_at,updated_at,direction_id,program,"
+            "source,created_at,updated_at,direction_id,project_id,parent_id,program,"
             "claimed_by,claimed_at,git_dirty"
         )
         .order("created_at", desc=True)
@@ -60,13 +60,24 @@ def fetch_health_data(*, program: str | None = None) -> dict[str, Any]:
     # 4. Active + proposed directions
     dir_query = (
         client.table("directions")
-        .select("id,program,title,status,created_at,updated_at")
+        .select("id,program,title,status,project_id,created_at,updated_at")
         .in_("status", ["active", "proposed"])
         .order("created_at", desc=True)
     )
     if program:
         dir_query = dir_query.eq("program", program)
     directions = rows(dir_query.execute().data)
+
+    # 4b. Active + proposed projects
+    proj_query = (
+        client.table("projects")
+        .select("id,program,name,status,created_at,updated_at")
+        .in_("status", ["proposed", "active"])
+        .order("created_at", desc=True)
+    )
+    if program:
+        proj_query = proj_query.eq("program", program)
+    projects = rows(proj_query.execute().data)
 
     # 5. Recent activity (last 7 days for staleness checks)
     cutoff = (datetime.now(UTC) - timedelta(days=7)).isoformat()
@@ -83,5 +94,6 @@ def fetch_health_data(*, program: str | None = None) -> dict[str, Any]:
         "findings": findings,
         "questions": questions,
         "directions": directions,
+        "projects": projects,
         "activity": activity,
     }

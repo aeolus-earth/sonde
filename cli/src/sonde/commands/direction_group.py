@@ -148,6 +148,7 @@ def direction_create(
     type=click.Choice(["proposed", "active", "paused", "completed", "abandoned"]),
     help="Update status",
 )
+@click.option("--project", help="Set or change the parent project")
 @pass_output_options
 @click.pass_context
 def direction_update(
@@ -156,6 +157,7 @@ def direction_update(
     title: str | None,
     question: str | None,
     status: str | None,
+    project: str | None,
 ) -> None:
     """Update a direction."""
     direction_id = direction_id.upper()
@@ -174,6 +176,7 @@ def direction_update(
             "title": title,
             "question": question,
             "status": status,
+            "project_id": project,
         }.items()
         if value is not None
     }

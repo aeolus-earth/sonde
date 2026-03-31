@@ -24,6 +24,13 @@ from sonde.checkers.experiments import (
     check_stale_running,
 )
 from sonde.checkers.findings import check_weakened_evidence
+from sonde.checkers.graph import (
+    check_broken_parent_refs,
+    check_empty_projects,
+    check_finding_evidence,
+    check_orphan_directions,
+    check_orphan_experiments,
+)
 from sonde.checkers.tags import check_tag_duplicates
 from sonde.models.health import HealthData, HealthIssue
 
@@ -40,6 +47,12 @@ CHECKERS: list[Checker] = [
     check_weakened_evidence,
     check_tag_duplicates,
     check_complete_directions,
+    # Graph connectivity
+    check_orphan_experiments,
+    check_orphan_directions,
+    check_broken_parent_refs,
+    check_empty_projects,
+    check_finding_evidence,
 ]
 
 
