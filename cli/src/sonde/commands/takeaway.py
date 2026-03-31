@@ -13,7 +13,6 @@ from sonde.config import get_settings
 from sonde.local import find_sonde_dir
 from sonde.output import err, print_error, print_json, print_success
 
-
 _HEADER = "# Takeaways\n"
 
 
@@ -63,9 +62,20 @@ def _replace_takeaways(content: str, source: str) -> Path:
 @click.command("takeaway")
 @click.argument("content", required=False, default=None)
 @click.option("--program", "-p", help="Program (for display only; default from .aeolus.yaml)")
-@click.option("--file", "-f", "from_file", type=click.Path(exists=True), help="Read content from file")
+@click.option(
+    "--file",
+    "-f",
+    "from_file",
+    type=click.Path(exists=True),
+    help="Read content from file",
+)
 @click.option("--show", is_flag=True, help="Display current takeaways")
-@click.option("--replace", "replace_content", default=None, help="Replace all takeaways (consolidate)")
+@click.option(
+    "--replace",
+    "replace_content",
+    default=None,
+    help="Replace all takeaways (consolidate)",
+)
 @pass_output_options
 @click.pass_context
 def takeaway(
@@ -105,7 +115,7 @@ def takeaway(
             err.print()
         else:
             err.print(f"\n[sonde.muted]No takeaways yet for {resolved_program}[/]")
-            err.print(f'  Add one: sonde takeaway "what you learned"\n')
+            err.print('  Add one: sonde takeaway "what you learned"\n')
         return
 
     # Replace mode
@@ -113,12 +123,14 @@ def takeaway(
         source = resolve_source()
         path = _replace_takeaways(replace_content, source)
         if ctx.obj.get("json"):
-            print_json({
-                "replaced": True,
-                "program": resolved_program,
-                "source": source,
-                "path": str(path),
-            })
+            print_json(
+                {
+                    "replaced": True,
+                    "program": resolved_program,
+                    "source": source,
+                    "path": str(path),
+                }
+            )
         else:
             print_success(f"Takeaways consolidated ({resolved_program})")
             err.print(f"  [sonde.muted]{path.relative_to(path.parent.parent)}[/]")
@@ -139,15 +151,17 @@ def takeaway(
     path = _append_takeaway(content, source)
 
     if ctx.obj.get("json"):
-        print_json({
-            "appended": True,
-            "program": resolved_program,
-            "content": content.strip(),
-            "source": source,
-            "path": str(path),
-        })
+        print_json(
+            {
+                "appended": True,
+                "program": resolved_program,
+                "content": content.strip(),
+                "source": source,
+                "path": str(path),
+            }
+        )
     else:
         print_success(f"Takeaway added ({resolved_program})")
         err.print(f"  [sonde.muted]{path.relative_to(path.parent.parent)}[/]")
-        err.print(f"  View: sonde takeaway --show")
+        err.print("  View: sonde takeaway --show")
         err.print(f"  Brief: sonde brief -p {resolved_program}")

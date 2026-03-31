@@ -188,7 +188,11 @@ def project_update(
 
     updated = db.update(project_id, updates)
     if not updated:
-        print_error(f"Failed to update {project_id}", "Update returned no data.")
+        print_error(
+            f"Failed to update {project_id}",
+            "Update returned no data.",
+            f"Try: sonde project show {project_id}",
+        )
         raise SystemExit(1)
 
     log_activity(project_id, "project", "updated", updates)

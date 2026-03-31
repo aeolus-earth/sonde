@@ -462,6 +462,9 @@ export const ArtifactGallery = memo(function ArtifactGallery({
   const { data: artifacts, isLoading } = useArtifacts(parentId);
   const [selectedIndex, setSelectedIndex] = useState(0);
 
+  const tree = useMemo(() => buildFileTree(artifacts ?? []), [artifacts]);
+  const handleTreeSelect = useCallback((i: number) => setSelectedIndex(i), []);
+
   if (!user) {
     return (
       <div className="rounded-[8px] border border-border-subtle py-6 text-center">
@@ -500,10 +503,7 @@ export const ArtifactGallery = memo(function ArtifactGallery({
   const hasPrev = clampedIndex > 0;
   const hasNext = clampedIndex < artifacts.length - 1;
 
-  // Build file tree from storage paths
-  const tree = useMemo(() => buildFileTree(artifacts), [artifacts]);
   const showTree = hasDirectories(tree);
-  const handleTreeSelect = useCallback((i: number) => setSelectedIndex(i), []);
 
   return (
     <div className="space-y-3">

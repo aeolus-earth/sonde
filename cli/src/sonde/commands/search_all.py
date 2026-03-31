@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import click
 
 from sonde.cli_options import pass_output_options
 from sonde.commands._context import use_json
 from sonde.config import get_settings
+from sonde.db import rows as to_rows
 from sonde.db.client import get_client
 from sonde.output import err, print_error, print_json, print_table
 
@@ -16,7 +19,13 @@ from sonde.output import err, print_error, print_json, print_table
 @click.option("--program", "-p", help="Filter by program (default: active program)")
 @click.option("-n", "--limit", "max_results", type=int, default=30, help="Max results")
 @pass_output_options
-def search_all_cmd(query: str, program: str | None, max_results: int, **opts: object) -> None:
+@click.pass_context
+def search_all_cmd(
+    ctx: click.Context,
+    query: str,
+    program: str | None,
+    max_results: int,
+) -> None:
     """Search across all record types and artifacts.
 
     Searches experiments (content, hypothesis, finding), findings (topic, finding),
@@ -28,7 +37,7 @@ def search_all_cmd(query: str, program: str | None, max_results: int, **opts: ob
         sonde search-all "gpu" --program nwp-development
         sonde search-all "results.json"  # finds artifacts by filename
     """
-    json_mode = use_json(opts)
+    json_mode = use_json(ctx)
     settings = get_settings()
     target_program = program or settings.program
 
@@ -43,20 +52,24 @@ def search_all_cmd(query: str, program: str | None, max_results: int, **opts: ob
             },
         ).execute()
     except Exception as exc:
-        print_error(f"Search failed: {exc}")
+        print_error(
+            "Search failed",
+            str(exc),
+            "Check your connection and query, or run: sonde doctor",
+        )
         raise SystemExit(1) from exc
 
-    results = resp.data or []
+    results = to_rows(resp.data)
 
     if json_mode:
         print_json(results)
         return
 
     if not results:
-        err(f'No results for "{query}"')
+        err.print(f'No results for "{query}"')
         return
 
-    rows = []
+    rows: list[dict[str, Any]] = []
     for r in results:
         rows.append(
             {
@@ -69,7 +82,7 @@ def search_all_cmd(query: str, program: str | None, max_results: int, **opts: ob
         )
 
     print_table(
+        ["id", "type", "title", "subtitle", "parent"],
         rows,
-        columns=["id", "type", "title", "subtitle", "parent"],
         title=f'Search: "{query}" ({len(results)} results)',
     )

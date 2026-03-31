@@ -43,7 +43,11 @@ from sonde.output import (
     type=click.Choice(list(BRANCH_TYPES)),
     help="Branch type",
 )
-@click.option("--clean/--keep-all", default=True, help="Strip stale inherited fields (default: clean)")
+@click.option(
+    "--clean/--keep-all",
+    default=True,
+    help="Strip stale inherited fields (default: clean)",
+)
 @click.argument("intent", required=False, default=None)
 @structured_metadata_options
 @pass_output_options
@@ -197,7 +201,8 @@ def fork(
         # Stale field warnings
         if stale_warnings and clean:
             stripped_names = ", ".join(f"{w['source']}.{w['key']}" for w in stale_warnings)
-            err.print(f"\n  [sonde.muted]Stripped {len(stale_warnings)} stale field(s): {stripped_names}[/]")
+            n = len(stale_warnings)
+            err.print(f"\n  [sonde.muted]Stripped {n} stale field(s): {stripped_names}[/]")
             err.print("  [sonde.muted]Use --keep-all to preserve inherited paths[/]")
         elif stale_warnings:
             err.print("\n  [sonde.warning]Inherited fields that may need updating:[/]")
@@ -219,7 +224,19 @@ def fork(
 # Fork helpers
 # ---------------------------------------------------------------------------
 
-_STALE_KEY_PATTERNS = {"dir", "path", "file", "output", "log", "artifact", "result", "cache", "tmp", "scratch", "checkpoint"}
+_STALE_KEY_PATTERNS = {
+    "dir",
+    "path",
+    "file",
+    "output",
+    "log",
+    "artifact",
+    "result",
+    "cache",
+    "tmp",
+    "scratch",
+    "checkpoint",
+}
 
 
 def _clean_stale_fields(

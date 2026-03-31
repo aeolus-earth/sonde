@@ -279,17 +279,22 @@ def _show_artifact(ctx: click.Context, artifact_id: str) -> None:
 
 def _show_project(ctx: click.Context, project_id: str) -> None:
     """Display a project with its directions and experiments."""
-    from sonde.db import directions as dir_db
     from sonde.db import projects as db
 
     p = db.get(project_id)
     if not p:
-        print_error(f"Project {project_id} not found", "No project with this ID.", "sonde project list")
+        print_error(
+            f"Project {project_id} not found",
+            "No project with this ID.",
+            "sonde project list",
+        )
         raise SystemExit(1)
 
     # Fetch directions and experiments under this project
     client = __import__("sonde.db.client", fromlist=["get_client"]).get_client()
-    dirs_result = client.table("directions").select("id,title,status").eq("project_id", project_id).execute()
+    dirs_result = (
+        client.table("directions").select("id,title,status").eq("project_id", project_id).execute()
+    )
     exps_result = (
         client.table("experiments")
         .select("id,status,hypothesis,finding")
@@ -315,7 +320,13 @@ def _show_project(ctx: click.Context, project_id: str) -> None:
     header.append(
         f"\n[sonde.muted]Source: {p.source}  Created: {p.created_at.strftime('%Y-%m-%d')}[/]"
     )
-    err.print(Panel("\n".join(header), title=f"[sonde.brand]{p.id}[/]", border_style="sonde.brand.dim"))
+    err.print(
+        Panel(
+            "\n".join(header),
+            title=f"[sonde.brand]{p.id}[/]",
+            border_style="sonde.brand.dim",
+        )
+    )
 
     dirs = dirs_result.data or []
     if dirs:
@@ -341,7 +352,7 @@ def _show_project(ctx: click.Context, project_id: str) -> None:
             title=f"Experiments ({len(exps)})",
         )
 
-    print_breadcrumbs([f"Directions: sonde direction list --all", f"Experiments: sonde list --all"])
+    print_breadcrumbs(["Directions: sonde direction list --all", "Experiments: sonde list --all"])
 
 
 def show_dispatch(ctx: click.Context, record_id: str, graph: bool) -> None:

@@ -199,12 +199,19 @@ def close_experiment(
     Examples:
       sonde close EXP-0001
       sonde close --finding "CCN saturates at 1500"
-      sonde close --finding "60% host compile" --takeaway "Host compile dominates. Next: warm cache."
+      sonde close --finding "60% host compile" --takeaway "Host dominates; next: warm cache."
     """
     from sonde.commands._helpers import resolve_experiment_id
 
     experiment_id = resolve_experiment_id(experiment_id)
-    _change_status(experiment_id, "complete", finding=finding, takeaway=takeaway, ctx=ctx, force=force)
+    _change_status(
+        experiment_id,
+        "complete",
+        finding=finding,
+        takeaway=takeaway,
+        ctx=ctx,
+        force=force,
+    )
 
 
 @click.command("open")

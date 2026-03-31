@@ -32,8 +32,7 @@ def check_orphan_experiments(data: HealthData) -> list[HealthIssue]:
                     category="graph",
                     severity="warning",
                     message=(
-                        f"{exp_id} has no project or direction"
-                        " — floating in the knowledge graph"
+                        f"{exp_id} has no project or direction — floating in the knowledge graph"
                     ),
                     record_id=exp_id,
                     fix=f"sonde update {exp_id} --project PROJ-XXX",
@@ -103,12 +102,8 @@ def check_empty_projects(data: HealthData) -> list[HealthIssue]:
         proj_name = proj.get("name", "")
 
         # Check if any directions or experiments reference this project
-        has_directions = any(
-            d.get("project_id") == proj_id for d in data.directions
-        )
-        has_experiments = any(
-            e.get("project_id") == proj_id for e in data.experiments
-        )
+        has_directions = any(d.get("project_id") == proj_id for d in data.directions)
+        has_experiments = any(e.get("project_id") == proj_id for e in data.experiments)
 
         if not has_directions and not has_experiments:
             issues.append(
@@ -116,8 +111,7 @@ def check_empty_projects(data: HealthData) -> list[HealthIssue]:
                     category="graph",
                     severity="warning",
                     message=(
-                        f"{proj_id} ({proj_name}) is active"
-                        " but has no directions or experiments"
+                        f"{proj_id} ({proj_name}) is active but has no directions or experiments"
                     ),
                     record_id=proj_id,
                     penalty=2,

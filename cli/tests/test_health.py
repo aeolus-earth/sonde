@@ -74,10 +74,20 @@ def _healthy_program() -> HealthData:
         experiments=[
             _make_experiment("EXP-0001", status="complete", project_id="PROJ-001"),
             _make_experiment("EXP-0002", status="complete", project_id="PROJ-001"),
-            _make_experiment("EXP-0003", status="running", updated_at=_ago(1), project_id="PROJ-001"),
+            _make_experiment(
+                "EXP-0003",
+                status="running",
+                updated_at=_ago(1),
+                project_id="PROJ-001",
+            ),
         ],
         projects=[
-            {"id": "PROJ-001", "name": "Test Project", "status": "active", "program": "weather-intervention"},
+            {
+                "id": "PROJ-001",
+                "name": "Test Project",
+                "status": "active",
+                "program": "weather-intervention",
+            },
         ],
         findings=[
             {
@@ -632,7 +642,14 @@ class TestHealthCommand:
         self._setup_health_mock(
             patched_db,
             experiments=[_make_experiment("EXP-0001", project_id="PROJ-001")],
-            projects=[{"id": "PROJ-001", "name": "Test", "status": "active", "program": "weather-intervention"}],
+            projects=[
+                {
+                    "id": "PROJ-001",
+                    "name": "Test",
+                    "status": "active",
+                    "program": "weather-intervention",
+                },
+            ],
             activity=[{"record_id": "EXP-0001", "action": "created", "created_at": _now()}],
         )
 

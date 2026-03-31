@@ -36,12 +36,12 @@ def handoff(ctx: click.Context, experiment_id: str | None) -> None:
       sonde handoff --json
       sonde handoff EXP-0164 --json
     """
+    from sonde.commands.next import build_suggestions
     from sonde.db import artifacts as art_db
     from sonde.db import directions as dir_db
     from sonde.db import experiments as exp_db
     from sonde.db import findings as find_db
     from sonde.db import notes as notes_db
-    from sonde.commands.next import build_suggestions
 
     experiment_id = resolve_experiment_id(experiment_id)
     exp = exp_db.get(experiment_id)
@@ -62,7 +62,15 @@ def handoff(ctx: click.Context, experiment_id: str | None) -> None:
     _render_handoff(data)
 
 
-def _build_handoff_data(exp, exp_db, dir_db, find_db, notes_db, art_db, build_suggestions) -> dict[str, Any]:
+def _build_handoff_data(
+    exp,
+    exp_db,
+    dir_db,
+    find_db,
+    notes_db,
+    art_db,
+    build_suggestions,
+) -> dict[str, Any]:
     """Assemble handoff data for an experiment."""
     # Direction context
     direction = None
@@ -123,6 +131,7 @@ def _build_handoff_data(exp, exp_db, dir_db, find_db, notes_db, art_db, build_su
 
     # Next actions
     from sonde.commands.lifecycle import _suggest_next
+
     suggestions = _suggest_next(exp, children, siblings)
 
     return {
@@ -146,12 +155,10 @@ def _build_handoff_data(exp, exp_db, dir_db, find_db, notes_db, art_db, build_su
         "direction": direction,
         "parent": parent_summary,
         "children": [
-            {"id": c.id, "status": c.status, "branch_type": c.branch_type}
-            for c in children
+            {"id": c.id, "status": c.status, "branch_type": c.branch_type} for c in children
         ],
         "siblings": [
-            {"id": s.id, "status": s.status, "branch_type": s.branch_type}
-            for s in siblings
+            {"id": s.id, "status": s.status, "branch_type": s.branch_type} for s in siblings
         ],
         "notes": recent_notes,
         "artifacts": artifact_list,
@@ -180,19 +187,19 @@ def _render_handoff(data: dict) -> None:
 
     # Content
     if exp.get("content"):
-        err.print(f"\n  [sonde.heading]Context[/]")
+        err.print("\n  [sonde.heading]Context[/]")
         for line in truncate_text(exp["content"], 300).split("\n")[:6]:
             err.print(f"    {line}")
 
     # Parameters
     if exp.get("parameters"):
-        err.print(f"\n  [sonde.heading]Parameters[/]")
+        err.print("\n  [sonde.heading]Parameters[/]")
         for k, v in exp["parameters"].items():
             err.print(f"    {k}: {v}")
 
     # Own finding
     if data.get("own_finding"):
-        err.print(f"\n  [sonde.heading]Finding[/]")
+        err.print("\n  [sonde.heading]Finding[/]")
         err.print(f"    {truncate_text(data['own_finding'], 200)}")
 
     # Notes
@@ -210,29 +217,31 @@ def _render_handoff(data: dict) -> None:
             size = ""
             if a.get("size_bytes"):
                 kb = a["size_bytes"] / 1024
-                size = f" ({kb:.1f} KB)" if kb < 1024 else f" ({kb/1024:.1f} MB)"
+                size = f" ({kb:.1f} KB)" if kb < 1024 else f" ({kb / 1024:.1f} MB)"
 
             err.print(f"    {a['id']}  {a['type']}  {a['filename']}{size}")
 
     # Related findings
     if data["findings"]:
-        err.print(f"\n  [sonde.heading]Related findings[/]")
+        err.print("\n  [sonde.heading]Related findings[/]")
         for f in data["findings"]:
             err.print(f"    {f['id']} — {f['finding']} [{f['confidence']}]")
 
     # Tree context
     if data["parent"]:
         p = data["parent"]
-        err.print(f"\n  [sonde.heading]Tree[/]")
+        err.print("\n  [sonde.heading]Tree[/]")
         err.print(f"    Parent: {p['id']} [{p['status']}] {p['summary']}")
     if data["children"]:
-        err.print(f"    Children: {', '.join(c['id'] + ' [' + c['status'] + ']' for c in data['children'])}")
+        ch = ", ".join(c["id"] + " [" + c["status"] + "]" for c in data["children"])
+        err.print(f"    Children: {ch}")
     if data["siblings"]:
-        err.print(f"    Siblings: {', '.join(s['id'] + ' [' + s['status'] + ']' for s in data['siblings'])}")
+        sib = ", ".join(s["id"] + " [" + s["status"] + "]" for s in data["siblings"])
+        err.print(f"    Siblings: {sib}")
 
     # Suggested next
     if data["suggested_next"]:
-        err.print(f"\n  [sonde.heading]Next[/]")
+        err.print("\n  [sonde.heading]Next[/]")
         for s in data["suggested_next"][:3]:
             err.print(f"    [sonde.brand]{s['command']}[/]")
             err.print(f"      [sonde.muted]{s['reason']}[/]")

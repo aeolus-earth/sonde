@@ -15,8 +15,7 @@ from sonde.coordination import STALE_CLAIM_HOURS
 from sonde.db import experiments as exp_db
 from sonde.db import findings as find_db
 from sonde.db import questions as q_db
-from sonde.local import find_sonde_dir
-from sonde.local import get_focused_experiment
+from sonde.local import find_sonde_dir, get_focused_experiment
 from sonde.models.experiment import Experiment
 from sonde.models.finding import Finding
 from sonde.models.question import Question
@@ -113,16 +112,12 @@ def _build_active_context(
     promoted = q_db_inner.find_by_promoted_to(active.id)
     for q in promoted:
         if not any(lq["id"] == q.id for lq in linked_questions):
-            linked_questions.append(
-                {"id": q.id, "question": q.question, "status": q.status}
-            )
+            linked_questions.append({"id": q.id, "question": q.question, "status": q.status})
     # If still no linked questions and we have a direction, look for open questions in same program
     if not linked_questions and active.direction_id and questions:
         # Best effort: surface open questions as context
         for q in questions[:2]:
-            linked_questions.append(
-                {"id": q.id, "question": q.question, "status": q.status}
-            )
+            linked_questions.append({"id": q.id, "question": q.question, "status": q.status})
 
     # Latest finding
     latest_finding = None
@@ -190,10 +185,7 @@ def _active_branch_ids(experiments: list[Experiment]) -> set[str] | None:
 
         # Walk to root
         ancestors = get_ancestors(active_exp.id)
-        if ancestors:
-            root_id = ancestors[-1]["id"]
-        else:
-            root_id = active_exp.id
+        root_id = ancestors[-1]["id"] if ancestors else active_exp.id
 
         # Get full subtree
         subtree = get_subtree(root_id)
@@ -505,11 +497,13 @@ def brief(
     if ctx.obj.get("json"):
         if show_active:
             # Slim output: only active context + stats
-            print_json({
-                "active": data.get("active"),
-                "stats": data["stats"],
-                "generated_at": data["generated_at"],
-            })
+            print_json(
+                {
+                    "active": data.get("active"),
+                    "stats": data["stats"],
+                    "generated_at": data["generated_at"],
+                }
+            )
         else:
             print_json(data)
         return
@@ -584,9 +578,7 @@ def _brief_all(
     print_breadcrumbs(["Drill down: sonde brief -p <program>", "Status:     sonde status"])
 
     if save:
-        data = _build_brief_data(
-            "all programs", experiments, findings, questions, program=None
-        )
+        data = _build_brief_data("all programs", experiments, findings, questions, program=None)
         _save_markdown(data)
 
 
@@ -610,8 +602,10 @@ def _render_active_context(data: dict) -> None:
         return
 
     exp = ac["experiment"]
-    err.print(f"\n[sonde.heading]Active[/]")
-    status_style = f"sonde.{exp['status']}" if exp['status'] in ('open', 'running', 'complete', 'failed') else "sonde.muted"
+    err.print("\n[sonde.heading]Active[/]")
+    _st = exp["status"]
+    _known = _st in ("open", "running", "complete", "failed")
+    status_style = f"sonde.{_st}" if _known else "sonde.muted"
     err.print(
         f"  [{status_style}]{exp['id']}[/]  {exp['status']}  "
         f"{truncate_text(exp.get('summary') or '', 80)}"
@@ -636,7 +630,8 @@ def _render_active_context(data: dict) -> None:
     # Linked question
     if ac.get("linked_questions"):
         for q in ac["linked_questions"][:2]:
-            err.print(f"    Question: [sonde.brand]{q['id']}[/] — {truncate_text(q['question'], 70)}")
+            qline = truncate_text(q["question"], 70)
+            err.print(f"    Question: [sonde.brand]{q['id']}[/] — {qline}")
 
     # Latest finding
     if ac.get("latest_finding"):
@@ -648,7 +643,7 @@ def _render_active_context(data: dict) -> None:
 
     # Next actions
     if ac.get("next_actions"):
-        err.print(f"\n  [sonde.heading]Next[/]")
+        err.print("\n  [sonde.heading]Next[/]")
         icons = {
             "high": "[sonde.error]●[/]",
             "medium": "[sonde.warning]●[/]",
@@ -672,7 +667,7 @@ def _render_active_only(data: dict, *, program: str | None = None) -> None:
     _render_active_context(data)
 
     if data.get("takeaways"):
-        err.print(f"\n[sonde.heading]Takeaways[/]")
+        err.print("\n[sonde.heading]Takeaways[/]")
         err.print(data["takeaways"])
 
     breadcrumbs = []
@@ -705,7 +700,7 @@ def _render_human(
     _render_active_context(data)
 
     if data.get("takeaways"):
-        err.print(f"\n[sonde.heading]Takeaways[/]")
+        err.print("\n[sonde.heading]Takeaways[/]")
         err.print(data["takeaways"])
 
     err.print()
