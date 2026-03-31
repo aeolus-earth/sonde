@@ -19,6 +19,7 @@ import { AuthGate } from "@/components/auth/auth-gate";
 import { NoteForm } from "@/components/experiments/note-form";
 import { StatusControls } from "@/components/experiments/status-controls";
 import { TagEditor } from "@/components/experiments/tag-editor";
+import { GitProvenance } from "@/components/experiments/git-provenance";
 import { ArrowLeft, MessageSquare } from "lucide-react";
 
 /** Detect if a string looks like it contains markdown formatting */
@@ -218,6 +219,13 @@ function ExperimentDetail() {
               )}
             </div>
           </Section>
+
+          {/* Git Provenance */}
+          {(exp.git_commit || exp.git_close_commit) && (
+            <Section title="Git Provenance">
+              <GitProvenance experiment={exp} />
+            </Section>
+          )}
 
           <Section title="Tags">
             <AuthGate action="edit tags">

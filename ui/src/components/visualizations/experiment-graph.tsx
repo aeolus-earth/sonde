@@ -20,6 +20,8 @@ import { Badge } from "@/components/ui/badge";
 import { useStatusChartColors, useThemeCssColors } from "@/hooks/use-theme-css-colors";
 import type { ExperimentSummary, ExperimentStatus } from "@/types/sonde";
 
+type StatusColorMap = Record<ExperimentStatus, string>;
+
 // ── Node dimensions for dagre ──────────────────────────────────
 
 const EXP_W = 220;
@@ -27,15 +29,16 @@ const EXP_H = 72;
 const DIR_W = 260;
 const DIR_H = 52;
 
-// ── Custom nodes ───────────────────────────────────────────────
+// ── Custom nodes (colors come from node.data — one theme read in parent, not per-node hooks) ──
 
 function ExperimentNode({ data }: NodeProps) {
-  const exp = data as unknown as ExperimentSummary;
-  const statusColor = useStatusChartColors();
+  const { statusColors, ...exp } = data as unknown as ExperimentSummary & {
+    statusColors: StatusColorMap;
+  };
   return (
     <div
       className="w-[220px] rounded-[8px] border border-border bg-surface transition-shadow hover:shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-accent)_30%,transparent)]"
-      style={{ borderLeftWidth: 3, borderLeftColor: statusColor[exp.status] }}
+      style={{ borderLeftWidth: 3, borderLeftColor: statusColors[exp.status] }}
     >
       <Handle type="target" position={Position.Top} className="!h-1.5 !w-1.5 !bg-border" />
       <div className="px-2.5 py-2">
@@ -55,14 +58,15 @@ function ExperimentNode({ data }: NodeProps) {
 }
 
 function DirectionNode({ data }: NodeProps) {
-  const statusColor = useStatusChartColors();
   const d = data as unknown as {
     label: string;
     dirId: string;
     count: number;
     expanded: boolean;
     statusCounts: Record<string, number>;
+    statusColors: StatusColorMap;
   };
+  const statusColor = d.statusColors;
   return (
     <div className="flex w-[260px] cursor-pointer items-center gap-2.5 rounded-[8px] border border-accent/20 bg-accent/5 px-3 py-2.5 transition-colors hover:border-accent/40">
       <Handle type="source" position={Position.Bottom} className="!h-1.5 !w-1.5 !bg-accent" />
@@ -103,12 +107,13 @@ function DirectionNode({ data }: NodeProps) {
 }
 
 function UngroupedNode({ data }: NodeProps) {
-  const statusColor = useStatusChartColors();
   const d = data as unknown as {
     count: number;
     expanded: boolean;
     statusCounts: Record<string, number>;
+    statusColors: StatusColorMap;
   };
+  const statusColor = d.statusColors;
   return (
     <div className="flex w-[260px] cursor-pointer items-center gap-2.5 rounded-[8px] border border-border-subtle bg-surface-raised px-3 py-2.5 transition-colors hover:border-border">
       <Handle type="source" position={Position.Bottom} className="!h-1.5 !w-1.5 !bg-border" />
@@ -270,6 +275,7 @@ export const ExperimentGraph = memo(function ExperimentGraph({
             count: exps.length,
             expanded: isExpanded,
             statusCounts: countStatuses(exps),
+            statusColors: statusColor,
           } as Record<string, unknown>,
           draggable: true,
         });
@@ -282,6 +288,7 @@ export const ExperimentGraph = memo(function ExperimentGraph({
             count: exps.length,
             expanded: isExpanded,
             statusCounts: countStatuses(exps),
+            statusColors: statusColor,
           } as Record<string, unknown>,
           draggable: true,
         });
@@ -294,7 +301,7 @@ export const ExperimentGraph = memo(function ExperimentGraph({
             id: exp.id,
             type: "experiment",
             position: { x: 0, y: 0 },
-            data: { ...exp } as Record<string, unknown>,
+            data: { ...exp, statusColors: statusColor } as Record<string, unknown>,
             draggable: true,
           });
 
@@ -311,7 +318,7 @@ export const ExperimentGraph = memo(function ExperimentGraph({
     }
 
     return layoutGraph(rawNodes, rawEdges);
-  }, [groups, directionNames, expanded, colors.border]);
+  }, [groups, directionNames, expanded, colors.border, statusColor]);
 
   // React Flow controlled state — enables drag
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
