@@ -19,6 +19,29 @@ Sonde exists because the bottleneck at Aeolus is not compute — it's the human 
 
 We are currently evaluating **LangChain / LangGraph** as the orchestration layer. This is a noted direction, not a committed architecture decision. The final choice of agent framework will be informed by prototyping against our actual infrastructure (Julia-based NWP stack, GPU clusters, Zarr/Icechunk data stores) during the scoping phase.
 
+### 2.1 Knowledge Base Backend: Database, Not Git
+
+The research knowledge base (experiments, findings, directions, questions, artifacts, activity) uses a database backend — not a git-based file store. This is an evaluated architecture decision, not a default. We considered git thoroughly (see `git-replace.md` for the full feature mapping) and chose a database for two reasons: workflow structure and write concurrency.
+
+**Structured research is the product.** The core value of the knowledge base is that it imposes structure on the research process — across sessions, across repos, across agents. `sonde log` enforces hypothesis, parameters, tags, program scope. `sonde list --status open` gives any new agent session immediate context about what's in flight. `sonde history` shows semantic actions (status changed, finding extracted), not just file diffs. Local markdown files can store the same information, but they don't enforce a schema, can't be queried across repos, and require every agent to discover, read, and parse them before it has context. The database makes the research state instantly queryable from anywhere — a new agent in any repo runs one command and knows what the team has tried, what's running, and what's been learned. This is valuable even for a single researcher working with one agent.
+
+**Git doesn't scale to concurrent writes.** Git's write model is serialized — a single `.git/index.lock` gates all commits. At low concurrency this is fine. At the Phase 3 scale (many parallel agent teams running autonomous research), it breaks:
+
+| Concurrent agents | Git | Database (PostgreSQL) |
+|---|---|---|
+| 10 | Fine | Fine |
+| 100 | Painful (push retry loops) | Fine |
+| 1000 | Broken | Fine |
+
+Each agent must pull before pushing; if another agent pushed in between, it retries. PostgreSQL handles concurrent inserts natively — row-level locking, MVCC, connection pooling. Each `sonde log` is one non-blocking write. No coordination with other agents. This matters because the Phase 3 vision is not hypothetical overhead — the entire thesis of Sonde is that research throughput scales with agents, not headcount. The backend must not be the bottleneck.
+
+**What git IS used for:** Git tracks code provenance. Every experiment records `git_commit`, `git_branch`, and `git_dirty` so results trace back to the exact code that produced them. Git is an input to the knowledge base, not the backend.
+
+**What this means for architecture:**
+- **Database** holds structured metadata: experiment records, findings, questions, directions, activity log, record links. This is the system of record and the query layer.
+- **Artifacts** (figures, datasets, model outputs) should live in object storage (S3) or the repo filesystem — not in database blob storage. The database stores metadata and paths; files stay where agents can read them directly.
+- **Local sync** (`sonde pull`) writes database records as markdown files with YAML front-matter to `.sonde/` in the repo. This gives agents fast local reads and offline access. The database remains authoritative for writes.
+
 ---
 
 ## 3. Who Uses It
