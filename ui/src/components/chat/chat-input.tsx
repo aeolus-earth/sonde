@@ -8,6 +8,8 @@ import {
   DEFEND_MY_EXISTENCE_COMMAND,
   getDefendMyExistenceCompletion,
 } from "@/lib/defend-existence";
+import { CHAT_COMPOSER_PROMPTS } from "./chat-composer-prompts";
+import { useRotatingTypewriter } from "@/hooks/use-rotating-typewriter";
 
 const MAX_FILES = 12;
 
@@ -44,6 +46,7 @@ export const ChatInput = memo(function ChatInput({
   const [mentions, setMentions] = useState<MentionRef[]>([]);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [fileDragActive, setFileDragActive] = useState(false);
+  const [composerFocused, setComposerFocused] = useState(false);
   const fileDragDepthRef = useRef(0);
   const mentionState = useChatMentions(pageContext ?? null);
 
@@ -334,6 +337,17 @@ export const ChatInput = memo(function ChatInput({
 
   const showFileDropChrome = fileDragActive && !disabled;
 
+  const showRotatingPlaceholder =
+    !disabled &&
+    value.length === 0 &&
+    !showFileDropChrome &&
+    !composerFocused;
+
+  const rotatingPlaceholderText = useRotatingTypewriter(
+    CHAT_COMPOSER_PROMPTS,
+    showRotatingPlaceholder
+  );
+
   return (
     <div className="relative w-full shrink-0 border-t border-border-subtle bg-surface px-3 py-3 md:px-4">
       <input
@@ -481,27 +495,42 @@ export const ChatInput = memo(function ChatInput({
             <Plus className="h-5 w-5 stroke-[2]" />
           </button>
 
-          <textarea
-            ref={textareaRef}
-            value={value}
-            onChange={handleChange}
-            onSelect={(e) => setCursorPos(e.currentTarget.selectionStart)}
-            onClick={(e) => setCursorPos(e.currentTarget.selectionStart)}
-            onKeyUp={(e) => setCursorPos(e.currentTarget.selectionStart)}
-            onKeyDown={handleKeyDown}
-            placeholder={
-              disabled
-                ? "Connecting…"
-                : "What sparks your curiosity?"
-            }
-            disabled={disabled}
-            rows={1}
-            className={cn(
-              "min-h-[52px] max-h-[192px] w-[calc(28ch*1.4)] min-w-0 shrink resize-none bg-transparent py-4 text-[14px] leading-5 text-text placeholder:text-text-quaternary",
-              "focus:outline-none disabled:opacity-40"
+          <div className="relative min-w-0 w-[calc(28ch*1.4)] shrink">
+            {showRotatingPlaceholder && (
+              <div
+                className="pointer-events-none absolute inset-0 z-0 flex items-center text-left text-[14px] leading-5 text-text-quaternary select-none"
+                aria-hidden
+              >
+                {rotatingPlaceholderText}
+              </div>
             )}
-            style={{ fieldSizing: "content" } as React.CSSProperties}
-          />
+            <textarea
+              ref={textareaRef}
+              value={value}
+              onChange={handleChange}
+              onFocus={() => setComposerFocused(true)}
+              onBlur={() => setComposerFocused(false)}
+              onSelect={(e) => setCursorPos(e.currentTarget.selectionStart)}
+              onClick={(e) => setCursorPos(e.currentTarget.selectionStart)}
+              onKeyUp={(e) => setCursorPos(e.currentTarget.selectionStart)}
+              onKeyDown={handleKeyDown}
+              placeholder={
+                disabled
+                  ? "Connecting…"
+                  : showRotatingPlaceholder
+                    ? ""
+                    : "What sparks your curiosity?"
+              }
+              disabled={disabled}
+              rows={1}
+              aria-label="Chat message"
+              className={cn(
+                "relative z-10 min-h-10 max-h-[192px] w-full resize-none bg-transparent py-2.5 text-[14px] leading-5 text-text placeholder:text-text-quaternary",
+                "focus:outline-none disabled:opacity-40"
+              )}
+              style={{ fieldSizing: "content" } as React.CSSProperties}
+            />
+          </div>
 
           {isStreaming ? (
             <button

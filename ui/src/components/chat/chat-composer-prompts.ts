@@ -1,0 +1,23 @@
+/** Rotating composer hints — Sonde capabilities and curiosity prompts. */
+export const CHAT_COMPOSER_PROMPTS: readonly string[] = [
+  "What sparks your curiosity?",
+  "What's going on at Aeolus today?",
+  "New idea for research?",
+  "Ask about experiments, findings, or directions…",
+  "Summarize what the team logged recently…",
+  "Find experiments in your program…",
+  "What should we try next?",
+  "Compare two runs or experiments…",
+  "Draft a finding from a messy result…",
+  "What questions are still open?",
+  "Trace a result back to code and data…",
+  "Search your research memory…",
+  "@ mention an experiment for full context…",
+  "What did we learn from that run?",
+  "Pull context from a notebook or attachment…",
+  "What's the next experiment to log?",
+  "Catch collaborators up on your progress…",
+  "Turn a loose thread into a direction…",
+  "Review notes and suggest a finding…",
+  "What would you log as a finding today?",
+];

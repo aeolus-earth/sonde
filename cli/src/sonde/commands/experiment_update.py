@@ -45,6 +45,7 @@ from sonde.output import (
 @click.option("--content-file", type=click.Path(exists=True), help="Replace content from file")
 @click.option("--direction", help="Set or change the parent research direction")
 @click.option("--project", help="Set or change the parent project")
+@click.option("--linear", help="Link to a Linear issue ID (e.g. AEO-123)")
 @click.option("--tag", multiple=True, help="Set tags (replaces existing)")
 @structured_metadata_options
 @pass_output_options
@@ -63,6 +64,7 @@ def update(
     content_file: str | None,
     direction: str | None,
     project: str | None,
+    linear: str | None,
     tag: tuple[str, ...],
     repro: str | None,
     evidence: tuple[str, ...],
