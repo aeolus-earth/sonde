@@ -553,6 +553,7 @@ class TestHealthCommand:
         findings=None,
         questions=None,
         directions=None,
+        projects=None,
         activity=None,
     ):
         """Set up mock to return different data per table."""
@@ -561,6 +562,7 @@ class TestHealthCommand:
             "findings": findings or [],
             "questions": questions or [],
             "directions": directions or [],
+            "projects": projects or [],
             "activity_log": activity or [],
         }
 
