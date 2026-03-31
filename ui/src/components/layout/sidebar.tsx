@@ -7,6 +7,7 @@ import {
   Compass,
   MessageCircleQuestion,
   LayoutDashboard,
+  FileText,
   Activity,
   X,
 } from "lucide-react";
@@ -21,6 +22,7 @@ import { ProgramSwitcher } from "./program-switcher";
 
 const navItems = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
+  { to: "/brief", label: "Brief", icon: FileText },
   { to: "/experiments", label: "Experiments", icon: FlaskConical },
   { to: "/tree", label: "Tree", icon: GitBranch },
   { to: "/directions", label: "Directions", icon: Compass },

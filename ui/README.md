@@ -1,3 +1,12 @@
+# Sonde UI
+
+## Performance notes
+
+- **React Scan** is off by default. Set `VITE_REACT_SCAN=1` when you need commit-level profiling; with it on, dev FPS is not a reliable product metric.
+- For scroll and frame timing, use a **production build** and `vite preview` (or Chrome Performance on the preview URL). Dev mode adds StrictMode double work and tooling overhead compared to preview.
+
+---
+
 # React + TypeScript + Vite
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.

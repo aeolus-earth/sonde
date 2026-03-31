@@ -31,16 +31,17 @@
 }
 
 html.dark {
-  --palette-bg: #141413;
-  --palette-surface: #444340;
-  --palette-surface-raised: #4a4945;
-  --palette-surface-hover: #52514d;
-  --palette-border: #3a3936;
-  --palette-border-subtle: #252524;
-  --palette-text: #cececb;
-  --palette-text-secondary: #636360;
-  --palette-text-tertiary: #848480;
-  --palette-text-quaternary: #a4a4a1;
+  /* Deeper surfaces so body text reads clearly; text ramp goes light → dim (not mid-grey on mid-grey). */
+  --palette-bg: #0c0c0b;
+  --palette-surface: #1a1a18;
+  --palette-surface-raised: #222220;
+  --palette-surface-hover: #2c2c29;
+  --palette-border: #3d3d3a;
+  --palette-border-subtle: #262625;
+  --palette-text: #ececea;
+  --palette-text-secondary: #b8b8b3;
+  --palette-text-tertiary: #8f8f89;
+  --palette-text-quaternary: #6e6e68;
   --palette-accent: #b86548;
   --palette-accent-hover: #c97a5c;
   --palette-accent-muted: color-mix(in srgb, #b86548 22%, transparent);

@@ -95,15 +95,20 @@ export const useSidebarMode = () => useUIStore((s) => s.sidebarMode);
 export const useMobileMenuOpen = () => useUIStore((s) => s.mobileMenuOpen);
 export const useSetMobileMenuOpen = () => useUIStore((s) => s.setMobileMenuOpen);
 
-// Listen for viewport resizes and update sidebarMode
+// Listen for viewport resizes and update sidebarMode (throttled — resize can fire at display rate)
 if (typeof window !== "undefined") {
+  let raf = 0;
   const onResize = () => {
-    const mode = getSidebarMode();
-    const state = useUIStore.getState();
-    if (state.sidebarMode !== mode) {
-      state.setSidebarMode(mode);
-      if (mode !== "hidden") state.setMobileMenuOpen(false);
-    }
+    if (raf !== 0) return;
+    raf = requestAnimationFrame(() => {
+      raf = 0;
+      const mode = getSidebarMode();
+      const state = useUIStore.getState();
+      if (state.sidebarMode !== mode) {
+        state.setSidebarMode(mode);
+        if (mode !== "hidden") state.setMobileMenuOpen(false);
+      }
+    });
   };
-  window.addEventListener("resize", onResize);
+  window.addEventListener("resize", onResize, { passive: true });
 }

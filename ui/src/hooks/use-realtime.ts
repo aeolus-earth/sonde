@@ -1,8 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
-import type { RealtimePostgresChangesPayload } from "@supabase/supabase-js";
-
 type Table =
   | "experiments"
   | "findings"
@@ -32,7 +30,7 @@ export function useRealtimeInvalidation(
       .on(
         "postgres_changes" as const,
         { event: "*", schema: "public", table },
-        (_payload: RealtimePostgresChangesPayload<Record<string, unknown>>) => {
+        () => {
           queryClient.invalidateQueries({ queryKey: [...queryKeyPrefix] });
         }
       )

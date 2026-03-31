@@ -351,6 +351,7 @@ export const ExperimentGraph = memo(function ExperimentGraph({
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onNodeClick={handleNodeClick}
+        onlyRenderVisibleElements
         nodesDraggable
         fitView
         fitViewOptions={{ padding: 0.2, maxZoom: 1.2 }}

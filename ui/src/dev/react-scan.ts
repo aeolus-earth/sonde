@@ -1,17 +1,14 @@
 /**
- * [React Scan](https://github.com/aidenybai/react-scan) — runtime render profiling (dev only).
+ * [React Scan](https://github.com/aidenybai/react-scan) — optional dev profiler (adds main-thread work; skews FPS).
  *
- * We use the library’s **instrumentation**, not static guessing:
- * - `scan({ onRender })` receives every profiled commit with component names + render weights.
- * - A throttled `console.table` surfaces the hottest components in DevTools (and in automated browser runs).
- *
- * Note: `trackUnnecessaryRenders` appears in upstream `.d.ts` but is **not** accepted by `validateOptions`
- * in react-scan **0.5.3** (latest on npm); gray-outline “unnecessary” mode isn’t available via API until that ships.
+ * Off by default. Enable when profiling: `VITE_REACT_SCAN=1 npm run dev`
+ * Optional verbose logs: `VITE_REACT_SCAN_LOG=1`
  *
  * Dynamic import keeps `react-scan` out of production bundles.
  */
 export function initReactScan(): void {
   if (!import.meta.env.DEV) return;
+  if (import.meta.env.VITE_REACT_SCAN !== "1") return;
 
   void import("react-scan").then(({ scan }) => {
     const windowStats = new Map<string, { renderWeight: number; unnecessaryHints: number }>();
@@ -43,10 +40,6 @@ export function initReactScan(): void {
     scan({
       enabled: true,
       showToolbar: true,
-      /**
-       * Built-in per-render logs — very noisy; enable when you need raw traces.
-       * @see https://github.com/aidenybai/react-scan
-       */
       log: import.meta.env.VITE_REACT_SCAN_LOG === "1",
       onRender: (_fiber, renders) => {
         for (const r of renders) {
