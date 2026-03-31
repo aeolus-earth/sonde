@@ -17,6 +17,7 @@ from sonde.db import directions as db
 from sonde.db.activity import log_activity
 from sonde.models.direction import DirectionCreate
 from sonde.output import err, print_error, print_json, print_success, print_table
+from sonde.services.directions import delete_direction as delete_direction_record
 
 
 @click.group(invoke_without_command=True)
@@ -227,8 +228,7 @@ def direction_delete(ctx: click.Context, direction_id: str, confirm: bool) -> No
         err.print("  Use --confirm to proceed.")
         raise SystemExit(1)
 
-    log_activity(direction_id, "direction", "deleted", {"deleted_by": resolve_source()})
-    deleted = db.delete(direction_id)
+    deleted = delete_direction_record(direction_id)
 
     if ctx.obj.get("json"):
         print_json({"deleted": {"id": direction_id}, **deleted})
