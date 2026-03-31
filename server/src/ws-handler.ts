@@ -77,7 +77,8 @@ export function handleWebSocket(
             msg.content,
             msg.mentions ?? [],
             msg.pageContext,
-            msg.attachments
+            msg.attachments,
+            msg.sessionId
           );
           break;
         case "approve_tasks":
@@ -149,7 +150,8 @@ async function handleUserMessage(
   content: string,
   mentions: MentionRef[],
   pageContext?: PageContext,
-  attachments?: ChatAttachmentPayload[]
+  attachments?: ChatAttachmentPayload[],
+  clientSessionId?: string
 ) {
   const pageLine = pageContext ? formatPageContextLine(pageContext) : "";
   const attachLine = formatAttachmentsForPrompt(attachments);
@@ -169,8 +171,16 @@ async function handleUserMessage(
   const prompt = chunks.join("\n\n");
 
   try {
-    for await (const event of session.query(prompt)) {
+    for await (const event of session.query(prompt, {
+      resumeSessionId: clientSessionId,
+    })) {
       switch (event.type) {
+        case "session":
+          send(ws, { type: "session", sessionId: event.sessionId });
+          break;
+        case "model_info":
+          send(ws, { type: "model_info", model: event.model });
+          break;
         case "text_delta":
           send(ws, { type: "text_delta", content: event.content });
           break;

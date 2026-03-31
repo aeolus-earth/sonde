@@ -7,97 +7,243 @@ import type {
   ToolUseData,
 } from "@/types/chat";
 
-interface ChatState {
+const PERSIST_VERSION = 2;
+
+export interface ChatTab {
+  id: string;
+  title: string;
   messages: ChatMessageData[];
   tasks: AgentTask[];
-  sessionId: string | null;
+  agentSessionId: string | null;
+}
+
+function createEmptyTab(title: string): ChatTab {
+  return {
+    id: crypto.randomUUID(),
+    title,
+    messages: [],
+    tasks: [],
+    agentSessionId: null,
+  };
+}
+
+function initialTabs(): { tabs: ChatTab[]; activeTabId: string } {
+  const t = createEmptyTab("Chat 1");
+  return { tabs: [t], activeTabId: t.id };
+}
+
+interface LegacyPersistedV1 {
+  messages?: ChatMessageData[];
+  sessionId?: string | null;
+  tabs?: ChatTab[];
+  activeTabId?: string;
+}
+
+interface ChatState {
+  tabs: ChatTab[];
+  activeTabId: string;
+  streamingTabId: string | null;
   isStreaming: boolean;
+  agentModel: string | null;
   connectionStatus: ConnectionStatus;
 
-  addMessage: (msg: ChatMessageData) => void;
-  appendToLastMessage: (text: string) => void;
-  addToolUseToLastMessage: (toolUse: ToolUseData) => void;
-  updateToolUse: (toolUseId: string, update: Partial<ToolUseData>) => void;
-  setTasks: (tasks: AgentTask[]) => void;
-  updateTaskStatus: (taskId: string, status: AgentTask["status"]) => void;
-  setSessionId: (id: string) => void;
+  addTab: () => void;
+  closeTab: (id: string) => void;
+  setActiveTab: (id: string) => void;
+  setTabAgentSessionId: (tabId: string, id: string) => void;
+
+  addMessage: (tabId: string, msg: ChatMessageData) => void;
+  appendToLastMessage: (tabId: string, text: string) => void;
+  addToolUseToLastMessage: (tabId: string, toolUse: ToolUseData) => void;
+  updateToolUse: (
+    tabId: string,
+    toolUseId: string,
+    update: Partial<ToolUseData>
+  ) => void;
+  setTasks: (tabId: string, tasks: AgentTask[]) => void;
+  updateTaskStatus: (
+    tabId: string,
+    taskId: string,
+    status: AgentTask["status"]
+  ) => void;
+  setAgentModel: (model: string | null) => void;
   setStreaming: (streaming: boolean) => void;
+  setStreamingTabId: (tabId: string | null) => void;
   setConnectionStatus: (status: ConnectionStatus) => void;
   clearConversation: () => void;
+}
+
+function mapTabsMessages(
+  tabs: ChatTab[],
+  tabId: string,
+  fn: (msgs: ChatMessageData[]) => ChatMessageData[]
+): ChatTab[] {
+  return tabs.map((t) =>
+    t.id === tabId ? { ...t, messages: fn(t.messages) } : t
+  );
 }
 
 export const useChatStore = create<ChatState>()(
   persist(
     (set) => ({
-      messages: [],
-      tasks: [],
-      sessionId: null,
+      ...initialTabs(),
+      streamingTabId: null,
       isStreaming: false,
+      agentModel: null,
       connectionStatus: "disconnected",
 
-      addMessage: (msg) =>
-        set((s) => ({ messages: [...s.messages, msg] })),
-
-      appendToLastMessage: (text) =>
+      addTab: () =>
         set((s) => {
-          const msgs = [...s.messages];
-          const last = msgs[msgs.length - 1];
-          if (last?.role === "assistant") {
-            msgs[msgs.length - 1] = { ...last, content: last.content + text };
-          }
-          return { messages: msgs };
+          const n = s.tabs.length + 1;
+          const tab = createEmptyTab(`Chat ${n}`);
+          return { tabs: [...s.tabs, tab], activeTabId: tab.id };
         }),
 
-      addToolUseToLastMessage: (toolUse) =>
+      closeTab: (id) =>
         set((s) => {
-          const msgs = [...s.messages];
-          const last = msgs[msgs.length - 1];
-          if (last?.role === "assistant") {
-            const existing = last.toolUses ?? [];
-            msgs[msgs.length - 1] = {
-              ...last,
-              toolUses: [...existing, toolUse],
-            };
+          if (s.tabs.length <= 1) return s;
+          const idx = s.tabs.findIndex((t) => t.id === id);
+          const nextTabs = s.tabs.filter((t) => t.id !== id);
+          let activeTabId = s.activeTabId;
+          if (activeTabId === id) {
+            const newIdx = Math.max(0, idx - 1);
+            activeTabId = nextTabs[newIdx]!.id;
           }
-          return { messages: msgs };
+          let streamingTabId = s.streamingTabId;
+          if (streamingTabId === id) streamingTabId = null;
+          return { tabs: nextTabs, activeTabId, streamingTabId };
         }),
 
-      updateToolUse: (toolUseId, update) =>
+      setActiveTab: (id) =>
         set((s) => {
-          const msgs = [...s.messages];
-          const last = msgs[msgs.length - 1];
-          if (last?.role === "assistant" && last.toolUses) {
-            const toolUses = last.toolUses.map((tu) =>
-              tu.id === toolUseId ? { ...tu, ...update } : tu
-            );
-            msgs[msgs.length - 1] = { ...last, toolUses };
-          }
-          return { messages: msgs };
+          if (!s.tabs.some((t) => t.id === id)) return s;
+          return { activeTabId: id };
         }),
 
-      setTasks: (tasks) => set({ tasks }),
-
-      updateTaskStatus: (taskId, status) =>
+      setTabAgentSessionId: (tabId, id) =>
         set((s) => ({
-          tasks: s.tasks.map((t) =>
-            t.id === taskId ? { ...t, status } : t
+          tabs: s.tabs.map((t) =>
+            t.id === tabId ? { ...t, agentSessionId: id } : t
           ),
         })),
 
-      setSessionId: (id) => set({ sessionId: id }),
+      addMessage: (tabId, msg) =>
+        set((s) => ({
+          tabs: mapTabsMessages(s.tabs, tabId, (msgs) => [...msgs, msg]),
+        })),
+
+      appendToLastMessage: (tabId, text) =>
+        set((s) => ({
+          tabs: mapTabsMessages(s.tabs, tabId, (msgs) => {
+            const copy = [...msgs];
+            const last = copy[copy.length - 1];
+            if (last?.role === "assistant") {
+              copy[copy.length - 1] = {
+                ...last,
+                content: last.content + text,
+              };
+            }
+            return copy;
+          }),
+        })),
+
+      addToolUseToLastMessage: (tabId, toolUse) =>
+        set((s) => ({
+          tabs: mapTabsMessages(s.tabs, tabId, (msgs) => {
+            const copy = [...msgs];
+            const last = copy[copy.length - 1];
+            if (last?.role === "assistant") {
+              const existing = last.toolUses ?? [];
+              copy[copy.length - 1] = {
+                ...last,
+                toolUses: [...existing, toolUse],
+              };
+            }
+            return copy;
+          }),
+        })),
+
+      updateToolUse: (tabId, toolUseId, update) =>
+        set((s) => ({
+          tabs: mapTabsMessages(s.tabs, tabId, (msgs) => {
+            const copy = [...msgs];
+            const last = copy[copy.length - 1];
+            if (last?.role === "assistant" && last.toolUses) {
+              const toolUses = last.toolUses.map((tu) =>
+                tu.id === toolUseId ? { ...tu, ...update } : tu
+              );
+              copy[copy.length - 1] = { ...last, toolUses };
+            }
+            return copy;
+          }),
+        })),
+
+      setTasks: (tabId, tasks) =>
+        set((s) => ({
+          tabs: s.tabs.map((t) => (t.id === tabId ? { ...t, tasks } : t)),
+        })),
+
+      updateTaskStatus: (tabId, taskId, status) =>
+        set((s) => ({
+          tabs: s.tabs.map((t) =>
+            t.id === tabId
+              ? {
+                  ...t,
+                  tasks: t.tasks.map((x) =>
+                    x.id === taskId ? { ...x, status } : x
+                  ),
+                }
+              : t
+          ),
+        })),
+
+      setAgentModel: (model) => set({ agentModel: model }),
 
       setStreaming: (streaming) => set({ isStreaming: streaming }),
+
+      setStreamingTabId: (tabId) => set({ streamingTabId: tabId }),
 
       setConnectionStatus: (status) => set({ connectionStatus: status }),
 
       clearConversation: () =>
-        set({ messages: [], tasks: [], sessionId: null, isStreaming: false }),
+        set((s) => {
+          const id = s.activeTabId;
+          return {
+            tabs: s.tabs.map((t) =>
+              t.id === id
+                ? { ...t, messages: [], tasks: [], agentSessionId: null }
+                : t
+            ),
+            isStreaming: false,
+            streamingTabId:
+              s.streamingTabId === id ? null : s.streamingTabId,
+            agentModel: null,
+          };
+        }),
     }),
     {
       name: "sonde-chat",
+      version: PERSIST_VERSION,
+      migrate: (persistedState, version) => {
+        if (version >= PERSIST_VERSION) return persistedState;
+        const legacy = persistedState as LegacyPersistedV1;
+        if (legacy.tabs && legacy.activeTabId) {
+          return persistedState;
+        }
+        const tab = createEmptyTab("Chat 1");
+        tab.messages = (legacy.messages ?? []).slice(-100);
+        tab.agentSessionId = legacy.sessionId ?? null;
+        return {
+          tabs: [tab],
+          activeTabId: tab.id,
+        };
+      },
       partialize: (state) => ({
-        messages: state.messages.slice(-100),
-        sessionId: state.sessionId,
+        tabs: state.tabs.map((t) => ({
+          ...t,
+          messages: t.messages.slice(-100),
+        })),
+        activeTabId: state.activeTabId,
       }),
     }
   )

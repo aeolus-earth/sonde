@@ -3,9 +3,11 @@ import { useChat } from "@/hooks/use-chat";
 import { useChatPageContext } from "@/contexts/chat-page-context";
 import { useChatStore } from "@/stores/chat";
 import { ChatHeader } from "./chat-header";
+import { ChatConnectionDot } from "./chat-connection-dot";
 import { ChatMessages } from "./chat-messages";
 import { ChatInput } from "./chat-input";
 import { ChatTaskList } from "./chat-task-list";
+import { ChatSessionTabs } from "./chat-session-tabs";
 
 class ChatErrorBoundary extends Component<
   { children: ReactNode },
@@ -47,18 +49,38 @@ function ChatPanelInner() {
     approveTasks,
     messages,
     tasks,
+    agentModel,
     isStreaming,
     isConnected,
     connectionStatus,
     clearConversation,
   } = useChat();
 
+  const modelLabel =
+    agentModel ??
+    (typeof import.meta.env.VITE_AGENT_MODEL_LABEL === "string"
+      ? import.meta.env.VITE_AGENT_MODEL_LABEL.trim() || null
+      : null);
+
+  const tabs = useChatStore((s) => s.tabs);
+  const activeTabId = useChatStore((s) => s.activeTabId);
+  const streamingTabId = useChatStore((s) => s.streamingTabId);
+  const addTab = useChatStore((s) => s.addTab);
+  const closeTab = useChatStore((s) => s.closeTab);
+  const setActiveTab = useChatStore((s) => s.setActiveTab);
   const setTasks = useChatStore((s) => s.setTasks);
 
   return (
-    <div className="flex h-full w-full min-h-0 flex-col overflow-hidden rounded-[10px] border border-border-subtle bg-surface shadow-sm">
+    <div className="relative flex h-full w-full min-h-0 flex-col overflow-hidden rounded-[10px] border border-border-subtle bg-surface shadow-sm">
+      <ChatSessionTabs
+        tabs={tabs}
+        activeTabId={activeTabId}
+        streamingTabId={streamingTabId}
+        onSelect={setActiveTab}
+        onAdd={addTab}
+        onClose={closeTab}
+      />
       <ChatHeader
-        connectionStatus={connectionStatus}
         hasMessages={messages.length > 0}
         onClearConversation={clearConversation}
         pageContext={pageContext}
@@ -69,7 +91,7 @@ function ChatPanelInner() {
       <ChatTaskList
         tasks={tasks}
         onApprove={approveTasks}
-        onDismiss={() => setTasks([])}
+        onDismiss={() => setTasks(activeTabId, [])}
       />
 
       <ChatInput
@@ -79,6 +101,22 @@ function ChatPanelInner() {
         isStreaming={isStreaming}
         disabled={!isConnected}
       />
+
+      <div className="pointer-events-none absolute bottom-3 right-3 z-20 flex max-w-[min(100%,22rem)] flex-row items-center justify-end gap-2">
+        {modelLabel && (
+          <div
+            className="min-w-0 max-w-[min(100%,18rem)] select-none text-right"
+            title={modelLabel}
+          >
+            <span className="block truncate text-[10px] font-mono text-text-quaternary/90">
+              {modelLabel}
+            </span>
+          </div>
+        )}
+        <div className="pointer-events-auto shrink-0">
+          <ChatConnectionDot connectionStatus={connectionStatus} />
+        </div>
+      </div>
     </div>
   );
 }

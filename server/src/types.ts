@@ -59,6 +59,12 @@ export interface ServerSession {
   sessionId: string;
 }
 
+/** Emitted after the agent SDK reports which model is in use (first turn). */
+export interface ServerModelInfo {
+  type: "model_info";
+  model: string;
+}
+
 export interface ServerTextDelta {
   type: "text_delta";
   content: string;
@@ -99,6 +105,7 @@ export interface ServerDone {
 
 export type ServerMessage =
   | ServerSession
+  | ServerModelInfo
   | ServerTextDelta
   | ServerTextDone
   | ServerToolUseStart
@@ -110,6 +117,8 @@ export type ServerMessage =
 // -- Agent internal events (from agent.ts -> ws-handler.ts) --
 
 export type AgentEvent =
+  | { type: "session"; sessionId: string }
+  | { type: "model_info"; model: string }
   | { type: "text_delta"; content: string }
   | { type: "text_done"; content: string; messageId: string }
   | { type: "tool_use_start"; id: string; tool: string; input: Record<string, unknown> }

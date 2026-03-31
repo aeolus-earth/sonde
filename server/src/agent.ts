@@ -25,9 +25,20 @@ Guidelines:
 const MAX_TURNS = 20;
 const MAX_BUDGET_USD = 1.0;
 
+/** Claude API ID — see https://platform.claude.com/docs/en/about-claude/models/overview */
+const DEFAULT_MODEL = "claude-sonnet-4-6";
+
+function resolveAgentModel(): string {
+  const fromEnv = process.env.AGENT_MODEL?.trim();
+  return fromEnv && fromEnv.length > 0 ? fromEnv : DEFAULT_MODEL;
+}
+
 export interface AgentSession {
   sessionId: string;
-  query(prompt: string): AsyncIterable<AgentEvent>;
+  query(
+    prompt: string,
+    options?: { resumeSessionId?: string }
+  ): AsyncIterable<AgentEvent>;
   abort(): void;
   close(): void;
 }
@@ -42,16 +53,24 @@ export function createAgentSession(sondeToken: string): AgentSession {
       return sessionId;
     },
 
-    async *query(prompt: string): AsyncIterable<AgentEvent> {
+    async *query(
+      prompt: string,
+      queryOptions?: { resumeSessionId?: string }
+    ): AsyncIterable<AgentEvent> {
       abortController = new AbortController();
       clearPendingTasks();
+
+      const clientResume = queryOptions?.resumeSessionId?.trim();
+      const resume =
+        clientResume && clientResume.length > 0 ? clientResume : undefined;
 
       const q = query({
         prompt,
         options: {
           abortController,
+          model: resolveAgentModel(),
           systemPrompt: SYSTEM_PROMPT,
-          resume: sessionId !== firstSessionId ? sessionId : undefined,
+          resume,
           mcpServers: { sonde: createSondeMcpServer(sondeToken) },
           permissionMode: "bypassPermissions",
           allowDangerouslySkipPermissions: true,
@@ -67,7 +86,15 @@ export function createAgentSession(sondeToken: string): AgentSession {
       for await (const rawMsg of q) {
         const msg = rawMsg as Record<string, unknown>;
         if (msg.type === "system" && msg.subtype === "init") {
-          sessionId = msg.session_id as string;
+          const nextId = (msg as { session_id?: string }).session_id;
+          if (typeof nextId === "string" && nextId.length > 0) {
+            sessionId = nextId;
+            yield { type: "session", sessionId: nextId };
+          }
+          const model = (msg as { model?: string }).model;
+          if (typeof model === "string" && model.length > 0) {
+            yield { type: "model_info", model };
+          }
           continue;
         }
 

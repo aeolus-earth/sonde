@@ -9,6 +9,8 @@ import {
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChatMessage } from "./chat-message";
 import { BrailleLive } from "./braille-activity";
+import { ChatEmptyState } from "./chat-empty-state";
+import { cn } from "@/lib/utils";
 import type { ChatMessageData } from "@/types/chat";
 
 interface ChatMessagesProps {
@@ -146,29 +148,55 @@ export const ChatMessages = memo(function ChatMessages({
     setUserScrolledUp(distanceFromBottom > PIN_THRESHOLD_PX);
   }, []);
 
-  if (messages.length === 0) {
-    return (
-      <div className="flex flex-1 items-center justify-center px-6 py-10">
-        <div className="max-w-md text-center">
-          <p className="text-[13px] text-text-secondary">
-            Ask about experiments, findings, or research directions.
-          </p>
-          <p className="mt-1 text-[11px] text-text-quaternary">
-            Use{" "}
-            <kbd className="rounded-[2px] border border-border px-1">@</kbd> to
-            reference records
-          </p>
-        </div>
-      </div>
-    );
-  }
+  const hasMessages = messages.length > 0;
+  const [chatEntered, setChatEntered] = useState(() => messages.length > 0);
+
+  useEffect(() => {
+    if (!hasMessages) {
+      setChatEntered(false);
+      return;
+    }
+    let raf1 = 0;
+    let raf2 = 0;
+    raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        setChatEntered(true);
+      });
+    });
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
+  }, [hasMessages]);
+
+  const showThread = hasMessages && chatEntered;
 
   return (
-    <div
-      ref={parentRef}
-      onScroll={handleScroll}
-      className="flex-1 overflow-y-auto [scrollbar-gutter:stable]"
-    >
+    <div className="relative grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)] [&>*]:col-start-1 [&>*]:row-start-1">
+      <div
+        className={cn(
+          "flex min-h-0 w-full flex-col transition-opacity duration-500 ease-in-out motion-reduce:transition-none",
+          showThread
+            ? "pointer-events-none z-0 opacity-0"
+            : "z-[1] opacity-100"
+        )}
+        aria-hidden={showThread}
+      >
+        <ChatEmptyState />
+      </div>
+
+      {hasMessages && (
+        <div
+          ref={parentRef}
+          onScroll={handleScroll}
+          className={cn(
+            "flex min-h-0 flex-col overflow-y-auto [scrollbar-gutter:stable] transition-opacity duration-500 ease-in-out motion-reduce:transition-none",
+            showThread
+              ? "z-[2] opacity-100"
+              : "pointer-events-none z-[2] opacity-0"
+          )}
+          aria-hidden={!showThread}
+        >
       <div
         style={{ height: `${virtualizer.getTotalSize()}px`, position: "relative" }}
       >
@@ -222,6 +250,8 @@ export const ChatMessages = memo(function ChatMessages({
         >
           Scroll to bottom
         </button>
+      )}
+        </div>
       )}
     </div>
   );

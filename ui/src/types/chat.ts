@@ -87,6 +87,11 @@ export interface ServerSession {
   sessionId: string;
 }
 
+export interface ServerModelInfo {
+  type: "model_info";
+  model: string;
+}
+
 export interface ServerTextDelta {
   type: "text_delta";
   content: string;
@@ -127,6 +132,7 @@ export interface ServerDone {
 
 export type ServerMessage =
   | ServerSession
+  | ServerModelInfo
   | ServerTextDelta
   | ServerTextDone
   | ServerToolUseStart

@@ -28,17 +28,28 @@ const RECONNECT_MAX_MS = 30000;
 
 const WS_CLOSE_UNAUTHORIZED = 4001;
 
+function resolveTargetTabId(): string {
+  const s = useChatStore.getState();
+  return s.streamingTabId ?? s.activeTabId;
+}
+
 function handleServerMessage(msg: ServerMessage) {
   const s = useChatStore.getState();
 
   switch (msg.type) {
     case "session":
-      s.setSessionId(msg.sessionId);
+      if (s.streamingTabId == null) return;
+      s.setTabAgentSessionId(s.streamingTabId, msg.sessionId);
       break;
 
-    case "text_delta":
+    case "model_info":
+      s.setAgentModel(msg.model);
+      break;
+
+    case "text_delta": {
+      const tabId = resolveTargetTabId();
       if (!s.isStreaming) {
-        s.addMessage({
+        s.addMessage(tabId, {
           id: crypto.randomUUID(),
           role: "assistant",
           content: "",
@@ -47,15 +58,17 @@ function handleServerMessage(msg: ServerMessage) {
         });
         s.setStreaming(true);
       }
-      s.appendToLastMessage(msg.content);
+      s.appendToLastMessage(tabId, msg.content);
       break;
+    }
 
     case "text_done":
       break;
 
-    case "tool_use_start":
+    case "tool_use_start": {
+      const tabId = resolveTargetTabId();
       if (!s.isStreaming) {
-        s.addMessage({
+        s.addMessage(tabId, {
           id: crypto.randomUUID(),
           role: "assistant",
           content: "",
@@ -64,27 +77,28 @@ function handleServerMessage(msg: ServerMessage) {
         });
         s.setStreaming(true);
       }
-      s.addToolUseToLastMessage({
+      s.addToolUseToLastMessage(tabId, {
         id: msg.id,
         tool: msg.tool,
         input: msg.input,
         status: "running",
       });
       break;
+    }
 
     case "tool_use_end":
-      s.updateToolUse(msg.id, {
+      s.updateToolUse(resolveTargetTabId(), msg.id, {
         output: msg.output,
         status: "done",
       });
       break;
 
     case "tasks":
-      s.setTasks(msg.tasks);
+      s.setTasks(resolveTargetTabId(), msg.tasks);
       break;
 
     case "error":
-      s.addMessage({
+      s.addMessage(resolveTargetTabId(), {
         id: crypto.randomUUID(),
         role: "system",
         content: msg.message,
@@ -94,6 +108,7 @@ function handleServerMessage(msg: ServerMessage) {
 
     case "done":
       s.setStreaming(false);
+      s.setStreamingTabId(null);
       break;
   }
 }
@@ -103,8 +118,15 @@ export function useChat() {
   const accessToken = useAuthStore((s) => s.session?.access_token);
   const authLoading = useAuthStore((s) => s.loading);
 
-  const messages = useChatStore((s) => s.messages);
-  const tasks = useChatStore((s) => s.tasks);
+  const messages = useChatStore((s) => {
+    const t = s.tabs.find((x) => x.id === s.activeTabId);
+    return t?.messages ?? [];
+  });
+  const tasks = useChatStore((s) => {
+    const t = s.tabs.find((x) => x.id === s.activeTabId);
+    return t?.tasks ?? [];
+  });
+  const agentModel = useChatStore((s) => s.agentModel);
   const isStreaming = useChatStore((s) => s.isStreaming);
   const connectionStatus = useChatStore((s) => s.connectionStatus);
   const clearConversation = useChatStore((s) => s.clearConversation);
@@ -186,8 +208,10 @@ export function useChat() {
 
     ws.onclose = (ev) => {
       wsRef.current = null;
-      useChatStore.getState().setConnectionStatus("disconnected");
-      useChatStore.getState().setStreaming(false);
+      const st = useChatStore.getState();
+      st.setConnectionStatus("disconnected");
+      st.setStreaming(false);
+      st.setStreamingTabId(null);
 
       if (ev.code === WS_CLOSE_UNAUTHORIZED) {
         void (async () => {
@@ -201,7 +225,8 @@ export function useChat() {
           authFailureRef.current = true;
           if (!authErrorLoggedRef.current) {
             authErrorLoggedRef.current = true;
-            useChatStore.getState().addMessage({
+            const s = useChatStore.getState();
+            s.addMessage(s.activeTabId, {
               id: crypto.randomUUID(),
               role: "system",
               content:
@@ -250,7 +275,9 @@ export function useChat() {
       const ws = wsRef.current;
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
-      const s = useChatStore.getState();
+      const s0 = useChatStore.getState();
+      const activeTabId = s0.activeTabId;
+      s0.setStreamingTabId(activeTabId);
 
       const attachmentPayload =
         files.length > 0 ? await filesToAttachmentPayloads(files) : undefined;
@@ -262,7 +289,8 @@ export function useChat() {
 
       const wireContent = expandDefendExistenceCommand(content) ?? content;
 
-      s.addMessage({
+      const s1 = useChatStore.getState();
+      s1.addMessage(activeTabId, {
         id: crypto.randomUUID(),
         role: "user",
         content,
@@ -271,11 +299,14 @@ export function useChat() {
         timestamp: Date.now(),
       });
 
+      const s2 = useChatStore.getState();
+      const tab = s2.tabs.find((t) => t.id === activeTabId);
+
       const payload: ClientMessage = {
         type: "message",
         content: wireContent,
         mentions,
-        sessionId: s.sessionId ?? undefined,
+        sessionId: tab?.agentSessionId ?? undefined,
         pageContext: pageContext ?? undefined,
         attachments: attachmentPayload,
       };
@@ -304,6 +335,7 @@ export function useChat() {
     approveTasks,
     messages,
     tasks,
+    agentModel,
     isStreaming,
     isConnected: connectionStatus === "connected",
     connectionStatus,
