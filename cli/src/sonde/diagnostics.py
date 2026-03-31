@@ -177,6 +177,7 @@ def build_supabase_section(*, deep: bool = False) -> DoctorSection:
     checks = [
         check_supabase_access(settings.program),
         check_schema_version(),
+        check_write_capabilities(settings.program),
     ]
     return build_section("supabase", checks, required=True)
 
@@ -656,6 +657,81 @@ def check_schema_version() -> DoctorCheck:
             }
 
     return _timed_check("supabase-schema-version", "Schema version", build, required=True)
+
+
+def check_write_capabilities(program: str) -> DoctorCheck:
+    """Probe per-table accessibility for the resolved program."""
+
+    _TABLES = [
+        ("experiments", "program"),
+        ("directions", "program"),
+        ("findings", "program"),
+        ("questions", "program"),
+        ("artifacts", "experiment_id"),  # no program column — just test read access
+        ("experiment_notes", "experiment_id"),
+    ]
+
+    def build() -> dict[str, Any]:
+        if not auth.is_authenticated():
+            return {
+                "status": "skipped",
+                "summary": "Capability check skipped (not authenticated).",
+            }
+        if not program:
+            return {
+                "status": "skipped",
+                "summary": "Capability check skipped (no program resolved).",
+            }
+
+        from postgrest.exceptions import APIError
+        from postgrest.types import CountMethod
+
+        from sonde.db.client import get_client
+
+        try:
+            client = get_client()
+        except SystemExit:
+            return {
+                "status": "skipped",
+                "summary": "Capability check skipped (client unavailable).",
+            }
+
+        accessible: list[str] = []
+        blocked: list[str] = []
+
+        for table, filter_col in _TABLES:
+            try:
+                query = client.table(table).select("id", count=CountMethod.exact).limit(0)
+                if filter_col == "program":
+                    query = query.eq("program", program)
+                query.execute()
+                accessible.append(table)
+            except (APIError, Exception):
+                blocked.append(table)
+
+        details = []
+        for t in accessible:
+            details.append(f"{t:20s} accessible")
+        for t in blocked:
+            details.append(f"{t:20s} not accessible")
+
+        if blocked:
+            return {
+                "status": "warn",
+                "summary": f"{len(blocked)} table(s) not accessible for {program}.",
+                "details": details,
+                "fix": "Check program membership or RLS policies.",
+                "metadata": {"accessible": accessible, "blocked": blocked},
+            }
+
+        return {
+            "status": "ok",
+            "summary": f"All tables accessible for {program}.",
+            "details": details,
+            "metadata": {"accessible": accessible, "blocked": blocked},
+        }
+
+    return _timed_check("supabase-capabilities", "Write capabilities", build, required=True)
 
 
 def check_artifact_sync(program: str) -> DoctorCheck:

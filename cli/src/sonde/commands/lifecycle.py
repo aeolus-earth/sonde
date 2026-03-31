@@ -410,15 +410,29 @@ def _change_status(
     # Human output
     print_success(f"{experiment_id}: {old_status} → {new_status}")
 
-    # Nudge: missing content after start
+    # Nudge: missing content after start (branch-type-aware)
     if new_status == "running" and not ctx.obj.get("json") and exp_after and not exp_after.content:
         from sonde.output import print_nudge
 
-        print_nudge(
-            "Document your approach — method, parameters, expected outcome:",
-            f'sonde update {experiment_id} "## Method\\n'
-            f'Spectral bin, CCN=1500, 25km\\n\\n## Expected\\nSaturation"',
-        )
+        bt = exp_after.branch_type
+        if bt == "debug":
+            print_nudge(
+                "Document the bug you're investigating — observed behavior, repro, hypothesis:",
+                f'sonde update {experiment_id} "## Observed\\n<what went wrong>\\n\\n'
+                f'## Repro\\n<exact command>\\n\\n## Hypothesis\\n<suspected cause>"',
+            )
+        elif bt == "refinement":
+            print_nudge(
+                "Document what changed from the parent and why:",
+                f'sonde update {experiment_id} "## Changed\\n<what is different>\\n\\n'
+                f'## Hypothesis\\n<expected improvement>"',
+            )
+        else:
+            print_nudge(
+                "Document your approach — method, parameters, expected outcome:",
+                f'sonde update {experiment_id} "## Objective\\n<what & why>\\n\\n'
+                f'## Setup\\n<config, hardware, command>\\n\\n## Expected\\n<success criteria>"',
+            )
 
     # Nudge: no finding recorded at close
     if (
