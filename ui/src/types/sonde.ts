@@ -160,6 +160,8 @@ export interface Direction {
   question: string;
   status: DirectionStatus;
   source: string;
+  /** Present when direction_status includes project_id (migration applied). */
+  project_id?: string | null;
   created_at: string;
   updated_at: string;
 }
