@@ -27,7 +27,6 @@ def login(ctx: click.Context) -> None:
             return
 
     print_banner()
-    err.print("[sonde.muted]Opening browser for Aeolus sign-in...[/]")
     try:
         user = auth.login()
     except TimeoutError as e:

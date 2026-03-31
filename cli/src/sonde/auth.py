@@ -1,7 +1,7 @@
 """Authentication — login, logout, token management.
 
 Two auth paths, one interface:
-  Human: sonde login → browser OAuth → session in keyring/file
+  Human: sonde login → OAuth URL on stderr, browser when available, callback → session
   Agent: SONDE_TOKEN env var → custom JWT → flows through RLS
 """
 
@@ -26,6 +26,7 @@ from supabase_auth.errors import AuthApiError
 from supabase_auth.types import CodeExchangeParams
 
 from sonde.config import CONFIG_DIR, SESSION_FILE, SUPABASE_ANON_KEY, SUPABASE_URL
+from sonde.output import err
 
 logger = logging.getLogger(__name__)
 
@@ -300,7 +301,7 @@ def _is_expired(token: str) -> bool:
 
 
 def login() -> UserInfo:
-    """Run the full OAuth PKCE flow. Opens browser, waits for callback."""
+    """Run OAuth PKCE: print sign-in URL, open browser when possible, wait for callback."""
     client = _anon_client()
 
     port = _find_open_port()
@@ -465,8 +466,38 @@ def _find_open_port() -> int:
         return s.getsockname()[1]
 
 
+def _skip_browser_launch() -> bool:
+    return os.environ.get("SONDE_LOGIN_NO_BROWSER", "").lower() in ("1", "true", "yes")
+
+
+def _emit_login_browser_instructions(port: int, auth_url: str) -> None:
+    """Print sign-in URL to stderr, try to open the system browser, explain when that fails."""
+    err.print("[sonde.muted]Sign in with your Aeolus Google Workspace account.[/]")
+    err.print(
+        "  [sonde.muted]Use this link in your browser (click if your terminal supports links):[/]"
+    )
+    err.print(f"  [link={auth_url}]Open Aeolus sign-in[/link]")
+    err.print(f"  [sonde.muted]{auth_url}[/]")
+
+    if os.environ.get("SSH_CONNECTION"):
+        err.print(
+            f"  [sonde.muted]Remote session: forward port {port} (e.g. "
+            f"ssh -L {port}:127.0.0.1:{port} user@host) so the OAuth redirect reaches "
+            "this machine.[/]"
+        )
+
+    opened = False
+    if not _skip_browser_launch():
+        opened = bool(webbrowser.open(auth_url))
+    if not _skip_browser_launch() and not opened:
+        err.print(
+            "[sonde.warning]Could not open a browser automatically.[/] "
+            "[sonde.muted]Use the sign-in link above, then return to this terminal.[/]"
+        )
+
+
 def _wait_for_callback(port: int, auth_url: str) -> str:
-    """Start a temporary HTTP server, open the browser, wait for the OAuth callback."""
+    """Start a temporary HTTP server, print URL and open browser, wait for the OAuth callback."""
     code_received = Event()
     auth_code: list[str] = []
     callback_page = _load_callback_html()
@@ -492,16 +523,15 @@ def _wait_for_callback(port: int, auth_url: str) -> str:
     server = HTTPServer(("127.0.0.1", port), CallbackHandler)
     server.timeout = CALLBACK_TIMEOUT
 
-    webbrowser.open(auth_url)
+    _emit_login_browser_instructions(port, auth_url)
 
     try:
         while not code_received.is_set():
             server.handle_request()
             if not code_received.is_set():
                 raise TimeoutError(
-                    f"Login timed out after {CALLBACK_TIMEOUT}s.\n"
-                    "  If your browser didn't open, visit this URL manually:\n"
-                    f"  {auth_url}"
+                    f"Login timed out after {CALLBACK_TIMEOUT}s. "
+                    "Finish signing in before the timeout, or run sonde login again."
                 )
     finally:
         server.server_close()
