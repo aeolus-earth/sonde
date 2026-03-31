@@ -1,9 +1,11 @@
-import { useState, memo } from "react";
+import { useState, useMemo, useCallback, memo } from "react";
 import {
   ChevronLeft,
   ChevronRight,
   Download,
   Paperclip,
+  Folder,
+  FolderOpen,
   Image,
   FileText,
   FileSpreadsheet,
@@ -55,6 +57,157 @@ function iconForArtifact(a: Artifact): typeof File {
   if (isVideo(a)) return Film;
   if (isImage(a)) return Image;
   return typeIcon[a.type];
+}
+
+// ── File tree types + builder ────────────────────────────────────
+
+interface FileTreeNode {
+  name: string;
+  path: string; // full path segment
+  artifact?: Artifact; // leaf node
+  artifactIndex?: number; // index in flat artifacts array
+  children: FileTreeNode[];
+}
+
+/**
+ * Parse storage_path to extract the relative path after the parent ID prefix.
+ * e.g. "EXP-0158/profiling_artifacts/phase_summary.json" → "profiling_artifacts/phase_summary.json"
+ */
+function relativePath(a: Artifact): string {
+  const parts = a.storage_path.split("/");
+  // First segment is the parent ID (EXP-0158, FIND-001, etc.) — skip it
+  if (parts.length > 1 && /^(EXP|FIND|DIR|PROJ)-/.test(parts[0])) {
+    return parts.slice(1).join("/");
+  }
+  return a.storage_path;
+}
+
+function buildFileTree(artifacts: Artifact[]): FileTreeNode {
+  const root: FileTreeNode = { name: "", path: "", children: [] };
+
+  artifacts.forEach((a, index) => {
+    const rel = relativePath(a);
+    const segments = rel.split("/");
+    let current = root;
+
+    // Walk/create folder nodes for each directory segment
+    for (let i = 0; i < segments.length - 1; i++) {
+      const seg = segments[i];
+      let child = current.children.find(
+        (c) => c.name === seg && !c.artifact
+      );
+      if (!child) {
+        child = {
+          name: seg,
+          path: segments.slice(0, i + 1).join("/"),
+          children: [],
+        };
+        current.children.push(child);
+      }
+      current = child;
+    }
+
+    // Add the file as a leaf
+    current.children.push({
+      name: segments[segments.length - 1],
+      path: rel,
+      artifact: a,
+      artifactIndex: index,
+      children: [],
+    });
+  });
+
+  return root;
+}
+
+/** Check if tree has any directories (not just flat files) */
+function hasDirectories(root: FileTreeNode): boolean {
+  return root.children.some((c) => !c.artifact && c.children.length > 0);
+}
+
+// ── File tree component ──────────────────────────────────────────
+
+function FileTreeView({
+  node,
+  selectedIndex,
+  onSelect,
+  depth = 0,
+  defaultOpen = true,
+}: {
+  node: FileTreeNode;
+  selectedIndex: number;
+  onSelect: (index: number) => void;
+  depth?: number;
+  defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  const isFolder = !node.artifact && node.children.length > 0;
+  const isFile = !!node.artifact;
+  const isSelected = isFile && node.artifactIndex === selectedIndex;
+
+  if (isFolder) {
+    const fileCount = countFiles(node);
+    return (
+      <div>
+        <button
+          onClick={() => setOpen((o) => !o)}
+          className="flex w-full items-center gap-1.5 rounded-[3px] px-1 py-[3px] text-left transition-colors hover:bg-surface-hover"
+          style={{ paddingLeft: depth * 12 + 4 }}
+        >
+          {open ? (
+            <FolderOpen className="h-3.5 w-3.5 shrink-0 text-accent/70" />
+          ) : (
+            <Folder className="h-3.5 w-3.5 shrink-0 text-accent/70" />
+          )}
+          <span className="text-[11px] font-medium text-text">
+            {node.name}
+          </span>
+          <span className="text-[10px] text-text-quaternary">
+            {fileCount}
+          </span>
+        </button>
+        {open && (
+          <div>
+            {node.children.map((child) => (
+              <FileTreeView
+                key={child.path}
+                node={child}
+                selectedIndex={selectedIndex}
+                onSelect={onSelect}
+                depth={depth + 1}
+                defaultOpen={depth < 1}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (isFile && node.artifact) {
+    const Icon = iconForArtifact(node.artifact);
+    return (
+      <button
+        onClick={() => onSelect(node.artifactIndex!)}
+        className={`flex w-full items-center gap-1.5 rounded-[3px] px-1 py-[3px] text-left transition-colors ${
+          isSelected
+            ? "bg-accent/10 text-accent"
+            : "text-text-tertiary hover:bg-surface-hover hover:text-text-secondary"
+        }`}
+        style={{ paddingLeft: depth * 12 + 4 }}
+      >
+        <Icon className="h-3 w-3 shrink-0" />
+        <span className="truncate text-[11px]">{node.name}</span>
+      </button>
+    );
+  }
+
+  return null;
+}
+
+function countFiles(node: FileTreeNode): number {
+  if (node.artifact) return 1;
+  return node.children.reduce((sum, c) => sum + countFiles(c), 0);
 }
 
 // ── CSV table ────────────────────────────────────────────────────
@@ -347,13 +500,32 @@ export const ArtifactGallery = memo(function ArtifactGallery({
   const hasPrev = clampedIndex > 0;
   const hasNext = clampedIndex < artifacts.length - 1;
 
+  // Build file tree from storage paths
+  const tree = useMemo(() => buildFileTree(artifacts), [artifacts]);
+  const showTree = hasDirectories(tree);
+  const handleTreeSelect = useCallback((i: number) => setSelectedIndex(i), []);
+
   return (
     <div className="space-y-3">
-      {/* Tab bar */}
-      <div className="space-y-2">
-        <div className="text-[12px] text-text-secondary">
-          {artifacts.length} artifact{artifacts.length !== 1 && "s"}
+      {/* File browser */}
+      <div className="text-[12px] text-text-secondary">
+        {artifacts.length} artifact{artifacts.length !== 1 && "s"}
+      </div>
+
+      {showTree ? (
+        /* Tree view for directory structures */
+        <div className="max-h-[200px] overflow-y-auto rounded-[5.5px] border border-border-subtle bg-bg p-1.5">
+          {tree.children.map((child) => (
+            <FileTreeView
+              key={child.path}
+              node={child}
+              selectedIndex={clampedIndex}
+              onSelect={handleTreeSelect}
+            />
+          ))}
         </div>
+      ) : (
+        /* Flat tab bar for single-level artifacts */
         <div className="flex items-center gap-1 overflow-x-auto pb-2 scrollbar-none">
           {artifacts.map((a, i) => {
             const Icon = iconForArtifact(a);
@@ -373,11 +545,16 @@ export const ArtifactGallery = memo(function ArtifactGallery({
             );
           })}
         </div>
-      </div>
+      )}
 
-      {/* Header */}
+      {/* Header — show full relative path */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
+          <span className="font-mono text-[11px] text-text-quaternary">
+            {relativePath(selected).includes("/")
+              ? relativePath(selected).split("/").slice(0, -1).join("/") + "/"
+              : ""}
+          </span>
           <span className="font-mono text-[12px] font-medium text-text">{selected.filename}</span>
           {isGif(selected) && (
             <span className="rounded-[3px] bg-surface-raised px-1 py-0.5 text-[9px] font-medium uppercase text-text-quaternary">GIF</span>
