@@ -13,6 +13,7 @@ import logging
 import os
 import secrets
 import socket
+import time
 import webbrowser
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -483,6 +484,10 @@ def _emit_login_browser_instructions(port: int, auth_url: str) -> None:
         "Google sign-in, add http://localhost:*/callback to Supabase → Authentication → "
         "Redirect URLs.[/]"
     )
+    err.print(
+        "  [sonde.muted]If sign-in lands on a localhost error page in the browser, keep that "
+        "tab open. You can paste the callback URL back here if automatic redirect fails.[/]"
+    )
 
     if os.environ.get("SSH_CONNECTION"):
         err.print(
@@ -499,6 +504,61 @@ def _emit_login_browser_instructions(port: int, auth_url: str) -> None:
             "[sonde.warning]Could not open a browser automatically.[/] "
             "[sonde.muted]Use the sign-in link above, then return to this terminal.[/]"
         )
+
+
+def _extract_auth_code(value: str) -> str | None:
+    """Extract an auth code from raw input or a redirected callback URL."""
+    candidate = value.strip().strip("'\"")
+    if not candidate:
+        return None
+
+    parsed = urlparse(candidate)
+    if parsed.scheme and parsed.netloc:
+        query = parse_qs(parsed.query)
+        codes = query.get("code")
+        if codes and codes[0]:
+            return codes[0]
+        return None
+
+    return candidate
+
+
+def _prompt_for_manual_callback(port: int) -> str | None:
+    """Ask the user for the redirected callback URL when localhost is unreachable."""
+    err.print(
+        "[sonde.warning]Automatic callback did not reach this machine.[/] "
+        "[sonde.muted]This is common on VMs and remote terminals.[/]"
+    )
+    err.print(
+        "  [sonde.muted]If the browser is showing a localhost error page, copy the full URL "
+        "from the address bar and paste it here. You can also paste just the code value.[/]"
+    )
+    err.print(f"  [sonde.muted]Expected callback: http://localhost:{port}/callback?code=...[/]")
+
+    for _ in range(3):
+        try:
+            response = err.input("  [sonde.muted]Callback URL or auth code:[/] ")
+        except EOFError:
+            return None
+
+        code = _extract_auth_code(response)
+        if code:
+            return code
+
+        err.print(
+            "[sonde.warning]No auth code found in that input.[/] "
+            "[sonde.muted]Paste the full redirected URL or the raw code value.[/]"
+        )
+
+    return None
+
+
+def _login_timeout_message() -> str:
+    """Shared timeout guidance for interactive login."""
+    return (
+        f"Login timed out after {CALLBACK_TIMEOUT}s. Finish signing in before the timeout, "
+        "or rerun sonde login and paste the callback URL if localhost is unreachable."
+    )
 
 
 def _wait_for_callback(port: int, auth_url: str) -> str:
@@ -526,19 +586,22 @@ def _wait_for_callback(port: int, auth_url: str) -> str:
             pass  # Suppress HTTP server logs
 
     server = HTTPServer(("127.0.0.1", port), CallbackHandler)
-    server.timeout = CALLBACK_TIMEOUT
+    server.timeout = 1
 
     _emit_login_browser_instructions(port, auth_url)
+    deadline = time.monotonic() + CALLBACK_TIMEOUT
 
     try:
-        while not code_received.is_set():
+        while not code_received.is_set() and time.monotonic() < deadline:
             server.handle_request()
-            if not code_received.is_set():
-                raise TimeoutError(
-                    f"Login timed out after {CALLBACK_TIMEOUT}s. "
-                    "Finish signing in before the timeout, or run sonde login again."
-                )
     finally:
         server.server_close()
 
-    return auth_code[0]
+    if code_received.is_set():
+        return auth_code[0]
+
+    manual_code = _prompt_for_manual_callback(port)
+    if manual_code:
+        return manual_code
+
+    raise TimeoutError(_login_timeout_message())
