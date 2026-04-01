@@ -175,12 +175,22 @@ def print_nudge(message: str, command: str) -> None:
 def ui_url(record_id: str) -> str:
     """Generate a clickable URL to the Sonde UI for a record.
 
-    Uses SONDE_UI_URL env var if set, otherwise defaults to localhost:5173.
+    Priority: SONDE_UI_URL env var > settings.ui_url (from .aeolus.yaml) > default.
     Supports EXP-, FIND-, DIR-, PROJ-, Q- prefixes.
     """
     import os
 
-    base = os.environ.get("SONDE_UI_URL", "http://localhost:5173").rstrip("/")
+    explicit = os.environ.get("SONDE_UI_URL")
+    if explicit:
+        base = explicit.rstrip("/")
+    else:
+        try:
+            from sonde.config import get_settings
+
+            cfg_url = get_settings().ui_url
+            base = cfg_url.rstrip("/") if cfg_url else "https://sonde-git-main-aeolus-15ec6a6a.vercel.app"
+        except Exception:
+            base = "https://sonde-git-main-aeolus-15ec6a6a.vercel.app"
     prefix = record_id.split("-")[0] if "-" in record_id else ""
 
     route_map = {
