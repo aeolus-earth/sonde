@@ -56,19 +56,25 @@ export function useExperimentsByProject(projectId: string) {
   });
 }
 
-export function useDirectionsByProject(projectId: string) {
+/**
+ * Directions for a project. Uses the **project's** `program`, not the header active program —
+ * otherwise opening a project while another program is selected loads the wrong `direction_status`
+ * rows and `project_id` filtering yields nothing.
+ */
+export function useDirectionsByProject(projectId: string, program: string | undefined) {
   return useQuery({
-    queryKey: ["directions", "by-project", projectId] as const,
+    queryKey: ["directions", "by-project", projectId, program] as const,
     queryFn: async (): Promise<DirectionSummary[]> => {
+      if (!program) return [];
       const { data, error } = await supabase
         .from("direction_status")
         .select("*")
-        .eq("project_id", projectId)
+        .eq("program", program)
         .order("updated_at", { ascending: false });
 
       if (error) throw error;
-      return data;
+      return (data ?? []).filter((d) => d.project_id === projectId);
     },
-    enabled: !!projectId,
+    enabled: !!projectId && !!program,
   });
 }

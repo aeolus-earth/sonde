@@ -16,7 +16,7 @@ export default function ProjectDetailPage() {
   const { id } = useParams({ strict: false }) as { id: string };
   const navigate = useNavigate();
   const { data: proj, isLoading: loadingProj } = useProject(id);
-  const { data: directions } = useDirectionsByProject(id);
+  const { data: directions, isLoading: loadingDirections } = useDirectionsByProject(id, proj?.program);
   const { data: experiments, isLoading: loadingExps } = useExperimentsByProject(id);
   const { data: activity } = useRecordActivity(id);
   const [statusFilter, setStatusFilter] = useState<ExperimentStatus | "all">("all");
@@ -78,9 +78,9 @@ export default function ProjectDetailPage() {
         </span>
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-[1fr_280px]">
+      <div className="grid min-w-0 gap-3 lg:grid-cols-[minmax(0,1fr)_280px]">
         {/* Main */}
-        <div className="space-y-3">
+        <div className="min-w-0 space-y-3">
           <Section title="Project">
             <p className="text-[14px] font-medium text-text">{proj.name}</p>
             {proj.objective && (
@@ -88,14 +88,27 @@ export default function ProjectDetailPage() {
             )}
           </Section>
 
-          {/* Directions */}
-          {directions && directions.length > 0 && (
-            <Section title="Directions" count={directions.length}>
+          {/* Directions — always shown so project scope is visible next to experiments */}
+          <Section
+            title="Directions"
+            count={
+              loadingDirections ? proj.direction_count : (directions?.length ?? 0)
+            }
+          >
+            {loadingDirections ? (
+              <div className="space-y-2">
+                <Skeleton className="h-12 w-full rounded-[6px]" />
+                <Skeleton className="h-12 w-full rounded-[6px]" />
+              </div>
+            ) : directions && directions.length > 0 ? (
               <div className="space-y-2">
                 {directions.map((d) => (
-                  <div key={d.id} className="flex items-center justify-between border-b border-border-subtle pb-2 last:border-0 last:pb-0">
-                    <div>
-                      <div className="flex items-center gap-2">
+                  <div
+                    key={d.id}
+                    className="flex min-w-0 flex-col gap-2 border-b border-border-subtle pb-2 last:border-0 last:pb-0 sm:flex-row sm:items-start sm:justify-between"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex min-w-0 flex-wrap items-center gap-2">
                         <RecordLink recordId={d.id} />
                         <Badge
                           variant={
@@ -106,9 +119,9 @@ export default function ProjectDetailPage() {
                           {d.status}
                         </Badge>
                       </div>
-                      <p className="mt-0.5 text-[12px] text-text">{d.title}</p>
+                      <p className="mt-0.5 break-words text-[12px] text-text">{d.title}</p>
                     </div>
-                    <div className="flex gap-2 text-[11px]">
+                    <div className="flex shrink-0 flex-wrap gap-2 text-[11px]">
                       <Badge variant="complete">{d.complete_count}</Badge>
                       <Badge variant="running">{d.running_count}</Badge>
                       <Badge variant="open">{d.open_count}</Badge>
@@ -116,8 +129,13 @@ export default function ProjectDetailPage() {
                   </div>
                 ))}
               </div>
-            </Section>
-          )}
+            ) : (
+              <p className="text-[13px] text-text-quaternary">
+                No directions scoped to this project yet. Link one with{" "}
+                <span className="font-mono text-[12px]">sonde direction update DIR-… --project …</span>.
+              </p>
+            )}
+          </Section>
 
           {/* Experiments */}
           <div className="rounded-[8px] border border-border bg-surface">
@@ -174,7 +192,7 @@ export default function ProjectDetailPage() {
         </div>
 
         {/* Sidebar */}
-        <div className="space-y-3">
+        <div className="min-w-0 space-y-3 lg:min-w-[280px]">
           <Section title="Details">
             <div className="divide-y divide-border-subtle">
               <DetailRow label="Program">{proj.program}</DetailRow>
