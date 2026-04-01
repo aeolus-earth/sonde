@@ -1,7 +1,8 @@
 import { memo, Component, type ReactNode } from "react";
 import { useChat } from "@/hooks/use-chat";
 import { useChatPageContext } from "@/contexts/chat-page-context";
-import { useChatStore } from "@/stores/chat";
+import { ChatStoreApiContext, useScopedChatStore } from "@/contexts/chat-store-context";
+import { useEmbeddedChatStore } from "@/stores/chat";
 import { ChatHeader } from "./chat-header";
 import { ChatConnectionDot } from "./chat-connection-dot";
 import { ChatMessages } from "./chat-messages";
@@ -44,6 +45,7 @@ class ChatErrorBoundary extends Component<
 
 function ChatPanelInner() {
   const pageContext = useChatPageContext();
+  const embedded = pageContext != null;
   const {
     send,
     cancel,
@@ -64,14 +66,14 @@ function ChatPanelInner() {
       ? import.meta.env.VITE_AGENT_MODEL_LABEL.trim() || null
       : null);
 
-  const tabs = useChatStore((s) => s.tabs);
-  const activeTabId = useChatStore((s) => s.activeTabId);
-  const streamingTabId = useChatStore((s) => s.streamingTabId);
-  const addTab = useChatStore((s) => s.addTab);
-  const closeTab = useChatStore((s) => s.closeTab);
-  const setActiveTab = useChatStore((s) => s.setActiveTab);
-  const setTasks = useChatStore((s) => s.setTasks);
-  const pendingToolApprovals = useChatStore((s) => {
+  const tabs = useScopedChatStore((s) => s.tabs);
+  const activeTabId = useScopedChatStore((s) => s.activeTabId);
+  const streamingTabId = useScopedChatStore((s) => s.streamingTabId);
+  const addTab = useScopedChatStore((s) => s.addTab);
+  const closeTab = useScopedChatStore((s) => s.closeTab);
+  const setActiveTab = useScopedChatStore((s) => s.setActiveTab);
+  const setTasks = useScopedChatStore((s) => s.setTasks);
+  const pendingToolApprovals = useScopedChatStore((s) => {
     const t = s.tabs.find((x) => x.id === s.activeTabId);
     return t?.pendingToolApprovals ?? [];
   });
@@ -92,7 +94,11 @@ function ChatPanelInner() {
         pageContext={pageContext}
       />
 
-      <ChatMessages messages={messages} isStreaming={isStreaming} />
+      <ChatMessages
+        messages={messages}
+        isStreaming={isStreaming}
+        embedded={embedded}
+      />
 
       <ChatToolApproval
         pending={pendingToolApprovals}
@@ -107,6 +113,7 @@ function ChatPanelInner() {
 
       <ChatInput
         pageContext={pageContext}
+        embedded={embedded}
         onSend={send}
         onCancel={cancel}
         isStreaming={isStreaming}
@@ -132,10 +139,20 @@ function ChatPanelInner() {
   );
 }
 
+function ChatPanelWithStore() {
+  const pageContext = useChatPageContext();
+  const embedded = pageContext != null;
+  return (
+    <ChatStoreApiContext.Provider value={embedded ? useEmbeddedChatStore : null}>
+      <ChatPanelInner />
+    </ChatStoreApiContext.Provider>
+  );
+}
+
 export const ChatPanel = memo(function ChatPanel() {
   return (
     <ChatErrorBoundary>
-      <ChatPanelInner />
+      <ChatPanelWithStore />
     </ChatErrorBoundary>
   );
 });

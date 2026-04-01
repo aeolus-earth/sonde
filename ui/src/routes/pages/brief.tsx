@@ -1,12 +1,16 @@
 import { useMemo } from "react";
+import { Link } from "@tanstack/react-router";
 import { useExperiments } from "@/hooks/use-experiments";
 import { useCurrentFindings } from "@/hooks/use-findings";
 import { useDirections } from "@/hooks/use-directions";
+import { useProjects } from "@/hooks/use-projects";
+import { useProgramTakeaways } from "@/hooks/use-program-takeaways";
 import { useActiveProgram } from "@/stores/program";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { RecordLink } from "@/components/shared/record-link";
 import { Section } from "@/components/shared/detail-layout";
+import { MarkdownView } from "@/components/ui/markdown-view";
 import { formatDateTimeShort, formatDateTime } from "@/lib/utils";
 import {
   AlertTriangle,
@@ -15,8 +19,10 @@ import {
   Target,
   BarChart3,
   Lightbulb,
+  Sparkles,
+  FolderKanban,
 } from "lucide-react";
-import type { ExperimentSummary } from "@/types/sonde";
+import type { DirectionSummary, ExperimentSummary, ProjectSummary } from "@/types/sonde";
 
 // ── Computation helpers ────────────────────────────────────────
 
@@ -83,6 +89,49 @@ function StatPill({ value, label, color }: { value: number; label: string; color
   );
 }
 
+function BriefExperimentLinks({
+  projectId,
+  directionId,
+  projectById,
+  directionById,
+}: {
+  projectId: string | null | undefined;
+  directionId: string | null | undefined;
+  projectById: Map<string, ProjectSummary>;
+  directionById: Map<string, DirectionSummary>;
+}) {
+  if (!projectId && !directionId) return null;
+  return (
+    <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-text-quaternary">
+      {projectId && (
+        <span className="inline-flex flex-wrap items-center gap-1">
+          <span>Project</span>
+          <RecordLink
+            recordId={projectId}
+            className="font-mono text-[10px] font-medium text-accent hover:underline"
+          />
+          {projectById.get(projectId)?.name ? (
+            <span className="text-text-quaternary">— {projectById.get(projectId)!.name}</span>
+          ) : null}
+        </span>
+      )}
+      {projectId && directionId ? <span className="text-text-quaternary">·</span> : null}
+      {directionId && (
+        <span className="inline-flex flex-wrap items-center gap-1">
+          <span>Direction</span>
+          <RecordLink
+            recordId={directionId}
+            className="font-mono text-[10px] font-medium text-accent hover:underline"
+          />
+          {directionById.get(directionId)?.title ? (
+            <span className="text-text-quaternary">— {directionById.get(directionId)!.title}</span>
+          ) : null}
+        </span>
+      )}
+    </div>
+  );
+}
+
 // ── Page ───────────────────────────────────────────────────────
 
 export default function BriefPage() {
@@ -90,10 +139,16 @@ export default function BriefPage() {
   const { data: experiments, isLoading: loadingExp } = useExperiments();
   const { data: findings, isLoading: loadingFind } = useCurrentFindings();
   const { data: directions, isLoading: loadingDir } = useDirections();
+  const { data: projects, isLoading: loadingProj } = useProjects();
+  const { data: takeawaysRow, isLoading: loadingTakeaways } = useProgramTakeaways(program);
 
   const exps = experiments ?? [];
   const finds = findings ?? [];
   const dirs = directions ?? [];
+  const projs = projects ?? [];
+
+  const projectById = useMemo(() => new Map(projs.map((p) => [p.id, p])), [projs]);
+  const directionById = useMemo(() => new Map(dirs.map((d) => [d.id, d])), [dirs]);
 
   const stats = useMemo(() => computeStats(exps), [exps]);
   const active = useMemo(() => selectActiveExperiment(exps), [exps]);
@@ -111,7 +166,7 @@ export default function BriefPage() {
   const runningExps = useMemo(() => exps.filter((e) => e.status === "running"), [exps]);
   const openExps = useMemo(() => exps.filter((e) => e.status === "open"), [exps]);
 
-  const isLoading = loadingExp || loadingFind || loadingDir;
+  const isLoading = loadingExp || loadingFind || loadingDir || loadingProj;
 
   if (isLoading) {
     return (
@@ -168,6 +223,17 @@ export default function BriefPage() {
                   {active.finding ?? active.hypothesis}
                 </p>
               )}
+              {active.project_id && (
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-text-tertiary">
+                  <span>Project:</span>
+                  <RecordLink recordId={active.project_id} />
+                  {projectById.get(active.project_id)?.name ? (
+                    <span className="text-text-quaternary">
+                      — {projectById.get(active.project_id)!.name}
+                    </span>
+                  ) : null}
+                </div>
+              )}
               {activeDir && (
                 <div className="mt-2 flex items-center gap-2 text-[11px] text-text-tertiary">
                   <span>Direction:</span>
@@ -188,6 +254,22 @@ export default function BriefPage() {
             </div>
           )}
 
+          <div className="rounded-[8px] border border-border bg-surface p-3">
+            <div className="mb-2 flex items-center gap-2 text-[11px] font-medium uppercase tracking-wider text-text-secondary">
+              <Sparkles className="h-3.5 w-3.5" />
+              Takeaways
+            </div>
+            {loadingTakeaways ? (
+              <Skeleton className="h-20 w-full rounded-[6px]" />
+            ) : !takeawaysRow?.body?.trim() ? (
+              <p className="py-3 text-center text-[12px] text-text-quaternary">No takeaways yet</p>
+            ) : (
+              <div className="min-w-0">
+                <MarkdownView content={takeawaysRow.body} />
+              </div>
+            )}
+          </div>
+
           {/* Running */}
           {runningExps.length > 0 && (
             <Section title="Running" count={runningExps.length}>
@@ -202,6 +284,12 @@ export default function BriefPage() {
                           {e.finding ?? e.hypothesis ?? "—"}
                         </span>
                       </div>
+                      <BriefExperimentLinks
+                        projectId={e.project_id}
+                        directionId={e.direction_id}
+                        projectById={projectById}
+                        directionById={directionById}
+                      />
                       <p className="text-[10px] text-text-quaternary">
                         {e.source} · {formatDateTimeShort(e.created_at)}
                       </p>
@@ -226,6 +314,12 @@ export default function BriefPage() {
                           {e.hypothesis ?? "—"}
                         </span>
                       </div>
+                      <BriefExperimentLinks
+                        projectId={e.project_id}
+                        directionId={e.direction_id}
+                        projectById={projectById}
+                        directionById={directionById}
+                      />
                     </div>
                   </div>
                 ))}
@@ -250,6 +344,12 @@ export default function BriefPage() {
                           {e.finding ?? "no finding"}
                         </span>
                       </div>
+                      <BriefExperimentLinks
+                        projectId={e.project_id}
+                        directionId={e.direction_id}
+                        projectById={projectById}
+                        directionById={directionById}
+                      />
                       <p className="text-[10px] text-text-quaternary">
                         {formatDateTimeShort(e.created_at)}
                       </p>
@@ -361,16 +461,53 @@ export default function BriefPage() {
               <p className="mb-2 text-[11px] text-text-tertiary">Open experiments idle 7+ days.</p>
               <div className="space-y-1">
                 {staleOpen.slice(0, 5).map((e) => (
-                  <div key={e.id} className="flex items-center gap-2">
-                    <AlertTriangle className="h-3 w-3 text-status-failed" />
-                    <RecordLink recordId={e.id} />
-                    <span className="text-[10px] text-text-quaternary">
-                      {formatDateTimeShort(e.created_at)}
-                    </span>
+                  <div key={e.id} className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle className="h-3 w-3 shrink-0 text-status-failed" />
+                      <RecordLink recordId={e.id} />
+                      <span className="text-[10px] text-text-quaternary">
+                        {formatDateTimeShort(e.created_at)}
+                      </span>
+                    </div>
+                    <BriefExperimentLinks
+                      projectId={e.project_id}
+                      directionId={e.direction_id}
+                      projectById={projectById}
+                      directionById={directionById}
+                    />
                   </div>
                 ))}
               </div>
             </div>
+          )}
+
+          {/* Projects */}
+          {projs.length > 0 && (
+            <Section title="Projects" count={projs.length}>
+              <div className="space-y-2">
+                {projs.map((p) => (
+                  <div key={p.id} className="border-b border-border-subtle pb-2 last:border-0 last:pb-0">
+                    <div className="flex items-start gap-2">
+                      <FolderKanban className="mt-0.5 h-3 w-3 shrink-0 text-text-tertiary" />
+                      <div className="min-w-0 flex-1">
+                        <Link
+                          to="/projects/$id"
+                          params={{ id: p.id }}
+                          className="text-[12px] font-medium text-text hover:underline"
+                        >
+                          {p.name}
+                        </Link>
+                        <p className="mt-0.5 font-mono text-[10px] text-text-quaternary">{p.id}</p>
+                        <div className="mt-1 flex flex-wrap gap-2 text-[10px]">
+                          <Badge variant="running">{p.direction_count} dir</Badge>
+                          <Badge variant="complete">{p.experiment_count} exp</Badge>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Section>
           )}
 
           {/* Directions */}
@@ -390,6 +527,18 @@ export default function BriefPage() {
                         {d.status}
                       </Badge>
                     </div>
+                    {d.project_id ? (
+                      <div className="mt-1 flex flex-wrap items-center gap-1 text-[10px] text-text-quaternary">
+                        <span>Project:</span>
+                        <RecordLink
+                          recordId={d.project_id}
+                          className="font-mono text-[10px] text-accent hover:underline"
+                        />
+                        {projectById.get(d.project_id)?.name ? (
+                          <span>— {projectById.get(d.project_id)!.name}</span>
+                        ) : null}
+                      </div>
+                    ) : null}
                     <p className="mt-0.5 text-[12px] text-text">{d.title}</p>
                     <div className="mt-1 flex gap-2 text-[10px]">
                       <Badge variant="complete">{d.complete_count}</Badge>

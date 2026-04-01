@@ -77,7 +77,7 @@ def get_recent(
     # (activity_log doesn't have a program column — resolve through record tables)
     if program and entries:
         program_ids: set[str] = set()
-        for table in ("experiments", "findings", "questions", "directions"):
+        for table in ("experiments", "findings", "questions", "directions", "projects"):
             result = client.table(table).select("id").eq("program", program).execute()
             program_ids.update(r["id"] for r in rows(result.data))
         entries = [e for e in entries if e["record_id"] in program_ids]

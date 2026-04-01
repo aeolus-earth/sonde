@@ -1,4 +1,4 @@
-"""Attach command — upload files to experiments."""
+"""Attach command — upload files to experiments or projects."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from sonde.auth import get_current_user, resolve_source
 from sonde.cli_options import pass_output_options
 from sonde.config import get_settings
 from sonde.db import experiments as exp_db
+from sonde.db import projects as proj_db
 from sonde.db.artifacts import (
     ArtifactTooLargeError,
     compute_checksum,
@@ -32,8 +33,18 @@ class AttachStats:
     oversized: int = 0
 
 
+def _detect_record_type(record_id: str) -> str | None:
+    """Detect record type from ID prefix."""
+    rid = record_id.upper()
+    if rid.startswith("EXP-"):
+        return "experiment"
+    if rid.startswith("PROJ-"):
+        return "project"
+    return None
+
+
 @click.command()
-@click.argument("experiment_id", required=False, default=None)
+@click.argument("record_id", required=False, default=None)
 @click.argument("files", nargs=-1, required=True, type=click.Path(exists=True))
 @click.option("--type", "artifact_type", help="Override artifact type")
 @click.option("--description", "-d", help="Description of the artifact")
@@ -41,38 +52,55 @@ class AttachStats:
 @click.pass_context
 def attach(
     ctx: click.Context,
-    experiment_id: str | None,
+    record_id: str | None,
     files: tuple[str, ...],
     artifact_type: str | None,
     description: str | None,
 ) -> None:
-    """Import external files into an experiment and upload them.
+    """Import external files into an experiment or project and upload them.
 
-    If no experiment ID is given, uses the focused experiment (sonde focus).
+    If no record ID is given, uses the focused experiment (sonde focus).
+    Accepts EXP-* or PROJ-* IDs.
 
     \b
     Examples:
       sonde attach EXP-0001 figures/precip_delta.png
+      sonde attach PROJ-001 architecture.pdf --type paper
       sonde attach report.pdf --type paper
       sonde attach output/*.nc
     """
-    from sonde.commands._helpers import resolve_experiment_id
+    # Resolve record
+    if record_id and _detect_record_type(record_id):
+        record_type = _detect_record_type(record_id)
+        record_id = record_id.upper()
+    else:
+        from sonde.commands._helpers import resolve_experiment_id
 
-    experiment_id = resolve_experiment_id(experiment_id)
+        record_id = resolve_experiment_id(record_id)
+        record_type = "experiment"
 
-    # Verify experiment exists
-    if not exp_db.exists(experiment_id):
-        print_error(
-            f"Experiment {experiment_id} not found",
-            "Cannot attach files to a nonexistent experiment.",
-            "List experiments: sonde list",
-        )
-        raise SystemExit(1)
+    # Verify record exists
+    if record_type == "experiment":
+        if not exp_db.exists(record_id):
+            print_error(
+                f"Experiment {record_id} not found",
+                "Cannot attach files to a nonexistent experiment.",
+                "List experiments: sonde list",
+            )
+            raise SystemExit(1)
+    elif record_type == "project":
+        if not proj_db.get(record_id):
+            print_error(
+                f"Project {record_id} not found",
+                "Cannot attach files to a nonexistent project.",
+                "List projects: sonde project list",
+            )
+            raise SystemExit(1)
 
     user = get_current_user()
     source = resolve_source(user)
     sonde_dir = find_sonde_dir()
-    local_dir = ensure_subdir(sonde_dir, f"experiments/{experiment_id}")
+    local_dir = ensure_subdir(sonde_dir, f"{record_type}s/{record_id}")
     candidates = _expand_attach_inputs(files)
     if not candidates:
         print_error(
@@ -87,16 +115,23 @@ def attach(
     failures: list[dict[str, str]] = []
     for filepath, relative_path in candidates:
         relative_str = relative_path.as_posix()
-        storage_path = f"{experiment_id}/{relative_str}"
+        storage_path = f"{record_id}/{relative_str}"
         status = _attach_status(filepath, storage_path)
         try:
+            # Build parent_id kwargs
+            parent_kwargs: dict[str, str | None] = {}
+            if record_type == "experiment":
+                parent_kwargs["experiment_id"] = record_id
+            elif record_type == "project":
+                parent_kwargs["project_id"] = record_id
+
             row = upload_file(
-                experiment_id,
                 filepath,
                 source,
                 storage_subpath=storage_path,
                 artifact_type=artifact_type,
                 description=description,
+                **parent_kwargs,
             )
             local_path = local_dir / relative_path
             local_path.parent.mkdir(parents=True, exist_ok=True)
@@ -140,13 +175,13 @@ def attach(
         changed = [r["path"] for r in results if r["status"] in {"uploaded", "updated"}]
         if changed:
             log_activity(
-                experiment_id,
-                "experiment",
+                record_id,
+                record_type,
                 "artifact_attached",
                 {"filenames": changed, "count": len(changed)},
             )
 
-    payload = {"experiment_id": experiment_id, "summary": asdict(stats), "files": results}
+    payload = {"record_id": record_id, "record_type": record_type, "summary": asdict(stats), "files": results}
     if failures:
         payload["failures"] = failures
 
@@ -157,21 +192,21 @@ def attach(
             "Some artifact uploads failed",
             f"Uploaded/updated/skipped {len(results)} artifact(s); "
             f"{stats.failed + stats.oversized} artifact(s) need attention.",
-            "Fix the reported paths, or move them under "
-            f".sonde/experiments/{experiment_id}/ and rerun "
-            f"sonde push experiment {experiment_id}.",
+            f"Fix the reported paths, or move them under "
+            f".sonde/{record_type}s/{record_id}/ and rerun "
+            f"sonde push experiment {record_id}.",
         )
     else:
         print_success(
-            f"Imported artifacts into {experiment_id}",
+            f"Imported artifacts into {record_id}",
             details=[
                 f"Uploaded: {stats.uploaded}",
                 f"Updated: {stats.updated}",
                 f"Skipped: {stats.skipped}",
             ],
             breadcrumbs=[
-                f"Default workflow: sonde push experiment {experiment_id}",
-            ],
+                f"Default workflow: sonde push experiment {record_id}",
+            ] if record_type == "experiment" else [],
         )
 
     if failures:

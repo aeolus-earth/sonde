@@ -16,14 +16,16 @@ import type { ChatMessageData } from "@/types/chat";
 interface ChatMessagesProps {
   messages: ChatMessageData[];
   isStreaming: boolean;
+  /** True when chat is embedded (e.g. experiment page); hides Assistant-only chrome. */
+  embedded?: boolean;
 }
 
 export const ChatMessages = memo(function ChatMessages({
   messages,
   isStreaming,
+  embedded = false,
 }: ChatMessagesProps) {
   const parentRef = useRef<HTMLDivElement>(null);
-  const bottomAnchorRef = useRef<HTMLDivElement>(null);
   const ignoreScrollRef = useRef(false);
   const pinRafRef = useRef<number | null>(null);
   const [userScrolledUp, setUserScrolledUp] = useState(false);
@@ -48,7 +50,6 @@ export const ChatMessages = memo(function ChatMessages({
       virtualizer.scrollToIndex(messages.length - 1, { align: "end" });
     }
     el.scrollTop = el.scrollHeight;
-    bottomAnchorRef.current?.scrollIntoView({ block: "end", behavior: "auto" });
     requestAnimationFrame(() => {
       ignoreScrollRef.current = false;
     });
@@ -71,8 +72,9 @@ export const ChatMessages = memo(function ChatMessages({
     });
   }, [scrollToBottom]);
 
-  // Pin to bottom when messages change (no MutationObserver on text — that fired every character and caused jerk).
+  // Assistant: pin when the last message shape/content changes (follow stream including tokens).
   useLayoutEffect(() => {
+    if (embedded) return;
     if (userScrolledUpRef.current) return;
     if (isStreaming) {
       schedulePinToBottom();
@@ -80,8 +82,27 @@ export const ChatMessages = memo(function ChatMessages({
     }
     scrollToBottom();
   }, [
+    embedded,
     messages.length,
     lastMessageScrollKey,
+    isStreaming,
+    userScrolledUp,
+    scrollToBottom,
+    schedulePinToBottom,
+  ]);
+
+  // Embedded: pin on new messages / streaming state only — not on every streamed token (lastMessageScrollKey).
+  useLayoutEffect(() => {
+    if (!embedded) return;
+    if (userScrolledUpRef.current) return;
+    if (isStreaming) {
+      schedulePinToBottom();
+      return;
+    }
+    scrollToBottom();
+  }, [
+    embedded,
+    messages.length,
     isStreaming,
     userScrolledUp,
     scrollToBottom,
@@ -97,6 +118,12 @@ export const ChatMessages = memo(function ChatMessages({
 
     const pinIfFollowing = () => {
       if (userScrolledUpRef.current) return;
+      if (embedded) {
+        if (isStreaming) {
+          schedulePinToBottom();
+        }
+        return;
+      }
       if (isStreaming) {
         schedulePinToBottom();
         return;
@@ -110,7 +137,6 @@ export const ChatMessages = memo(function ChatMessages({
           virtualizer.scrollToIndex(messages.length - 1, { align: "end" });
         }
         scrollEl.scrollTop = scrollEl.scrollHeight;
-        bottomAnchorRef.current?.scrollIntoView({ block: "end", behavior: "auto" });
         requestAnimationFrame(() => {
           ignoreScrollRef.current = false;
         });
@@ -127,7 +153,13 @@ export const ChatMessages = memo(function ChatMessages({
         pinRafRef.current = null;
       }
     };
-  }, [messages.length, virtualizer, isStreaming, schedulePinToBottom]);
+  }, [
+    embedded,
+    messages.length,
+    virtualizer,
+    isStreaming,
+    schedulePinToBottom,
+  ]);
 
   useEffect(
     () => () => {
@@ -182,7 +214,7 @@ export const ChatMessages = memo(function ChatMessages({
         )}
         aria-hidden={showThread}
       >
-        <ChatEmptyState />
+        <ChatEmptyState embedded={embedded} />
       </div>
 
       {hasMessages && (
@@ -224,7 +256,7 @@ export const ChatMessages = memo(function ChatMessages({
         })}
       </div>
 
-      {isStreaming && (
+      {isStreaming && !embedded && (
         <div className="border-t border-border-subtle/80 px-4 py-3 md:px-6">
           <div className="mx-auto flex max-w-[52rem] items-center gap-2 text-[12px] text-text-quaternary">
             <BrailleLive className="text-text-tertiary" />
@@ -233,11 +265,7 @@ export const ChatMessages = memo(function ChatMessages({
         </div>
       )}
 
-      <div
-        ref={bottomAnchorRef}
-        className="h-px w-full shrink-0"
-        aria-hidden
-      />
+      <div className="h-px w-full shrink-0" aria-hidden />
 
       {/* Scroll-to-bottom button */}
       {userScrolledUp && (

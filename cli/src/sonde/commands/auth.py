@@ -11,13 +11,22 @@ from sonde.output import err, print_banner, print_error, print_json, print_succe
 
 @click.command()
 @pass_output_options
+@click.option(
+    "--remote",
+    is_flag=True,
+    help=(
+        "URL-paste login for remote VMs (Lightning, Codespaces, SSH) "
+        "when the localhost OAuth callback cannot be reached."
+    ),
+)
 @click.pass_context
-def login(ctx: click.Context) -> None:
+def login(ctx: click.Context, remote: bool) -> None:
     """Sign in with your Aeolus Google Workspace account.
 
     \b
     Examples:
       sonde login
+      sonde login --remote
     """
     if auth.is_authenticated():
         user = auth.get_current_user()
@@ -28,7 +37,7 @@ def login(ctx: click.Context) -> None:
 
     print_banner()
     try:
-        user = auth.login()
+        user = auth.login(remote=remote)
     except TimeoutError as e:
         print_error("Login timed out", str(e), "Try again: sonde login")
         raise SystemExit(1) from None

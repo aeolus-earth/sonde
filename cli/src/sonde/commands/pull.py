@@ -23,6 +23,7 @@ from sonde.db import directions as dir_db
 from sonde.db import experiments as exp_db
 from sonde.db import findings as find_db
 from sonde.db import notes as notes_db
+from sonde.db import program_takeaways as takeaways_db
 from sonde.db import questions as q_db
 from sonde.db.artifacts import (
     compute_checksum,
@@ -523,6 +524,24 @@ def _pull_all(ctx: click.Context) -> None:
             sonde_dir, "directions", direction.id, direction.model_dump(mode="json")
         )
 
+    tw = takeaways_db.get(program)
+    takeaways_db.write_takeaways_file(sonde_dir, tw.body if tw else None)
+
+    # Pull project takeaways (best-effort — table may not exist yet)
+    project_takeaways_count = 0
+    try:
+        from sonde.db import project_takeaways as ptw_db
+        from sonde.db import projects as proj_db
+
+        projects = proj_db.list_projects(program=program, statuses=None, limit=200)
+        for p in projects:
+            ptw = ptw_db.get(p.id)
+            if ptw and ptw.body.strip():
+                ptw_db.write_takeaways_file(sonde_dir, p.id, ptw.body)
+                project_takeaways_count += 1
+    except (Exception, SystemExit):
+        pass
+
     if ctx.obj.get("json"):
         print_json(
             {
@@ -530,6 +549,8 @@ def _pull_all(ctx: click.Context) -> None:
                 "findings": len(findings),
                 "questions": len(questions),
                 "directions": len(directions),
+                "takeaways": bool(tw and tw.body.strip()),
+                "project_takeaways": project_takeaways_count,
                 "_sync": asdict(sync),
             }
         )

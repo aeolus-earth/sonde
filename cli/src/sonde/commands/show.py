@@ -195,10 +195,30 @@ def _show_direction(ctx: click.Context, direction_id: str) -> None:
         f"\n[sonde.heading]{d.title}[/]",
         f"{d.question}",
     ]
+    if getattr(d, "context", None):
+        header.append(f"\n[sonde.heading]Context[/]\n{d.context}")
 
     out.print(
         Panel("\n".join(header), title=f"[sonde.brand]{d.id}[/]", border_style="sonde.brand.dim")
     )
+
+    # Show direction notes if any
+    try:
+        from sonde.db import notes_v2 as notes_db
+
+        dir_notes = notes_db.list_by_record("direction", direction_id)
+        if dir_notes:
+            note_rows = [
+                {
+                    "id": n["id"],
+                    "source": n.get("source", ""),
+                    "content": truncate_text(n["content"], 60),
+                }
+                for n in dir_notes[:10]
+            ]
+            print_table(["id", "source", "content"], note_rows, title="Notes")
+    except Exception:
+        pass
 
     if experiments:
         exp_rows = []
@@ -317,6 +337,8 @@ def _show_project(ctx: click.Context, project_id: str) -> None:
     ]
     if p.objective:
         header.append(f"\n{p.objective}")
+    if getattr(p, "description", None):
+        header.append(f"\n[sonde.heading]Description[/]\n{p.description}")
     header.append(
         f"\n[sonde.muted]Source: {p.source}  Created: {p.created_at.strftime('%Y-%m-%d')}[/]"
     )
@@ -327,6 +349,34 @@ def _show_project(ctx: click.Context, project_id: str) -> None:
             border_style="sonde.brand.dim",
         )
     )
+
+    # Show project takeaways if any
+    try:
+        from sonde.db import project_takeaways as ptw_db
+
+        ptw = ptw_db.get(project_id)
+        if ptw and ptw.body.strip():
+            err.print(f"\n[sonde.heading]Takeaways[/]\n{ptw.body}")
+    except Exception:
+        pass
+
+    # Show project notes if any
+    try:
+        from sonde.db import notes_v2 as notes_db
+
+        project_notes = notes_db.list_by_record("project", project_id)
+        if project_notes:
+            note_rows = [
+                {
+                    "id": n["id"],
+                    "source": n.get("source", ""),
+                    "content": truncate_text(n["content"], 60),
+                }
+                for n in project_notes[:10]
+            ]
+            print_table(["id", "source", "content"], note_rows, title="Notes")
+    except Exception:
+        pass
 
     dirs = dirs_result.data or []
     if dirs:
@@ -352,7 +402,29 @@ def _show_project(ctx: click.Context, project_id: str) -> None:
             title=f"Experiments ({len(exps)})",
         )
 
-    print_breadcrumbs(["Directions: sonde direction list --all", "Experiments: sonde list --all"])
+    # Show project artifacts if any
+    try:
+        from sonde.db.artifacts import list_for_project
+
+        project_artifacts = list_for_project(project_id)
+        if project_artifacts:
+            art_rows = [
+                {
+                    "id": a["id"],
+                    "type": a.get("type", ""),
+                    "filename": a["filename"],
+                }
+                for a in project_artifacts[:10]
+            ]
+            print_table(["id", "type", "filename"], art_rows, title="Artifacts")
+    except Exception:
+        pass
+
+    print_breadcrumbs([
+        f"Brief: sonde project brief {project_id}",
+        "Directions: sonde direction list --all",
+        "Experiments: sonde list --all",
+    ])
 
 
 def show_dispatch(ctx: click.Context, record_id: str, graph: bool) -> None:

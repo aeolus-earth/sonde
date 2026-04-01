@@ -77,8 +77,9 @@ export const ChatMessage = memo(function ChatMessage({ message }: ChatMessagePro
   }
 
   return (
-    <div className="flex justify-start px-1">
-      <div className="w-full max-w-[min(100%,42rem)] space-y-2">
+    <div className="flex w-full flex-col items-start gap-2 px-1">
+      {/* Prose column uses 90% max when the chat shell is narrow so artifacts below can span full column width */}
+      <div className="w-full max-w-[min(100%,42rem,90%)] space-y-2">
         <div className="flex items-baseline gap-2">
           <span className="text-[11px] font-medium text-text-tertiary">Sonde</span>
           <span className="text-[10px] tabular-nums text-text-quaternary">
@@ -102,20 +103,25 @@ export const ChatMessage = memo(function ChatMessage({ message }: ChatMessagePro
           </div>
         )}
 
+        {message.content && (
+          <div className="rounded-[5.5px] bg-surface px-3 py-2 text-[13px] leading-relaxed text-text">
+            <Suspense fallback={<span className="whitespace-pre-wrap">{message.content}</span>}>
+              <AssistantMarkdown content={message.content} />
+            </Suspense>
+          </div>
+        )}
+
         {message.toolUses?.map((tu) => (
           <ChatToolActivity key={tu.id} toolUse={tu} />
         ))}
+      </div>
 
-        {message.content && (
-          <>
-            <div className="rounded-[5.5px] bg-surface px-3 py-2 text-[13px] leading-relaxed text-text">
-              <Suspense fallback={<span className="whitespace-pre-wrap">{message.content}</span>}>
-                <AssistantMarkdown content={message.content} />
-              </Suspense>
-            </div>
-            <ChatReferencedArtifacts content={message.content} />
-          </>
-        )}
+      <div className="w-full min-w-0 max-w-[min(100%,52rem)] self-stretch">
+        <ChatReferencedArtifacts
+          content={message.content ?? ""}
+          toolUses={message.toolUses}
+          mentions={message.mentions}
+        />
       </div>
     </div>
   );

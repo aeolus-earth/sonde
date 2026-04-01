@@ -14,6 +14,7 @@ class ProjectCreate(BaseModel):
     program: str
     name: str
     objective: str | None = None
+    description: str | None = None
     status: Literal["proposed", "active", "paused", "completed", "archived"] = "proposed"
     source: str
 

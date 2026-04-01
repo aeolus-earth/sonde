@@ -25,5 +25,13 @@ export const Route = createRoute({
       typeof search.view === "string" && VALID_VIEWS.includes(search.view as (typeof VALID_VIEWS)[number])
         ? (search.view as "list" | "grouped")
         : undefined,
+    day:
+      typeof search.day === "string" && /^\d{4}-\d{2}-\d{2}$/.test(search.day)
+        ? search.day
+        : undefined,
+    created:
+      typeof search.created === "string" && ["asc", "desc"].includes(search.created)
+        ? (search.created as "asc" | "desc")
+        : undefined,
   }),
 });

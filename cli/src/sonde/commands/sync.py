@@ -33,6 +33,7 @@ def sync(ctx: click.Context, program: str | None) -> None:
     from sonde.db import experiments as exp_db
     from sonde.db import findings as find_db
     from sonde.db import notes as notes_db
+    from sonde.db import program_takeaways as takeaways_db
     from sonde.db import questions as q_db
 
     settings = get_settings()
@@ -76,6 +77,9 @@ def sync(ctx: click.Context, program: str | None) -> None:
         write_record(sonde_dir, "questions", q.id, render_record(q.model_dump(mode="json")))
     for d in directions:
         write_record(sonde_dir, "directions", d.id, render_record(d.model_dump(mode="json")))
+
+    tw = takeaways_db.get(program)
+    takeaways_db.write_takeaways_file(sonde_dir, tw.body if tw else None)
 
     if not use_json:
         err.print(

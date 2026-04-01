@@ -4,14 +4,15 @@ import {
   useRef,
   memo,
   useState,
+  useDeferredValue,
   type Dispatch,
   type SetStateAction,
 } from "react";
 import { getRouteApi, Link } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ChevronRight } from "lucide-react";
+import { ArrowDown, ChevronRight } from "lucide-react";
 import { ROUTE_API } from "../route-ids";
-import { useExperiments } from "@/hooks/use-experiments";
+import { useExperiments, useExperimentSearch, useExperiment } from "@/hooks/use-experiments";
 import { useProjects } from "@/hooks/use-projects";
 import { useDirections } from "@/hooks/use-directions";
 import { useListKeyboardNav } from "@/hooks/use-keyboard";
@@ -25,12 +26,17 @@ import {
 } from "@/lib/experiments-grouped";
 import { useActiveProgram } from "@/stores/program";
 import type { ArtifactType, ExperimentStatus, ExperimentSummary } from "@/types/sonde";
+import { experimentMatchesSearchQuery } from "@/lib/experiment-search-match";
 
 export type ExperimentsSearch = {
   q?: string;
   status?: ExperimentStatus | "all";
   artifact?: ArtifactType | "any" | undefined;
   view?: "list" | "grouped";
+  /** ISO date YYYY-MM-DD — filter to experiments created on this calendar day (local). */
+  day?: string;
+  /** Sort by `created_at`: newest first (`desc`) or oldest first (`asc`). */
+  created?: "asc" | "desc";
 };
 
 const routeApi = getRouteApi(ROUTE_API.authExperiments);
@@ -111,17 +117,58 @@ function toggleKey(
   setter((m) => ({ ...m, [key]: m[key] === false ? true : false }));
 }
 
+const CreatedSortHeader = memo(function CreatedSortHeader({
+  createdSort,
+  onToggle,
+}: {
+  createdSort: "asc" | "desc";
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className="inline-flex w-full min-w-0 items-center justify-end gap-0.5 rounded-[4px] text-right font-medium text-text-quaternary transition-colors hover:text-text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+      title={
+        createdSort === "desc"
+          ? "Newest first. Click for oldest first."
+          : "Oldest first. Click for newest first."
+      }
+      aria-sort={createdSort === "desc" ? "descending" : "ascending"}
+      aria-label={
+        createdSort === "desc"
+          ? "Sort by created: newest first. Activate to show oldest first."
+          : "Sort by created: oldest first. Activate to show newest first."
+      }
+    >
+      <span>Created</span>
+      <ArrowDown
+        className={cn(
+          "h-3 w-3 shrink-0 opacity-80",
+          createdSort === "asc" && "rotate-180"
+        )}
+        aria-hidden
+      />
+    </button>
+  );
+});
+
 export default function ExperimentsListPage() {
   const { data: experiments, isLoading } = useExperiments();
   const { data: projects } = useProjects();
   const { data: directions } = useDirections();
   const activeProgram = useActiveProgram();
   const navigate = routeApi.useNavigate();
-  const { q, status, artifact, view } = routeApi.useSearch();
+  const { q, status, artifact, view, day, created } = routeApi.useSearch();
   const filter = q ?? "";
+  const deferredFilter = useDeferredValue(filter);
   const statusFilter = status ?? "all";
   const artifactFilter = artifact ?? undefined;
   const viewMode = view ?? "list";
+  const dayFilter = day;
+  const createdSort = created ?? "desc";
+
+  const { data: serverMatchIds } = useExperimentSearch(deferredFilter);
 
   const [projOpen, setProjOpen] = useState<Record<string, boolean>>({});
   const [dirOpen, setDirOpen] = useState<Record<string, boolean>>({});
@@ -139,36 +186,68 @@ export default function ExperimentsListPage() {
         (e) => e.artifact_types?.includes(artifactFilter) ?? false
       );
     }
-    if (filter) {
-      const ql = filter.toLowerCase();
+    if (dayFilter) {
+      result = result.filter((e) => e.created_at.slice(0, 10) === dayFilter);
+    }
+    if (deferredFilter.trim()) {
+      const serverIds = new Set(serverMatchIds ?? []);
       result = result.filter(
         (e) =>
-          e.id.toLowerCase().includes(ql) ||
-          e.hypothesis?.toLowerCase().includes(ql) ||
-          e.finding?.toLowerCase().includes(ql) ||
-          e.tags.some((t) => t.toLowerCase().includes(ql)) ||
-          e.artifact_filenames?.some((f) => f.toLowerCase().includes(ql))
+          experimentMatchesSearchQuery(e, deferredFilter) || serverIds.has(e.id)
       );
     }
     return result;
-  }, [experiments, filter, statusFilter, artifactFilter]);
+  }, [
+    experiments,
+    deferredFilter,
+    statusFilter,
+    artifactFilter,
+    dayFilter,
+    serverMatchIds,
+  ]);
+
+  const sortedFiltered = useMemo(() => {
+    const arr = [...filtered];
+    const asc = createdSort === "asc";
+    arr.sort((a, b) => {
+      const ta = new Date(a.created_at).getTime();
+      const tb = new Date(b.created_at).getTime();
+      return asc ? ta - tb : tb - ta;
+    });
+    return arr;
+  }, [filtered, createdSort]);
 
   const projectTree = useMemo(
     () =>
       buildExperimentsProjectTree(
-        filtered,
+        sortedFiltered,
         projects ?? [],
-        directions ?? []
+        directions ?? [],
+        { createdSort }
       ),
-    [filtered, projects, directions]
+    [sortedFiltered, projects, directions, createdSort]
   );
 
   const keyboardNavItems = useMemo(() => {
     if (viewMode === "grouped") {
       return flattenExperimentsInTreeOrder(projectTree);
     }
-    return filtered;
-  }, [viewMode, projectTree, filtered]);
+    return sortedFiltered;
+  }, [viewMode, projectTree, sortedFiltered]);
+
+  const toggleCreatedSort = useCallback(() => {
+    navigate({
+      search: (prev: ExperimentsSearch) => {
+        const curr = prev.created ?? "desc";
+        const next = curr === "desc" ? "asc" : "desc";
+        return {
+          ...prev,
+          created: next === "desc" ? undefined : next,
+        };
+      },
+      replace: true,
+    });
+  }, [navigate]);
 
   const handleRowClick = useCallback(
     (id: string) => {
@@ -190,10 +269,10 @@ export default function ExperimentsListPage() {
     return m;
   }, [keyboardNavItems]);
 
-  const useVirtual = viewMode === "list" && filtered.length > 100;
+  const useVirtual = viewMode === "list" && sortedFiltered.length > 100;
   const scrollRef = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer({
-    count: filtered.length,
+    count: sortedFiltered.length,
     getScrollElement: () => scrollRef.current,
     estimateSize: () => 36,
     overscan: 20,
@@ -219,7 +298,10 @@ export default function ExperimentsListPage() {
             <span>Finding</span>
             <span>Source</span>
             <span>Tags</span>
-            <span className="text-right">Created</span>
+            <CreatedSortHeader
+              createdSort={createdSort}
+              onToggle={toggleCreatedSort}
+            />
           </div>
           {Array.from({ length: 8 }).map((_, i) => (
             <ExperimentRowSkeleton key={i} />
@@ -257,6 +339,30 @@ export default function ExperimentsListPage() {
           {filtered.length} result{filtered.length !== 1 ? "s" : ""}
         </span>
       </div>
+
+      {dayFilter && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[12px] text-text-secondary">
+            Created{" "}
+            <span className="font-mono text-[12px] text-text">{dayFilter}</span>
+          </span>
+          <button
+            type="button"
+            onClick={() =>
+              navigate({
+                search: (prev: ExperimentsSearch) => ({
+                  ...prev,
+                  day: undefined,
+                }),
+                replace: true,
+              })
+            }
+            className="rounded-[5.5px] border border-border bg-surface px-2 py-0.5 text-[11px] text-text-tertiary transition-colors hover:bg-surface-hover hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          >
+            Clear day
+          </button>
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center gap-2">
         <Input
@@ -372,7 +478,10 @@ export default function ExperimentsListPage() {
           <span>Finding</span>
           <span>Source</span>
           <span>Tags</span>
-          <span className="text-right">Created</span>
+          <CreatedSortHeader
+            createdSort={createdSort}
+            onToggle={toggleCreatedSort}
+          />
         </div>
         {viewMode === "grouped" ? (
           <div className="max-h-[600px] space-y-4 overflow-y-auto px-0.5 pb-1 pt-0.5">
@@ -471,7 +580,7 @@ export default function ExperimentsListPage() {
               }}
             >
               {virtualizer.getVirtualItems().map((vRow) => {
-                const exp = filtered[vRow.index];
+                const exp = sortedFiltered[vRow.index];
                 return (
                   <div
                     key={exp.id}
@@ -496,7 +605,7 @@ export default function ExperimentsListPage() {
             </div>
           </div>
         ) : (
-          filtered.map((exp, idx) => (
+          sortedFiltered.map((exp, idx) => (
             <ExperimentRow
               key={exp.id}
               exp={exp}
@@ -505,7 +614,7 @@ export default function ExperimentsListPage() {
             />
           ))
         )}
-        {viewMode === "list" && filtered.length === 0 && (
+        {viewMode === "list" && sortedFiltered.length === 0 && (
           <div className="py-10 text-center text-[13px] text-text-quaternary">
             No experiments match your filters.
           </div>

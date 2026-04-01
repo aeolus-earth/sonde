@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { User, Session } from "@supabase/supabase-js";
+import { artifactContentCache } from "@/lib/artifact-content-cache";
 import { supabase } from "@/lib/supabase";
 
 const AEOLUS_DOMAIN_MSG = "Only @aeolus.earth Google accounts are allowed.";
@@ -78,6 +79,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   signOut: async () => {
     await supabase.auth.signOut();
+    artifactContentCache.clear();
     set({ user: null, session: null, authError: null });
   },
 

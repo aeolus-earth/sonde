@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type { StateCreator } from "zustand";
 import { persist } from "zustand/middleware";
 import type {
   ChatMessageData,
@@ -42,7 +43,7 @@ interface LegacyPersistedV1 {
   activeTabId?: string;
 }
 
-interface ChatState {
+export interface ChatState {
   tabs: ChatTab[];
   activeTabId: string;
   streamingTabId: string | null;
@@ -92,9 +93,7 @@ function mapTabsMessages(
   );
 }
 
-export const useChatStore = create<ChatState>()(
-  persist(
-    (set) => ({
+const chatStateCreator: StateCreator<ChatState, [], [], ChatState> = (set) => ({
       ...initialTabs(),
       streamingTabId: null,
       isStreaming: false,
@@ -276,38 +275,44 @@ export const useChatStore = create<ChatState>()(
             agentModel: null,
           };
         }),
-    }),
-    {
-      name: "sonde-chat",
-      version: PERSIST_VERSION,
-      migrate: (persistedState, version) => {
-        if (version >= PERSIST_VERSION) return persistedState;
-        const legacy = persistedState as LegacyPersistedV1;
-        if (legacy.tabs && legacy.activeTabId) {
-          return {
-            ...legacy,
-            tabs: legacy.tabs.map((t) => ({
-              ...t,
-              pendingToolApprovals: [],
-            })),
-          };
-        }
-        const tab = createEmptyTab("Chat 1");
-        tab.messages = (legacy.messages ?? []).slice(-100);
-        tab.agentSessionId = legacy.sessionId ?? null;
-        return {
-          tabs: [tab],
-          activeTabId: tab.id,
-        };
-      },
-      partialize: (state) => ({
-        tabs: state.tabs.map((t) => ({
+});
+
+const chatPersistOptions = {
+  version: PERSIST_VERSION,
+  migrate: (persistedState: unknown, version: number) => {
+    if (version >= PERSIST_VERSION) return persistedState;
+    const legacy = persistedState as LegacyPersistedV1;
+    if (legacy.tabs && legacy.activeTabId) {
+      return {
+        ...legacy,
+        tabs: legacy.tabs.map((t) => ({
           ...t,
-          messages: t.messages.slice(-100),
           pendingToolApprovals: [],
         })),
-        activeTabId: state.activeTabId,
-      }),
+      };
     }
-  )
+    const tab = createEmptyTab("Chat 1");
+    tab.messages = (legacy.messages ?? []).slice(-100);
+    tab.agentSessionId = legacy.sessionId ?? null;
+    return {
+      tabs: [tab],
+      activeTabId: tab.id,
+    };
+  },
+  partialize: (state: ChatState) => ({
+    tabs: state.tabs.map((t) => ({
+      ...t,
+      messages: t.messages.slice(-100),
+      pendingToolApprovals: [],
+    })),
+    activeTabId: state.activeTabId,
+  }),
+};
+
+export const useChatStore = create<ChatState>()(
+  persist(chatStateCreator, { ...chatPersistOptions, name: "sonde-chat" })
+);
+
+export const useEmbeddedChatStore = create<ChatState>()(
+  persist(chatStateCreator, { ...chatPersistOptions, name: "sonde-chat-embedded" })
 );

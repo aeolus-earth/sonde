@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth";
-import { useChatStore } from "@/stores/chat";
+import {
+  useChatStoreApi,
+  useScopedChatStore,
+  type ChatStoreApi,
+} from "@/contexts/chat-store-context";
 import { useChatPageContext } from "@/contexts/chat-page-context";
 import { filesToAttachmentPayloads } from "@/lib/chat-attachments";
 import type {
@@ -28,13 +32,13 @@ const RECONNECT_MAX_MS = 30000;
 
 const WS_CLOSE_UNAUTHORIZED = 4001;
 
-function resolveTargetTabId(): string {
-  const s = useChatStore.getState();
+function resolveTargetTabId(storeApi: ChatStoreApi): string {
+  const s = storeApi.getState();
   return s.streamingTabId ?? s.activeTabId;
 }
 
-function handleServerMessage(msg: ServerMessage) {
-  const s = useChatStore.getState();
+function handleServerMessage(msg: ServerMessage, storeApi: ChatStoreApi) {
+  const s = storeApi.getState();
 
   switch (msg.type) {
     case "session":
@@ -47,7 +51,7 @@ function handleServerMessage(msg: ServerMessage) {
       break;
 
     case "text_delta": {
-      const tabId = resolveTargetTabId();
+      const tabId = resolveTargetTabId(storeApi);
       if (!s.isStreaming) {
         s.addMessage(tabId, {
           id: crypto.randomUUID(),
@@ -66,7 +70,7 @@ function handleServerMessage(msg: ServerMessage) {
       break;
 
     case "tool_use_start": {
-      const tabId = resolveTargetTabId();
+      const tabId = resolveTargetTabId(storeApi);
       if (!s.isStreaming) {
         s.addMessage(tabId, {
           id: crypto.randomUUID(),
@@ -87,7 +91,7 @@ function handleServerMessage(msg: ServerMessage) {
     }
 
     case "tool_approval_required": {
-      const tabId = resolveTargetTabId();
+      const tabId = resolveTargetTabId(storeApi);
       s.addPendingToolApproval(tabId, {
         approvalId: msg.approvalId,
         toolUseID: msg.toolUseID,
@@ -103,7 +107,7 @@ function handleServerMessage(msg: ServerMessage) {
     }
 
     case "tool_use_end": {
-      const tabId = resolveTargetTabId();
+      const tabId = resolveTargetTabId(storeApi);
       let skipDone = false;
       const tab = s.tabs.find((t) => t.id === tabId);
       if (tab) {
@@ -126,11 +130,11 @@ function handleServerMessage(msg: ServerMessage) {
     }
 
     case "tasks":
-      s.setTasks(resolveTargetTabId(), msg.tasks);
+      s.setTasks(resolveTargetTabId(storeApi), msg.tasks);
       break;
 
     case "error":
-      s.addMessage(resolveTargetTabId(), {
+      s.addMessage(resolveTargetTabId(storeApi), {
         id: crypto.randomUUID(),
         role: "system",
         content: msg.message,
@@ -139,7 +143,7 @@ function handleServerMessage(msg: ServerMessage) {
       break;
 
     case "done": {
-      const tabId = resolveTargetTabId();
+      const tabId = resolveTargetTabId(storeApi);
       s.setStreaming(false);
       s.setStreamingTabId(null);
       s.clearPendingToolApprovals(tabId);
@@ -153,18 +157,22 @@ export function useChat() {
   const accessToken = useAuthStore((s) => s.session?.access_token);
   const authLoading = useAuthStore((s) => s.loading);
 
-  const messages = useChatStore((s) => {
+  const chatStoreApi = useChatStoreApi();
+  const chatStoreApiRef = useRef(chatStoreApi);
+  chatStoreApiRef.current = chatStoreApi;
+
+  const messages = useScopedChatStore((s) => {
     const t = s.tabs.find((x) => x.id === s.activeTabId);
     return t?.messages ?? [];
   });
-  const tasks = useChatStore((s) => {
+  const tasks = useScopedChatStore((s) => {
     const t = s.tabs.find((x) => x.id === s.activeTabId);
     return t?.tasks ?? [];
   });
-  const agentModel = useChatStore((s) => s.agentModel);
-  const isStreaming = useChatStore((s) => s.isStreaming);
-  const connectionStatus = useChatStore((s) => s.connectionStatus);
-  const clearConversation = useChatStore((s) => s.clearConversation);
+  const agentModel = useScopedChatStore((s) => s.agentModel);
+  const isStreaming = useScopedChatStore((s) => s.isStreaming);
+  const connectionStatus = useScopedChatStore((s) => s.connectionStatus);
+  const clearConversation = useScopedChatStore((s) => s.clearConversation);
 
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -199,7 +207,7 @@ export function useChat() {
     const { data: sessionData, error: sessionError } =
       await supabase.auth.getSession();
     if (sessionError || !sessionData.session?.access_token) {
-      useChatStore.getState().setConnectionStatus("disconnected");
+      chatStoreApiRef.current.getState().setConnectionStatus("disconnected");
       return;
     }
 
@@ -218,7 +226,7 @@ export function useChat() {
 
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
 
-    useChatStore.getState().setConnectionStatus("connecting");
+    chatStoreApiRef.current.getState().setConnectionStatus("connecting");
 
     const url = `${getAgentWsBase()}/chat?token=${encodeURIComponent(token)}`;
     const ws = new WebSocket(url);
@@ -227,7 +235,7 @@ export function useChat() {
     ws.onopen = () => {
       authFailureRef.current = false;
       authErrorLoggedRef.current = false;
-      useChatStore.getState().setConnectionStatus("connected");
+      chatStoreApiRef.current.getState().setConnectionStatus("connected");
       reconnectDelay.current = RECONNECT_BASE_MS;
     };
 
@@ -238,12 +246,12 @@ export function useChat() {
       } catch {
         return;
       }
-      handleServerMessage(msg);
+      handleServerMessage(msg, chatStoreApiRef.current);
     };
 
     ws.onclose = (ev) => {
       wsRef.current = null;
-      const st = useChatStore.getState();
+      const st = chatStoreApiRef.current.getState();
       const tabId = st.streamingTabId ?? st.activeTabId;
       st.setConnectionStatus("disconnected");
       st.setStreaming(false);
@@ -262,7 +270,7 @@ export function useChat() {
           authFailureRef.current = true;
           if (!authErrorLoggedRef.current) {
             authErrorLoggedRef.current = true;
-            const s = useChatStore.getState();
+            const s = chatStoreApiRef.current.getState();
             s.addMessage(s.activeTabId, {
               id: crypto.randomUUID(),
               role: "system",
@@ -291,9 +299,9 @@ export function useChat() {
 
     if (!accessToken) {
       if (authLoading) {
-        useChatStore.getState().setConnectionStatus("connecting");
+        chatStoreApiRef.current.getState().setConnectionStatus("connecting");
       } else {
-        useChatStore.getState().setConnectionStatus("disconnected");
+        chatStoreApiRef.current.getState().setConnectionStatus("disconnected");
       }
       return;
     }
@@ -312,7 +320,7 @@ export function useChat() {
       const ws = wsRef.current;
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
-      const s0 = useChatStore.getState();
+      const s0 = chatStoreApiRef.current.getState();
       const activeTabId = s0.activeTabId;
       s0.setStreamingTabId(activeTabId);
 
@@ -326,7 +334,7 @@ export function useChat() {
 
       const wireContent = expandDefendExistenceCommand(content) ?? content;
 
-      const s1 = useChatStore.getState();
+      const s1 = chatStoreApiRef.current.getState();
       s1.addMessage(activeTabId, {
         id: crypto.randomUUID(),
         role: "user",
@@ -336,7 +344,7 @@ export function useChat() {
         timestamp: Date.now(),
       });
 
-      const s2 = useChatStore.getState();
+      const s2 = chatStoreApiRef.current.getState();
       const tab = s2.tabs.find((t) => t.id === activeTabId);
 
       const payload: ClientMessage = {
@@ -362,7 +370,7 @@ export function useChat() {
   const approveTool = useCallback((approvalId: string) => {
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    const s0 = useChatStore.getState();
+    const s0 = chatStoreApiRef.current.getState();
     const tabId = s0.streamingTabId ?? s0.activeTabId;
     s0.removePendingToolApproval(tabId, approvalId);
     s0.updateToolUse(tabId, approvalId, { status: "running" });
@@ -373,7 +381,7 @@ export function useChat() {
   const denyTool = useCallback((approvalId: string, reason?: string) => {
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    const s0 = useChatStore.getState();
+    const s0 = chatStoreApiRef.current.getState();
     const tabId = s0.streamingTabId ?? s0.activeTabId;
     s0.removePendingToolApproval(tabId, approvalId);
     s0.updateToolUse(tabId, approvalId, { status: "error" });

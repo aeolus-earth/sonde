@@ -54,6 +54,7 @@ export interface Project {
   program: string;
   name: string;
   objective: string | null;
+  description: string | null;
   status: ProjectStatus;
   source: string;
   created_at: string;
@@ -76,6 +77,20 @@ export interface Program {
   name: string;
   description: string | null;
   created_at: string;
+}
+
+/** Row from `program_takeaways` — program-level brief synthesis (markdown). */
+export interface ProgramTakeaways {
+  program: string;
+  body: string;
+  updated_at: string;
+}
+
+/** Row from `project_takeaways` — project-level brief synthesis (markdown). */
+export interface ProjectTakeaways {
+  project_id: string;
+  body: string;
+  updated_at: string;
 }
 
 export interface Experiment {
@@ -127,7 +142,7 @@ export interface ExperimentSummary extends Experiment {
 /** Result from search_all RPC */
 export interface SearchResult {
   id: string;
-  record_type: "experiment" | "finding" | "direction" | "question" | "artifact";
+  record_type: "experiment" | "finding" | "direction" | "question" | "artifact" | "project";
   title: string | null;
   subtitle: string | null;
   program: string | null;

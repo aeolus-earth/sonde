@@ -1,0 +1,812 @@
+import {
+  useMemo,
+  useCallback,
+  useRef,
+  useState,
+  useEffect,
+  memo,
+  type KeyboardEvent,
+} from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
+import {
+  ChevronDown,
+  ChevronRight,
+  Compass,
+  FolderKanban,
+  GitFork,
+} from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { useStatusChartColors, useThemeCssColors } from "@/hooks/use-theme-css-colors";
+import {
+  experimentMatchesSearchQuery,
+  parseExperimentSearchTokens,
+} from "@/lib/experiment-search-match";
+import { cn } from "@/lib/utils";
+import type {
+  DirectionSummary,
+  ExperimentStatus,
+  ExperimentSummary,
+  Finding,
+  FindingConfidence,
+  ProjectSummary,
+} from "@/types/sonde";
+
+// ── Shared helpers (aligned with experiment-graph) ─────────────────
+
+function countStatuses(exps: ExperimentSummary[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const e of exps) counts[e.status] = (counts[e.status] ?? 0) + 1;
+  return counts;
+}
+
+function buildChildMap(exps: ExperimentSummary[]): Map<string, ExperimentSummary[]> {
+  const map = new Map<string, ExperimentSummary[]>();
+  for (const e of exps) {
+    if (e.parent_id) {
+      if (!map.has(e.parent_id)) map.set(e.parent_id, []);
+      map.get(e.parent_id)!.push(e);
+    }
+  }
+  return map;
+}
+
+function countDescendants(id: string, childMap: Map<string, ExperimentSummary[]>): number {
+  const children = childMap.get(id) ?? [];
+  let count = children.length;
+  for (const c of children) count += countDescendants(c.id, childMap);
+  return count;
+}
+
+function projectNodeId(raw: string | null): string {
+  return raw === null ? "proj-unassigned" : `proj-${raw}`;
+}
+
+function bucketProjectId(
+  projectId: string | null | undefined,
+  knownIds: Set<string>
+): string | null {
+  if (projectId == null) return null;
+  return knownIds.has(projectId) ? projectId : null;
+}
+
+function buildFindingsByExperiment(findings: Finding[]): Map<string, Finding[]> {
+  const map = new Map<string, Finding[]>();
+  for (const f of findings) {
+    for (const eid of f.evidence) {
+      if (!map.has(eid)) map.set(eid, []);
+      map.get(eid)!.push(f);
+    }
+  }
+  return map;
+}
+
+function findingMatchesSearchQuery(f: Finding, rawQuery: string): boolean {
+  const tokens = parseExperimentSearchTokens(rawQuery);
+  if (tokens.length === 0) return true;
+  return tokens.every((tok) => {
+    const t = tok.toLowerCase();
+    if (f.id.toLowerCase().includes(t)) return true;
+    if (f.topic.toLowerCase().includes(t)) return true;
+    if (f.finding.toLowerCase().includes(t)) return true;
+    return false;
+  });
+}
+
+/** When query is non-empty: experiments to show (matches + ancestors). Null = all experiments. */
+function filterExperimentsForSearch(
+  experiments: ExperimentSummary[],
+  findings: Finding[],
+  rawQuery: string
+): ExperimentSummary[] | null {
+  const tokens = parseExperimentSearchTokens(rawQuery);
+  if (tokens.length === 0) return null;
+
+  const byId = new Map(experiments.map((e) => [e.id, e]));
+  const directMatch = new Set<string>();
+
+  for (const e of experiments) {
+    if (experimentMatchesSearchQuery(e, rawQuery)) directMatch.add(e.id);
+  }
+  for (const f of findings) {
+    if (!findingMatchesSearchQuery(f, rawQuery)) continue;
+    for (const eid of f.evidence) {
+      if (byId.has(eid)) directMatch.add(eid);
+    }
+  }
+
+  const included = new Set<string>();
+
+  function addAncestors(id: string) {
+    let cur = byId.get(id);
+    while (cur) {
+      included.add(cur.id);
+      if (!cur.parent_id || !byId.has(cur.parent_id)) break;
+      cur = byId.get(cur.parent_id)!;
+    }
+  }
+
+  for (const id of directMatch) {
+    addAncestors(id);
+    included.add(id);
+  }
+
+  return experiments.filter((e) => included.has(e.id));
+}
+
+// ── Row model ────────────────────────────────────────────────────
+
+export type TreeNavigateTarget =
+  | { kind: "experiment"; id: string }
+  | { kind: "project"; id: string }
+  | { kind: "direction"; id: string }
+  | { kind: "finding"; id: string };
+
+type TreeRowData =
+  | {
+      kind: "project";
+      rowKey: string;
+      depth: number;
+      pid: string;
+      label: string;
+      projectId: string | null;
+      directionCount: number;
+      expCount: number;
+      toggleKey: string;
+    }
+  | {
+      kind: "direction";
+      rowKey: string;
+      depth: number;
+      dir: DirectionSummary;
+      expCount: number;
+      statusCounts: Record<string, number>;
+      toggleKey: string;
+    }
+  | {
+      kind: "ungrouped";
+      rowKey: string;
+      depth: number;
+      expCount: number;
+      statusCounts: Record<string, number>;
+      toggleKey: string;
+    }
+  | {
+      kind: "experiment";
+      rowKey: string;
+      depth: number;
+      exp: ExperimentSummary;
+      hasChildren: boolean;
+      childCount: number;
+      toggleKey: string;
+      findings: Finding[];
+    };
+
+const ROW_H = 40;
+
+function confidenceVariant(c: FindingConfidence): "high" | "medium" | "low" {
+  return c;
+}
+
+// ── Flat row builder ───────────────────────────────────────────────
+
+function addExperimentRows(
+  exp: ExperimentSummary,
+  depth: number,
+  childMap: Map<string, ExperimentSummary[]>,
+  collapsed: Set<string>,
+  findingsByExp: Map<string, Finding[]>,
+  rows: TreeRowData[]
+) {
+  const children = childMap.get(exp.id) ?? [];
+  const hasChildren = children.length > 0;
+  const isCollapsed = collapsed.has(exp.id);
+  const childCount = countDescendants(exp.id, childMap);
+
+  rows.push({
+    kind: "experiment",
+    rowKey: `exp-${exp.id}`,
+    depth,
+    exp,
+    hasChildren,
+    childCount,
+    toggleKey: exp.id,
+    findings: findingsByExp.get(exp.id) ?? [],
+  });
+
+  if (hasChildren && !isCollapsed) {
+    for (const c of children) {
+      addExperimentRows(c, depth + 1, childMap, collapsed, findingsByExp, rows);
+    }
+  }
+}
+
+export interface ResearchTreeProps {
+  experiments: ExperimentSummary[];
+  directions: DirectionSummary[];
+  projects: ProjectSummary[];
+  findings: Finding[];
+  onNavigate: (target: TreeNavigateTarget) => void;
+}
+
+export const ResearchTree = memo(function ResearchTree({
+  experiments,
+  directions,
+  projects,
+  findings,
+  onNavigate,
+}: ResearchTreeProps) {
+  const colors = useThemeCssColors();
+  const statusColor = useStatusChartColors();
+
+  const [search, setSearch] = useState("");
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+  const [focusedIndex, setFocusedIndex] = useState(-1);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const didAutoCollapse = useRef(false);
+
+  const experimentIds = useMemo(() => new Set(experiments.map((e) => e.id)), [experiments]);
+  const knownProjectIds = useMemo(() => new Set(projects.map((p) => p.id)), [projects]);
+
+  const isRoot = useCallback(
+    (e: ExperimentSummary) => !e.parent_id || !experimentIds.has(e.parent_id),
+    [experimentIds]
+  );
+
+  const findingsByExp = useMemo(() => buildFindingsByExperiment(findings), [findings]);
+
+  const experimentsForTree = useMemo(() => {
+    const filtered = filterExperimentsForSearch(experiments, findings, search);
+    return filtered ?? experiments;
+  }, [experiments, findings, search]);
+
+  const childMapFiltered = useMemo(
+    () => buildChildMap(experimentsForTree),
+    [experimentsForTree]
+  );
+
+  useEffect(() => {
+    setFocusedIndex(-1);
+  }, [search, experimentsForTree.length]);
+
+  useEffect(() => {
+    if (didAutoCollapse.current) return;
+    if (experiments.length === 0) return;
+    const est = projects.length + directions.length + experiments.length;
+    if (est > 120) {
+      const sortedProjects = [...projects].sort((a, b) => a.name.localeCompare(b.name));
+      const needsUnassigned =
+        directions.some((d) => bucketProjectId(d.project_id, knownProjectIds) === null) ||
+        experiments.some(
+          (e) =>
+            bucketProjectId(e.project_id, knownProjectIds) === null && isRoot(e)
+        );
+      type PEntry = { id: string | null; label: string };
+      const entries: PEntry[] = sortedProjects.map((p) => ({ id: p.id, label: p.name }));
+      if (needsUnassigned) entries.push({ id: null, label: "Unassigned" });
+      if (entries.length > 1) {
+        const collapseKeys = entries.slice(1).map((p) => {
+          const bucketId = bucketProjectId(p.id, knownProjectIds);
+          return projectNodeId(bucketId);
+        });
+        setCollapsed((prev) => {
+          const next = new Set(prev);
+          for (const k of collapseKeys) next.add(k);
+          return next;
+        });
+      }
+    }
+    didAutoCollapse.current = true;
+  }, [experiments, projects, directions, knownProjectIds, isRoot]);
+
+  const flatRows = useMemo(() => {
+    const rows: TreeRowData[] = [];
+    const isFiltering = search.trim().length > 0;
+
+    const sortedProjects = [...projects].sort((a, b) => a.name.localeCompare(b.name));
+    const needsUnassigned =
+      directions.some((d) => bucketProjectId(d.project_id, knownProjectIds) === null) ||
+      experimentsForTree.some(
+        (e) => bucketProjectId(e.project_id, knownProjectIds) === null && isRoot(e)
+      );
+
+    type PEntry = { id: string | null; label: string };
+    const entries: PEntry[] = sortedProjects.map((p) => ({ id: p.id, label: p.name }));
+    if (needsUnassigned) {
+      entries.push({ id: null, label: "Unassigned" });
+    }
+
+    for (const p of entries) {
+      const bucketId = bucketProjectId(p.id, knownProjectIds);
+      const pid = projectNodeId(bucketId);
+      const projCollapsed = collapsed.has(pid);
+
+      const dirsInProj = directions
+        .filter((d) => bucketProjectId(d.project_id, knownProjectIds) === bucketId)
+        .sort((a, b) => a.title.localeCompare(b.title));
+
+      const allInProject = experimentsForTree.filter(
+        (e) => bucketProjectId(e.project_id, knownProjectIds) === bucketId
+      );
+
+      if (isFiltering && allInProject.length === 0) continue;
+
+      rows.push({
+        kind: "project",
+        rowKey: pid,
+        depth: 0,
+        pid,
+        label: p.label,
+        projectId: p.id,
+        directionCount: dirsInProj.length,
+        expCount: allInProject.length,
+        toggleKey: pid,
+      });
+
+      if (projCollapsed) continue;
+
+      for (const dir of dirsInProj) {
+        const headerId = `dir-${dir.id}`;
+        const dirCollapsed = collapsed.has(headerId);
+        const rootExps = experimentsForTree.filter(
+          (e) => isRoot(e) && e.direction_id === dir.id
+        );
+        const allInDirection = experimentsForTree.filter((e) => e.direction_id === dir.id);
+
+        if (isFiltering && allInDirection.length === 0) continue;
+
+        rows.push({
+          kind: "direction",
+          rowKey: headerId,
+          depth: 1,
+          dir,
+          expCount: allInDirection.length,
+          statusCounts: countStatuses(allInDirection),
+          toggleKey: headerId,
+        });
+
+        if (dirCollapsed) continue;
+
+        for (const exp of rootExps) {
+          addExperimentRows(exp, 2, childMapFiltered, collapsed, findingsByExp, rows);
+        }
+      }
+
+      const noDirExps = experimentsForTree.filter(
+        (e) =>
+          isRoot(e) &&
+          e.direction_id === null &&
+          bucketProjectId(e.project_id, knownProjectIds) === bucketId
+      );
+
+      if (noDirExps.length > 0) {
+        const nodirId = `nodir-${pid}`;
+        const nodirCollapsed = collapsed.has(nodirId);
+
+        rows.push({
+          kind: "ungrouped",
+          rowKey: nodirId,
+          depth: 1,
+          expCount: noDirExps.length,
+          statusCounts: countStatuses(noDirExps),
+          toggleKey: nodirId,
+        });
+
+        if (!nodirCollapsed) {
+          for (const exp of noDirExps) {
+            addExperimentRows(exp, 2, childMapFiltered, collapsed, findingsByExp, rows);
+          }
+        }
+      }
+    }
+
+    return rows;
+  }, [
+    projects,
+    directions,
+    experimentsForTree,
+    collapsed,
+    childMapFiltered,
+    findingsByExp,
+    knownProjectIds,
+    isRoot,
+    search,
+  ]);
+
+  const toggle = useCallback((key: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
+  const virtualizer = useVirtualizer({
+    count: flatRows.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => ROW_H,
+    overscan: 24,
+  });
+
+  useEffect(() => {
+    if (focusedIndex < 0) return;
+    virtualizer.scrollToIndex(focusedIndex, { align: "auto" });
+  }, [focusedIndex, virtualizer]);
+
+  const navigateForRow = useCallback(
+    (row: TreeRowData) => {
+      if (row.kind === "project") {
+        if (row.projectId) onNavigate({ kind: "project", id: row.projectId });
+      } else if (row.kind === "direction") {
+        onNavigate({ kind: "direction", id: row.dir.id });
+      } else if (row.kind === "ungrouped") {
+        return;
+      } else {
+        onNavigate({ kind: "experiment", id: row.exp.id });
+      }
+    },
+    [onNavigate]
+  );
+
+  const onKeyDown = useCallback(
+    (e: KeyboardEvent<HTMLDivElement>) => {
+      const t = e.target as HTMLElement;
+      if (
+        t.tagName === "INPUT" ||
+        t.tagName === "TEXTAREA" ||
+        t.isContentEditable
+      ) {
+        return;
+      }
+
+      const rows = flatRows;
+      if (rows.length === 0) return;
+
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setFocusedIndex((i) => Math.min(i < 0 ? 0 : i + 1, rows.length - 1));
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setFocusedIndex((i) => Math.max((i < 0 ? 0 : i) - 1, 0));
+      } else if (e.key === "Enter" && focusedIndex >= 0) {
+        e.preventDefault();
+        navigateForRow(rows[focusedIndex]);
+      } else if (e.key === "ArrowRight" && focusedIndex >= 0) {
+        e.preventDefault();
+        const row = rows[focusedIndex];
+        if (row.kind === "project" || row.kind === "direction" || row.kind === "ungrouped") {
+          setCollapsed((prev) => {
+            const next = new Set(prev);
+            next.delete(row.toggleKey);
+            return next;
+          });
+        } else if (row.hasChildren) {
+          setCollapsed((prev) => {
+            const next = new Set(prev);
+            next.delete(row.toggleKey);
+            return next;
+          });
+        }
+      } else if (e.key === "ArrowLeft" && focusedIndex >= 0) {
+        e.preventDefault();
+        const row = rows[focusedIndex];
+        if (row.kind === "project" || row.kind === "direction" || row.kind === "ungrouped") {
+          setCollapsed((prev) => new Set(prev).add(row.toggleKey));
+        } else if (row.hasChildren) {
+          setCollapsed((prev) => new Set(prev).add(row.toggleKey));
+        }
+      }
+    },
+    [flatRows, focusedIndex, navigateForRow]
+  );
+
+  const pad = (depth: number) => ({ paddingLeft: 8 + depth * 20 });
+
+  const renderRow = (row: TreeRowData, index: number) => {
+    const focused = focusedIndex === index;
+
+    if (row.kind === "project") {
+      const expanded = !collapsed.has(row.toggleKey);
+      return (
+        <div
+          key={row.rowKey}
+          role="row"
+          tabIndex={0}
+          onClick={() => {
+            setFocusedIndex(index);
+            toggle(row.toggleKey);
+          }}
+          onDoubleClick={(e) => {
+            e.stopPropagation();
+            if (row.projectId) onNavigate({ kind: "project", id: row.projectId });
+          }}
+          onKeyDown={(e) => {
+            if (e.key === " ") {
+              e.preventDefault();
+              toggle(row.toggleKey);
+            }
+          }}
+          className={cn(
+            "flex cursor-pointer items-center gap-2 border-b border-border-subtle pr-2 text-left transition-colors",
+            focused ? "bg-surface-hover ring-1 ring-inset ring-accent" : "hover:bg-surface-hover/80"
+          )}
+          style={{ ...pad(row.depth), minHeight: ROW_H }}
+        >
+          <span className="text-text-quaternary">
+            {expanded ? (
+              <ChevronDown className="h-3.5 w-3.5" />
+            ) : (
+              <ChevronRight className="h-3.5 w-3.5" />
+            )}
+          </span>
+          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[4px] border border-border-subtle bg-surface-raised text-text-secondary">
+            <FolderKanban className="h-3.5 w-3.5" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-[12px] font-semibold text-text">{row.label}</div>
+            <div className="mt-0.5 flex flex-wrap items-center gap-2">
+              {row.projectId && (
+                <span className="font-mono text-[10px] text-text-quaternary">{row.projectId}</span>
+              )}
+              <span className="text-[10px] text-text-quaternary">
+                {row.directionCount} dir · {row.expCount} exp
+              </span>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (row.kind === "direction") {
+      const expanded = !collapsed.has(row.toggleKey);
+      return (
+        <div
+          key={row.rowKey}
+          role="row"
+          tabIndex={0}
+          onClick={() => {
+            setFocusedIndex(index);
+            toggle(row.toggleKey);
+          }}
+          onDoubleClick={(e) => {
+            e.stopPropagation();
+            onNavigate({ kind: "direction", id: row.dir.id });
+          }}
+          onKeyDown={(e) => {
+            if (e.key === " ") {
+              e.preventDefault();
+              toggle(row.toggleKey);
+            }
+          }}
+          className={cn(
+            "flex cursor-pointer items-center gap-2 border-b border-border-subtle border-l-[3px] border-l-accent/40 pr-2 text-left transition-colors",
+            focused ? "bg-surface-hover ring-1 ring-inset ring-accent" : "hover:bg-surface-hover/80"
+          )}
+          style={{ ...pad(row.depth), minHeight: ROW_H }}
+        >
+          <span className="text-accent">
+            {expanded ? (
+              <ChevronDown className="h-3.5 w-3.5" />
+            ) : (
+              <ChevronRight className="h-3.5 w-3.5" />
+            )}
+          </span>
+          <Compass className="h-3.5 w-3.5 shrink-0 text-accent" />
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-[12px] font-medium text-text">{row.dir.title}</div>
+            <div className="mt-0.5 flex flex-wrap items-center gap-2">
+              <span className="font-mono text-[10px] text-text-quaternary">{row.dir.id}</span>
+              <div className="flex items-center gap-1.5">
+                {Object.entries(row.statusCounts).map(([status, count]) => (
+                  <span
+                    key={status}
+                    className="flex items-center gap-0.5 text-[10px]"
+                    style={{
+                      color: statusColor[status as ExperimentStatus] ?? colors.textQuaternary,
+                    }}
+                  >
+                    <span className="inline-block h-[5px] w-[5px] rounded-full bg-current" />
+                    {count}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (row.kind === "ungrouped") {
+      const expanded = !collapsed.has(row.toggleKey);
+      return (
+        <div
+          key={row.rowKey}
+          role="row"
+          tabIndex={0}
+          onClick={() => {
+            setFocusedIndex(index);
+            toggle(row.toggleKey);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === " ") {
+              e.preventDefault();
+              toggle(row.toggleKey);
+            }
+          }}
+          className={cn(
+            "flex cursor-pointer items-center gap-2 border-b border-border-subtle pr-2 text-left transition-colors",
+            focused ? "bg-surface-hover ring-1 ring-inset ring-accent" : "hover:bg-surface-hover/80"
+          )}
+          style={{ ...pad(row.depth), minHeight: ROW_H }}
+        >
+          <span className="text-text-tertiary">
+            {expanded ? (
+              <ChevronDown className="h-3.5 w-3.5" />
+            ) : (
+              <ChevronRight className="h-3.5 w-3.5" />
+            )}
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="text-[12px] font-medium italic text-text-secondary">No direction</div>
+            <div className="mt-0.5 flex items-center gap-1.5">
+              {Object.entries(row.statusCounts).map(([status, count]) => (
+                <span
+                  key={status}
+                  className="flex items-center gap-0.5 text-[10px]"
+                  style={{
+                    color: statusColor[status as ExperimentStatus] ?? colors.textQuaternary,
+                  }}
+                >
+                  <span className="inline-block h-[5px] w-[5px] rounded-full bg-current" />
+                  {count}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    const exp = row.exp;
+    const expChildrenExpanded = !collapsed.has(row.toggleKey);
+    const summary = exp.finding ?? exp.hypothesis ?? "";
+
+    return (
+      <div
+        key={row.rowKey}
+        role="row"
+        tabIndex={0}
+        onClick={(ev) => {
+          setFocusedIndex(index);
+          if (row.hasChildren && (ev.target as HTMLElement).closest("[data-exp-toggle]")) {
+            toggle(row.toggleKey);
+            return;
+          }
+          onNavigate({ kind: "experiment", id: exp.id });
+        }}
+        onDoubleClick={() => onNavigate({ kind: "experiment", id: exp.id })}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onNavigate({ kind: "experiment", id: exp.id });
+          }
+        }}
+        className={cn(
+          "flex cursor-pointer items-center gap-1.5 border-b border-border-subtle pr-2 text-left transition-colors",
+          focused ? "bg-surface-hover ring-1 ring-inset ring-accent" : "hover:bg-surface-hover/80"
+        )}
+        style={{
+          ...pad(row.depth),
+          minHeight: ROW_H,
+          borderLeftWidth: 3,
+          borderLeftColor: statusColor[exp.status],
+        }}
+      >
+        <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto pl-1">
+          {row.hasChildren ? (
+            <button
+              type="button"
+              data-exp-toggle
+              className="shrink-0 rounded p-0.5 text-text-quaternary hover:bg-surface-raised hover:text-text-secondary"
+              aria-label={expChildrenExpanded ? "Collapse children" : "Expand children"}
+              onClick={(e) => {
+                e.stopPropagation();
+                setFocusedIndex(index);
+                toggle(row.toggleKey);
+              }}
+            >
+              {expChildrenExpanded ? (
+                <ChevronDown className="h-3.5 w-3.5" />
+              ) : (
+                <ChevronRight className="h-3.5 w-3.5" />
+              )}
+            </button>
+          ) : (
+            <span className="w-4 shrink-0" />
+          )}
+          <span className="shrink-0 font-mono text-[11px] font-medium text-text">{exp.id}</span>
+          <Badge variant={exp.status}>{exp.status}</Badge>
+          {exp.branch_type && (
+            <span className="flex shrink-0 items-center gap-0.5 text-[9px] text-text-quaternary">
+              <GitFork className="h-2.5 w-2.5" />
+              {exp.branch_type}
+            </span>
+          )}
+          {summary && (
+            <span className="min-w-0 flex-1 truncate text-[11px] text-text-tertiary" title={summary}>
+              {summary}
+            </span>
+          )}
+          {row.findings.length > 0 && (
+            <div className="flex shrink-0 flex-wrap items-center gap-1">
+              {row.findings.map((f) => (
+                <button
+                  key={f.id}
+                  type="button"
+                  className="inline-flex items-center gap-0.5 rounded border border-border-subtle bg-surface-raised px-1 py-0.5 text-[10px] font-mono text-text-secondary hover:border-accent/40"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onNavigate({ kind: "finding", id: f.id });
+                  }}
+                >
+                  <Badge variant={confidenceVariant(f.confidence)} className="text-[9px]">
+                    {f.id}
+                  </Badge>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        {!expChildrenExpanded && row.childCount > 0 && (
+          <span className="shrink-0 text-[9px] text-text-quaternary">
+            +{row.childCount}
+          </span>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className="flex h-full min-h-0 flex-col gap-2">
+      <Input
+        placeholder="Filter experiments & findings…"
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        className="h-9 max-w-md rounded-[6px] border-border bg-surface text-[13px]"
+        aria-label="Filter tree"
+      />
+      <div
+        ref={scrollRef}
+        className="min-h-0 flex-1 overflow-auto rounded-[8px] border border-border bg-bg"
+        tabIndex={-1}
+        onKeyDown={onKeyDown}
+      >
+        {flatRows.length === 0 ? (
+          <div className="p-4 text-[13px] text-text-quaternary">
+            {search.trim() ? "No matching rows." : "Nothing to show."}
+          </div>
+        ) : (
+          <div
+            className="relative w-full"
+            style={{ height: virtualizer.getTotalSize() }}
+          >
+            {virtualizer.getVirtualItems().map((vi) => {
+              const row = flatRows[vi.index];
+              if (!row) return null;
+              return (
+                <div
+                  key={vi.key}
+                  className="absolute left-0 top-0 w-full"
+                  style={{ transform: `translateY(${vi.start}px)` }}
+                >
+                  {renderRow(row, vi.index)}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+});

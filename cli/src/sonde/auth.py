@@ -17,7 +17,7 @@ import webbrowser
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from importlib import resources
-from threading import Event
+from threading import Event, Lock, Thread
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -300,7 +300,7 @@ def _is_expired(token: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def login() -> UserInfo:
+def login(remote: bool = False) -> UserInfo:
     """Run OAuth PKCE: print sign-in URL, open browser when possible, wait for callback."""
     client = _anon_client()
 
@@ -324,8 +324,8 @@ def login() -> UserInfo:
     if not auth_url.startswith("https://"):
         raise RuntimeError(f"Unexpected non-HTTPS OAuth URL: {auth_url[:80]}")
 
-    # Wait for the browser callback
-    code = _wait_for_callback(port, auth_url)
+    paste_fallback = remote or _is_remote_environment()
+    code = _wait_for_callback(port, auth_url, paste_fallback=paste_fallback)
 
     # Exchange code for session
     params = CodeExchangeParams(
@@ -470,7 +470,41 @@ def _skip_browser_launch() -> bool:
     return os.environ.get("SONDE_LOGIN_NO_BROWSER", "").lower() in ("1", "true", "yes")
 
 
-def _emit_login_browser_instructions(port: int, auth_url: str) -> None:
+def _is_remote_environment() -> bool:
+    """True when the browser may not reach the CLI's localhost (VMs, SSH, cloud shells)."""
+    if os.environ.get("SONDE_LOGIN_REMOTE", "").lower() in ("1", "true", "yes"):
+        return True
+    return bool(
+        os.environ.get("SSH_CONNECTION")
+        or os.environ.get("SSH_TTY")
+        or os.environ.get("LIGHTNING_CLOUD_URL")
+        or os.environ.get("LIGHTNING_CLOUDSPACE_ID")
+        or os.environ.get("CODESPACES")
+        or os.environ.get("GITPOD_WORKSPACE_ID")
+        or os.environ.get("CLOUD_SHELL")
+    )
+
+
+def _extract_code_from_url(raw: str) -> str | None:
+    """Parse OAuth `code` from a callback URL, or accept a bare code string."""
+    s = raw.strip()
+    if not s:
+        return None
+    if "://" in s or s.startswith("http"):
+        parsed = urlparse(s)
+        qs = parse_qs(parsed.query)
+        codes = qs.get("code")
+        if codes:
+            return codes[0]
+        return None
+    if len(s) >= 8 and all(c.isalnum() or c in "-._~" for c in s):
+        return s
+    return None
+
+
+def _emit_login_browser_instructions(
+    port: int, auth_url: str, *, paste_fallback: bool = False
+) -> None:
     """Print sign-in URL to stderr, try to open the system browser, explain when that fails."""
     err.print("[sonde.muted]Sign in with your Aeolus Google Workspace account.[/]")
     err.print(
@@ -491,6 +525,13 @@ def _emit_login_browser_instructions(port: int, auth_url: str) -> None:
             "this machine.[/]"
         )
 
+    if paste_fallback:
+        err.print(
+            "  [sonde.muted]If the browser cannot connect to localhost after sign-in, copy the "
+            "full URL from the address bar (OAuth code in the query string) and paste it at the "
+            "prompt below.[/]"
+        )
+
     opened = False
     if not _skip_browser_launch():
         opened = bool(webbrowser.open(auth_url))
@@ -501,22 +542,32 @@ def _emit_login_browser_instructions(port: int, auth_url: str) -> None:
         )
 
 
-def _wait_for_callback(port: int, auth_url: str) -> str:
+def _wait_for_callback(port: int, auth_url: str, *, paste_fallback: bool = False) -> str:
     """Start a temporary HTTP server, print URL and open browser, wait for the OAuth callback."""
     code_received = Event()
     auth_code: list[str] = []
     callback_page = _load_callback_html()
+    lock = Lock()
+
+    def _try_set_auth_code(code: str | None) -> None:
+        if not code:
+            return
+        with lock:
+            if code_received.is_set():
+                return
+            auth_code.append(code)
+            code_received.set()
 
     class CallbackHandler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:
             query = parse_qs(urlparse(self.path).query)
             if "code" in query:
-                auth_code.append(query["code"][0])
+                c = query["code"][0]
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.end_headers()
                 self.wfile.write(callback_page)
-                code_received.set()
+                _try_set_auth_code(c)
             else:
                 self.send_response(400)
                 self.end_headers()
@@ -526,9 +577,50 @@ def _wait_for_callback(port: int, auth_url: str) -> str:
             pass  # Suppress HTTP server logs
 
     server = HTTPServer(("127.0.0.1", port), CallbackHandler)
+
+    if paste_fallback:
+        server.timeout = 1.0
+
+        def _serve_loop() -> None:
+            while not code_received.is_set():
+                server.handle_request()
+
+        def _read_paste() -> None:
+            try:
+                line = input("Paste callback URL: ")
+            except EOFError:
+                return
+            _try_set_auth_code(_extract_code_from_url(line))
+
+        serve_thread = Thread(target=_serve_loop, daemon=True)
+        serve_thread.start()
+
+        _emit_login_browser_instructions(port, auth_url, paste_fallback=True)
+
+        paste_thread = Thread(target=_read_paste, daemon=True)
+        paste_thread.start()
+
+        if not code_received.wait(timeout=CALLBACK_TIMEOUT):
+            try:
+                server.shutdown()
+            except Exception:
+                logger.debug("HTTPServer shutdown after timeout", exc_info=True)
+            server.server_close()
+            raise TimeoutError(
+                f"Login timed out after {CALLBACK_TIMEOUT}s. "
+                "Finish signing in before the timeout, or run sonde login again."
+            )
+
+        try:
+            server.shutdown()
+        except Exception:
+            logger.debug("HTTPServer shutdown after success", exc_info=True)
+        server.server_close()
+        return auth_code[0]
+
     server.timeout = CALLBACK_TIMEOUT
 
-    _emit_login_browser_instructions(port, auth_url)
+    _emit_login_browser_instructions(port, auth_url, paste_fallback=False)
 
     try:
         while not code_received.is_set():

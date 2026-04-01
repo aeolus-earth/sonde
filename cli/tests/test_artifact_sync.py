@@ -228,7 +228,7 @@ class TestArtifactUpload:
             ) as create_with_retry,
         ):
             mock_supabase.storage.from_.return_value.upload.side_effect = upload_blob
-            row = upload_file("EXP-0001", artifact, "human/test")
+            row = upload_file(artifact, "human/test", experiment_id="EXP-0001")
 
         assert row["id"] == "ART-0002"
         create_with_retry.assert_called_once()
@@ -257,7 +257,7 @@ class TestArtifactUpload:
             ) as update_metadata,
             patch("sonde.db.artifacts.create_with_retry") as create_with_retry,
         ):
-            row = upload_file("EXP-0001", artifact, "human/test")
+            row = upload_file(artifact, "human/test", experiment_id="EXP-0001")
 
         assert row["id"] == "ART-0001"
         mock_supabase.storage.from_.return_value.update.assert_called_once()
@@ -288,7 +288,7 @@ class TestArtifactUpload:
             ) as update_metadata,
             patch("sonde.db.artifacts.create_with_retry") as create_with_retry,
         ):
-            row = upload_file("EXP-0001", artifact, "human/test")
+            row = upload_file(artifact, "human/test", experiment_id="EXP-0001")
 
         assert row["id"] == "ART-0001"
         mock_supabase.storage.from_.return_value.update.assert_not_called()
@@ -311,7 +311,7 @@ class TestArtifactUpload:
             ),
             pytest.raises(RuntimeError, match="boom"),
         ):
-            upload_file("EXP-0001", artifact, "human/test")
+            upload_file(artifact, "human/test", experiment_id="EXP-0001")
 
         mock_supabase.table.return_value.delete.assert_called_once()
 
@@ -398,6 +398,7 @@ class TestPullCommands:
         monkeypatch.setattr("sonde.commands.pull.find_db.list_findings", lambda **_: [])
         monkeypatch.setattr("sonde.commands.pull.q_db.list_questions", lambda **_: [])
         monkeypatch.setattr("sonde.commands.pull.dir_db.list_directions", lambda **_: [])
+        monkeypatch.setattr("sonde.commands.pull.takeaways_db.get", lambda _program: None)
         monkeypatch.setattr("sonde.commands.pull.notes_db.list_by_experiment", lambda _exp_id: [])
         monkeypatch.setattr(
             "sonde.commands.pull.download_file",
@@ -435,7 +436,7 @@ class TestPullCommands:
         )
         monkeypatch.setattr(
             "sonde.commands.attach.upload_file",
-            lambda _exp_id, _path, _source, **kwargs: {
+            lambda _path, _source, **kwargs: {
                 "id": "ART-0001",
                 "filename": Path(kwargs["storage_subpath"]).name,
             },
@@ -464,7 +465,7 @@ class TestPullCommands:
             lambda _path: None,
         )
 
-        def upload_side_effect(_exp_id, path, _source, **kwargs):
+        def upload_side_effect(path, _source, **kwargs):
             if Path(path).name == "huge.mp4":
                 raise ArtifactTooLargeError("too large")
             return {"id": "ART-0001", "filename": Path(kwargs["storage_subpath"]).name}
@@ -495,7 +496,7 @@ class TestPullCommands:
         monkeypatch.setattr("sonde.commands.attach.resolve_source", lambda *_: "human/test")
         monkeypatch.setattr("sonde.commands.attach.find_by_storage_path", lambda _path: None)
 
-        def upload_side_effect(_exp_id, _path, _source, **kwargs):
+        def upload_side_effect(_path, _source, **kwargs):
             seen_paths.append(kwargs["storage_subpath"])
             return {"id": "ART-0001", "filename": Path(kwargs["storage_subpath"]).name}
 
@@ -526,7 +527,7 @@ class TestPullCommands:
         monkeypatch.setattr("sonde.commands.attach.resolve_source", lambda *_: "human/test")
         monkeypatch.setattr("sonde.commands.attach.find_by_storage_path", lambda _path: None)
 
-        def upload_side_effect(_exp_id, path, _source, **kwargs):
+        def upload_side_effect(path, _source, **kwargs):
             if Path(path).name == "huge.mp4":
                 raise ArtifactTooLargeError("too large")
             return {"id": "ART-0001", "filename": Path(kwargs["storage_subpath"]).name}

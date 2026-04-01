@@ -8,7 +8,7 @@ import {
   Music,
   Presentation,
 } from "lucide-react";
-import { useArtifactUrl } from "@/hooks/use-artifacts";
+import { useArtifactBlob, useArtifactUrl, isBlobCacheable } from "@/hooks/use-artifacts";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import {
@@ -39,17 +39,37 @@ export function ThumbSkeleton({ variant }: { variant: "square" | "video" | "audi
   return <Skeleton className="h-14 w-14 shrink-0 rounded-[4px]" />;
 }
 
-function InlineSkeleton({ variant }: { variant: "square" | "video" | "audio" }) {
+function InlineSkeleton({
+  variant,
+  prominent,
+}: {
+  variant: "square" | "video" | "audio";
+  prominent?: boolean;
+}) {
   if (variant === "video") {
-    return <Skeleton className="aspect-video w-full max-h-72 rounded-[6px]" />;
+    return (
+      <Skeleton
+        className={
+          prominent
+            ? "aspect-video w-full max-h-[min(600px,70vh)] rounded-[6px]"
+            : "aspect-video w-full max-h-72 rounded-[6px]"
+        }
+      />
+    );
   }
   if (variant === "audio") {
     return <Skeleton className="h-12 w-full rounded-[6px]" />;
   }
-  return <Skeleton className="h-64 w-full max-w-full rounded-[6px]" />;
+  return (
+    <Skeleton
+      className={
+        prominent ? "min-h-72 w-full max-w-full rounded-[6px]" : "h-64 w-full max-w-full rounded-[6px]"
+      }
+    />
+  );
 }
 
-export type ArtifactMediaSize = "thumb" | "inline";
+export type ArtifactMediaSize = "thumb" | "inline" | "inlineProminent";
 
 export const ArtifactMediaPreview = memo(function ArtifactMediaPreview({
   artifact,
@@ -58,8 +78,20 @@ export const ArtifactMediaPreview = memo(function ArtifactMediaPreview({
   artifact: Artifact;
   size: ArtifactMediaSize;
 }) {
-  const { data: url, isLoading } = useArtifactUrl(artifact.storage_path);
+  const useBlobForDisplay =
+    isBlobCacheable(artifact.size_bytes) && !isPptx(artifact);
+  const { data: blobUrl, isLoading: blobLoading } = useArtifactBlob(
+    artifact.storage_path,
+    useBlobForDisplay ? artifact.size_bytes : null,
+  );
+  const { data: signedUrl, isLoading: signedLoading } = useArtifactUrl(
+    useBlobForDisplay ? null : artifact.storage_path,
+  );
+  const url = useBlobForDisplay ? blobUrl : signedUrl;
+  const isLoading = useBlobForDisplay ? blobLoading : signedLoading;
   const [imgReady, setImgReady] = useState(false);
+
+  const prominent = size === "inlineProminent";
 
   const variant: "square" | "video" | "audio" = isVideo(artifact)
     ? "video"
@@ -79,10 +111,16 @@ export const ArtifactMediaPreview = memo(function ArtifactMediaPreview({
     }
     if (isPdf(artifact) || isPptx(artifact)) {
       return (
-        <Skeleton className="h-[min(500px,50vh)] w-full max-w-full rounded-[6px]" />
+        <Skeleton
+          className={
+            prominent
+              ? "h-[min(600px,70vh)] w-full max-w-full rounded-[6px]"
+              : "h-[min(500px,50vh)] w-full max-w-full rounded-[6px]"
+          }
+        />
       );
     }
-    return <InlineSkeleton variant={variant} />;
+    return <InlineSkeleton variant={variant} prominent={prominent} />;
   }
 
   if (isVideo(artifact) && url) {
@@ -109,7 +147,17 @@ export const ArtifactMediaPreview = memo(function ArtifactMediaPreview({
         className="relative w-full max-w-full overflow-hidden rounded-[6px] border border-border-subtle bg-surface-raised"
         title={artifact.filename}
       >
-        <video src={url} controls playsInline preload="metadata" className="max-h-72 w-full object-contain">
+        <video
+          src={url}
+          controls
+          playsInline
+          preload="metadata"
+          className={
+            prominent
+              ? "max-h-[min(600px,70vh)] w-full object-contain"
+              : "max-h-72 w-full object-contain"
+          }
+        >
           Video
         </video>
       </div>
@@ -167,7 +215,9 @@ export const ArtifactMediaPreview = memo(function ArtifactMediaPreview({
         fileUrl={url}
         embedUrl={url}
         title={artifact.filename}
-        iframeClassName="h-[min(500px,50vh)] rounded-[6px]"
+        iframeClassName={
+          prominent ? "h-[min(600px,70vh)] rounded-[6px]" : "h-[min(500px,50vh)] rounded-[6px]"
+        }
       />
     );
   }
@@ -196,7 +246,9 @@ export const ArtifactMediaPreview = memo(function ArtifactMediaPreview({
         fileUrl={url}
         embedUrl={officeOnlineEmbedUrl(url)}
         title={artifact.filename}
-        iframeClassName="h-[min(500px,50vh)] rounded-[6px]"
+        iframeClassName={
+          prominent ? "h-[min(600px,70vh)] rounded-[6px]" : "h-[min(500px,50vh)] rounded-[6px]"
+        }
       />
     );
   }
@@ -256,7 +308,9 @@ export const ArtifactMediaPreview = memo(function ArtifactMediaPreview({
           alt=""
           loading="lazy"
           className={cn(
-            "max-h-72 w-full object-contain transition-opacity group-hover:opacity-95",
+            prominent
+              ? "max-h-[min(600px,70vh)] w-full object-contain transition-opacity group-hover:opacity-95"
+              : "max-h-72 w-full object-contain transition-opacity group-hover:opacity-95",
             !imgReady && "opacity-0",
           )}
           onLoad={() => setImgReady(true)}

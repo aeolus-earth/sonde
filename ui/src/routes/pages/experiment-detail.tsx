@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { getRouteApi, Link } from "@tanstack/react-router";
 import { ROUTE_API } from "../route-ids";
 import { useExperiment } from "@/hooks/use-experiments";
@@ -8,11 +8,14 @@ import { useRealtimeInvalidation } from "@/hooks/use-realtime";
 import { useHotkey } from "@/hooks/use-keyboard";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton, DetailSectionSkeleton } from "@/components/ui/skeleton";
-import { Breadcrumb } from "@/components/ui/breadcrumb";
+import {
+  ExperimentLineage,
+  ExperimentLineageSkeleton,
+} from "@/components/experiments/experiment-lineage";
 import { JsonView } from "@/components/ui/json-view";
 import { MarkdownView } from "@/components/ui/markdown-view";
 import { ArtifactGallery } from "@/components/artifacts/artifact-gallery";
-import { formatDateTime, formatDateTimeShort } from "@/lib/utils";
+import { cn, formatDateTime, formatDateTimeShort } from "@/lib/utils";
 import { Section, DetailRow } from "@/components/shared/detail-layout";
 import { RecordLink } from "@/components/shared/record-link";
 import { AuthGate } from "@/components/auth/auth-gate";
@@ -22,7 +25,7 @@ import { TagEditor } from "@/components/experiments/tag-editor";
 import { GitProvenance } from "@/components/experiments/git-provenance";
 import { ChatPanel } from "@/components/chat/chat-panel";
 import { ChatPageProvider } from "@/contexts/chat-page-context";
-import { ArrowLeft, MessageSquare } from "lucide-react";
+import { ArrowLeft, ChevronRight, MessageSquare } from "lucide-react";
 
 const routeApi = getRouteApi(ROUTE_API.authExperimentDetail);
 
@@ -32,6 +35,7 @@ function looksLikeMarkdown(text: string): boolean {
 }
 
 export default function ExperimentDetailPage() {
+  const [chatOpen, setChatOpen] = useState(true);
   const { id } = routeApi.useParams();
   const nav = routeApi.useNavigate();
   const { data: exp, isLoading } = useExperiment(id);
@@ -44,17 +48,21 @@ export default function ExperimentDetailPage() {
   if (isLoading || !exp) {
     return (
       <div className="space-y-4">
-        <div className="flex items-center gap-2.5">
-          <Skeleton className="h-6 w-6 rounded-[5.5px]" />
-          <Skeleton className="h-5 w-28" />
-          <Skeleton className="h-5 w-16" />
+        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-2.5">
+            <Skeleton className="h-6 w-6 shrink-0 rounded-[5.5px]" />
+            <Skeleton className="h-5 w-28" />
+            <Skeleton className="h-5 w-16" />
+            <Skeleton className="h-3 w-40" />
+          </div>
+          <ExperimentLineageSkeleton />
         </div>
-        <div className="grid gap-3 lg:grid-cols-[1fr_minmax(400px,440px)]">
-          <div className="space-y-3">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start">
+          <div className="min-w-0 flex-1 space-y-3">
             <DetailSectionSkeleton />
             <DetailSectionSkeleton />
           </div>
-          <Skeleton className="h-[min(70vh,520px)] w-full rounded-[8px]" />
+          <Skeleton className="h-[min(70vh,520px)] w-full shrink-0 rounded-[8px] lg:max-w-[440px]" />
         </div>
       </div>
     );
@@ -62,40 +70,50 @@ export default function ExperimentDetailPage() {
 
   return (
     <div className="space-y-4">
-      {/* Breadcrumb + Header */}
-      <Breadcrumb
-        items={[
-          { label: "Experiments", to: "/experiments" },
-          { label: exp.id },
-        ]}
-      />
-      <div className="flex items-center gap-2.5">
-        <Link
-          to="/experiments"
-          className="rounded-[5.5px] p-1 text-text-tertiary transition-colors hover:bg-surface-hover hover:text-text-secondary"
-        >
-          <ArrowLeft className="h-4 w-4" />
-        </Link>
-        <div className="flex items-center gap-2">
-          <h1 className="font-mono text-[15px] font-semibold tracking-[-0.01em] text-text">
-            {exp.id}
-          </h1>
-          <Badge variant={exp.status}>{exp.status}</Badge>
-          <AuthGate action="change status">
-            <StatusControls experimentId={exp.id} currentStatus={exp.status} />
-          </AuthGate>
+      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
+          <Link
+            to="/experiments"
+            className="shrink-0 rounded-[5.5px] p-1 text-text-tertiary transition-colors hover:bg-surface-hover hover:text-text-secondary"
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </Link>
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <h1 className="font-mono text-[15px] font-semibold tracking-[-0.01em] text-text">
+              {exp.id}
+            </h1>
+            <Badge variant={exp.status}>{exp.status}</Badge>
+            <AuthGate action="change status">
+              <StatusControls experimentId={exp.id} currentStatus={exp.status} />
+            </AuthGate>
+          </div>
+          <span
+            className="text-[12px] text-text-quaternary"
+            title={formatDateTime(exp.created_at)}
+          >
+            {exp.source} · {formatDateTimeShort(exp.created_at)}
+          </span>
         </div>
-        <span
-          className="text-[12px] text-text-quaternary"
-          title={formatDateTime(exp.created_at)}
-        >
-          {exp.source} · {formatDateTimeShort(exp.created_at)}
-        </span>
+        <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2">
+          <ExperimentLineage experiment={exp} />
+          {!chatOpen && (
+            <button
+              type="button"
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-[5.5px] border border-border-subtle bg-surface-raised px-2.5 py-1 text-[12px] font-medium text-text-secondary transition-colors hover:bg-surface-hover"
+              onClick={() => setChatOpen(true)}
+              aria-expanded={false}
+              aria-controls="experiment-chat-rail"
+            >
+              <MessageSquare className="h-3.5 w-3.5 shrink-0" />
+              Open chat
+            </button>
+          )}
+        </div>
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-[1fr_minmax(400px,440px)] lg:items-start">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start">
         {/* Main + meta (single column) */}
-        <div className="min-w-0 space-y-3">
+        <div className="min-w-0 flex-1 space-y-3">
           {exp.hypothesis && (
             <Section title="Hypothesis">
               {looksLikeMarkdown(exp.hypothesis) ? (
@@ -260,17 +278,50 @@ export default function ExperimentDetailPage() {
           )}
         </div>
 
-        <ChatPageProvider
-          value={{
-            type: "experiment",
-            id: exp.id,
-            label: (exp.hypothesis ?? exp.finding ?? "").slice(0, 200) || undefined,
-          }}
+        <div
+          id="experiment-chat-rail"
+          aria-hidden={!chatOpen}
+          className={cn(
+            "flex min-w-0 shrink-0 flex-col overflow-hidden transition-[max-width,opacity] duration-300 ease-out motion-reduce:transition-none",
+            !chatOpen && "max-lg:hidden",
+            chatOpen
+              ? "w-full opacity-100 lg:max-w-[min(440px,40vw)]"
+              : "lg:pointer-events-none lg:max-w-0 lg:opacity-0",
+          )}
         >
-          <div className="sticky top-0 h-[min(100vh-7rem,720px)] min-h-[420px] lg:h-[calc(100vh-7rem)]">
-            <ChatPanel />
-          </div>
-        </ChatPageProvider>
+          <ChatPageProvider
+            value={{
+              type: "experiment",
+              id: exp.id,
+              label: (exp.hypothesis ?? exp.finding ?? "").slice(0, 200) || undefined,
+            }}
+          >
+            <div className="sticky top-0 flex h-[min(100vh-7rem,720px)] min-h-[420px] w-full min-w-0 flex-col overflow-hidden lg:h-[calc(100vh-7rem)]">
+              <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border-subtle bg-surface px-2 py-1.5">
+                <span className="flex items-center gap-1.5 text-[12px] font-medium text-text-secondary">
+                  <MessageSquare className="h-3.5 w-3.5 shrink-0" />
+                  Chat
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setChatOpen(false)}
+                  aria-expanded={chatOpen}
+                  aria-controls="experiment-chat-panel"
+                  className="rounded-[5.5px] p-1 text-text-tertiary transition-colors hover:bg-surface-hover hover:text-text-secondary"
+                  title="Collapse chat"
+                >
+                  <ChevronRight className="h-4 w-4" aria-hidden />
+                </button>
+              </div>
+              <div
+                id="experiment-chat-panel"
+                className="min-h-0 flex-1 overflow-hidden"
+              >
+                <ChatPanel />
+              </div>
+            </div>
+          </ChatPageProvider>
+        </div>
       </div>
     </div>
   );

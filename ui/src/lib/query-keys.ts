@@ -6,6 +6,8 @@ export const queryKeys = {
     all: (program: string) => ["experiments", program] as const,
     byProgram: (program: string) => ["experiments", "byProgram", program] as const,
     detail: (id: string) => ["experiments", "detail", id] as const,
+    ancestors: (id: string) => ["experiments", "ancestors", id] as const,
+    children: (id: string) => ["experiments", "children", id] as const,
     tree: (rootId: string) => ["experiments", "tree", rootId] as const,
     search: (program: string, q: string) =>
       ["experiments", "search", program, q] as const,
@@ -27,6 +29,7 @@ export const queryKeys = {
   artifacts: {
     byParent: (parentId: string) => ["artifacts", parentId] as const,
     detail: (artifactId: string) => ["artifacts", "detail", artifactId] as const,
+    blob: (storagePath: string | null) => ["artifacts", "blob", storagePath] as const,
   },
   notes: {
     byExperiment: (expId: string) => ["notes", expId] as const,
@@ -43,6 +46,9 @@ export const queryKeys = {
   },
   programs: {
     all: () => ["programs"] as const,
+  },
+  programTakeaways: {
+    byProgram: (program: string) => ["programTakeaways", program] as const,
   },
   github: {
     allCommits: (owner: string, repo: string, branch: string) =>

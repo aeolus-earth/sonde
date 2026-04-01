@@ -1,4 +1,5 @@
-import { memo, useMemo } from "react";
+import { memo, useCallback, useMemo } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import { useThemeCssColors } from "@/hooks/use-theme-css-colors";
 import {
   BarChart,
@@ -8,6 +9,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
+import type { ExperimentsSearch } from "@/routes/pages/experiments-list";
 
 interface TimelineProps {
   records: { created_at: string }[];
@@ -17,6 +19,20 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   records,
 }: TimelineProps) {
   const colors = useThemeCssColors();
+  const navigate = useNavigate();
+
+  const onBarClick = useCallback(
+    (item: { payload?: { date?: string } }) => {
+      const day = item.payload?.date;
+      if (typeof day === "string" && /^\d{4}-\d{2}-\d{2}$/.test(day)) {
+        navigate({
+          to: "/experiments",
+          search: (prev: ExperimentsSearch) => ({ ...prev, day }),
+        });
+      }
+    },
+    [navigate]
+  );
 
   const data = useMemo(() => {
     const buckets = new Map<string, number>();
@@ -63,6 +79,8 @@ export const ActivityTimeline = memo(function ActivityTimeline({
           fill={colors.accent}
           radius={[2, 2, 0, 0]}
           maxBarSize={20}
+          cursor="pointer"
+          onClick={onBarClick}
         />
       </BarChart>
     </ResponsiveContainer>

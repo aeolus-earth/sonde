@@ -23,6 +23,7 @@ from sonde.db import directions as dir_db
 from sonde.db import experiments as exp_db
 from sonde.db import findings as find_db
 from sonde.db import notes as notes_db
+from sonde.db import program_takeaways as takeaways_db
 from sonde.db import questions as q_db
 from sonde.db.activity import log_activity
 from sonde.git import detect_git_context
@@ -83,18 +84,50 @@ def push_all(ctx: click.Context) -> None:
         "questions": _push_directory("questions"),
         "directions": _push_directory("directions"),
     }
+    settings = get_settings()
+    program = settings.program
+    sonde_dir = find_sonde_dir()
+    takeaways_synced = False
+    project_takeaways_synced = 0
+    if program:
+        body = takeaways_db.read_takeaways_file(sonde_dir)
+        if body:
+            takeaways_db.upsert(program, body)
+            takeaways_synced = True
+
+    # Sync project takeaways (best-effort — table may not exist yet)
+    try:
+        from sonde.db import project_takeaways as ptw_db
+
+        projects_dir = sonde_dir / "projects"
+        if projects_dir.is_dir():
+            for proj_dir in projects_dir.iterdir():
+                if proj_dir.is_dir() and proj_dir.name.startswith("PROJ-"):
+                    body = ptw_db.read_takeaways_file(sonde_dir, proj_dir.name)
+                    if body:
+                        ptw_db.upsert(proj_dir.name, body)
+                        project_takeaways_synced += 1
+    except (Exception, SystemExit):
+        pass
+
     if ctx.obj.get("json"):
-        print_json(counts)
+        print_json({
+            **counts,
+            "takeaways_synced": takeaways_synced,
+            "project_takeaways_synced": project_takeaways_synced,
+        })
     else:
-        print_success(
-            "Pushed local notebook",
-            details=[
-                f"Experiments: {counts['experiments']}",
-                f"Findings: {counts['findings']}",
-                f"Questions: {counts['questions']}",
-                f"Directions: {counts['directions']}",
-            ],
-        )
+        details = [
+            f"Experiments: {counts['experiments']}",
+            f"Findings: {counts['findings']}",
+            f"Questions: {counts['questions']}",
+            f"Directions: {counts['directions']}",
+        ]
+        if takeaways_synced:
+            details.append("Takeaways: synced")
+        if project_takeaways_synced:
+            details.append(f"Project takeaways: {project_takeaways_synced}")
+        print_success("Pushed local notebook", details=details)
 
 
 @push.command("experiment")
@@ -653,9 +686,9 @@ def _sync_directory(
             progress.set_current(candidate.label)
             try:
                 upload_file(
-                    experiment_id,
                     local_path,
                     source,
+                    experiment_id=experiment_id,
                     storage_subpath=candidate.storage_path,
                     progress_callback=progress_callback,
                 )

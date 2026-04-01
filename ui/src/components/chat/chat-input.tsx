@@ -22,6 +22,8 @@ function isFileDragEvent(e: React.DragEvent): boolean {
 
 interface ChatInputProps {
   pageContext?: PageContext | null;
+  /** Embedded column (e.g. experiment): no rotating placeholder; full-width composer. */
+  embedded?: boolean;
   onSend: (
     content: string,
     mentions: MentionRef[],
@@ -34,6 +36,7 @@ interface ChatInputProps {
 
 export const ChatInput = memo(function ChatInput({
   pageContext,
+  embedded = false,
   onSend,
   onCancel,
   isStreaming,
@@ -338,6 +341,7 @@ export const ChatInput = memo(function ChatInput({
   const showFileDropChrome = fileDragActive && !disabled;
 
   const showRotatingPlaceholder =
+    !embedded &&
     !disabled &&
     value.length === 0 &&
     !showFileDropChrome &&
@@ -421,9 +425,14 @@ export const ChatInput = memo(function ChatInput({
         </div>
       )}
 
-      <div className="flex w-full justify-center">
+      <div
+        className={cn(
+          "flex w-full",
+          embedded ? "justify-stretch" : "justify-center"
+        )}
+      >
         <div
-          className="relative"
+          className={cn("relative", embedded && "min-w-0 w-full")}
           onDragEnter={handleComposerDragEnter}
           onDragLeave={handleComposerDragLeave}
           onDragOver={handleComposerDragOver}
@@ -445,9 +454,12 @@ export const ChatInput = memo(function ChatInput({
           </div>
         <div
           className={cn(
-            "inline-flex w-max max-w-full min-w-0 flex-col rounded-[26px] border border-border-subtle bg-bg px-2 py-1.5 shadow-sm",
+            "flex min-w-0 flex-col rounded-[26px] border border-border-subtle bg-bg px-2 py-1.5 shadow-sm",
             "transition-[box-shadow,border-color,ring] duration-300 ease-in-out",
-            "max-w-[min(100%,calc(28ch*1.4+6rem))] focus-within:border-border focus-within:shadow-md md:px-2.5",
+            "focus-within:border-border focus-within:shadow-md md:px-2.5",
+            embedded
+              ? "w-full max-w-full"
+              : "inline-flex w-max min-w-0 max-w-[min(100%,calc(28ch*1.4+6rem))]",
             showFileDropChrome && "border-accent/45 ring-2 ring-accent/35"
           )}
         >
@@ -495,7 +507,12 @@ export const ChatInput = memo(function ChatInput({
             <Plus className="h-5 w-5 stroke-[2]" />
           </button>
 
-          <div className="relative min-w-0 w-[calc(28ch*1.4)] shrink">
+          <div
+            className={cn(
+              "relative min-w-0 shrink",
+              embedded ? "w-full flex-1" : "w-[calc(28ch*1.4)]"
+            )}
+          >
             {showRotatingPlaceholder && (
               <div
                 className="pointer-events-none absolute inset-0 z-0 flex items-center text-left text-[14px] leading-5 text-text-quaternary select-none"
@@ -565,21 +582,36 @@ export const ChatInput = memo(function ChatInput({
         </div>
       </div>
 
-      <div className="mt-2 text-[10px] text-text-quaternary">
-        <kbd className="rounded-[2px] border border-border px-0.5">Enter</kbd>{" "}
-        send
-        <span className="mx-1.5">|</span>
-        <kbd className="rounded-[2px] border border-border px-0.5">
-          Shift+Enter
-        </kbd>{" "}
-        newline
-        <span className="mx-1.5">|</span>
-        <kbd className="rounded-[2px] border border-border px-0.5">@</kbd>{" "}
-        mention
-        <span className="mx-1.5">|</span>
-        + attach files
-        <span className="mx-1.5">|</span>
-        <span className="text-text-tertiary/90">
+      <div
+        className={cn(
+          "mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-text-quaternary",
+          embedded && "justify-start"
+        )}
+      >
+        <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span>
+            <kbd className="rounded-[2px] border border-border px-0.5">Enter</kbd>{" "}
+            send
+          </span>
+          <span className="text-text-quaternary/60">|</span>
+          <span>
+            <kbd className="rounded-[2px] border border-border px-0.5">
+              Shift+Enter
+            </kbd>{" "}
+            newline
+          </span>
+          <span className="text-text-quaternary/60">|</span>
+          <span>
+            <kbd className="rounded-[2px] border border-border px-0.5">@</kbd>{" "}
+            mention
+          </span>
+          <span className="text-text-quaternary/60">|</span>
+          <span>+ attach files</span>
+        </span>
+        <span className="hidden min-[380px]:inline text-text-quaternary/60">
+          |
+        </span>
+        <span className="text-text-tertiary/90 max-[379px]:basis-full sm:basis-auto">
           <kbd className="rounded-[2px] border border-border px-0.5">
             /defend-my-existence
           </kbd>{" "}

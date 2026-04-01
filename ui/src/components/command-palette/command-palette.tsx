@@ -8,9 +8,9 @@ import {
   Compass,
   MessageCircleQuestion,
   Paperclip,
+  FolderKanban,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import { useActiveProgram } from "@/stores/program";
 import { useUIStore } from "@/stores/ui";
 import { Badge } from "@/components/ui/badge";
 import type { RecordType, SearchResult as SearchResultType } from "@/types/sonde";
@@ -21,6 +21,7 @@ const typeIcon: Record<string, typeof FlaskConical> = {
   direction: Compass,
   question: MessageCircleQuestion,
   artifact: Paperclip,
+  project: FolderKanban,
 };
 
 const typeRoute: Record<string, string> = {
@@ -28,16 +29,17 @@ const typeRoute: Record<string, string> = {
   finding: "/findings/$id",
   direction: "/directions/$id",
   question: "/questions",
+  project: "/projects/$id",
 };
 
-function useSearchAll(query: string, program: string) {
+function useSearchAll(query: string) {
   return useQuery({
-    queryKey: ["search-all", query, program] as const,
+    queryKey: ["search-all", query] as const,
     queryFn: async (): Promise<SearchResultType[]> => {
       const { data, error } = await supabase.rpc("search_all", {
         query,
-        filter_program: program || null,
-        max_results: 25,
+        filter_program: null,
+        max_results: 50,
       });
       if (error) throw error;
       return data;
@@ -49,7 +51,6 @@ function useSearchAll(query: string, program: string) {
 
 function CommandPalette() {
   const navigate = useNavigate();
-  const program = useActiveProgram();
   const close = useUIStore((s) => s.setCommandPaletteOpen);
   const recentItems = useUIStore((s) => s.recentItems);
   const addRecent = useUIStore((s) => s.addRecentItem);
@@ -65,7 +66,7 @@ function CommandPalette() {
     return () => clearTimeout(t);
   }, [query]);
 
-  const { data: searchResults, isLoading } = useSearchAll(debouncedQuery, program);
+  const { data: searchResults, isLoading } = useSearchAll(debouncedQuery);
 
   interface PaletteResult {
     id: string;
@@ -74,6 +75,7 @@ function CommandPalette() {
     subtitle?: string;
     parent_id: string | null;
     record_type: string;
+    program: string | null;
   }
 
   // Build results
@@ -83,6 +85,7 @@ function CommandPalette() {
         ...r,
         parent_id: null,
         record_type: r.type,
+        program: null,
       }));
     }
 
@@ -95,6 +98,7 @@ function CommandPalette() {
       subtitle: r.subtitle ?? undefined,
       parent_id: r.parent_id,
       record_type: r.record_type,
+      program: r.program,
     }));
   }, [query, searchResults, recentItems]);
 
@@ -113,13 +117,23 @@ function CommandPalette() {
       const navId = result.record_type === "artifact" && result.parent_id
         ? result.parent_id
         : result.id;
-      const navType = result.record_type === "artifact" && result.parent_id
-        ? result.parent_id.split("-")[0] === "EXP" ? "experiment"
-          : result.parent_id.split("-")[0] === "FIND" ? "finding"
-          : "direction"
-        : result.type;
+      const navType: RecordType =
+        result.record_type === "artifact" && result.parent_id
+          ? result.parent_id.split("-")[0] === "EXP"
+            ? "experiment"
+            : result.parent_id.split("-")[0] === "FIND"
+              ? "finding"
+              : "direction"
+          : result.record_type === "project"
+            ? "project"
+            : result.type;
 
-      addRecent({ id: navId, type: navType as RecordType, title: result.title, subtitle: result.subtitle });
+      addRecent({
+        id: navId,
+        type: navType,
+        title: result.title,
+        subtitle: result.subtitle,
+      });
       close(false);
 
       const route = typeRoute[navType] ?? "/experiments";
@@ -157,7 +171,7 @@ function CommandPalette() {
       onClick={() => close(false)}
     >
       <div
-        className="w-full max-w-[560px] overflow-hidden rounded-[10px] border border-border bg-surface shadow-2xl"
+        className="w-full max-w-[min(92vw,880px)] overflow-hidden rounded-[10px] border border-border bg-surface shadow-2xl"
         onClick={(e) => e.stopPropagation()}
         onKeyDown={handleKeyDown}
       >
@@ -167,7 +181,7 @@ function CommandPalette() {
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search experiments, findings, artifacts…"
+            placeholder="Search all programs — experiments, findings, directions…"
             autoFocus
             className="h-11 w-full bg-transparent text-[14px] text-text placeholder:text-text-quaternary focus:outline-none"
           />
@@ -180,7 +194,7 @@ function CommandPalette() {
         </div>
 
         {/* Results */}
-        <div ref={listRef} className="max-h-[360px] overflow-y-auto py-1.5">
+        <div ref={listRef} className="max-h-[min(55vh,520px)] overflow-y-auto py-1.5">
           {results.length === 0 && query.trim() && !isLoading && (
             <div className="px-3 py-8 text-center text-[13px] text-text-quaternary">
               No results for &ldquo;{query}&rdquo;
@@ -188,7 +202,7 @@ function CommandPalette() {
           )}
           {results.length === 0 && !query.trim() && recentItems.length === 0 && (
             <div className="px-3 py-8 text-center text-[13px] text-text-quaternary">
-              Type to search across all records and artifacts
+              Type to search records and artifacts across every program you can access
             </div>
           )}
           {results.map((result, i) => {
@@ -206,11 +220,16 @@ function CommandPalette() {
               >
                 <Icon className="h-4 w-4 shrink-0 text-text-tertiary" />
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
                     <span className="truncate text-[13px] font-medium text-text">
                       {result.title}
                     </span>
-                    <span className="shrink-0 rounded-[3px] bg-surface-raised px-1 py-0.5 text-[10px] text-text-quaternary">
+                    {result.program && (
+                      <span className="shrink-0 rounded-[3px] border border-border-subtle bg-surface-raised px-1.5 py-0.5 font-mono text-[10px] text-text-tertiary">
+                        {result.program}
+                      </span>
+                    )}
+                    <span className="shrink-0 rounded-[3px] bg-surface-raised px-1 py-0.5 font-mono text-[10px] text-text-quaternary">
                       {result.id}
                     </span>
                     {rt === "artifact" && (

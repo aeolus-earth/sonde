@@ -1,4 +1,12 @@
-import { memo, useCallback, useMemo, useRef } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Link } from "@tanstack/react-router";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useArtifactParentLookup } from "@/hooks/use-artifact-parents";
@@ -10,6 +18,30 @@ export type ChatArtifactSlide =
   | { key: string; status: "loading" }
   | { key: string; status: "error"; message: string }
   | { key: string; status: "ok"; artifact: Artifact };
+
+const STORAGE_KEY = "sonde-chat-artifact-carousel-slide-width";
+const DEFAULT_SLIDE_WIDTH_PX = 416;
+const MIN_SLIDE_WIDTH_PX = 240;
+/** Upper bound for slide width (~52rem thread); clamped by track via ResizeObserver */
+const ABS_MAX_SLIDE_WIDTH_PX = 832;
+const GAP_PX = 12;
+
+function clampWidth(width: number, maxForContainer: number): number {
+  const cap = Math.min(ABS_MAX_SLIDE_WIDTH_PX, Math.max(MIN_SLIDE_WIDTH_PX, maxForContainer));
+  return Math.min(Math.max(width, MIN_SLIDE_WIDTH_PX), cap);
+}
+
+function readStoredSlideWidth(): number | null {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw == null) return null;
+    const n = Number.parseInt(raw, 10);
+    if (!Number.isFinite(n)) return null;
+    return n;
+  } catch {
+    return null;
+  }
+}
 
 function truncate(s: string | null | undefined, max: number): string {
   if (!s) return "";
@@ -114,6 +146,13 @@ function ParentContextBlock({
   );
 }
 
+type DragSession = {
+  side: "left" | "right";
+  startX: number;
+  startWidth: number;
+  maxWidth: number;
+};
+
 export const ChatArtifactCarousel = memo(function ChatArtifactCarousel({
   variant,
   headerTitle,
@@ -131,6 +170,35 @@ export const ChatArtifactCarousel = memo(function ChatArtifactCarousel({
   artifactMetaExtra?: (artifact: Artifact) => string;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const trackRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<DragSession | null>(null);
+  const widthRef = useRef(DEFAULT_SLIDE_WIDTH_PX);
+
+  const [slideWidthPx, setSlideWidthPx] = useState(() => {
+    const stored = readStoredSlideWidth();
+    if (stored == null) return DEFAULT_SLIDE_WIDTH_PX;
+    return clampWidth(stored, ABS_MAX_SLIDE_WIDTH_PX);
+  });
+  const [maxSlideWidthPx, setMaxSlideWidthPx] = useState(ABS_MAX_SLIDE_WIDTH_PX);
+
+  widthRef.current = slideWidthPx;
+
+  useLayoutEffect(() => {
+    const el = trackRef.current;
+    if (!el) return;
+    const update = () => {
+      const w = el.clientWidth;
+      if (w <= 0) return;
+      setMaxSlideWidthPx(w);
+      setSlideWidthPx((prev) => clampWidth(prev, w));
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const scrollStep = slideWidthPx + GAP_PX;
 
   const okArtifacts = useMemo(
     () =>
@@ -141,13 +209,79 @@ export const ChatArtifactCarousel = memo(function ChatArtifactCarousel({
   const { experimentById, findingById, directionById, isLoading: parentsLoading } =
     useArtifactParentLookup(okArtifacts.map((s) => s.artifact));
 
-  const scrollBy = useCallback((delta: number) => {
-    const el = scrollRef.current;
-    if (!el) return;
-    el.scrollBy({ left: delta, behavior: "smooth" });
+  const scrollBy = useCallback(
+    (delta: number) => {
+      const el = scrollRef.current;
+      if (!el) return;
+      el.scrollBy({ left: delta, behavior: "smooth" });
+    },
+    [],
+  );
+
+  const endDragPersist = useCallback(() => {
+    const wasDragging = dragRef.current !== null;
+    dragRef.current = null;
+    if (!wasDragging) return;
+    try {
+      localStorage.setItem(STORAGE_KEY, String(widthRef.current));
+    } catch {
+      /* ignore quota / private mode */
+    }
   }, []);
 
+  const onResizePointerDown = useCallback(
+    (side: "left" | "right") => (e: React.PointerEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      const trackW = trackRef.current?.clientWidth ?? maxSlideWidthPx;
+      dragRef.current = {
+        side,
+        startX: e.clientX,
+        startWidth: widthRef.current,
+        maxWidth: trackW,
+      };
+      e.currentTarget.setPointerCapture(e.pointerId);
+    },
+    [maxSlideWidthPx],
+  );
+
+  const onResizePointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    const session = dragRef.current;
+    if (!session) return;
+    const dx = e.clientX - session.startX;
+    const delta = session.side === "left" ? dx : -dx;
+    const next = clampWidth(session.startWidth + delta, session.maxWidth);
+    setSlideWidthPx(next);
+  }, []);
+
+  const onResizePointerUp = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (!dragRef.current) return;
+      try {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      } catch {
+        /* already released */
+      }
+      endDragPersist();
+    },
+    [endDragPersist],
+  );
+
+  useEffect(() => {
+    const onWinPointerEnd = () => {
+      if (dragRef.current !== null) endDragPersist();
+    };
+    window.addEventListener("pointerup", onWinPointerEnd);
+    window.addEventListener("pointercancel", onWinPointerEnd);
+    return () => {
+      window.removeEventListener("pointerup", onWinPointerEnd);
+      window.removeEventListener("pointercancel", onWinPointerEnd);
+    };
+  }, [endDragPersist]);
+
   const displayTitle = headerTitle ?? (variant === "referenced" ? "Referenced artifacts" : "Artifacts");
+
+  const handleClass =
+    "group relative shrink-0 touch-none select-none rounded-[4px] border border-border-subtle/80 bg-border-subtle/40 hover:bg-surface-hover active:bg-surface-hover";
 
   return (
     <div className="relative">
@@ -161,59 +295,100 @@ export const ChatArtifactCarousel = memo(function ChatArtifactCarousel({
           )}
         </div>
         {slides.length > 1 && (
-            <div className="flex shrink-0 gap-0.5">
-              <button
-                type="button"
-                aria-label="Previous artifact"
-                className="rounded-[4px] border border-border-subtle p-1 text-text-quaternary transition-colors hover:bg-surface-hover hover:text-text-secondary"
-                onClick={() => scrollBy(-280)}
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                aria-label="Next artifact"
-                className="rounded-[4px] border border-border-subtle p-1 text-text-quaternary transition-colors hover:bg-surface-hover hover:text-text-secondary"
-                onClick={() => scrollBy(280)}
-              >
-                <ChevronRight className="h-4 w-4" />
-              </button>
-            </div>
-          )}
+          <div className="flex shrink-0 gap-0.5">
+            <button
+              type="button"
+              aria-label="Previous artifact"
+              className="rounded-[4px] border border-border-subtle p-1 text-text-quaternary transition-colors hover:bg-surface-hover hover:text-text-secondary"
+              onClick={() => scrollBy(-scrollStep)}
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              aria-label="Next artifact"
+              className="rounded-[4px] border border-border-subtle p-1 text-text-quaternary transition-colors hover:bg-surface-hover hover:text-text-secondary"
+              onClick={() => scrollBy(scrollStep)}
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+        )}
       </div>
 
-      <div
-        ref={scrollRef}
-        className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-1 [scrollbar-width:thin]"
-      >
-        {slides.map((slide) => (
-          <article
-            key={slide.key}
-            className={cn(
-              "w-[min(100%,26rem)] shrink-0 snap-start rounded-[8px] border border-border-subtle/90 bg-surface-raised/80 p-2.5 shadow-sm",
-            )}
+      <div className="flex min-h-[8rem] items-stretch gap-1">
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize artifact previews from the left"
+          aria-valuemin={MIN_SLIDE_WIDTH_PX}
+          aria-valuemax={maxSlideWidthPx}
+          aria-valuenow={slideWidthPx}
+          className={cn(handleClass, "w-2.5 cursor-ew-resize self-stretch")}
+          onPointerDown={onResizePointerDown("left")}
+          onPointerMove={onResizePointerMove}
+          onPointerUp={onResizePointerUp}
+          onPointerCancel={onResizePointerUp}
+        >
+          <span className="pointer-events-none absolute inset-y-2 left-1/2 w-px -translate-x-1/2 bg-border group-hover:bg-accent/40" />
+        </div>
+
+        <div ref={trackRef} className="min-w-0 flex-1">
+          <div
+            ref={scrollRef}
+            className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-1 [scrollbar-width:thin]"
           >
-            {slide.status === "loading" && (
-              <div className="space-y-2">
-                <div className="h-3 w-24 animate-pulse rounded bg-border-subtle" />
-                <div className="h-40 w-full animate-pulse rounded-[6px] bg-border-subtle" />
-              </div>
-            )}
-            {slide.status === "error" && (
-              <p className="text-[12px] text-status-failed">{slide.message}</p>
-            )}
-            {slide.status === "ok" && (
-              <ArtifactSlideBody
-                artifact={slide.artifact}
-                experimentById={experimentById}
-                findingById={findingById}
-                directionById={directionById}
-                parentsLoading={parentsLoading}
-                artifactMetaExtra={artifactMetaExtra}
-              />
-            )}
-          </article>
-        ))}
+            {slides.map((slide) => (
+              <article
+                key={slide.key}
+                style={{
+                  width: `min(100%, ${slideWidthPx}px)`,
+                  maxWidth: "100%",
+                }}
+                className={cn(
+                  "shrink-0 snap-start rounded-[8px] border border-border-subtle/90 bg-surface-raised/80 p-2.5 shadow-sm",
+                )}
+              >
+                {slide.status === "loading" && (
+                  <div className="space-y-2">
+                    <div className="h-3 w-24 animate-pulse rounded bg-border-subtle" />
+                    <div className="h-40 w-full animate-pulse rounded-[6px] bg-border-subtle" />
+                  </div>
+                )}
+                {slide.status === "error" && (
+                  <p className="text-[12px] text-status-failed">{slide.message}</p>
+                )}
+                {slide.status === "ok" && (
+                  <ArtifactSlideBody
+                    artifact={slide.artifact}
+                    experimentById={experimentById}
+                    findingById={findingById}
+                    directionById={directionById}
+                    parentsLoading={parentsLoading}
+                    artifactMetaExtra={artifactMetaExtra}
+                    mediaSize={variant === "referenced" ? "inlineProminent" : "inline"}
+                  />
+                )}
+              </article>
+            ))}
+          </div>
+        </div>
+
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize artifact previews from the right"
+          aria-valuemin={MIN_SLIDE_WIDTH_PX}
+          aria-valuemax={maxSlideWidthPx}
+          aria-valuenow={slideWidthPx}
+          className={cn(handleClass, "w-2.5 cursor-ew-resize self-stretch")}
+          onPointerDown={onResizePointerDown("right")}
+          onPointerMove={onResizePointerMove}
+          onPointerUp={onResizePointerUp}
+          onPointerCancel={onResizePointerUp}
+        >
+          <span className="pointer-events-none absolute inset-y-2 left-1/2 w-px -translate-x-1/2 bg-border group-hover:bg-accent/40" />
+        </div>
       </div>
 
       {footerHint && (
@@ -230,6 +405,7 @@ const ArtifactSlideBody = memo(function ArtifactSlideBody({
   directionById,
   parentsLoading,
   artifactMetaExtra,
+  mediaSize,
 }: {
   artifact: Artifact;
   experimentById: ReturnType<typeof useArtifactParentLookup>["experimentById"];
@@ -237,6 +413,7 @@ const ArtifactSlideBody = memo(function ArtifactSlideBody({
   directionById: ReturnType<typeof useArtifactParentLookup>["directionById"];
   parentsLoading: boolean;
   artifactMetaExtra?: (artifact: Artifact) => string;
+  mediaSize: "inline" | "inlineProminent";
 }) {
   return (
     <div className="flex flex-col gap-2">
@@ -254,7 +431,7 @@ const ArtifactSlideBody = memo(function ArtifactSlideBody({
         </p>
       ) : null}
       <div className="min-h-0 w-full overflow-hidden rounded-[6px]">
-        <ArtifactMediaPreview artifact={artifact} size="inline" />
+        <ArtifactMediaPreview artifact={artifact} size={mediaSize} />
       </div>
       {artifactMetaExtra && (
         <p className="truncate text-[9px] text-text-quaternary">{artifactMetaExtra(artifact)}</p>

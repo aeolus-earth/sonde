@@ -113,6 +113,19 @@ def list_for_direction(direction_id: str) -> list[dict[str, Any]]:
     return rows(result.data)
 
 
+def list_for_project(project_id: str) -> list[dict[str, Any]]:
+    """List all artifacts for a project."""
+    client = get_client()
+    result = (
+        client.table("artifacts")
+        .select("*")
+        .eq("project_id", project_id)
+        .order("created_at")
+        .execute()
+    )
+    return rows(result.data)
+
+
 def list_for_experiments(experiment_ids: list[str]) -> list[dict[str, Any]]:
     """List artifacts for many experiments in one query."""
     if not experiment_ids:
@@ -160,10 +173,13 @@ def is_text_artifact(filename: str, mime_type: str | None = None) -> bool:
 
 
 def upload_file(
-    experiment_id: str,
     filepath: Path,
     source: str,
     *,
+    experiment_id: str | None = None,
+    finding_id: str | None = None,
+    direction_id: str | None = None,
+    project_id: str | None = None,
     storage_subpath: str | None = None,
     artifact_type: str | None = None,
     description: str | None = None,
@@ -171,11 +187,17 @@ def upload_file(
 ) -> dict[str, Any]:
     """Upload a file to Supabase Storage and create an artifact record.
 
+    Exactly one parent ID must be provided (experiment_id, finding_id,
+    direction_id, or project_id).
+
     Args:
-        experiment_id: The experiment this file belongs to.
         filepath: Local path to the file.
         source: Who uploaded this (human/x or agent).
-        storage_subpath: Override the storage path (default: {exp_id}/{filename}).
+        experiment_id: Attach to experiment.
+        finding_id: Attach to finding.
+        direction_id: Attach to direction.
+        project_id: Attach to project.
+        storage_subpath: Override the storage path.
         artifact_type: Override inferred type.
         description: Optional description.
 
@@ -184,7 +206,8 @@ def upload_file(
     """
     client = get_client()
 
-    storage_path = storage_subpath or f"{experiment_id}/{filepath.name}"
+    parent_id = experiment_id or finding_id or direction_id or project_id or ""
+    storage_path = storage_subpath or f"{parent_id}/{filepath.name}"
     file_size = filepath.stat().st_size
     if file_size > MAX_ARTIFACT_SIZE_BYTES:
         size_mb = file_size / (1024 * 1024)
@@ -199,17 +222,25 @@ def upload_file(
     checksum = compute_checksum(filepath)
     existing = find_by_storage_path(storage_path)
 
-    payload = {
+    payload: dict[str, Any] = {
         "filename": filepath.name,
         "type": artifact_type or infer_type(filepath),
         "mime_type": content_type,
         "size_bytes": file_size,
         "description": description,
         "storage_path": storage_path,
-        "experiment_id": experiment_id,
         "source": source,
         "checksum_sha256": checksum,
     }
+    # Set exactly one parent FK
+    if experiment_id:
+        payload["experiment_id"] = experiment_id
+    if finding_id:
+        payload["finding_id"] = finding_id
+    if direction_id:
+        payload["direction_id"] = direction_id
+    if project_id:
+        payload["project_id"] = project_id
 
     if existing:
         should_upload = (

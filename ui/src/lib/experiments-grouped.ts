@@ -41,11 +41,20 @@ function effectiveProjectId(
   return null;
 }
 
-function sortExperiments(a: ExperimentSummary, b: ExperimentSummary): number {
-  return (
-    new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-  );
+function compareCreatedAt(
+  a: ExperimentSummary,
+  b: ExperimentSummary,
+  ascending: boolean
+): number {
+  const ta = new Date(a.created_at).getTime();
+  const tb = new Date(b.created_at).getTime();
+  return ascending ? ta - tb : tb - ta;
 }
+
+export type BuildExperimentsProjectTreeOptions = {
+  /** Default `desc` (newest first). */
+  createdSort?: "asc" | "desc";
+};
 
 /**
  * Build project → direction → experiments tree from already-filtered experiments.
@@ -54,8 +63,10 @@ function sortExperiments(a: ExperimentSummary, b: ExperimentSummary): number {
 export function buildExperimentsProjectTree(
   filtered: ExperimentSummary[],
   projects: ProjectSummary[],
-  directions: DirectionSummary[]
+  directions: DirectionSummary[],
+  options?: BuildExperimentsProjectTreeOptions
 ): ProjectGroup[] {
+  const ascending = (options?.createdSort ?? "desc") === "asc";
   const dirById = new Map(directions.map((d) => [d.id, d]));
   const projectById = new Map(projects.map((p) => [p.id, p]));
 
@@ -96,7 +107,7 @@ export function buildExperimentsProjectTree(
     for (const dk of dirKeys) {
       const list = dm.get(dk);
       if (!list?.length) continue;
-      list.sort(sortExperiments);
+      list.sort((a, b) => compareCreatedAt(a, b, ascending));
       const label =
         dk === NO_DIRECTION
           ? "No direction"

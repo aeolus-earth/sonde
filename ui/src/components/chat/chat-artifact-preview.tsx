@@ -32,6 +32,9 @@ export function artifactPreviewParentId(
   if (tool === "sonde_artifacts_list" && typeof input.parent_id === "string") {
     return input.parent_id;
   }
+  if (tool === "sonde_experiment_attach" && typeof input.experiment_id === "string") {
+    return input.experiment_id;
+  }
   return null;
 }
 
@@ -46,11 +49,12 @@ export function parseArtifactOutputCount(output: string | undefined): number | n
   return null;
 }
 
-/** When CLI returns `{ ..., artifacts: [...] }` from `sonde experiment show --json`. */
+/** When CLI returns `{ _artifacts: [...] }` from `sonde experiment show --json`. */
 export function parseExperimentShowArtifactCount(output: string | undefined): number | null {
   if (!output?.trim()) return null;
   try {
-    const parsed = JSON.parse(output.trim()) as { artifacts?: unknown };
+    const parsed = JSON.parse(output.trim()) as { _artifacts?: unknown; artifacts?: unknown };
+    if (Array.isArray(parsed._artifacts)) return parsed._artifacts.length;
     if (Array.isArray(parsed.artifacts)) return parsed.artifacts.length;
   } catch {
     /* not JSON */

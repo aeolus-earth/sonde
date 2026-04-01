@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, type ComponentType } from "react";
 import { Link, useMatchRoute } from "@tanstack/react-router";
 import {
   FlaskConical,
@@ -23,22 +23,62 @@ import {
 } from "@/stores/ui";
 import { ProgramSwitcher } from "./program-switcher";
 
-const navItems = [
+const navPrimary = [
   { to: "/", label: "Assistant", icon: MessageSquare },
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+] as const;
+
+/** Core record views */
+const navPrimitives = [
   { to: "/brief", label: "Brief", icon: FileText },
-  { to: "/experiments", label: "Experiments", icon: FlaskConical },
-  { to: "/tree", label: "Tree", icon: GitBranch },
-  { to: "/timeline", label: "Timeline", icon: GitCommitHorizontal },
   { to: "/projects", label: "Projects", icon: FolderKanban },
   { to: "/directions", label: "Directions", icon: Compass },
+  { to: "/experiments", label: "Experiments", icon: FlaskConical },
   { to: "/findings", label: "Findings", icon: Lightbulb },
+] as const;
+
+/** Graph / structure views */
+const navGraph = [
+  { to: "/tree", label: "Tree", icon: GitBranch },
+  { to: "/timeline", label: "Timeline", icon: GitCommitHorizontal },
+] as const;
+
+const navInboxActivity = [
   { to: "/questions", label: "Inbox", icon: MessageCircleQuestion },
   { to: "/activity", label: "Activity", icon: Activity },
 ] as const;
 
+type SidebarNavItem = {
+  readonly to: string;
+  readonly label: string;
+  readonly icon: ComponentType<{ className?: string }>;
+};
+
 function SidebarContent({ iconOnly, onNavClick }: { iconOnly: boolean; onNavClick?: () => void }) {
   const matchRoute = useMatchRoute();
+
+  const linkClass = (to: string) =>
+    cn(
+      "flex items-center rounded-[5.5px] transition-colors",
+      iconOnly ? "justify-center p-2" : "gap-2 px-2 py-[5px] text-[13px]",
+      matchRoute({ to, fuzzy: to !== "/" })
+        ? "bg-surface-hover font-medium text-text"
+        : "text-text-secondary hover:bg-surface-hover hover:text-text",
+    );
+
+  const renderLinks = (items: readonly SidebarNavItem[]) =>
+    items.map(({ to, label, icon: Icon }) => (
+      <Link
+        key={to}
+        to={to}
+        onClick={onNavClick}
+        title={iconOnly ? label : undefined}
+        className={linkClass(to)}
+      >
+        <Icon className="h-4 w-4 shrink-0 opacity-60" />
+        {!iconOnly && label}
+      </Link>
+    ));
 
   return (
     <>
@@ -52,31 +92,18 @@ function SidebarContent({ iconOnly, onNavClick }: { iconOnly: boolean; onNavClic
       {/* Spacer for icon-only mode */}
       {iconOnly && <div className="h-2.5" />}
 
-      {/* Navigation */}
-      <nav className="flex-1 space-y-px px-2">
-        {navItems.map(({ to, label, icon: Icon }) => {
-          const active = matchRoute({ to, fuzzy: to !== "/" });
-          return (
-            <Link
-              key={to}
-              to={to}
-              onClick={onNavClick}
-              title={iconOnly ? label : undefined}
-              className={cn(
-                "flex items-center rounded-[5.5px] transition-colors",
-                iconOnly
-                  ? "justify-center p-2"
-                  : "gap-2 px-2 py-[5px] text-[13px]",
-                active
-                  ? "bg-surface-hover text-text font-medium"
-                  : "text-text-secondary hover:bg-surface-hover hover:text-text"
-              )}
-            >
-              <Icon className="h-4 w-4 shrink-0 opacity-60" />
-              {!iconOnly && label}
-            </Link>
-          );
-        })}
+      <nav className="flex flex-1 flex-col gap-0 px-2 pb-2">
+        <div className="space-y-px pt-1">{renderLinks(navPrimary)}</div>
+
+        <div className="my-1.5 space-y-px border-y border-border-subtle py-1.5">
+          {renderLinks(navPrimitives)}
+        </div>
+
+        <div className="space-y-px">{renderLinks(navGraph)}</div>
+
+        <div className="mt-1.5 space-y-px border-t border-border-subtle pt-1.5">
+          {renderLinks(navInboxActivity)}
+        </div>
       </nav>
     </>
   );
@@ -124,7 +151,7 @@ export const Sidebar = memo(function Sidebar() {
   return (
     <aside
       className={cn(
-        "flex h-screen flex-col border-r border-border bg-surface transition-[width] duration-200",
+        "flex h-screen flex-col border-r border-border bg-surface transition-[width] duration-300 ease-out motion-reduce:transition-none",
         iconOnly ? "w-14" : "w-[220px]"
       )}
     >

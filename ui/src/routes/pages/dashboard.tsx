@@ -7,7 +7,12 @@ import { useGlobalActivity } from "@/hooks/use-activity";
 import { useRealtimeInvalidation } from "@/hooks/use-realtime";
 import { Badge } from "@/components/ui/badge";
 import { StatBlockSkeleton, Skeleton } from "@/components/ui/skeleton";
-import { formatDateTimeShort, formatDateTime } from "@/lib/utils";
+import { RecordLink } from "@/components/shared/record-link";
+import { formatDateTimeShort, formatDateTime, cn } from "@/lib/utils";
+import type { ExperimentsSearch } from "@/routes/pages/experiments-list";
+
+const dashboardRowClass =
+  "border-b border-border-subtle px-3 py-2 transition-colors last:border-0 hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent";
 
 const StatusChart = lazy(() =>
   import("@/components/visualizations/status-chart").then((m) => ({
@@ -28,20 +33,31 @@ function StatBlock({
   value,
   label,
   color,
+  search,
 }: {
   value: number;
   label: string;
   color?: string;
+  search:
+    | ExperimentsSearch
+    | ((prev: ExperimentsSearch) => ExperimentsSearch);
 }) {
   return (
-    <div className="rounded-[8px] border border-border bg-surface p-3">
+    <Link
+      to="/experiments"
+      search={search}
+      className="group block rounded-[8px] border border-border bg-surface p-3 transition-colors hover:border-border hover:bg-surface-hover/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent active:opacity-95"
+    >
       <p
-        className={`text-[20px] font-semibold tracking-[-0.02em] ${color ?? "text-text"}`}
+        className={cn(
+          "text-[20px] font-semibold tracking-[-0.02em] transition-colors group-hover:text-text",
+          color ?? "text-text"
+        )}
       >
         {value}
       </p>
       <p className="text-[12px] text-text-tertiary">{label}</p>
-    </div>
+    </Link>
   );
 }
 
@@ -114,18 +130,41 @@ export default function DashboardPage() {
       </h1>
 
       <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
-        <StatBlock value={exps.length} label="Experiments" />
+        <StatBlock
+          value={exps.length}
+          label="Experiments"
+          search={(prev: ExperimentsSearch) => ({
+            ...prev,
+            status: undefined,
+          })}
+        />
         <StatBlock
           value={running}
           label="Running"
           color="text-status-running"
+          search={(prev: ExperimentsSearch) => ({
+            ...prev,
+            status: "running",
+          })}
         />
         <StatBlock
           value={complete}
           label="Complete"
           color="text-status-complete"
+          search={(prev: ExperimentsSearch) => ({
+            ...prev,
+            status: "complete",
+          })}
         />
-        <StatBlock value={failed} label="Failed" color="text-status-failed" />
+        <StatBlock
+          value={failed}
+          label="Failed"
+          color="text-status-failed"
+          search={(prev: ExperimentsSearch) => ({
+            ...prev,
+            status: "failed",
+          })}
+        />
       </div>
 
       <div className="grid gap-2.5 lg:grid-cols-2">
@@ -153,15 +192,28 @@ export default function DashboardPage() {
             <span className="text-[13px] font-medium text-text-secondary">
               Directions
             </span>
-            <span className="text-[11px] text-text-quaternary">
-              {dirs.length}
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] text-text-quaternary">
+                {dirs.length}
+              </span>
+              <Link
+                to="/directions"
+                className="text-[11px] text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              >
+                View all
+              </Link>
+            </div>
           </div>
           <div>
             {dirs.slice(0, 6).map((d) => (
-              <div
+              <Link
                 key={d.id}
-                className="flex items-center justify-between border-b border-border-subtle px-3 py-2 last:border-0"
+                to="/directions/$id"
+                params={{ id: d.id }}
+                className={cn(
+                  "flex items-center justify-between",
+                  dashboardRowClass
+                )}
               >
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-[13px] text-text">{d.title}</p>
@@ -172,7 +224,7 @@ export default function DashboardPage() {
                   <Badge variant="running">{d.running_count}</Badge>
                   <Badge variant="open">{d.open_count}</Badge>
                 </div>
-              </div>
+              </Link>
             ))}
           </div>
         </div>
@@ -182,15 +234,28 @@ export default function DashboardPage() {
             <span className="text-[13px] font-medium text-text-secondary">
               Current Findings
             </span>
-            <span className="text-[11px] text-text-quaternary">
-              {finds.length}
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] text-text-quaternary">
+                {finds.length}
+              </span>
+              <Link
+                to="/findings"
+                className="text-[11px] text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              >
+                View all
+              </Link>
+            </div>
           </div>
           <div>
             {finds.slice(0, 6).map((f) => (
-              <div
+              <Link
                 key={f.id}
-                className="flex items-center justify-between gap-3 border-b border-border-subtle px-3 py-2 last:border-0"
+                to="/findings/$id"
+                params={{ id: f.id }}
+                className={cn(
+                  "flex items-center justify-between gap-3",
+                  dashboardRowClass
+                )}
               >
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-[13px] text-text">{f.topic}</p>
@@ -199,7 +264,7 @@ export default function DashboardPage() {
                   </p>
                 </div>
                 <Badge variant={f.confidence}>{f.confidence}</Badge>
-              </div>
+              </Link>
             ))}
           </div>
         </div>
@@ -220,20 +285,17 @@ export default function DashboardPage() {
             {activity?.slice(0, 8).map((a) => (
               <div
                 key={a.id}
-                className="flex items-start justify-between gap-2 border-b border-border-subtle px-3 py-2 last:border-0"
+                className="flex items-start justify-between gap-2 border-b border-border-subtle px-3 py-2 transition-colors last:border-0 hover:bg-surface-hover/80"
               >
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
                     <span className="text-[12px] font-medium text-text">
                       {a.action.replace("_", " ")}
                     </span>
-                    <Link
-                      to="/experiments/$id"
-                      params={{ id: a.record_id }}
-                      className="font-mono text-[11px] text-accent hover:underline"
-                    >
-                      {a.record_id}
-                    </Link>
+                    <RecordLink
+                      recordId={a.record_id}
+                      className="font-mono text-[11px] font-medium text-accent hover:underline focus-visible:rounded-[3px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                    />
                   </div>
                   <p className="text-[11px] text-text-quaternary">
                     {a.actor_name ?? a.actor}
