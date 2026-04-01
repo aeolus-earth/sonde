@@ -20,6 +20,18 @@ function AuthCallbackPage() {
       );
 
       const code = params.get("code");
+      const oauthError =
+        params.get("error_description") || params.get("error");
+
+      if (oauthError) {
+        if (!alive) return;
+        navigate({
+          to: "/login",
+          search: { error: oauthError },
+          replace: true,
+        });
+        return;
+      }
 
       const finish = async () => {
         let {
