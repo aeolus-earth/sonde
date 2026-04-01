@@ -1,7 +1,51 @@
 import { useQuery, useQueries } from "@tanstack/react-query";
+import { isPptx, isTextRenderable } from "@/lib/artifact-kind";
+import { queryClient } from "@/lib/query-client";
 import { supabase } from "@/lib/supabase";
 import { queryKeys } from "@/lib/query-keys";
 import type { Artifact } from "@/types/sonde";
+
+const ARTIFACT_TEXT_STALE_TIME_MS = 5 * 60_000;
+const ARTIFACT_SIGNED_URL_STALE_TIME_MS = 50 * 60_000;
+const ARTIFACT_SIGNED_URL_GC_TIME_MS = 55 * 60_000;
+const ARTIFACT_BLOB_STALE_TIME_MS = 5 * 60_000;
+const ARTIFACT_BLOB_GC_TIME_MS = 10 * 60_000;
+const MAX_CACHEABLE_BLOB_BYTES = 25 * 1024 * 1024;
+
+function artifactUrlKey(storagePath: string) {
+  return ["artifact-url", storagePath] as const;
+}
+
+function artifactTextKey(storagePath: string) {
+  return ["artifact-text", storagePath] as const;
+}
+
+function artifactBlobKey(storagePath: string) {
+  return ["artifact-blob", storagePath] as const;
+}
+
+async function fetchArtifactSignedUrl(storagePath: string): Promise<string> {
+  const { data, error } = await supabase.storage
+    .from("artifacts")
+    .createSignedUrl(storagePath, 3600);
+
+  if (error) throw error;
+  return data.signedUrl;
+}
+
+async function fetchArtifactText(storagePath: string): Promise<string> {
+  const { data, error } = await supabase.storage.from("artifacts").download(storagePath);
+
+  if (error) throw error;
+  return await data.text();
+}
+
+async function fetchArtifactBlobUrl(storagePath: string): Promise<string> {
+  const { data, error } = await supabase.storage.from("artifacts").download(storagePath);
+
+  if (error) throw error;
+  return URL.createObjectURL(data);
+}
 
 export function useArtifacts(parentId: string) {
   return useQuery({
@@ -75,18 +119,11 @@ export function useArtifactsByIds(artifactIds: string[]) {
  */
 export function useArtifactUrl(storagePath: string | null) {
   return useQuery({
-    queryKey: ["artifact-url", storagePath] as const,
-    queryFn: async (): Promise<string> => {
-      const { data, error } = await supabase.storage
-        .from("artifacts")
-        .createSignedUrl(storagePath!, 3600); // 1 hour
-
-      if (error) throw error;
-      return data.signedUrl;
-    },
+    queryKey: storagePath ? artifactUrlKey(storagePath) : (["artifact-url", null] as const),
+    queryFn: async (): Promise<string> => fetchArtifactSignedUrl(storagePath!),
     enabled: !!storagePath,
-    staleTime: 50 * 60_000, // cache 50 min (URL good for 60)
-    gcTime: 55 * 60_000,
+    staleTime: ARTIFACT_SIGNED_URL_STALE_TIME_MS,
+    gcTime: ARTIFACT_SIGNED_URL_GC_TIME_MS,
   });
 }
 
@@ -95,16 +132,53 @@ export function useArtifactUrl(storagePath: string | null) {
  */
 export function useArtifactText(storagePath: string | null, enabled: boolean) {
   return useQuery({
-    queryKey: ["artifact-text", storagePath] as const,
-    queryFn: async (): Promise<string> => {
-      const { data, error } = await supabase.storage
-        .from("artifacts")
-        .download(storagePath!);
-
-      if (error) throw error;
-      return await data.text();
-    },
+    queryKey: storagePath ? artifactTextKey(storagePath) : (["artifact-text", null] as const),
+    queryFn: async (): Promise<string> => fetchArtifactText(storagePath!),
     enabled: !!storagePath && enabled,
-    staleTime: 5 * 60_000,
+    staleTime: ARTIFACT_TEXT_STALE_TIME_MS,
+  });
+}
+
+export function isBlobCacheable(sizeBytes: number | null): boolean {
+  return sizeBytes !== null && sizeBytes <= MAX_CACHEABLE_BLOB_BYTES;
+}
+
+export function useArtifactBlob(storagePath: string | null, sizeBytes: number | null) {
+  return useQuery({
+    queryKey: storagePath ? artifactBlobKey(storagePath) : (["artifact-blob", null] as const),
+    queryFn: async (): Promise<string> => fetchArtifactBlobUrl(storagePath!),
+    enabled: !!storagePath && isBlobCacheable(sizeBytes),
+    staleTime: ARTIFACT_BLOB_STALE_TIME_MS,
+    gcTime: ARTIFACT_BLOB_GC_TIME_MS,
+  });
+}
+
+export function prefetchArtifactContent(artifact: Artifact): void {
+  const storagePath = artifact.storage_path;
+
+  if (isTextRenderable(artifact)) {
+    void queryClient.prefetchQuery({
+      queryKey: artifactTextKey(storagePath),
+      queryFn: async (): Promise<string> => fetchArtifactText(storagePath),
+      staleTime: ARTIFACT_TEXT_STALE_TIME_MS,
+    });
+    return;
+  }
+
+  if (isBlobCacheable(artifact.size_bytes) && !isPptx(artifact)) {
+    void queryClient.prefetchQuery({
+      queryKey: artifactBlobKey(storagePath),
+      queryFn: async (): Promise<string> => fetchArtifactBlobUrl(storagePath),
+      staleTime: ARTIFACT_BLOB_STALE_TIME_MS,
+      gcTime: ARTIFACT_BLOB_GC_TIME_MS,
+    });
+    return;
+  }
+
+  void queryClient.prefetchQuery({
+    queryKey: artifactUrlKey(storagePath),
+    queryFn: async (): Promise<string> => fetchArtifactSignedUrl(storagePath),
+    staleTime: ARTIFACT_SIGNED_URL_STALE_TIME_MS,
+    gcTime: ARTIFACT_SIGNED_URL_GC_TIME_MS,
   });
 }
