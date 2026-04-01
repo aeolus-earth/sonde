@@ -116,6 +116,7 @@ def test_emit_login_skip_browser_env_skips_webbrowser(monkeypatch, capfd) -> Non
     captured = capfd.readouterr()
     assert "https://x.test/" in captured.err
 
+
 def test_emit_login_paste_fallback_shows_paste_hint(monkeypatch, capfd) -> None:
     monkeypatch.setenv("SONDE_LOGIN_NO_BROWSER", "1")
     auth._emit_login_browser_instructions(8443, "https://example.com/oauth", paste_fallback=True)
