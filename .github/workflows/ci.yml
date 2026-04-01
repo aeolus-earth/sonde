@@ -153,16 +153,11 @@ jobs:
         run: uv sync
 
       - name: Verify migration count matches applied
-        env:
-          SB_URL: ${{ steps.sb.outputs.url }}
-          SB_KEY: ${{ steps.sb.outputs.service_role_key }}
         run: |
           FILE_COUNT=$(ls -1 supabase/migrations/*.sql | wc -l | tr -d ' ')
-          APPLIED_COUNT=$(curl -sf \
-            -H "apikey: $SB_KEY" \
-            -H "Authorization: Bearer $SB_KEY" \
-            "$SB_URL/rest/v1/schema_migrations?select=version" \
-            | jq 'length')
+          APPLIED_COUNT=$(supabase db execute --local \
+            "SELECT count(*) FROM supabase_migrations.schema_migrations" \
+            --csv 2>/dev/null | tail -1 | tr -d ' ')
           echo "Migration files: $FILE_COUNT, Applied: $APPLIED_COUNT"
           if [ "$FILE_COUNT" != "$APPLIED_COUNT" ]; then
             echo "::error::Migration count mismatch: $FILE_COUNT files but $APPLIED_COUNT applied"
