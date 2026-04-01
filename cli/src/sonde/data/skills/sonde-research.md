@@ -508,6 +508,29 @@ sonde artifact update ART-0002 -d "Raw watchdog stdout from GPU profiling run"
 Descriptions are searchable, shown as captions, and readable by agents via
 `sonde artifact list`. Figures without context are useless.
 
+### Surfacing artifacts in conversation
+
+When discussing an experiment's results, **always reference artifact IDs**
+in your response so the UI can render them inline. The chat interface
+auto-displays artifacts when it sees `ART-XXXX` in your text.
+
+```bash
+# Fetch artifacts for context
+sonde artifact list EXP-0001 --json
+
+# Or use show (includes _artifacts in enriched output)
+sonde show EXP-0001 --json
+```
+
+When a user asks about an experiment's data, figures, or results:
+1. Call `sonde show EXP-XXXX --json` to get the full context including `_artifacts`
+2. Read artifact descriptions to understand what each file contains
+3. Reference specific artifact IDs (e.g., "The timing breakdown in ART-0044 shows...")
+4. If artifacts contain text data (CSV, JSON, logs), download and analyze them
+
+The UI will auto-render images and show download links for other file types
+when you mention artifact IDs in your response.
+
 ---
 
 ## Focus and handoff
