@@ -21,6 +21,7 @@ from sonde.output import (
     styled_confidence,
     styled_status,
     truncate_text,
+    ui_url,
 )
 
 
@@ -102,6 +103,7 @@ def _show_finding(ctx: click.Context, finding_id: str) -> None:
 
     print_breadcrumbs(
         [
+            f"\U0001f517 {ui_url(f.id)}",
             f"Evidence:  sonde show {f.evidence[0]}" if f.evidence else "",
             f"All:       sonde findings -p {f.program}",
         ]
@@ -148,9 +150,10 @@ def _show_question(ctx: click.Context, question_id: str) -> None:
         Panel("\n".join(header), title=f"[sonde.brand]{q.id}[/]", border_style="sonde.brand.dim")
     )
 
-    breadcrumbs = [f"All: sonde questions -p {q.program}"]
+    breadcrumbs = [f"\U0001f517 {ui_url(q.id)}"]
     if q.promoted_to_id:
-        breadcrumbs.insert(0, f"Promoted to: sonde show {q.promoted_to_id}")
+        breadcrumbs.append(f"Promoted to: sonde show {q.promoted_to_id}")
+    breadcrumbs.append(f"All: sonde questions -p {q.program}")
     print_breadcrumbs(breadcrumbs)
 
 
@@ -241,9 +244,11 @@ def _show_direction(ctx: click.Context, direction_id: str) -> None:
             title="Findings from this direction",
         )
 
-    print_breadcrumbs(
-        [f"List:  sonde list --direction {d.id}", f"Brief: sonde brief -p {d.program}"]
-    )
+    print_breadcrumbs([
+        f"\U0001f517 {ui_url(d.id)}",
+        f"List:  sonde list --direction {d.id}",
+        f"Brief: sonde brief -p {d.program}",
+    ])
 
 
 def _show_artifact(ctx: click.Context, artifact_id: str) -> None:
@@ -292,9 +297,12 @@ def _show_artifact(ctx: click.Context, artifact_id: str) -> None:
         )
     )
 
-    exp_id = a.get("experiment_id")
-    if exp_id:
-        print_breadcrumbs([f"Experiment: sonde show {exp_id}"])
+    parent_id = a.get("experiment_id") or a.get("direction_id") or a.get("project_id")
+    breadcrumbs = []
+    if parent_id:
+        breadcrumbs.append(f"\U0001f517 {ui_url(parent_id)}")
+        breadcrumbs.append(f"Parent: sonde show {parent_id}")
+    print_breadcrumbs(breadcrumbs)
 
 
 def _show_project(ctx: click.Context, project_id: str) -> None:
@@ -421,6 +429,7 @@ def _show_project(ctx: click.Context, project_id: str) -> None:
         err.print("  [sonde.muted](artifacts unavailable)[/]")
 
     print_breadcrumbs([
+        f"\U0001f517 {ui_url(project_id)}",
         f"Brief: sonde project brief {project_id}",
         "Directions: sonde direction list --all",
         "Experiments: sonde list --all",

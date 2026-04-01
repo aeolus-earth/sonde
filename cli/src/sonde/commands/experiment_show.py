@@ -19,6 +19,7 @@ from sonde.output import (
     record_summary,
     styled_status,
     truncate_text,
+    ui_url,
 )
 
 
@@ -240,7 +241,7 @@ def show(ctx: click.Context, experiment_id: str, graph: bool) -> None:
             _render_graph(exp)
 
         # Status-aware workflow hints (what to do next)
-        breadcrumbs = []
+        breadcrumbs = [f"\U0001f517 {ui_url(exp.id)}"]
         if exp.status == "open":
             breadcrumbs.append(f"Start:   sonde start {exp.id}")
         elif exp.status == "running":
