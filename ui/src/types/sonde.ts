@@ -221,13 +221,19 @@ export interface Artifact {
   created_at: string;
 }
 
-export interface ExperimentNote {
+/** Polymorphic note — can be attached to experiments, directions, or projects. */
+export interface Note {
   id: string;
-  experiment_id: string;
+  record_type: "experiment" | "direction" | "project";
+  record_id: string;
   content: string;
   source: string;
   created_at: string;
+  updated_at: string;
 }
+
+/** @deprecated Use Note instead */
+export type ExperimentNote = Note;
 
 export interface ActivityLogEntry {
   id: number;

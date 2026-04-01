@@ -137,18 +137,7 @@ export function createExperimentTools(sondeToken: string) {
       }
     ),
 
-    tool(
-      "sonde_experiment_note",
-      "Add a note to an experiment.",
-      {
-        experiment_id: z.string().describe("Experiment ID"),
-        note: z.string().describe("Note content"),
-      },
-      async (args) => {
-        const flags = ["experiment", "note", args.experiment_id, args.note, "--json"];
-        return runSonde(flags, sondeToken);
-      }
-    ),
+    // Note tool moved to notes.ts as generic sonde_note (supports EXP-*, DIR-*, PROJ-*)
 
     tool(
       "sonde_experiment_start",

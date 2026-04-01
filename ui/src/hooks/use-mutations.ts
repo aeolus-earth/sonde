@@ -4,7 +4,10 @@ import { queryKeys } from "@/lib/query-keys";
 import { useAddToast } from "@/stores/toast";
 import type { ExperimentStatus } from "@/types/sonde";
 
-export function useAddNote(experimentId: string) {
+export function useAddNote(
+  recordType: "experiment" | "direction" | "project",
+  recordId: string,
+) {
   const queryClient = useQueryClient();
   const addToast = useAddToast();
 
@@ -18,13 +21,19 @@ export function useAddNote(experimentId: string) {
     }) => {
       // Generate note ID
       const { count } = await supabase
-        .from("experiment_notes")
+        .from("notes")
         .select("*", { count: "exact", head: true });
       const nextId = `NOTE-${String((count ?? 0) + 1).padStart(4, "0")}`;
 
       const { data, error } = await supabase
-        .from("experiment_notes")
-        .insert({ id: nextId, experiment_id: experimentId, content, source })
+        .from("notes")
+        .insert({
+          id: nextId,
+          record_type: recordType,
+          record_id: recordId,
+          content,
+          source,
+        })
         .select()
         .single();
 
@@ -33,10 +42,10 @@ export function useAddNote(experimentId: string) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: queryKeys.notes.byExperiment(experimentId),
+        queryKey: queryKeys.notes.byRecord(recordType, recordId),
       });
       queryClient.invalidateQueries({
-        queryKey: queryKeys.activity.byRecord(experimentId),
+        queryKey: queryKeys.activity.byRecord(recordId),
       });
       addToast({ title: "Note added", variant: "success" });
     },

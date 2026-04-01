@@ -6,9 +6,11 @@ import { createQuestionTools } from "./tools/questions.js";
 import { createCrossCuttingTools } from "./tools/cross-cutting.js";
 import { createTaskTools } from "./tools/tasks.js";
 import { createArtifactTools } from "./tools/artifacts.js";
+import { createNoteTools } from "./tools/notes.js";
 import { createProjectTools } from "./tools/projects.js";
 import { createSearchTools } from "./tools/search.js";
 import { createTagTools } from "./tools/tags.js";
+import { createTakeawayTools } from "./tools/takeaways.js";
 
 export function createSondeMcpServer(sondeToken: string) {
   return createSdkMcpServer({
@@ -21,9 +23,11 @@ export function createSondeMcpServer(sondeToken: string) {
       ...createQuestionTools(sondeToken),
       ...createCrossCuttingTools(sondeToken),
       ...createArtifactTools(sondeToken),
+      ...createNoteTools(sondeToken),
       ...createProjectTools(sondeToken),
       ...createSearchTools(sondeToken),
       ...createTagTools(sondeToken),
+      ...createTakeawayTools(sondeToken),
       ...createTaskTools(),
     ],
   });

@@ -10,7 +10,7 @@ interface NoteFormProps {
 export const NoteForm = memo(function NoteForm({ experimentId }: NoteFormProps) {
   const [content, setContent] = useState("");
   const user = useAuthStore((s) => s.user);
-  const mutation = useAddNote(experimentId);
+  const mutation = useAddNote("experiment", experimentId);
 
   const handleSubmit = () => {
     if (!content.trim() || !user) return;

@@ -32,7 +32,8 @@ export const queryKeys = {
     blob: (storagePath: string | null) => ["artifacts", "blob", storagePath] as const,
   },
   notes: {
-    byExperiment: (expId: string) => ["notes", expId] as const,
+    byRecord: (type: string, id: string) => ["notes", type, id] as const,
+    byExperiment: (expId: string) => ["notes", "experiment", expId] as const,
     search: (expId: string, q: string) => ["notes", "search", expId, q] as const,
   },
   activity: {
