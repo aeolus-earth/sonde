@@ -188,13 +188,9 @@ def ui_url(record_id: str) -> str:
             from sonde.config import get_settings
 
             cfg_url = get_settings().ui_url
-            base = (
-                cfg_url.rstrip("/")
-                if cfg_url
-                else "https://sonde-git-main-aeolus-15ec6a6a.vercel.app"
-            )
+            base = cfg_url.rstrip("/") if cfg_url else "https://sonde-green.vercel.app"
         except Exception:
-            base = "https://sonde-git-main-aeolus-15ec6a6a.vercel.app"
+            base = "https://sonde-green.vercel.app"
     prefix = record_id.split("-")[0] if "-" in record_id else ""
 
     route_map = {
