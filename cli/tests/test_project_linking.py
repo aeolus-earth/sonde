@@ -27,7 +27,7 @@ from sonde.commands.fork import _clean_stale_fields
 from sonde.commands.log import _inherit_project
 from sonde.commands.takeaway import _append_takeaway, _read_takeaways_raw, _replace_takeaways
 from sonde.git import GitContext
-from sonde.models.health import HealthData, HealthIssue
+from sonde.models.health import HealthData
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -79,9 +79,26 @@ def _make_table_mock() -> MagicMock:
     """Build a chainable table mock matching conftest pattern."""
     tbl = MagicMock()
     for method in (
-        "select", "insert", "update", "delete", "eq", "neq",
-        "gt", "lt", "gte", "lte", "like", "ilike", "is_", "in_",
-        "contains", "or_", "order", "limit", "range", "single",
+        "select",
+        "insert",
+        "update",
+        "delete",
+        "eq",
+        "neq",
+        "gt",
+        "lt",
+        "gte",
+        "lte",
+        "like",
+        "ilike",
+        "is_",
+        "in_",
+        "contains",
+        "or_",
+        "order",
+        "limit",
+        "range",
+        "single",
     ):
         getattr(tbl, method).return_value = tbl
     tbl.execute.return_value = MagicMock(data=[])
@@ -99,7 +116,7 @@ class TestCleanStaleFields:
     def test_strip_true_removes_path_fields(self):
         params = {"output_dir": "/tmp/results", "ccn": 1500}
         metadata: dict[str, object] = {}
-        cleaned_p, cleaned_m, warnings = _clean_stale_fields(params, metadata, strip=True)
+        cleaned_p, _cleaned_m, warnings = _clean_stale_fields(params, metadata, strip=True)
         assert "output_dir" not in cleaned_p
         assert cleaned_p["ccn"] == 1500
         assert len(warnings) == 1
@@ -110,7 +127,7 @@ class TestCleanStaleFields:
     def test_strip_false_keeps_fields_returns_warnings(self):
         params = {"output_dir": "/tmp/results", "ccn": 1500}
         metadata: dict[str, object] = {}
-        cleaned_p, cleaned_m, warnings = _clean_stale_fields(params, metadata, strip=False)
+        cleaned_p, _cleaned_m, warnings = _clean_stale_fields(params, metadata, strip=False)
         assert "output_dir" in cleaned_p
         assert cleaned_p["output_dir"] == "/tmp/results"
         assert len(warnings) == 1
@@ -126,15 +143,24 @@ class TestCleanStaleFields:
             "tmp_file": None,
         }
         metadata: dict[str, object] = {}
-        cleaned_p, cleaned_m, warnings = _clean_stale_fields(params, metadata, strip=True)
+        cleaned_p, _cleaned_m, warnings = _clean_stale_fields(params, metadata, strip=True)
         assert len(warnings) == 0
         assert cleaned_p == params
 
     def test_all_stale_key_patterns(self):
         """Ensure every documented pattern triggers stripping for path-like values."""
         patterns = [
-            "dir", "path", "file", "output", "log",
-            "artifact", "result", "cache", "tmp", "scratch", "checkpoint",
+            "dir",
+            "path",
+            "file",
+            "output",
+            "log",
+            "artifact",
+            "result",
+            "cache",
+            "tmp",
+            "scratch",
+            "checkpoint",
         ]
         for pattern in patterns:
             key = f"my_{pattern}_setting"
@@ -150,7 +176,7 @@ class TestCleanStaleFields:
             "model_name": "/path/to/model",
         }
         metadata: dict[str, object] = {}
-        cleaned_p, cleaned_m, warnings = _clean_stale_fields(params, metadata, strip=True)
+        cleaned_p, _cleaned_m, warnings = _clean_stale_fields(params, metadata, strip=True)
         assert cleaned_p == params
         assert len(warnings) == 0
 
@@ -205,7 +231,7 @@ class TestCleanStaleFields:
         """A stale key with non-path value, or non-stale key with path value, should NOT strip."""
         params: dict[str, object] = {
             "output_dir": "local",  # stale key, non-path value
-            "ccn": "/opt/data",     # non-stale key, path-like value
+            "ccn": "/opt/data",  # non-stale key, path-like value
         }
         cleaned_p, _, warnings = _clean_stale_fields(params, {}, strip=True)
         assert cleaned_p == params
@@ -398,7 +424,7 @@ def _make_experiment_model(**overrides: Any):
 
 
 def _fork_patches(source_row: dict[str, Any], created_row: dict[str, Any]):
-    """Return a context manager stack that patches db.get, db.create, db.get_children, and activity."""
+    """Return a context manager stack that patches db.get, create, get_children, and activity."""
     from contextlib import ExitStack
 
     from sonde.models.experiment import Experiment
@@ -553,7 +579,6 @@ class TestForkCleanIntegration:
 # =========================================================================
 
 
-
 @patch("sonde.commands.log.detect_git_context", return_value=_CLEAN_GIT)
 class TestProjectInheritanceIntegration:
     def test_log_inherits_project_from_direction(
@@ -583,8 +608,10 @@ class TestProjectInheritanceIntegration:
                 [
                     "--json",
                     "log",
-                    "-p", "weather-intervention",
-                    "--direction", "DIR-001",
+                    "-p",
+                    "weather-intervention",
+                    "--direction",
+                    "DIR-001",
                     "Test CCN saturation",
                 ],
             )
@@ -618,9 +645,12 @@ class TestProjectInheritanceIntegration:
                 [
                     "--json",
                     "log",
-                    "-p", "weather-intervention",
-                    "--direction", "DIR-001",
-                    "--project", "PROJ-002",
+                    "-p",
+                    "weather-intervention",
+                    "--direction",
+                    "DIR-001",
+                    "--project",
+                    "PROJ-002",
                     "Test with explicit project",
                 ],
             )
@@ -653,7 +683,8 @@ class TestProjectInheritanceIntegration:
                 [
                     "--json",
                     "log",
-                    "-p", "weather-intervention",
+                    "-p",
+                    "weather-intervention",
                     "Standalone experiment",
                 ],
             )
@@ -796,7 +827,12 @@ class TestCheckOrphanExperiments:
         """Experiment with direction that has project -> info-level inheritance suggestion."""
         data = HealthData(
             experiments=[
-                {"id": "EXP-0001", "status": "complete", "direction_id": "DIR-001", "project_id": None},
+                {
+                    "id": "EXP-0001",
+                    "status": "complete",
+                    "direction_id": "DIR-001",
+                    "project_id": None,
+                },
             ],
             directions=[
                 {"id": "DIR-001", "project_id": "PROJ-001"},
@@ -847,7 +883,12 @@ class TestCheckOrphanExperiments:
         """Superseded experiments should not generate issues."""
         data = HealthData(
             experiments=[
-                {"id": "EXP-0003", "status": "superseded", "direction_id": None, "project_id": None},
+                {
+                    "id": "EXP-0003",
+                    "status": "superseded",
+                    "direction_id": None,
+                    "project_id": None,
+                },
             ],
         )
         issues = check_orphan_experiments(data)
@@ -857,7 +898,12 @@ class TestCheckOrphanExperiments:
         """If direction itself has no project, no info-level suggestion is generated."""
         data = HealthData(
             experiments=[
-                {"id": "EXP-0004", "status": "complete", "direction_id": "DIR-002", "project_id": None},
+                {
+                    "id": "EXP-0004",
+                    "status": "complete",
+                    "direction_id": "DIR-002",
+                    "project_id": None,
+                },
             ],
             directions=[
                 {"id": "DIR-002", "project_id": None},
@@ -994,10 +1040,30 @@ class TestCheckDirectionExperimentMismatch:
         """Mix of matching, mismatched, and null project_ids."""
         data = HealthData(
             experiments=[
-                {"id": "EXP-0001", "status": "complete", "direction_id": "DIR-001", "project_id": "PROJ-A"},
-                {"id": "EXP-0002", "status": "complete", "direction_id": "DIR-001", "project_id": "PROJ-B"},
-                {"id": "EXP-0003", "status": "complete", "direction_id": "DIR-001", "project_id": None},
-                {"id": "EXP-0004", "status": "complete", "direction_id": None, "project_id": "PROJ-A"},
+                {
+                    "id": "EXP-0001",
+                    "status": "complete",
+                    "direction_id": "DIR-001",
+                    "project_id": "PROJ-A",
+                },
+                {
+                    "id": "EXP-0002",
+                    "status": "complete",
+                    "direction_id": "DIR-001",
+                    "project_id": "PROJ-B",
+                },
+                {
+                    "id": "EXP-0003",
+                    "status": "complete",
+                    "direction_id": "DIR-001",
+                    "project_id": None,
+                },
+                {
+                    "id": "EXP-0004",
+                    "status": "complete",
+                    "direction_id": None,
+                    "project_id": "PROJ-A",
+                },
             ],
             directions=[
                 {"id": "DIR-001", "project_id": "PROJ-B"},

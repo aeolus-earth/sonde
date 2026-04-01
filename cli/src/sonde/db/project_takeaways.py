@@ -22,9 +22,7 @@ class ProjectTakeaways(BaseModel):
 def get(project_id: str) -> ProjectTakeaways | None:
     """Load project takeaways from the database."""
     client = get_client()
-    result = (
-        client.table("project_takeaways").select("*").eq("project_id", project_id).execute()
-    )
+    result = client.table("project_takeaways").select("*").eq("project_id", project_id).execute()
     data = to_rows(result.data)
     if not data:
         return None

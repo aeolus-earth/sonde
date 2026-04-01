@@ -90,15 +90,17 @@ def sync(ctx: click.Context, program: str | None) -> None:
         )
 
     # -- Generate brief.md --
-    from sonde.commands.brief import _build_brief_data, _render_markdown
+    from sonde.commands.brief import _build_brief_data
+    from sonde.commands.brief_render import render_markdown
 
     brief_data = _build_brief_data(
         title=f"{program} Brief",
         experiments=experiments,
         findings=findings,
         questions=questions,
+        program=program,
     )
-    brief_md = _render_markdown(brief_data)
+    brief_md = render_markdown(brief_data)
     brief_path = sonde_dir / "brief.md"
     brief_path.write_text(brief_md, encoding="utf-8")
 

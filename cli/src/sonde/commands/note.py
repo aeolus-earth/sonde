@@ -60,12 +60,13 @@ def note(
       cat analysis.md | sonde note EXP-0001 --stdin
     """
     # Resolve record ID and type
-    if record_id and _detect_record_type(record_id):
-        record_type = _detect_record_type(record_id)
+    detected = _detect_record_type(record_id) if record_id else None
+    if record_id and detected:
+        record_type: str = detected
         record_id = record_id.upper()
     else:
         # If record_id looks like content (no prefix match), shift it to content
-        if record_id and not _detect_record_type(record_id):
+        if record_id and not detected:
             if content:
                 print_error(
                     "Ambiguous arguments",
@@ -113,10 +114,11 @@ def note(
             "direction": "List directions: sonde direction list",
             "project": "List projects: sonde project list",
         }
+        hint = hints.get(record_type, "Check the record ID and try again.")
         print_error(
             f"{record_type.title()} {record_id} not found",
             f"Cannot add a note to a nonexistent {record_type}.",
-            hints.get(record_type, ""),
+            hint,
         )
         raise SystemExit(1)
 
@@ -152,10 +154,7 @@ def note(
     if ctx.obj.get("json"):
         print_json(row)
     else:
-        type_label = record_type.title()
-        print_success(
-            f"Note {note_id} added to {record_id}", record_id=record_id
-        )
+        print_success(f"Note {note_id} added to {record_id}", record_id=record_id)
         err.print(f"  [sonde.muted]\u2192 {local_file.relative_to(sonde_dir.parent)}[/]")
 
         # Research hygiene nudge for experiments with accumulating notes

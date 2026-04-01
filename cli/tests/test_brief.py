@@ -260,7 +260,11 @@ class TestBuildActiveContext:
     @patch("sonde.commands.brief.exp_db.get_tree_summary", return_value={})
     @patch("sonde.db.directions.list_directions", return_value=[])
     def test_running_experiment_populates_context(
-        self, _mock_dir_list: MagicMock, _mock_tree: MagicMock, _mock_promoted: MagicMock, _mock_focus: MagicMock
+        self,
+        _mock_dir_list: MagicMock,
+        _mock_tree: MagicMock,
+        _mock_promoted: MagicMock,
+        _mock_focus: MagicMock,
     ):
         running = _make_exp(
             id="EXP-0010",
@@ -294,7 +298,11 @@ class TestBuildActiveContext:
     @patch("sonde.commands.brief.exp_db.get_tree_summary", return_value={})
     @patch("sonde.db.directions.list_directions", return_value=[])
     def test_linked_questions_from_promoted_to_id(
-        self, _mock_dir_list: MagicMock, _mock_tree: MagicMock, mock_promoted: MagicMock, _mock_focus: MagicMock
+        self,
+        _mock_dir_list: MagicMock,
+        _mock_tree: MagicMock,
+        mock_promoted: MagicMock,
+        _mock_focus: MagicMock,
     ):
         """Questions promoted to the active experiment appear in linked_questions."""
         running = _make_exp(id="EXP-0010", status="running")
@@ -320,7 +328,11 @@ class TestBuildActiveContext:
     @patch("sonde.commands.brief.exp_db.get_tree_summary", return_value={})
     @patch("sonde.db.directions.list_directions", return_value=[])
     def test_latest_finding_picks_first(
-        self, _mock_dir_list: MagicMock, _mock_tree: MagicMock, _mock_promoted: MagicMock, _mock_focus: MagicMock
+        self,
+        _mock_dir_list: MagicMock,
+        _mock_tree: MagicMock,
+        _mock_promoted: MagicMock,
+        _mock_focus: MagicMock,
     ):
         """Findings list is ordered newest-first; context picks findings[0]."""
         running = _make_exp(id="EXP-0010", status="running")
@@ -341,7 +353,11 @@ class TestBuildActiveContext:
     @patch("sonde.commands.brief.exp_db.get_tree_summary", return_value={})
     @patch("sonde.db.directions.list_directions", return_value=[])
     def test_no_findings_means_no_latest_finding(
-        self, _mock_dir_list: MagicMock, _mock_tree: MagicMock, _mock_promoted: MagicMock, _mock_focus: MagicMock
+        self,
+        _mock_dir_list: MagicMock,
+        _mock_tree: MagicMock,
+        _mock_promoted: MagicMock,
+        _mock_focus: MagicMock,
     ):
         running = _make_exp(id="EXP-0010", status="running")
         result = _build_active_context([running], [], [], "test-program")
@@ -364,7 +380,11 @@ class TestBuildActiveContext:
         """next_actions comes from build_suggestions, capped at 3."""
         suggestions = [
             {"reason": "Try higher CCN", "command": "sonde fork EXP-0010", "priority": "high"},
-            {"reason": "Replicate", "command": "sonde fork --type replication", "priority": "medium"},
+            {
+                "reason": "Replicate",
+                "command": "sonde fork --type replication",
+                "priority": "medium",
+            },
             {"reason": "Debug run", "command": "sonde fork --type debug", "priority": "low"},
             {"reason": "Extra", "command": "sonde extra", "priority": "low"},
         ]
@@ -381,7 +401,11 @@ class TestBuildActiveContext:
     @patch("sonde.commands.brief.exp_db.get_tree_summary", return_value={})
     @patch("sonde.db.directions.list_directions", return_value=[])
     def test_direction_lookup(
-        self, _mock_dir_list: MagicMock, _mock_tree: MagicMock, _mock_promoted: MagicMock, _mock_focus: MagicMock
+        self,
+        _mock_dir_list: MagicMock,
+        _mock_tree: MagicMock,
+        _mock_promoted: MagicMock,
+        _mock_focus: MagicMock,
     ):
         """When active experiment has direction_id, direction data is populated."""
         running = _make_exp(id="EXP-0010", status="running", direction_id="DIR-001")
@@ -407,7 +431,11 @@ class TestBuildActiveContext:
     @patch("sonde.commands.brief.exp_db.get_tree_summary", return_value={})
     @patch("sonde.db.directions.list_directions", return_value=[])
     def test_direction_none_when_no_direction_id(
-        self, _mock_dir_list: MagicMock, _mock_tree: MagicMock, _mock_promoted: MagicMock, _mock_focus: MagicMock
+        self,
+        _mock_dir_list: MagicMock,
+        _mock_tree: MagicMock,
+        _mock_promoted: MagicMock,
+        _mock_focus: MagicMock,
     ):
         running = _make_exp(id="EXP-0010", status="running", direction_id=None)
         result = _build_active_context([running], [], [], "test-program")
@@ -419,7 +447,11 @@ class TestBuildActiveContext:
     @patch("sonde.commands.brief.exp_db.get_tree_summary", return_value={})
     @patch("sonde.db.directions.list_directions", return_value=[])
     def test_fallback_open_questions_when_direction_set_but_no_promoted(
-        self, _mock_dir_list: MagicMock, _mock_tree: MagicMock, _mock_promoted: MagicMock, _mock_focus: MagicMock
+        self,
+        _mock_dir_list: MagicMock,
+        _mock_tree: MagicMock,
+        _mock_promoted: MagicMock,
+        _mock_focus: MagicMock,
     ):
         """When direction_id set, no promoted questions, fallback to open questions."""
         running = _make_exp(id="EXP-0010", status="running", direction_id="DIR-001")
@@ -464,7 +496,9 @@ class TestReadTakeaways:
         result = _read_takeaways()
         assert result is None
 
-    def test_content_strips_header_returns_body(self, tmp_path: Any, monkeypatch: pytest.MonkeyPatch):
+    def test_content_strips_header_returns_body(
+        self, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+    ):
         """Returns body text with header stripped."""
         sonde_dir = tmp_path / ".sonde"
         sonde_dir.mkdir()
@@ -480,7 +514,9 @@ class TestReadTakeaways:
         # Header should be stripped
         assert not result.startswith("# Takeaways")
 
-    def test_whitespace_only_after_header_returns_none(self, tmp_path: Any, monkeypatch: pytest.MonkeyPatch):
+    def test_whitespace_only_after_header_returns_none(
+        self, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+    ):
         sonde_dir = tmp_path / ".sonde"
         sonde_dir.mkdir()
         (sonde_dir / "takeaways.md").write_text("# Takeaways\n   \n  \n", encoding="utf-8")
@@ -617,7 +653,6 @@ def _brief_table_factory(
     exps = experiments or []
     finds = findings or []
     qs = questions or []
-    ts = tree_summary or {}
 
     def factory(name: str) -> MagicMock:
         tbl = MagicMock()
@@ -651,11 +686,7 @@ def _brief_table_factory(
             tbl.execute.return_value = MagicMock(data=finds)
         elif name == "questions":
             tbl.execute.return_value = MagicMock(data=qs)
-        elif name == "programs":
-            tbl.execute.return_value = MagicMock(data=[])
-        elif name == "projects":
-            tbl.execute.return_value = MagicMock(data=[])
-        elif name == "directions":
+        elif name == "programs" or name == "projects" or name == "directions":
             tbl.execute.return_value = MagicMock(data=[])
         else:
             tbl.execute.return_value = MagicMock(data=[])
@@ -897,7 +928,11 @@ class TestBriefJsonFull:
         assert len(data["open_experiments"]) == 1
         assert data["open_experiments"][0]["id"] == "EXP-0003"
         assert set(data["open_experiments"][0].keys()) == {
-            "id", "summary", "source", "tags", "created_at",
+            "id",
+            "summary",
+            "source",
+            "tags",
+            "created_at",
         }
 
         assert len(data["running_experiments"]) == 1
@@ -949,10 +984,7 @@ class TestBriefJsonFull:
         patched_db: MagicMock,
     ):
         """Only the 5 most recent completions are included."""
-        exps = [
-            {**_BASE_ROW, "id": f"EXP-{i:04d}", "status": "complete"}
-            for i in range(1, 8)
-        ]
+        exps = [{**_BASE_ROW, "id": f"EXP-{i:04d}", "status": "complete"} for i in range(1, 8)]
         patched_db.table.side_effect = _brief_table_factory(
             experiments=exps,
             findings=[],
@@ -1280,7 +1312,9 @@ class TestBriefEdgeCases:
             {**_BASE_ROW, "id": "EXP-0004", "status": "failed", "parameters": {"ccn": 2000}},
         ]
         patched_db.table.side_effect = _brief_table_factory(
-            experiments=exps, findings=[], questions=[],
+            experiments=exps,
+            findings=[],
+            questions=[],
         )
 
         result = runner.invoke(cli, ["--json", "brief", "-p", "test-program"])
@@ -1308,11 +1342,23 @@ class TestBriefEdgeCases:
     ):
         """Gaps list parameters where only one value has been tested."""
         exps = [
-            {**_BASE_ROW, "id": "EXP-0001", "status": "complete", "parameters": {"ccn": 800, "updraft": 5}},
-            {**_BASE_ROW, "id": "EXP-0002", "status": "complete", "parameters": {"ccn": 1200, "updraft": 5}},
+            {
+                **_BASE_ROW,
+                "id": "EXP-0001",
+                "status": "complete",
+                "parameters": {"ccn": 800, "updraft": 5},
+            },
+            {
+                **_BASE_ROW,
+                "id": "EXP-0002",
+                "status": "complete",
+                "parameters": {"ccn": 1200, "updraft": 5},
+            },
         ]
         patched_db.table.side_effect = _brief_table_factory(
-            experiments=exps, findings=[], questions=[],
+            experiments=exps,
+            findings=[],
+            questions=[],
         )
 
         result = runner.invoke(cli, ["--json", "brief", "-p", "test-program"])
@@ -1406,7 +1452,9 @@ class TestBriefEdgeCases:
     ):
         """generated_at should be a valid ISO-8601 timestamp."""
         patched_db.table.side_effect = _brief_table_factory(
-            experiments=[], findings=[], questions=[],
+            experiments=[],
+            findings=[],
+            questions=[],
         )
 
         result = runner.invoke(cli, ["--json", "brief", "-p", "test-program"])
@@ -1449,7 +1497,9 @@ class TestBriefEdgeCases:
             },
         ]
         patched_db.table.side_effect = _brief_table_factory(
-            experiments=exps, findings=[], questions=[],
+            experiments=exps,
+            findings=[],
+            questions=[],
         )
 
         result = runner.invoke(cli, ["--json", "brief", "-p", "test-program"])

@@ -10,6 +10,11 @@ from typing import Any
 import click
 
 from sonde.cli_options import pass_output_options
+from sonde.commands.brief_render import (
+    render_active_only,
+    render_human,
+    save_markdown,
+)
 from sonde.config import get_settings
 from sonde.db import experiments as exp_db
 from sonde.db import findings as find_db
@@ -18,12 +23,6 @@ from sonde.local import get_focused_experiment
 from sonde.models.experiment import Experiment
 from sonde.models.finding import Finding
 from sonde.models.question import Question
-from sonde.commands.brief_render import (
-    render_active_only,
-    render_human,
-    render_markdown,
-    save_markdown,
-)
 from sonde.output import (
     err,
     print_breadcrumbs,
@@ -226,9 +225,7 @@ def _build_motivation(program: str | None) -> dict[str, Any] | None:
         # Get active projects for this program
         projects = proj_db.list_projects(program=program, statuses=["active", "proposed"])
         project_objectives = [
-            {"id": p.id, "name": p.name, "objective": p.objective}
-            for p in projects
-            if p.objective
+            {"id": p.id, "name": p.name, "objective": p.objective} for p in projects if p.objective
         ]
 
         if not program_description and not project_objectives:

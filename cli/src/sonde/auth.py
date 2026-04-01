@@ -18,7 +18,7 @@ import webbrowser
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from importlib import resources
-from threading import Event, Lock, Thread
+from threading import Event, Lock
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -602,7 +602,7 @@ def _login_timeout_message() -> str:
     )
 
 
-def _wait_for_callback(port: int, auth_url: str) -> str:
+def _wait_for_callback(port: int, auth_url: str, *, paste_fallback: bool = False) -> str:
     """Start a temporary HTTP server, print URL and open browser, wait for the OAuth callback."""
     code_received = Event()
     auth_code: list[str] = []
@@ -639,7 +639,7 @@ def _wait_for_callback(port: int, auth_url: str) -> str:
     server = HTTPServer(("127.0.0.1", port), CallbackHandler)
     server.timeout = 1
 
-    _emit_login_browser_instructions(port, auth_url)
+    _emit_login_browser_instructions(port, auth_url, paste_fallback=paste_fallback)
     deadline = time.monotonic() + CALLBACK_TIMEOUT
 
     try:

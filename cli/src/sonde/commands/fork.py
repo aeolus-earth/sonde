@@ -228,19 +228,21 @@ def fork(
 # Fork helpers
 # ---------------------------------------------------------------------------
 
-_STALE_KEY_PATTERNS = frozenset({
-    "dir",
-    "path",
-    "file",
-    "output",
-    "log",
-    "artifact",
-    "result",
-    "cache",
-    "tmp",
-    "scratch",
-    "checkpoint",
-})
+_STALE_KEY_PATTERNS = frozenset(
+    {
+        "dir",
+        "path",
+        "file",
+        "output",
+        "log",
+        "artifact",
+        "result",
+        "cache",
+        "tmp",
+        "scratch",
+        "checkpoint",
+    }
+)
 
 
 def _is_stale_key(key: str) -> bool:

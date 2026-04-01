@@ -255,8 +255,10 @@ def log(
             )
         elif exp.content and len(exp.content.strip()) < 100:
             print_nudge(
-                "Short logs lose context. Include: objective, method, key parameters, expected outcome.",
-                f'sonde update {exp.id} -c "## Objective\\n...\\n## Method\\n...\\n## Expected\\n..."',
+                "Short logs lose context. Include: objective,"
+                " method, key parameters, expected outcome.",
+                f'sonde update {exp.id} -c "## Objective\\n...'
+                f'\\n## Method\\n...\\n## Expected\\n..."',
             )
         elif not exp.direction_id:
             print_nudge(

@@ -200,6 +200,7 @@ def artifact_replace(ctx, artifact_id, file, description):
     """
     from sonde.db import artifacts as art_db
     from sonde.db.activity import log_activity
+    from sonde.db.artifacts.storage import _write_storage_object
     from sonde.db.client import get_client
 
     json_mode = use_json(ctx)
@@ -233,7 +234,7 @@ def artifact_replace(ctx, artifact_id, file, description):
 
     # Replace the blob in storage
     client = get_client()
-    art_db._write_storage_object(
+    _write_storage_object(
         client,
         "update",
         storage_path,

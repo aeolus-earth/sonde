@@ -83,14 +83,16 @@ def _dry_run_report(ctx: click.Context) -> None:
     takeaways_exists = (sonde_dir / "takeaways.md").exists()
 
     if ctx.obj.get("json"):
-        print_json({
-            "dry_run": True,
-            "experiments": counts["experiments"],
-            "findings": counts["findings"],
-            "questions": counts["questions"],
-            "directions": counts["directions"],
-            "takeaways": takeaways_exists,
-        })
+        print_json(
+            {
+                "dry_run": True,
+                "experiments": counts["experiments"],
+                "findings": counts["findings"],
+                "questions": counts["questions"],
+                "directions": counts["directions"],
+                "takeaways": takeaways_exists,
+            }
+        )
     else:
         labels = []
         for category in _DRY_RUN_CATEGORIES:
@@ -177,12 +179,14 @@ def push_all(ctx: click.Context) -> None:
         pass
 
     if ctx.obj.get("json"):
-        print_json({
-            **counts,
-            "takeaways_synced": takeaways_synced,
-            "project_takeaways_synced": project_takeaways_synced,
-            "notes_synced": notes_synced,
-        })
+        print_json(
+            {
+                **counts,
+                "takeaways_synced": takeaways_synced,
+                "project_takeaways_synced": project_takeaways_synced,
+                "notes_synced": notes_synced,
+            }
+        )
     else:
         details = [
             f"Experiments: {counts['experiments']}",

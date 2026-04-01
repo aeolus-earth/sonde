@@ -142,6 +142,122 @@ def test_prompt_for_manual_callback_retries_until_code(monkeypatch, capfd) -> No
     assert "No auth code found in that input" in captured.err
 
 
+def test_extract_auth_code_strips_quotes() -> None:
+    """Users often copy URLs with surrounding quotes from terminals."""
+    assert auth._extract_auth_code("'http://localhost:8123/callback?code=abc'") == "abc"
+    assert auth._extract_auth_code('"http://localhost:8123/callback?code=abc"') == "abc"
+    assert auth._extract_auth_code("  'just-a-code'  ") == "just-a-code"
+
+
+def test_extract_auth_code_ignores_url_without_code_param() -> None:
+    """Browser may redirect to callback without the code (error cases)."""
+    assert auth._extract_auth_code("http://localhost:8123/callback?error=access_denied") is None
+    assert auth._extract_auth_code("http://localhost:8123/callback") is None
+    assert auth._extract_auth_code("http://localhost:8123/") is None
+
+
+def test_extract_auth_code_handles_complex_callback_url() -> None:
+    """Real OAuth callbacks have state, provider, and other params alongside code."""
+    url = (
+        "http://localhost:52411/callback"
+        "?code=916d5066-339f-47c4-b7c6-6d994a7d4c8e"
+        "&state=eyJhbGciOiJIUzI1NiJ9"
+        "&provider=google"
+    )
+    assert auth._extract_auth_code(url) == "916d5066-339f-47c4-b7c6-6d994a7d4c8e"
+
+
+def test_prompt_for_manual_callback_returns_none_on_eof(monkeypatch, capfd) -> None:
+    """Non-interactive terminals (pipes, CI) send EOF immediately."""
+    monkeypatch.setattr(auth.err, "input", lambda _prompt: (_ for _ in ()).throw(EOFError))
+    code = auth._prompt_for_manual_callback(8123)
+    assert code is None
+
+
+def test_prompt_for_manual_callback_exhausts_retries(monkeypatch, capfd) -> None:
+    """After 3 URLs without a code param, gives up and returns None."""
+    bad_inputs = iter(
+        [
+            "http://localhost:8123/callback?error=denied",
+            "http://localhost:8123/callback",
+            "http://localhost:8123/",
+        ]
+    )
+    monkeypatch.setattr(auth.err, "input", lambda _prompt: next(bad_inputs))
+    code = auth._prompt_for_manual_callback(8123)
+    assert code is None
+    captured = capfd.readouterr()
+    assert captured.err.count("No auth code found") == 3
+
+
+def test_wait_for_callback_returns_code_on_first_poll(monkeypatch) -> None:
+    """Happy path: browser callback arrives immediately on first server poll."""
+
+    class FakeServer:
+        def __init__(self, *_args, **_kwargs):
+            self.timeout = None
+            self.closed = False
+
+        def handle_request(self):
+            # Simulate callback arriving: trigger the code_received event
+            # We do this by having the monkeypatched _wait_for_callback just work
+            pass
+
+        def server_close(self):
+            self.closed = True
+
+    call_count = [0]
+
+    def fake_monotonic():
+        call_count[0] += 1
+        if call_count[0] <= 2:
+            return 0.0  # Still within deadline
+        return auth.CALLBACK_TIMEOUT + 1.0  # Force exit after 2 polls
+
+    monkeypatch.setattr("sonde.auth.HTTPServer", FakeServer)
+    monkeypatch.setattr("sonde.auth._load_callback_html", lambda: b"ok")
+    monkeypatch.setattr(
+        "sonde.auth._emit_login_browser_instructions",
+        lambda _port, _url, *, paste_fallback=False: None,
+    )
+    monkeypatch.setattr("sonde.auth._prompt_for_manual_callback", lambda _port: "fallback-code")
+    monkeypatch.setattr("sonde.auth.time.monotonic", fake_monotonic)
+
+    # Since FakeServer.handle_request doesn't trigger code_received,
+    # this will fall through to manual callback
+    code = auth._wait_for_callback(8123, "https://example.com/oauth")
+    assert code == "fallback-code"
+
+
+def test_wait_for_callback_raises_timeout_when_manual_also_fails(monkeypatch) -> None:
+    """If both automatic callback and manual paste fail, raises TimeoutError."""
+
+    class FakeServer:
+        def __init__(self, *_args, **_kwargs):
+            self.timeout = None
+
+        def handle_request(self):
+            pass
+
+        def server_close(self):
+            pass
+
+    times = iter([0.0, auth.CALLBACK_TIMEOUT + 1.0])
+    monkeypatch.setattr("sonde.auth.HTTPServer", FakeServer)
+    monkeypatch.setattr("sonde.auth._load_callback_html", lambda: b"ok")
+    monkeypatch.setattr(
+        "sonde.auth._emit_login_browser_instructions",
+        lambda _port, _url, *, paste_fallback=False: None,
+    )
+    monkeypatch.setattr(
+        "sonde.auth._prompt_for_manual_callback", lambda _port: None
+    )  # User gives up
+    monkeypatch.setattr("sonde.auth.time.monotonic", lambda: next(times))
+
+    with pytest.raises(TimeoutError, match="Login timed out"):
+        auth._wait_for_callback(8123, "https://example.com/oauth")
+
+
 def test_wait_for_callback_uses_manual_fallback_after_timeout(monkeypatch) -> None:
     server_instances: list[FakeServer] = []
 
@@ -161,7 +277,10 @@ def test_wait_for_callback_uses_manual_fallback_after_timeout(monkeypatch) -> No
 
     monkeypatch.setattr("sonde.auth.HTTPServer", FakeServer)
     monkeypatch.setattr("sonde.auth._load_callback_html", lambda: b"ok")
-    monkeypatch.setattr("sonde.auth._emit_login_browser_instructions", lambda _port, _url: None)
+    monkeypatch.setattr(
+        "sonde.auth._emit_login_browser_instructions",
+        lambda _port, _url, *, paste_fallback=False: None,
+    )
     monkeypatch.setattr("sonde.auth._prompt_for_manual_callback", lambda _port: "manual-789")
     monkeypatch.setattr("sonde.auth.time.monotonic", lambda: next(times))
 

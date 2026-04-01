@@ -15,7 +15,6 @@ from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-import pytest
 from click.testing import CliRunner
 
 from sonde.cli import cli
@@ -189,9 +188,9 @@ class TestSuggestNextTakeaway:
             exp = _make_experiment(status=status)
             suggestions = _suggest_next(exp, children=[])
             commands = [s["command"] for s in suggestions]
-            assert not any(
-                "sonde takeaway" in c for c in commands
-            ), f"Takeaway should not appear for status={status}"
+            assert not any("sonde takeaway" in c for c in commands), (
+                f"Takeaway should not appear for status={status}"
+            )
 
     def test_takeaway_appears_after_other_suggestions(self):
         """Takeaway should be the last suggestion, not the first."""
@@ -248,7 +247,7 @@ class TestBuildHandoffData:
         exp_db.get.return_value = None
         exp_db.get_children.return_value = overrides.get("children", [])
         exp_db.get_siblings.return_value = overrides.get("siblings", [])
-        dir_db.get.return_value = overrides.get("direction", None)
+        dir_db.get.return_value = overrides.get("direction")
         find_db.list_active.return_value = overrides.get("findings", [])
         notes_db.list_by_experiment.return_value = overrides.get("notes", [])
         art_db.list_artifacts.return_value = overrides.get("artifacts", [])
@@ -319,7 +318,10 @@ class TestBuildHandoffData:
         assert data["direction"] is not None
         assert data["direction"]["id"] == "DIR-0001"
         assert data["direction"]["title"] == "CCN Sensitivity Analysis"
-        assert data["direction"]["question"] == "How does CCN concentration affect precipitation enhancement?"
+        assert (
+            data["direction"]["question"]
+            == "How does CCN concentration affect precipitation enhancement?"
+        )
 
     def test_direction_is_none_when_no_direction_id(self):
         """Direction should be None when experiment has no direction_id."""
@@ -527,9 +529,7 @@ def _handoff_table_factory(
             exp_results.extend([MagicMock(data=[]) for _ in range(10)])
             tbl.execute.side_effect = exp_results
         elif name == "directions":
-            tbl.execute.return_value = MagicMock(
-                data=[direction_data] if direction_data else []
-            )
+            tbl.execute.return_value = MagicMock(data=[direction_data] if direction_data else [])
         elif name in ("experiment_notes", "notes"):
             tbl.execute.return_value = MagicMock(data=notes_data or [])
         elif name == "artifacts":

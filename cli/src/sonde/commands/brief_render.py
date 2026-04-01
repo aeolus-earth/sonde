@@ -12,7 +12,6 @@ from sonde.coordination import STALE_CLAIM_HOURS
 from sonde.local import find_sonde_dir
 from sonde.output import err, print_breadcrumbs, print_table, truncate_text
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -97,7 +96,7 @@ def render_motivation(data: dict) -> None:
     if not m:
         return
 
-    err.print(f"\n[sonde.heading]Motivation[/]")
+    err.print("\n[sonde.heading]Motivation[/]")
     if m.get("program_description"):
         err.print(f"  {m['program_description']}")
     if m.get("projects"):
@@ -123,7 +122,7 @@ def render_active_only(data: dict, *, program: str | None = None) -> None:
     render_active_context(data)
 
     if data.get("takeaways"):
-        err.print(f"\n[sonde.heading]Takeaways[/]")
+        err.print("\n[sonde.heading]Takeaways[/]")
         err.print(data["takeaways"])
 
     breadcrumbs = []
@@ -160,7 +159,7 @@ def render_human(
 
     # Takeaways — synthesized status
     if data.get("takeaways"):
-        err.print(f"\n[sonde.heading]Takeaways[/]")
+        err.print("\n[sonde.heading]Takeaways[/]")
         err.print(data["takeaways"])
 
     err.print()
@@ -405,7 +404,9 @@ def render_markdown(data: dict) -> str:
                 lines.append(f"Question: **{q['id']}** \u2014 {q['question']}\n")
         if ac.get("latest_finding"):
             f = ac["latest_finding"]
-            lines.append(f"Latest finding: **{f['id']}** \u2014 {f['finding']} [{f['confidence']}]\n")
+            lines.append(
+                f"Latest finding: **{f['id']}** \u2014 {f['finding']} [{f['confidence']}]\n"
+            )
         if ac.get("next_actions"):
             lines.append("\nNext actions:\n")
             for s in ac["next_actions"][:3]:
