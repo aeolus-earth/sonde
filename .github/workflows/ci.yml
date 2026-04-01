@@ -5,17 +5,23 @@ on:
     branches: [main]
     paths:
       - "cli/**"
+      - "ui/**"
+      - "server/**"
       - "supabase/migrations/**"
       - ".github/workflows/ci.yml"
   push:
     branches: [main]
     paths:
       - "cli/**"
+      - "ui/**"
+      - "server/**"
       - "supabase/migrations/**"
       - ".github/workflows/ci.yml"
 
+# ── CLI ────────────────────────────────────────────────────────────
+
 jobs:
-  lint-and-test:
+  cli-lint-and-test:
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -44,9 +50,63 @@ jobs:
       - name: Unit tests
         run: uv run pytest -m "not integration" --tb=short
 
+# ── UI ─────────────────────────────────────────────────────────────
+
+  ui-checks:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ui
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type check & build
+        run: npm run build
+
+      - name: Tests
+        run: npm run test
+        continue-on-error: true  # UI tests may not exist yet
+
+# ── Server ─────────────────────────────────────────────────────────
+
+  server-checks:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+# ── Schema integration (CLI + local Supabase) ─────────────────────
+
   schema-integration:
     runs-on: ubuntu-latest
-    needs: lint-and-test
+    needs: cli-lint-and-test
 
     steps:
       - uses: actions/checkout@v4
@@ -98,7 +158,8 @@ jobs:
           AEOLUS_SUPABASE_URL: ${{ steps.sb.outputs.url }}
           AEOLUS_SUPABASE_ANON_KEY: ${{ steps.sb.outputs.anon_key }}
           AEOLUS_SUPABASE_SERVICE_ROLE_KEY: ${{ steps.sb.outputs.service_role_key }}
-        run: uv run pytest -m integration --tb=short || true
+        run: uv run pytest -m integration --tb=short
+        continue-on-error: true  # informational — working toward blocking
 
       - name: Stop Supabase
         if: always()
