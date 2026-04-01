@@ -527,7 +527,7 @@ def _change_status(
             body = _read_takeaways_raw()
             if body and exp.program:
                 tw_db.upsert(exp.program, body)
-        except Exception:
+        except (Exception, SystemExit):
             pass
 
     # Refresh saved brief after close/fail (last — after all output)
@@ -536,5 +536,5 @@ def _change_status(
             from sonde.commands.brief import refresh_brief
 
             refresh_brief(program=exp.program)
-        except Exception:
+        except (Exception, SystemExit):
             pass

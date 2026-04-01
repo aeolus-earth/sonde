@@ -122,7 +122,7 @@ def _build_project_brief(project_id: str) -> dict[str, Any]:
         ],
         "takeaways": takeaway_body,
         "notes": [
-            {"id": n["id"], "content": n["content"][:200], "source": n.get("source", "")}
+            {"id": n["id"], "content": truncate_text(n["content"], 200), "source": n.get("source", "")}
             for n in notes[:5]
         ],
     }
@@ -143,6 +143,13 @@ def project_brief(ctx: click.Context, project_id: str) -> None:
       sonde project brief PROJ-001
     """
     project_id = project_id.upper()
+    if not project_id.startswith("PROJ-"):
+        print_error(
+            f"Invalid project ID: {project_id}",
+            "Expected a PROJ-* ID.",
+            "sonde project list",
+        )
+        raise SystemExit(2)
 
     brief = _build_project_brief(project_id)
     if not brief:
@@ -182,6 +189,10 @@ def project_brief(ctx: click.Context, project_id: str) -> None:
             for d in dirs
         ]
         print_table(["id", "status", "title", "experiments"], dir_rows, title="Directions")
+        # Show direction context summaries (if any have context)
+        for d in dirs:
+            if d.get("context"):
+                err.print(f"  [sonde.muted]{d['id']}: {truncate_text(d['context'], 80)}[/]")
 
     # Experiment stats
     exps = brief["experiments"]

@@ -202,6 +202,7 @@ def patched_db(mock_supabase: MagicMock, authenticated: None) -> Generator[Magic
         import sonde.db.health as health_mod
         import sonde.db.ids as ids_mod
         import sonde.db.notes as notes_mod
+        import sonde.db.notes_v2 as notes_v2_mod
         import sonde.db.programs as prog_mod
         import sonde.db.questions as q_mod
         import sonde.db.tags as tags_mod
@@ -220,6 +221,7 @@ def patched_db(mock_supabase: MagicMock, authenticated: None) -> Generator[Magic
             health_mod,
             ids_mod,
             notes_mod,
+            notes_v2_mod,
             prog_mod,
             q_mod,
             tags_mod,

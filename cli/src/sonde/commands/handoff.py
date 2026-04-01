@@ -41,7 +41,7 @@ def handoff(ctx: click.Context, experiment_id: str | None) -> None:
     from sonde.db import directions as dir_db
     from sonde.db import experiments as exp_db
     from sonde.db import findings as find_db
-    from sonde.db import notes as notes_db
+    from sonde.db import notes_v2 as notes_db
 
     experiment_id = resolve_experiment_id(experiment_id)
     exp = exp_db.get(experiment_id)

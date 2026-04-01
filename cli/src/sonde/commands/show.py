@@ -218,7 +218,7 @@ def _show_direction(ctx: click.Context, direction_id: str) -> None:
             ]
             print_table(["id", "source", "content"], note_rows, title="Notes")
     except Exception:
-        pass
+        pass  # Direction notes are optional — no "(unavailable)" needed
 
     if experiments:
         exp_rows = []
@@ -358,7 +358,7 @@ def _show_project(ctx: click.Context, project_id: str) -> None:
         if ptw and ptw.body.strip():
             err.print(f"\n[sonde.heading]Takeaways[/]\n{ptw.body}")
     except Exception:
-        pass
+        err.print("  [sonde.muted](takeaways unavailable)[/]")
 
     # Show project notes if any
     try:
@@ -376,7 +376,7 @@ def _show_project(ctx: click.Context, project_id: str) -> None:
             ]
             print_table(["id", "source", "content"], note_rows, title="Notes")
     except Exception:
-        pass
+        err.print("  [sonde.muted](notes unavailable)[/]")
 
     dirs = dirs_result.data or []
     if dirs:
@@ -418,7 +418,7 @@ def _show_project(ctx: click.Context, project_id: str) -> None:
             ]
             print_table(["id", "type", "filename"], art_rows, title="Artifacts")
     except Exception:
-        pass
+        err.print("  [sonde.muted](artifacts unavailable)[/]")
 
     print_breadcrumbs([
         f"Brief: sonde project brief {project_id}",

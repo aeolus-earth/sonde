@@ -128,6 +128,12 @@ def project_create(
         )
         raise SystemExit(2)
 
+    if description and description_file:
+        print_error(
+            "Conflicting options",
+            "Use --description or --description-file, not both.",
+        )
+        raise SystemExit(2)
     if description_file:
         from pathlib import Path
 
@@ -195,6 +201,12 @@ def project_update(
         )
         raise SystemExit(1)
 
+    if description and description_file:
+        print_error(
+            "Conflicting options",
+            "Use --description or --description-file, not both.",
+        )
+        raise SystemExit(2)
     if description_file:
         from pathlib import Path
 

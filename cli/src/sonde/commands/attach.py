@@ -46,7 +46,12 @@ def _detect_record_type(record_id: str) -> str | None:
 @click.command()
 @click.argument("record_id", required=False, default=None)
 @click.argument("files", nargs=-1, required=True, type=click.Path(exists=True))
-@click.option("--type", "artifact_type", help="Override artifact type")
+@click.option(
+    "--type",
+    "artifact_type",
+    type=click.Choice(["figure", "paper", "dataset", "notebook", "config", "log", "report", "other"]),
+    help="Override artifact type",
+)
 @click.option("--description", "-d", help="Description of the artifact")
 @pass_output_options
 @click.pass_context
@@ -70,6 +75,14 @@ def attach(
       sonde attach output/*.nc
     """
     # Resolve record
+    if record_id and record_id.upper().startswith("DIR-"):
+        print_error(
+            "Direction attachments not yet supported via CLI",
+            "Attach files to individual experiments under this direction.",
+            f"sonde list --direction {record_id.upper()}",
+        )
+        raise SystemExit(1)
+
     if record_id and _detect_record_type(record_id):
         record_type = _detect_record_type(record_id)
         record_id = record_id.upper()

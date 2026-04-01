@@ -76,3 +76,24 @@ def record_exists(record_type: str, record_id: str) -> bool:
     client = get_client()
     result = client.table(table).select("id").eq("id", record_id).execute()
     return bool(to_rows(result.data))
+
+
+# ---------------------------------------------------------------------------
+# Backwards-compatible wrappers for experiment-only callers
+# (push, pull, sync, handoff, experiment_delete)
+# ---------------------------------------------------------------------------
+
+
+def list_by_experiment(experiment_id: str) -> list[dict]:
+    """List notes for an experiment. Compat wrapper for callers migrating from notes.py."""
+    return list_by_record("experiment", experiment_id)
+
+
+def create_experiment_note(experiment_id: str, content: str, source: str) -> dict:
+    """Create a note on an experiment. Compat wrapper for callers migrating from notes.py."""
+    return create("experiment", experiment_id, content, source)
+
+
+def experiment_exists(experiment_id: str) -> bool:
+    """Check if an experiment exists. Compat wrapper for callers migrating from notes.py."""
+    return record_exists("experiment", experiment_id)

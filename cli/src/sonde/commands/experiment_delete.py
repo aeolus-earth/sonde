@@ -36,7 +36,7 @@ def delete_experiment(ctx: click.Context, experiment_id: str, confirm: bool) -> 
 
     children = db.get_children(experiment_id)
     from sonde.db.artifacts import list_artifacts
-    from sonde.db.notes import list_by_experiment
+    from sonde.db.notes_v2 import list_by_experiment
 
     notes = list_by_experiment(experiment_id)
     artifacts = list_artifacts(experiment_id)

@@ -9,9 +9,18 @@ CREATE TABLE project_takeaways (
 
 ALTER TABLE project_takeaways ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "project_takeaways_select" ON project_takeaways FOR SELECT USING (true);
-CREATE POLICY "project_takeaways_insert" ON project_takeaways FOR INSERT WITH CHECK (true);
-CREATE POLICY "project_takeaways_update" ON project_takeaways FOR UPDATE USING (true);
+-- Member-scoped RLS: access only takeaways for projects in your programs
+CREATE POLICY "project_takeaways_select" ON project_takeaways FOR SELECT USING (
+    EXISTS (SELECT 1 FROM projects p WHERE p.id = project_id AND p.program = ANY(user_programs()))
+);
+
+CREATE POLICY "project_takeaways_insert" ON project_takeaways FOR INSERT WITH CHECK (
+    EXISTS (SELECT 1 FROM projects p WHERE p.id = project_id AND p.program = ANY(user_programs()))
+);
+
+CREATE POLICY "project_takeaways_update" ON project_takeaways FOR UPDATE USING (
+    EXISTS (SELECT 1 FROM projects p WHERE p.id = project_id AND p.program = ANY(user_programs()))
+);
 
 CREATE TRIGGER project_takeaways_updated_at
     BEFORE UPDATE ON project_takeaways

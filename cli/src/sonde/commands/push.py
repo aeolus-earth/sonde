@@ -22,7 +22,7 @@ from sonde.config import get_settings
 from sonde.db import directions as dir_db
 from sonde.db import experiments as exp_db
 from sonde.db import findings as find_db
-from sonde.db import notes as notes_db
+from sonde.db import notes_v2 as notes_db
 from sonde.db import program_takeaways as takeaways_db
 from sonde.db import questions as q_db
 from sonde.db.activity import log_activity
@@ -801,7 +801,7 @@ def _sync_notes(experiment_id: str, exp_dir: Path) -> int:
         key = (body.strip(), str(note_source))
         if not body.strip() or key in existing_keys:
             continue
-        note = notes_db.create(experiment_id, body.strip(), str(note_source))
+        note = notes_db.create_experiment_note(experiment_id, body.strip(), str(note_source))
         existing_keys.add(key)
         created += 1
         log_activity(experiment_id, "experiment", "note_added", {"note_id": note["id"]})

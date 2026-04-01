@@ -530,7 +530,7 @@ def _handoff_table_factory(
             tbl.execute.return_value = MagicMock(
                 data=[direction_data] if direction_data else []
             )
-        elif name == "experiment_notes":
+        elif name in ("experiment_notes", "notes"):
             tbl.execute.return_value = MagicMock(data=notes_data or [])
         elif name == "artifacts":
             tbl.execute.return_value = MagicMock(data=artifacts_data or [])

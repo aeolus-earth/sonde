@@ -22,7 +22,7 @@ from sonde.config import get_settings
 from sonde.db import directions as dir_db
 from sonde.db import experiments as exp_db
 from sonde.db import findings as find_db
-from sonde.db import notes as notes_db
+from sonde.db import notes_v2 as notes_db
 from sonde.db import program_takeaways as takeaways_db
 from sonde.db import questions as q_db
 from sonde.db.artifacts import (
@@ -591,7 +591,7 @@ def _sync_experiments(
 
             what, _why, _fix = classify_api_error(
                 exc,
-                table="experiment_notes",
+                table="notes",
                 action="read notes",
             )
             err.print(f"  [sonde.warning]Could not pull notes for {exp['id']}: {what}[/]")

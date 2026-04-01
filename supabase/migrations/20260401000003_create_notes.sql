@@ -11,14 +11,44 @@ CREATE TABLE notes (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_notes_v2_record ON notes (record_type, record_id);
-CREATE INDEX idx_notes_v2_created ON notes (created_at);
+-- Composite index covering the primary query pattern: filter by record, sort by time
+CREATE INDEX idx_notes_v2_record_created ON notes (record_type, record_id, created_at);
 
 ALTER TABLE notes ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "notes_v2_select" ON notes FOR SELECT USING (true);
-CREATE POLICY "notes_v2_insert" ON notes FOR INSERT WITH CHECK (true);
-CREATE POLICY "notes_v2_update" ON notes FOR UPDATE USING (true);
+-- Member-scoped RLS: can only access notes on records in your programs
+CREATE POLICY "notes_v2_select" ON notes FOR SELECT USING (
+    CASE record_type
+        WHEN 'experiment' THEN EXISTS (
+            SELECT 1 FROM experiments e WHERE e.id = record_id AND e.program = ANY(user_programs()))
+        WHEN 'direction' THEN EXISTS (
+            SELECT 1 FROM directions d WHERE d.id = record_id AND d.program = ANY(user_programs()))
+        WHEN 'project' THEN EXISTS (
+            SELECT 1 FROM projects p WHERE p.id = record_id AND p.program = ANY(user_programs()))
+    END
+);
+
+CREATE POLICY "notes_v2_insert" ON notes FOR INSERT WITH CHECK (
+    CASE record_type
+        WHEN 'experiment' THEN EXISTS (
+            SELECT 1 FROM experiments e WHERE e.id = record_id AND e.program = ANY(user_programs()))
+        WHEN 'direction' THEN EXISTS (
+            SELECT 1 FROM directions d WHERE d.id = record_id AND d.program = ANY(user_programs()))
+        WHEN 'project' THEN EXISTS (
+            SELECT 1 FROM projects p WHERE p.id = record_id AND p.program = ANY(user_programs()))
+    END
+);
+
+CREATE POLICY "notes_v2_update" ON notes FOR UPDATE USING (
+    CASE record_type
+        WHEN 'experiment' THEN EXISTS (
+            SELECT 1 FROM experiments e WHERE e.id = record_id AND e.program = ANY(user_programs()))
+        WHEN 'direction' THEN EXISTS (
+            SELECT 1 FROM directions d WHERE d.id = record_id AND d.program = ANY(user_programs()))
+        WHEN 'project' THEN EXISTS (
+            SELECT 1 FROM projects p WHERE p.id = record_id AND p.program = ANY(user_programs()))
+    END
+);
 
 CREATE TRIGGER notes_updated_at
     BEFORE UPDATE ON notes

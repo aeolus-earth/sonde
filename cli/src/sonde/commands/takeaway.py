@@ -231,6 +231,32 @@ def _handle_project_takeaway(
     replace_content: str | None,
 ) -> None:
     """Handle --project scoped takeaway operations."""
+    # Validate PROJ-* prefix
+    if not project_id.startswith("PROJ-"):
+        print_error(
+            f"Invalid project ID: {project_id}",
+            "Expected a PROJ-* ID.",
+            "sonde project list",
+        )
+        raise SystemExit(2)
+
+    # Validate project exists (skip for show — just read local file)
+    if not show:
+        try:
+            from sonde.db import projects as proj_db
+
+            if not proj_db.get(project_id):
+                print_error(
+                    f"Project {project_id} not found",
+                    "Cannot add takeaways to a nonexistent project.",
+                    "sonde project list",
+                )
+                raise SystemExit(1)
+        except SystemExit:
+            raise
+        except Exception:
+            pass  # Best-effort — DB may be unreachable
+
     path = _project_takeaways_path(project_id)
 
     # Show mode

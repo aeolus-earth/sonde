@@ -69,8 +69,9 @@ def note(
             if content:
                 print_error(
                     "Ambiguous arguments",
-                    f"'{record_id}' doesn't look like a record ID (EXP-*, DIR-*, PROJ-*).",
-                    "sonde note EXP-0001 \"your note\"",
+                    f"'{record_id}' doesn't match a known record prefix (EXP-*, DIR-*, PROJ-*).",
+                    'Usage: sonde note <RECORD-ID> "content"\n'
+                    '   or: sonde note "content"  (uses focused experiment)',
                 )
                 raise SystemExit(2)
             content = record_id
@@ -107,13 +108,15 @@ def note(
 
     # Verify record exists
     if not db.record_exists(record_type, record_id):
-        type_label = record_type.title()
+        hints = {
+            "experiment": "List experiments: sonde list",
+            "direction": "List directions: sonde direction list",
+            "project": "List projects: sonde project list",
+        }
         print_error(
-            f"{type_label} {record_id} not found",
+            f"{record_type.title()} {record_id} not found",
             f"Cannot add a note to a nonexistent {record_type}.",
-            f"List {record_type}s: sonde {record_type} list"
-            if record_type != "experiment"
-            else "List experiments: sonde list",
+            hints.get(record_type, ""),
         )
         raise SystemExit(1)
 
