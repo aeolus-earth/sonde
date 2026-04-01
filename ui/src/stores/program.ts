@@ -9,7 +9,8 @@ interface ProgramState {
 export const useProgramStore = create<ProgramState>()(
   persist(
     (set) => ({
-      activeProgram: "weather-intervention",
+      /** Empty until resolved against `programs` (see ProgramSwitcher + ProgramReadyGate). */
+      activeProgram: "",
       setActiveProgram: (program) => set({ activeProgram: program }),
     }),
     { name: "sonde-active-program" }

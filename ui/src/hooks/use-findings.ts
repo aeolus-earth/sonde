@@ -19,6 +19,7 @@ export function useFindings() {
       if (error) throw error;
       return data;
     },
+    enabled: !!program,
   });
 }
 
@@ -36,6 +37,7 @@ export function useCurrentFindings() {
       if (error) throw error;
       return data;
     },
+    enabled: !!program,
   });
 }
 

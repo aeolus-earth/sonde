@@ -12,7 +12,7 @@ import { getRouteApi, Link } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowDown, ChevronRight } from "lucide-react";
 import { ROUTE_API } from "../route-ids";
-import { useExperiments, useExperimentSearch, useExperiment } from "@/hooks/use-experiments";
+import { useExperiments, useExperimentSearch } from "@/hooks/use-experiments";
 import { useProjects } from "@/hooks/use-projects";
 import { useDirections } from "@/hooks/use-directions";
 import { useListKeyboardNav } from "@/hooks/use-keyboard";

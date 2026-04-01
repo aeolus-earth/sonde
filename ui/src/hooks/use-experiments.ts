@@ -26,6 +26,7 @@ export function useExperiments() {
       if (error) throw error;
       return data;
     },
+    enabled: !!program,
   });
 }
 
@@ -62,6 +63,7 @@ export function useAllExperimentsForTree() {
       if (error) throw error;
       return data;
     },
+    enabled: !!program,
   });
 }
 
@@ -104,7 +106,7 @@ export function useExperimentSearch(query: string) {
         .filter((r: { record_type: string }) => r.record_type === "experiment")
         .map((r: { id: string }) => r.id);
     },
-    enabled: query.length > 1,
+    enabled: query.length > 1 && !!program,
     staleTime: 30_000,
   });
 }

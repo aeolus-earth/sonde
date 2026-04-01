@@ -12,6 +12,15 @@ export function ProgramSwitcher() {
 
   const { data: programs, isLoading } = usePrograms();
 
+  /** Persisted active program may be missing from JWT (e.g. default weather-intervention). */
+  useEffect(() => {
+    if (!programs?.length) return;
+    const ids = new Set(programs.map((p) => p.id));
+    if (!ids.has(active)) {
+      setActive(programs[0].id);
+    }
+  }, [programs, active, setActive]);
+
   const activeProgram = programs?.find((p) => p.id === active);
   const label = activeProgram?.name ?? (isLoading ? "Loading…" : "Program");
 

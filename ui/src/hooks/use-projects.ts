@@ -19,6 +19,7 @@ export function useProjects() {
       if (error) throw error;
       return data;
     },
+    enabled: !!program,
   });
 }
 

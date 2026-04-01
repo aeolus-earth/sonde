@@ -5,6 +5,7 @@ import { useCurrentFindings } from "@/hooks/use-findings";
 import { useDirections } from "@/hooks/use-directions";
 import { useProjects } from "@/hooks/use-projects";
 import { useProgramTakeaways } from "@/hooks/use-program-takeaways";
+import { useProjectTakeawaysInProgram } from "@/hooks/use-project-takeaways";
 import { useActiveProgram } from "@/stores/program";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -140,7 +141,14 @@ export default function BriefPage() {
   const { data: findings, isLoading: loadingFind } = useCurrentFindings();
   const { data: directions, isLoading: loadingDir } = useDirections();
   const { data: projects, isLoading: loadingProj } = useProjects();
-  const { data: takeawaysRow, isLoading: loadingTakeaways } = useProgramTakeaways(program);
+  const {
+    data: takeawaysRow,
+    isLoading: loadingTakeaways,
+    isError: takeawaysQueryError,
+    error: takeawaysError,
+  } = useProgramTakeaways(program);
+  const { data: projectTakeawayRows, isLoading: loadingProjectTakeaways } =
+    useProjectTakeawaysInProgram(program);
 
   const exps = experiments ?? [];
   const finds = findings ?? [];
@@ -255,20 +263,73 @@ export default function BriefPage() {
           )}
 
           <div className="rounded-[8px] border border-border bg-surface p-3">
-            <div className="mb-2 flex items-center gap-2 text-[11px] font-medium uppercase tracking-wider text-text-secondary">
-              <Sparkles className="h-3.5 w-3.5" />
-              Takeaways
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-[11px] font-medium uppercase tracking-wider text-text-secondary">
+              <span className="flex items-center gap-2">
+                <Sparkles className="h-3.5 w-3.5" />
+                Takeaways
+              </span>
+              {takeawaysRow?.updated_at ? (
+                <span className="font-normal normal-case text-text-quaternary" title={formatDateTime(takeawaysRow.updated_at)}>
+                  Updated {formatDateTimeShort(takeawaysRow.updated_at)}
+                </span>
+              ) : null}
             </div>
-            {loadingTakeaways ? (
+            {takeawaysQueryError ? (
+              <p className="py-3 text-center text-[12px] text-status-failed">
+                Could not load takeaways
+                {takeawaysError instanceof Error ? `: ${takeawaysError.message}` : ""}
+              </p>
+            ) : loadingTakeaways ? (
               <Skeleton className="h-20 w-full rounded-[6px]" />
             ) : !takeawaysRow?.body?.trim() ? (
-              <p className="py-3 text-center text-[12px] text-text-quaternary">No takeaways yet</p>
+              <p className="py-3 text-center text-[12px] text-text-quaternary">
+                No takeaways for <span className="font-mono">{program}</span> yet. Sync with{" "}
+                <span className="font-mono">sonde push</span> or append via{" "}
+                <span className="font-mono">sonde takeaway</span>.
+              </p>
             ) : (
               <div className="min-w-0">
                 <MarkdownView content={takeawaysRow.body} />
               </div>
             )}
           </div>
+
+          {loadingProjectTakeaways ? (
+            <div className="rounded-[8px] border border-border-subtle bg-surface p-3">
+              <Skeleton className="h-14 w-full rounded-[6px]" />
+            </div>
+          ) : projectTakeawayRows && projectTakeawayRows.length > 0 ? (
+            <div className="space-y-3">
+              {projectTakeawayRows.map((ptw) => (
+                <div
+                  key={ptw.project_id}
+                  className="rounded-[8px] border border-border bg-surface p-3"
+                >
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-[11px] font-medium uppercase tracking-wider text-text-secondary">
+                    <span className="flex min-w-0 items-center gap-2">
+                      <FolderKanban className="h-3.5 w-3.5 shrink-0" />
+                      <span className="truncate">Project takeaways</span>
+                    </span>
+                    <Link
+                      to="/projects/$id"
+                      params={{ id: ptw.project_id }}
+                      className="max-w-[min(100%,14rem)] truncate font-normal normal-case text-[12px] font-medium text-accent hover:underline"
+                    >
+                      {projectById.get(ptw.project_id)?.name ?? ptw.project_id}
+                    </Link>
+                  </div>
+                  {ptw.updated_at ? (
+                    <p className="mb-2 text-[10px] text-text-quaternary" title={formatDateTime(ptw.updated_at)}>
+                      Updated {formatDateTimeShort(ptw.updated_at)}
+                    </p>
+                  ) : null}
+                  <div className="min-w-0">
+                    <MarkdownView content={ptw.body} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
 
           {/* Running */}
           {runningExps.length > 0 && (

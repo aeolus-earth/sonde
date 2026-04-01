@@ -22,6 +22,7 @@ export default function QuestionsPage() {
       if (error) throw error;
       return data;
     },
+    enabled: !!program,
   });
 
   const items = questions ?? [];

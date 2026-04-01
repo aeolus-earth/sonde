@@ -36,5 +36,6 @@ export function useDirections() {
       if (error) throw error;
       return data;
     },
+    enabled: !!program,
   });
 }
