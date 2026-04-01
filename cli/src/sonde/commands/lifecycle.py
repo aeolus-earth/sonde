@@ -484,9 +484,10 @@ def _change_status(
         from sonde.output import print_nudge
 
         print_nudge(
-            "Record what you learned — be quantitative and specific:",
-            f"sonde update {experiment_id} --finding"
-            f' "CCN=1500 shows 8% less enhancement (5.8% vs 13.6%)"',
+            "Record what you learned — be quantitative and specific.\n"
+            '     Bad:  "CCN affects precipitation"\n'
+            '     Good: "CCN=1500 shows 8% less enhancement (5.8% vs 13.6%)"',
+            f'sonde update {experiment_id} --finding "<measured result with numbers>"',
         )
 
     # Nudge: finding was recorded inline — suggest promoting to curated Finding
@@ -515,10 +516,17 @@ def _change_status(
     # Write takeaway if provided (before brief refresh so it's included)
     if takeaway and new_status in ("complete", "failed"):
         try:
-            from sonde.commands.takeaway import _append_takeaway
+            from sonde.commands.takeaway import _append_takeaway, _read_takeaways_raw
 
             source = resolve_source()
             _append_takeaway(takeaway, source)
+
+            # Sync to DB so other machines/agents see it
+            from sonde.db import program_takeaways as tw_db
+
+            body = _read_takeaways_raw()
+            if body and exp.program:
+                tw_db.upsert(exp.program, body)
         except Exception:
             pass
 

@@ -30,6 +30,19 @@ from sonde.output import (
 )
 
 
+def _inherit_project(direction_id: str | None) -> str | None:
+    """Auto-inherit project_id from a direction, if it has one."""
+    if not direction_id:
+        return None
+    try:
+        from sonde.db import directions as dir_db
+
+        d = dir_db.get(direction_id)
+        return getattr(d, "project_id", None) if d else None
+    except Exception:
+        return None
+
+
 @click.command("log")
 @click.argument("content_text", required=False, default=None)
 @click.option("--program", "-p", help="Program namespace (e.g., weather-intervention)")
@@ -49,6 +62,7 @@ from sonde.output import (
 @click.option("--finding", help="What you learned (legacy)")
 @click.option("--source", "-s", help="Who logged this (default: human/$USER)")
 @click.option("--direction", help="Parent research direction ID")
+@click.option("--project", help="Parent project ID")
 @click.option("--related", help="Related experiment IDs (comma-separated)")
 @click.option("--tag", multiple=True, help="Tags (repeatable)")
 @click.option("--git-ref", help="Git commit ref (default: auto-detect HEAD)")
@@ -72,6 +86,7 @@ def log(
     finding: str | None,
     source: str | None,
     direction: str | None,
+    project: str | None,
     related: str | None,
     tag: tuple[str, ...],
     git_ref: str | None,
@@ -198,6 +213,7 @@ def log(
         git_repo=git_ctx.repo if git_ctx else None,
         git_branch=git_ctx.branch if git_ctx else None,
         direction_id=direction or settings.default_direction or None,
+        project_id=project or _inherit_project(direction or settings.default_direction),
         related=[r.strip() for r in related.split(",")] if related else [],
         tags=list(tag),
     )
@@ -226,12 +242,17 @@ def log(
         err.print(f"  View:    sonde show {exp.id}")
         err.print(f"  Attach:  sonde attach {exp.id} <file>")
 
-        # Research hygiene nudge (max 1, only for non-JSON)
+        # Research hygiene nudges (max 1, only for non-JSON)
         if not exp.content and not exp.hypothesis:
             print_nudge(
                 "Describe what you're testing and why — be specific for grepability:",
                 f'sonde update {exp.id} "## Objective\\n'
                 f'Test CCN=1500 saturation\\n\\n## Method\\nSpectral bin, 25km"',
+            )
+        elif exp.content and len(exp.content.strip()) < 100:
+            print_nudge(
+                "Short logs lose context. Include: objective, method, key parameters, expected outcome.",
+                f'sonde update {exp.id} -c "## Objective\\n...\\n## Method\\n...\\n## Expected\\n..."',
             )
         elif not exp.direction_id:
             print_nudge(

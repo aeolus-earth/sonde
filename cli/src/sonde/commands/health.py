@@ -21,6 +21,8 @@ from sonde.output import err, print_breadcrumbs, print_json, print_table
     help="Filter to one category (experiment, finding, tag, direction, brief, coverage, graph)",
 )
 @click.option("--fixable", is_flag=True, help="Show only issues with automatable fix commands")
+@click.option("--fix", is_flag=True, help="Auto-fix fixable issues")
+@click.option("--dry-run", is_flag=True, help="Show what --fix would do without doing it")
 @pass_output_options
 @click.pass_context
 def health(
@@ -28,6 +30,8 @@ def health(
     program: str | None,
     category: str | None,
     fixable: bool,
+    fix: bool,
+    dry_run: bool,
 ) -> None:
     """Diagnose the health of the knowledge base.
 
@@ -43,6 +47,8 @@ def health(
       sonde health --category experiments
       sonde health --fixable
       sonde health --fixable --json
+      sonde health --fix
+      sonde health --fix --dry-run
     """
     from sonde.checkers import run_checkers
     from sonde.db.health import fetch_health_data
@@ -85,9 +91,39 @@ def health(
 
     if ctx.obj.get("json"):
         print_json(report.model_dump(mode="json"))
-        return
+        if not fix:
+            return
 
-    _render_human(report, resolved)
+    if not ctx.obj.get("json"):
+        _render_human(report, resolved)
+
+    if fix or dry_run:
+        fixable_issues = [i for i in issues if i.fix is not None]
+        if not fixable_issues:
+            err.print("\n[sonde.muted]No fixable issues found.[/]")
+            return
+        if dry_run:
+            err.print("\n[sonde.heading]Dry run — would apply these fixes:[/]")
+            for issue in fixable_issues:
+                err.print(f"  [sonde.muted]{issue.fix}[/]")
+            return
+        err.print(f"\n[sonde.heading]Applying {len(fixable_issues)} fix(es)...[/]")
+        applied = 0
+        failed = 0
+        for issue in fixable_issues:
+            assert issue.fix is not None  # guaranteed by filter above
+            try:
+                if _execute_fix(issue.fix):
+                    err.print(f"  [sonde.success]Fixed:[/] {issue.fix}")
+                    applied += 1
+                else:
+                    err.print(f"  [sonde.warning]Skipped (unrecognised):[/] {issue.fix}")
+                    failed += 1
+            except Exception as exc:
+                err.print(f"  [sonde.error]Failed:[/] {issue.fix} — {exc}")
+                failed += 1
+        err.print(f"\n[sonde.success]{applied} fixed[/], [sonde.muted]{failed} skipped/failed[/]")
+        return
 
 
 def _compute_score(issues: list) -> int:
@@ -112,10 +148,42 @@ def _load_brief_provenance():
         return None
 
 
+def _execute_fix(fix_command: str) -> bool:
+    """Parse and execute a health fix command. Returns True on success."""
+    parts = fix_command.split()
+    # sonde update EXP-XXXX --project PROJ-YYY
+    if len(parts) >= 4 and parts[0] == "sonde" and parts[1] == "update" and "--project" in parts:
+        exp_id = parts[2]
+        proj_idx = parts.index("--project")
+        proj_id = parts[proj_idx + 1] if proj_idx + 1 < len(parts) else None
+        if proj_id:
+            from sonde.db import experiments as exp_db
+
+            exp_db.update(exp_id, {"project_id": proj_id})
+            return True
+    # sonde direction update DIR-XXX --project PROJ-YYY
+    elif (
+        len(parts) >= 5
+        and parts[1] == "direction"
+        and parts[2] == "update"
+        and "--project" in parts
+    ):
+        dir_id = parts[3]
+        proj_idx = parts.index("--project")
+        proj_id = parts[proj_idx + 1] if proj_idx + 1 < len(parts) else None
+        if proj_id:
+            from sonde.db import directions as dir_db
+
+            dir_db.update(dir_id, {"project_id": proj_id})
+            return True
+    return False
+
+
 SEVERITY_STYLE = {
     "error": "sonde.error",
     "warning": "sonde.warning",
     "stale": "sonde.muted",
+    "info": "sonde.muted",
 }
 
 

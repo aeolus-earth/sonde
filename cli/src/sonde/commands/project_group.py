@@ -91,7 +91,13 @@ def project_show(ctx: click.Context, project_id: str) -> None:
 @project.command("create")
 @click.argument("name")
 @click.option("--program", "-p", help="Program namespace")
-@click.option("--objective", "-o", help="Project objective / description")
+@click.option("--objective", "-o", help="Project objective (one-liner for list views)")
+@click.option("--description", help="Detailed project description (markdown)")
+@click.option(
+    "--description-file",
+    type=click.Path(exists=True),
+    help="Read description from file",
+)
 @click.option(
     "--status",
     type=click.Choice(["proposed", "active", "paused", "completed", "archived"]),
@@ -106,6 +112,8 @@ def project_create(
     name: str,
     program: str | None,
     objective: str | None,
+    description: str | None,
+    description_file: str | None,
     status: str,
     source: str | None,
 ) -> None:
@@ -120,11 +128,17 @@ def project_create(
         )
         raise SystemExit(2)
 
+    if description_file:
+        from pathlib import Path
+
+        description = Path(description_file).read_text(encoding="utf-8")
+
     resolved_source = source or settings.source or resolve_source()
     data = ProjectCreate(
         program=resolved_program,
         name=name,
         objective=objective,
+        description=description,
         status=cast(Literal["proposed", "active", "paused", "completed", "archived"], status),
         source=resolved_source,
     )
@@ -146,6 +160,12 @@ def project_create(
 @click.argument("project_id")
 @click.option("--name", "-n", help="Update name")
 @click.option("--objective", "-o", help="Update objective")
+@click.option("--description", help="Update description (markdown)")
+@click.option(
+    "--description-file",
+    type=click.Path(exists=True),
+    help="Read description from file",
+)
 @click.option(
     "--status",
     type=click.Choice(["proposed", "active", "paused", "completed", "archived"]),
@@ -159,6 +179,8 @@ def project_update(
     project_id: str,
     name: str | None,
     objective: str | None,
+    description: str | None,
+    description_file: str | None,
     status: str | None,
     linear: str | None,
 ) -> None:
@@ -173,11 +195,17 @@ def project_update(
         )
         raise SystemExit(1)
 
+    if description_file:
+        from pathlib import Path
+
+        description = Path(description_file).read_text(encoding="utf-8")
+
     updates = {
         key: value
         for key, value in {
             "name": name,
             "objective": objective,
+            "description": description,
             "status": status,
             "linear_id": linear,
         }.items()
@@ -242,3 +270,221 @@ def project_delete(ctx: click.Context, project_id: str, confirm: bool) -> None:
             err.print(f"  {deleted['directions_cleared']} direction(s) had project_id cleared")
         if deleted.get("experiments_cleared"):
             err.print(f"  {deleted['experiments_cleared']} experiment(s) had project_id cleared")
+
+
+@project.command("attach")
+@click.argument("project_id")
+@click.argument("record_ids", nargs=-1, required=True)
+@pass_output_options
+@click.pass_context
+def project_attach(ctx: click.Context, project_id: str, record_ids: tuple[str, ...]) -> None:
+    """Attach directions and experiments to a project.
+
+    Accepts any mix of EXP-*, DIR-* IDs. Detects type from prefix.
+
+    \b
+    Examples:
+      sonde project attach PROJ-001 DIR-001 DIR-002
+      sonde project attach PROJ-001 EXP-0042 EXP-0043
+      sonde project attach PROJ-001 DIR-001 EXP-0042
+    """
+    from sonde.db import directions as dir_db
+    from sonde.db import experiments as exp_db
+
+    project_id = project_id.upper()
+    p = db.get(project_id)
+    if not p:
+        print_error(f"{project_id} not found", "No project with this ID.", "sonde project list")
+        raise SystemExit(1)
+
+    attached_experiments: list[str] = []
+    attached_directions: list[str] = []
+
+    for record_id in record_ids:
+        rid = record_id.upper()
+        if rid.startswith("EXP-"):
+            exp_db.update(rid, {"project_id": project_id})
+            log_activity(rid, "experiment", "updated", {"project_id": project_id})
+            attached_experiments.append(rid)
+        elif rid.startswith("DIR-"):
+            dir_db.update(rid, {"project_id": project_id})
+            log_activity(rid, "direction", "updated", {"project_id": project_id})
+            attached_directions.append(rid)
+        else:
+            print_error(
+                f"Unknown record prefix: {rid}",
+                "Expected EXP-* or DIR-* ID.",
+            )
+            raise SystemExit(1)
+
+    if ctx.obj.get("json"):
+        print_json({
+            "attached": {
+                "experiments": attached_experiments,
+                "directions": attached_directions,
+            },
+            "project": project_id,
+        })
+    else:
+        print_success(
+            f"Attached {len(attached_directions)} direction(s) and "
+            f"{len(attached_experiments)} experiment(s) to {project_id}"
+        )
+
+
+@project.command("detach")
+@click.argument("record_ids", nargs=-1, required=True)
+@pass_output_options
+@click.pass_context
+def project_detach(ctx: click.Context, record_ids: tuple[str, ...]) -> None:
+    """Remove project assignment from directions and experiments.
+
+    \b
+    Examples:
+      sonde project detach DIR-001 EXP-0042
+    """
+    from sonde.db import directions as dir_db
+    from sonde.db import experiments as exp_db
+
+    detached_experiments: list[str] = []
+    detached_directions: list[str] = []
+
+    for record_id in record_ids:
+        rid = record_id.upper()
+        if rid.startswith("EXP-"):
+            exp_db.update(rid, {"project_id": None})
+            log_activity(rid, "experiment", "updated", {"project_id": None})
+            detached_experiments.append(rid)
+        elif rid.startswith("DIR-"):
+            dir_db.update(rid, {"project_id": None})
+            log_activity(rid, "direction", "updated", {"project_id": None})
+            detached_directions.append(rid)
+        else:
+            print_error(
+                f"Unknown record prefix: {rid}",
+                "Expected EXP-* or DIR-* ID.",
+            )
+            raise SystemExit(1)
+
+    if ctx.obj.get("json"):
+        print_json({
+            "detached": {
+                "experiments": detached_experiments,
+                "directions": detached_directions,
+            },
+        })
+    else:
+        print_success(
+            f"Detached {len(detached_directions)} direction(s) and "
+            f"{len(detached_experiments)} experiment(s) from their project"
+        )
+
+
+@project.command("adopt")
+@click.argument("project_id")
+@click.option("--direction", "-d", help="Adopt all experiments under this direction")
+@click.option("--dry-run", is_flag=True, help="Show what would be adopted")
+@pass_output_options
+@click.pass_context
+def project_adopt(
+    ctx: click.Context, project_id: str, direction: str | None, dry_run: bool
+) -> None:
+    """Adopt orphaned records into a project.
+
+    With --direction: adopts the direction and all its experiments.
+    Without: lists orphaned records in the same program.
+
+    \b
+    Examples:
+      sonde project adopt PROJ-001 --direction DIR-001
+      sonde project adopt PROJ-001 --direction DIR-001 --dry-run
+    """
+    from sonde.db import directions as dir_db
+    from sonde.db import experiments as exp_db
+
+    project_id = project_id.upper()
+    p = db.get(project_id)
+    if not p:
+        print_error(f"{project_id} not found", "No project with this ID.", "sonde project list")
+        raise SystemExit(1)
+
+    if not direction:
+        print_error(
+            "No --direction specified",
+            "Currently only --direction mode is supported.",
+            "Usage: sonde project adopt PROJ-001 --direction DIR-001",
+        )
+        raise SystemExit(1)
+
+    direction_id = direction.upper()
+    dir_record = dir_db.get(direction_id)
+    if not dir_record:
+        print_error(
+            f"{direction_id} not found",
+            "No direction with this ID.",
+            "sonde direction list",
+        )
+        raise SystemExit(1)
+
+    experiments = exp_db.list_by_direction(direction_id)
+    orphans = [e for e in experiments if not getattr(e, "project_id", None)]
+    adopt_direction = not getattr(dir_record, "project_id", None)
+
+    if dry_run:
+        items: list[str] = []
+        if adopt_direction:
+            items.append(f"  {direction_id} (direction)")
+        for exp in orphans:
+            items.append(f"  {exp.id} (experiment)")
+        if ctx.obj.get("json"):
+            print_json({
+                "dry_run": True,
+                "project": project_id,
+                "would_adopt": {
+                    "direction": direction_id if adopt_direction else None,
+                    "experiments": [e.id for e in orphans],
+                },
+            })
+        else:
+            if not items:
+                print_success(f"Nothing to adopt — all records already assigned")
+            else:
+                err.print(f"[sonde.warning]Would adopt into {project_id}:[/]")
+                for item in items:
+                    err.print(item)
+        return
+
+    adopted_count = 0
+    if adopt_direction:
+        dir_db.update(direction_id, {"project_id": project_id})
+        log_activity(direction_id, "direction", "updated", {"project_id": project_id})
+
+    for exp in orphans:
+        exp_db.update(exp.id, {"project_id": project_id})
+        log_activity(exp.id, "experiment", "updated", {"project_id": project_id})
+        adopted_count += 1
+
+    if ctx.obj.get("json"):
+        print_json({
+            "adopted": {
+                "direction": direction_id if adopt_direction else None,
+                "experiments": [e.id for e in orphans],
+            },
+            "project": project_id,
+        })
+    else:
+        parts = []
+        if adopt_direction:
+            parts.append(direction_id)
+        if adopted_count:
+            parts.append(f"{adopted_count} experiment(s)")
+        if parts:
+            print_success(f"Adopted {' and '.join(parts)} into {project_id}")
+        else:
+            print_success(f"Nothing to adopt — all records already assigned")
+
+
+# Wire project brief subcommand
+from sonde.commands.project_brief import project_brief  # noqa: E402
+
+project.add_command(project_brief)

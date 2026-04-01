@@ -14,6 +14,8 @@ class DirectionCreate(BaseModel):
     program: str
     title: str
     question: str
+    context: str | None = None
+    project_id: str | None = None
     status: Literal["proposed", "active", "paused", "completed", "abandoned"] = "active"
     source: str
 

@@ -55,7 +55,7 @@ class HealthIssue(BaseModel):
     """
 
     category: Literal["brief", "experiment", "finding", "tag", "direction", "coverage", "graph"]
-    severity: Literal["error", "warning", "stale"]
+    severity: Literal["error", "warning", "stale", "info"]
     message: str
     record_id: str | None = None
     fix: str | None = None

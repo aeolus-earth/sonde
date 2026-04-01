@@ -59,6 +59,7 @@ class ExperimentCreate(BaseModel):
 
     # Links
     direction_id: str | None = None
+    project_id: str | None = None
     related: list[str] = Field(default_factory=list)
 
     # Tree branching (set by fork, nullable for legacy experiments)

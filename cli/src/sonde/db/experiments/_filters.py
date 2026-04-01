@@ -15,6 +15,7 @@ def apply_filters(
     source: str | None = None,
     tags: list[str] | None = None,
     direction: str | None = None,
+    project: str | None = None,
     since: str | None = None,
     before: str | None = None,
     roots: bool = False,
@@ -33,6 +34,8 @@ def apply_filters(
         query = query.contains("tags", tags)
     if direction:
         query = query.eq("direction_id", direction)
+    if project:
+        query = query.eq("project_id", project)
     if since:
         query = query.gte("created_at", since)
     if before:

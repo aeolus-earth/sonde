@@ -33,6 +33,7 @@ def list_active() -> list[Direction]:
 def list_directions(
     *,
     program: str | None = None,
+    project: str | None = None,
     statuses: list[str] | None = None,
     limit: int = 50,
     offset: int = 0,
@@ -43,6 +44,8 @@ def list_directions(
     query = query.range(offset, offset + limit - 1) if offset else query.limit(limit)
     if program:
         query = query.eq("program", program)
+    if project:
+        query = query.eq("project_id", project)
     if statuses:
         query = query.in_("status", statuses)
     result = query.execute()

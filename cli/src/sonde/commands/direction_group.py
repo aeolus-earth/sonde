@@ -38,6 +38,7 @@ def direction(ctx: click.Context) -> None:
 
 @direction.command("list")
 @click.option("--program", "-p", help="Filter by program")
+@click.option("--project", help="Filter by project ID")
 @click.option("--status", help="Filter by status")
 @click.option("--all", "show_all", is_flag=True, help="Include non-active directions")
 @click.option("--limit", "-n", default=50, help="Max results")
@@ -46,6 +47,7 @@ def direction(ctx: click.Context) -> None:
 def direction_list(
     ctx: click.Context,
     program: str | None,
+    project: str | None,
     status: str | None,
     show_all: bool,
     limit: int,
@@ -57,7 +59,9 @@ def direction_list(
     if status:
         statuses = [status]
 
-    directions = db.list_directions(program=resolved_program, statuses=statuses, limit=limit)
+    directions = db.list_directions(
+        program=resolved_program, project=project, statuses=statuses, limit=limit
+    )
     if ctx.obj.get("json"):
         print_json([d.model_dump(mode="json") for d in directions])
         return
@@ -96,6 +100,8 @@ def direction_show(ctx: click.Context, direction_id: str) -> None:
     default="active",
     help="Direction status",
 )
+@click.option("--context", "-c", help="Motivation, scope, or background for this direction")
+@click.option("--project", help="Parent project ID")
 @click.option("--source", "-s", help="Who created this direction")
 @pass_output_options
 @click.pass_context
@@ -104,6 +110,8 @@ def direction_create(
     question_text: str,
     program: str | None,
     title: str,
+    context: str | None,
+    project: str | None,
     status: str,
     source: str | None,
 ) -> None:
@@ -123,6 +131,8 @@ def direction_create(
         program=resolved_program,
         title=title,
         question=question_text,
+        context=context,
+        project_id=project,
         status=cast(Literal["proposed", "active", "paused", "completed", "abandoned"], status),
         source=resolved_source,
     )
@@ -144,6 +154,7 @@ def direction_create(
 @click.argument("direction_id")
 @click.option("--title", "-t", help="Update title")
 @click.option("--question", help="Update guiding question")
+@click.option("--context", "-c", help="Update motivation / scope / background")
 @click.option(
     "--status",
     type=click.Choice(["proposed", "active", "paused", "completed", "abandoned"]),
@@ -158,6 +169,7 @@ def direction_update(
     direction_id: str,
     title: str | None,
     question: str | None,
+    context: str | None,
     status: str | None,
     project: str | None,
     linear: str | None,
@@ -178,6 +190,7 @@ def direction_update(
         for key, value in {
             "title": title,
             "question": question,
+            "context": context,
             "status": status,
             "project_id": project,
             "linear_id": linear,

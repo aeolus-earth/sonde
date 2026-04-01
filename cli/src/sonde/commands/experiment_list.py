@@ -107,6 +107,7 @@ def _columns_for_status(
 @click.option("--me", "filter_me", is_flag=True, help="Show only my experiments")
 @click.option("--tag", multiple=True, help="Filter by tag (repeatable)")
 @click.option("--direction", "-d", help="Filter by research direction ID")
+@click.option("--project", help="Filter by project ID")
 @click.option("--since", help="Show experiments created after this date (YYYY-MM-DD)")
 @click.option("--before", help="Show experiments created before this date (YYYY-MM-DD)")
 @click.option(
@@ -138,6 +139,7 @@ def list_cmd(
     filter_me: bool,
     tag: tuple[str, ...],
     direction: str | None,
+    project: str | None,
     since: str | None,
     before: str | None,
     sort: str,
@@ -221,6 +223,7 @@ def list_cmd(
             source=source,
             tags=list(tag) or None,
             direction=direction,
+            project=project,
             since=since,
             before=before,
             exclude_terminal=exclude_terminal,
@@ -237,6 +240,7 @@ def list_cmd(
         source=source,
         tags=list(tag) or None,
         direction=direction,
+        project=project,
         since=since,
         before=before,
         sort=sort,

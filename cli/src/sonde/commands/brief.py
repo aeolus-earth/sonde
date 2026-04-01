@@ -92,7 +92,12 @@ def _build_active_context(
 
         d = dir_db.get(active.direction_id)
         if d:
-            direction_data = {"id": d.id, "title": d.title, "question": d.question}
+            direction_data = {
+                "id": d.id,
+                "title": d.title,
+                "question": d.question,
+                "context": getattr(d, "context", None),
+            }
 
     # Linked questions: same direction, or promoted to this experiment
     linked_questions: list[dict[str, str]] = []
@@ -197,6 +202,42 @@ def _active_branch_ids(experiments: list[Experiment]) -> set[str] | None:
 
 
 # ---------------------------------------------------------------------------
+# Motivation — "why are we doing this?"
+# ---------------------------------------------------------------------------
+
+
+def _build_motivation(program: str | None) -> dict[str, Any] | None:
+    """Build motivation block from program description and project objectives."""
+    if not program:
+        return None
+
+    try:
+        from sonde.db import programs as prog_db
+        from sonde.db import projects as proj_db
+
+        prog = prog_db.get(program)
+        program_description = prog.description if prog else None
+
+        # Get active projects for this program
+        projects = proj_db.list_projects(program=program, statuses=["active", "proposed"])
+        project_objectives = [
+            {"id": p.id, "name": p.name, "objective": p.objective}
+            for p in projects
+            if p.objective
+        ]
+
+        if not program_description and not project_objectives:
+            return None
+
+        return {
+            "program_description": program_description,
+            "projects": project_objectives,
+        }
+    except Exception:
+        return None
+
+
+# ---------------------------------------------------------------------------
 # Data assembly — turns Pydantic models into structured brief dicts
 # ---------------------------------------------------------------------------
 
@@ -243,9 +284,14 @@ def _build_brief_data(
     # Active context
     active_context = _build_active_context(experiments, findings, questions, program)
 
+    # Motivation: program description + active project objectives
+    motivation = _build_motivation(program)
+
     data: dict[str, Any] = {
         "title": title,
         "generated_at": now,
+        # Section 0: Why we're doing this
+        "motivation": motivation,
         # Section 1: What's happening right now
         "active": active_context,
         "takeaways": _read_takeaways(),
@@ -655,6 +701,20 @@ def _render_active_context(data: dict) -> None:
             err.print(f"      [sonde.brand]{s['command']}[/]")
 
 
+def _render_motivation(data: dict) -> None:
+    """Render the motivation block to stderr."""
+    m = data.get("motivation")
+    if not m:
+        return
+
+    err.print(f"\n[sonde.heading]Motivation[/]")
+    if m.get("program_description"):
+        err.print(f"  {m['program_description']}")
+    if m.get("projects"):
+        for p in m["projects"]:
+            err.print(f"  [sonde.brand]{p['id']}[/] {p['name']} — {p['objective']}")
+
+
 def _render_active_only(data: dict, *, program: str | None = None) -> None:
     """Render only the active context (--active mode)."""
     title = data["title"]
@@ -664,10 +724,11 @@ def _render_active_only(data: dict, *, program: str | None = None) -> None:
         f"[sonde.muted]{stats['total']} experiments, {stats['findings']} finding(s), "
         f"{stats['open_questions']} question(s)[/]"
     )
+    _render_motivation(data)
     _render_active_context(data)
 
     if data.get("takeaways"):
-        err.print("\n[sonde.heading]Takeaways[/]")
+        err.print(f"\n[sonde.heading]Takeaways[/]")
         err.print(data["takeaways"])
 
     breadcrumbs = []
@@ -696,11 +757,15 @@ def _render_human(
         f"{stats['open_questions']} question(s)[/]"
     )
 
-    # Active context — always first
+    # Motivation — why we're doing this
+    _render_motivation(data)
+
+    # Active context — what's happening now
     _render_active_context(data)
 
+    # Takeaways — synthesized status
     if data.get("takeaways"):
-        err.print("\n[sonde.heading]Takeaways[/]")
+        err.print(f"\n[sonde.heading]Takeaways[/]")
         err.print(data["takeaways"])
 
     err.print()
@@ -915,6 +980,18 @@ def _render_markdown(data: dict) -> str:
         f"{stats['open']} open, {stats['findings']} finding(s), "
         f"{stats['open_questions']} question(s)\n",
     ]
+
+    # Motivation
+    m = data.get("motivation")
+    if m:
+        lines.append("## Motivation\n")
+        if m.get("program_description"):
+            lines.append(f"{m['program_description']}\n")
+        if m.get("projects"):
+            for p in m["projects"]:
+                lines.append(f"- **{p['id']}** {p['name']} — {p['objective']}")
+            lines.append("")
+        lines.append("")
 
     # Active context in markdown
     ac = data.get("active")

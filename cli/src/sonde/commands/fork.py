@@ -146,6 +146,7 @@ def fork(
         parameters=clean_params,
         metadata=clean_metadata,
         direction_id=source_exp.direction_id,
+        project_id=getattr(source_exp, "project_id", None),
         data_sources=list(source_exp.data_sources),
         related=[source_exp.id],
         parent_id=source_exp.id,

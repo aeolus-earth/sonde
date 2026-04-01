@@ -39,6 +39,25 @@ def check_orphan_experiments(data: HealthData) -> list[HealthIssue]:
                     penalty=2,
                 )
             )
+        elif has_direction and not has_project:
+            # Check if the direction has a project we can inherit from
+            dir_id = exp.get("direction_id")
+            dir_project = None
+            for d in data.directions:
+                if d.get("id") == dir_id:
+                    dir_project = d.get("project_id")
+                    break
+            if dir_project:
+                issues.append(
+                    HealthIssue(
+                        category="graph",
+                        severity="info",
+                        message=f"{exp_id} should inherit project {dir_project} from direction {dir_id}",
+                        record_id=exp_id,
+                        fix=f"sonde update {exp_id} --project {dir_project}",
+                        penalty=1,
+                    )
+                )
 
     return issues
 
@@ -142,4 +161,30 @@ def check_finding_evidence(data: HealthData) -> list[HealthIssue]:
                 )
             )
 
+    return issues
+
+
+def check_direction_experiment_mismatch(data: HealthData) -> list[HealthIssue]:
+    """Flag experiments whose project_id differs from their direction's project_id."""
+    issues: list[HealthIssue] = []
+    dir_projects = {d.get("id"): d.get("project_id") for d in data.directions}
+
+    for exp in data.experiments:
+        exp_project = exp.get("project_id")
+        dir_id = exp.get("direction_id")
+        if not dir_id or not exp_project:
+            continue
+        dir_project = dir_projects.get(dir_id)
+        if dir_project and exp_project != dir_project:
+            exp_id = exp.get("id", "")
+            issues.append(
+                HealthIssue(
+                    category="graph",
+                    severity="warning",
+                    message=f"{exp_id} is in project {exp_project} but its direction {dir_id} is in project {dir_project}",
+                    record_id=exp_id,
+                    fix=f"sonde update {exp_id} --project {dir_project}",
+                    penalty=2,
+                )
+            )
     return issues

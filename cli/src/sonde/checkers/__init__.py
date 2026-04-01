@@ -26,6 +26,7 @@ from sonde.checkers.experiments import (
 from sonde.checkers.findings import check_weakened_evidence
 from sonde.checkers.graph import (
     check_broken_parent_refs,
+    check_direction_experiment_mismatch,
     check_empty_projects,
     check_finding_evidence,
     check_orphan_directions,
@@ -53,6 +54,7 @@ CHECKERS: list[Checker] = [
     check_broken_parent_refs,
     check_empty_projects,
     check_finding_evidence,
+    check_direction_experiment_mismatch,
 ]
 
 

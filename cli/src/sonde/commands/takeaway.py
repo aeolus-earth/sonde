@@ -1,4 +1,4 @@
-"""Takeaway command — maintain program-level research synthesis."""
+"""Takeaway command — maintain program- or project-level research synthesis."""
 
 from __future__ import annotations
 
@@ -16,9 +16,40 @@ from sonde.output import err, print_error, print_json, print_success
 _HEADER = "# Takeaways\n"
 
 
+def _sync_to_db(program: str) -> None:
+    """Best-effort sync of local takeaways to the database."""
+    try:
+        from sonde.db import program_takeaways as tw_db
+
+        body = _read_takeaways_raw()
+        if body and program and program != "unknown":
+            tw_db.upsert(program, body)
+    except Exception:
+        pass
+
+
+def _sync_project_to_db(project_id: str) -> None:
+    """Best-effort sync of project takeaways to the database."""
+    try:
+        from sonde.db import project_takeaways as ptw_db
+
+        body = ptw_db.read_takeaways_file(find_sonde_dir(), project_id)
+        if body:
+            ptw_db.upsert(project_id, body)
+    except Exception:
+        pass
+
+
 def _takeaways_path() -> Path:
     """Return the path to .sonde/takeaways.md."""
     return find_sonde_dir() / "takeaways.md"
+
+
+def _project_takeaways_path(project_id: str) -> Path:
+    """Return the path to .sonde/projects/{project_id}/takeaways.md."""
+    path = find_sonde_dir() / "projects" / project_id / "takeaways.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
 
 
 def _read_takeaways_raw() -> str | None:
@@ -32,9 +63,10 @@ def _read_takeaways_raw() -> str | None:
     return body if body else None
 
 
-def _append_takeaway(content: str, source: str) -> Path:
-    """Append a timestamped takeaway to .sonde/takeaways.md."""
-    path = _takeaways_path()
+def _append_takeaway(content: str, source: str, path: Path | None = None) -> Path:
+    """Append a timestamped takeaway to a takeaways file."""
+    if path is None:
+        path = _takeaways_path()
     now = datetime.now(UTC).strftime("%Y-%m-%d")
 
     entry = f"\n- {content.strip()} *({now}, {source})*\n"
@@ -48,9 +80,10 @@ def _append_takeaway(content: str, source: str) -> Path:
     return path
 
 
-def _replace_takeaways(content: str, source: str) -> Path:
+def _replace_takeaways(content: str, source: str, path: Path | None = None) -> Path:
     """Replace takeaways content entirely (for consolidation)."""
-    path = _takeaways_path()
+    if path is None:
+        path = _takeaways_path()
     now = datetime.now(UTC).strftime("%Y-%m-%d")
 
     body = f"\n{content.strip()}\n\n*Consolidated {now} by {source}*\n"
@@ -59,9 +92,19 @@ def _replace_takeaways(content: str, source: str) -> Path:
     return path
 
 
+def _read_file_body(path: Path) -> str | None:
+    """Read a takeaways file and return the body (without header)."""
+    if not path.exists():
+        return None
+    text = path.read_text(encoding="utf-8").strip()
+    body = text.removeprefix(_HEADER.strip()).strip()
+    return body if body else None
+
+
 @click.command("takeaway")
 @click.argument("content", required=False, default=None)
 @click.option("--program", "-p", help="Program (for display only; default from .aeolus.yaml)")
+@click.option("--project", help="Scope takeaway to a project (PROJ-* ID)")
 @click.option(
     "--file",
     "-f",
@@ -82,27 +125,37 @@ def takeaway(
     ctx: click.Context,
     content: str | None,
     program: str | None,
+    project: str | None,
     from_file: str | None,
     show: bool,
     replace_content: str | None,
 ) -> None:
-    """Maintain program-level research takeaways.
+    """Maintain program- or project-level research takeaways.
 
     Takeaways are your running synthesis — the "so what" of the research.
     While findings record individual facts, takeaways connect them into
     a narrative: what the program has learned and where to go next.
 
-    Update takeaways every time you close an experiment.
+    Use --project to scope takeaways to a specific project.
 
     \b
     Examples:
       sonde takeaway "CCN saturates at ~1500. Next: BL heating."
+      sonde takeaway --project PROJ-001 "Confirmed approach works for mid-lat"
       sonde takeaway -f synthesis.md
       sonde takeaway --show
+      sonde takeaway --project PROJ-001 --show
       sonde takeaway --replace "Fresh consolidated summary"
     """
     settings = get_settings()
     resolved_program = program or settings.program or "unknown"
+
+    if project:
+        project = project.upper()
+        _handle_project_takeaway(ctx, project, content, from_file, show, replace_content)
+        return
+
+    # ── Program-level takeaways ──
 
     # Show mode
     if show:
@@ -122,6 +175,7 @@ def takeaway(
     if replace_content is not None:
         source = resolve_source()
         path = _replace_takeaways(replace_content, source)
+        _sync_to_db(resolved_program)
         if ctx.obj.get("json"):
             print_json(
                 {
@@ -149,6 +203,7 @@ def takeaway(
 
     source = resolve_source()
     path = _append_takeaway(content, source)
+    _sync_to_db(resolved_program)
 
     if ctx.obj.get("json"):
         print_json(
@@ -165,3 +220,77 @@ def takeaway(
         err.print(f"  [sonde.muted]{path.relative_to(path.parent.parent)}[/]")
         err.print("  View: sonde takeaway --show")
         err.print(f"  Brief: sonde brief -p {resolved_program}")
+
+
+def _handle_project_takeaway(
+    ctx: click.Context,
+    project_id: str,
+    content: str | None,
+    from_file: str | None,
+    show: bool,
+    replace_content: str | None,
+) -> None:
+    """Handle --project scoped takeaway operations."""
+    path = _project_takeaways_path(project_id)
+
+    # Show mode
+    if show:
+        body = _read_file_body(path)
+        if ctx.obj.get("json"):
+            print_json({"project": project_id, "takeaways": body})
+        elif body:
+            err.print(f"\n[sonde.heading]Takeaways ({project_id})[/]\n")
+            err.print(body)
+            err.print()
+        else:
+            err.print(f"\n[sonde.muted]No takeaways yet for {project_id}[/]")
+            err.print(f'  Add one: sonde takeaway --project {project_id} "what you learned"\n')
+        return
+
+    # Replace mode
+    if replace_content is not None:
+        source = resolve_source()
+        result_path = _replace_takeaways(replace_content, source, path)
+        _sync_project_to_db(project_id)
+        if ctx.obj.get("json"):
+            print_json(
+                {
+                    "replaced": True,
+                    "project": project_id,
+                    "source": source,
+                    "path": str(result_path),
+                }
+            )
+        else:
+            print_success(f"Takeaways consolidated ({project_id})")
+        return
+
+    # Append mode
+    if from_file:
+        content = Path(from_file).read_text(encoding="utf-8")
+    if not content:
+        print_error(
+            "No takeaway content",
+            "Provide a takeaway as an argument or --file.",
+            f'sonde takeaway --project {project_id} "what you learned"',
+        )
+        raise SystemExit(2)
+
+    source = resolve_source()
+    _append_takeaway(content, source, path)
+    _sync_project_to_db(project_id)
+
+    if ctx.obj.get("json"):
+        print_json(
+            {
+                "appended": True,
+                "project": project_id,
+                "content": content.strip(),
+                "source": source,
+                "path": str(path),
+            }
+        )
+    else:
+        print_success(f"Takeaway added ({project_id})")
+        err.print(f"  View: sonde takeaway --project {project_id} --show")
+        err.print(f"  Project: sonde project show {project_id}")
