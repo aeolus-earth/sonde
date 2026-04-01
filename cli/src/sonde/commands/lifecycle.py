@@ -447,7 +447,7 @@ def _change_status(
         return
 
     # Human output
-    print_success(f"{experiment_id}: {old_status} → {new_status}")
+    print_success(f"{experiment_id}: {old_status} \u2192 {new_status}", record_id=experiment_id)
 
     # Nudge: missing content after start (branch-type-aware)
     if new_status == "running" and not ctx.obj.get("json") and exp_after and not exp_after.content:

@@ -136,8 +136,9 @@ def project_create(
     else:
         print_success(
             f"Created {result.id} ({resolved_program})",
-            details=[f"Name: {name}", f"Objective: {objective or '—'}"],
+            details=[f"Name: {name}", f"Objective: {objective or '\u2014'}"],
             breadcrumbs=[f"View: sonde project show {result.id}"],
+            record_id=result.id,
         )
 
 
@@ -203,6 +204,7 @@ def project_update(
             f"Updated {project_id}",
             details=[f"Status: {updated.status}", f"Name: {updated.name}"],
             breadcrumbs=[f"View: sonde project show {project_id}"],
+            record_id=project_id,
         )
 
 

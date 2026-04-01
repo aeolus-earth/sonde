@@ -138,12 +138,19 @@ def print_success(
     *,
     details: list[str] | None = None,
     breadcrumbs: list[str] | None = None,
+    record_id: str | None = None,
 ) -> None:
-    """Print success message to stderr."""
-    err.print(f"[sonde.success]✓[/] {message}")
+    """Print success message to stderr.
+
+    If record_id is provided, appends a clickable UI link.
+    """
+    err.print(f"[sonde.success]\u2713[/] {message}")
     if details:
         for line in details:
             err.print(f"  [sonde.muted]{line}[/]")
+    if record_id:
+        url = ui_url(record_id)
+        err.print(f"  [sonde.muted]\U0001f517 {url}[/]")
     if breadcrumbs:
         print_breadcrumbs(breadcrumbs)
 
@@ -163,6 +170,30 @@ def print_nudge(message: str, command: str) -> None:
     """
     err.print(f"\n  [sonde.accent]\U0001f4a1[/] {message}")
     err.print(f"     [dim]{command}[/]")
+
+
+def ui_url(record_id: str) -> str:
+    """Generate a clickable URL to the Sonde UI for a record.
+
+    Uses SONDE_UI_URL env var if set, otherwise defaults to localhost:5173.
+    Supports EXP-, FIND-, DIR-, PROJ-, Q- prefixes.
+    """
+    import os
+
+    base = os.environ.get("SONDE_UI_URL", "http://localhost:5173").rstrip("/")
+    prefix = record_id.split("-")[0] if "-" in record_id else ""
+
+    route_map = {
+        "EXP": "experiments",
+        "FIND": "findings",
+        "DIR": "directions",
+        "PROJ": "projects",
+        "Q": "questions",
+    }
+    route = route_map.get(prefix)
+    if route:
+        return f"{base}/{route}/{record_id}"
+    return f"{base}"
 
 
 def print_breadcrumbs(hints: list[str]) -> None:

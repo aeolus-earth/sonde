@@ -179,7 +179,7 @@ def update(
     if ctx.obj.get("json"):
         print_json(updated.model_dump(mode="json"))
     else:
-        print_success(f"Updated {experiment_id}")
+        print_success(f"Updated {experiment_id}", record_id=experiment_id)
         summary = record_summary(updated, 80)
         if summary != "—":
             err.print(f"  {summary}")

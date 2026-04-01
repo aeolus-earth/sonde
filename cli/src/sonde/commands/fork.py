@@ -187,7 +187,10 @@ def fork(
         print_json(data)
     else:
         type_label = f" ({branch_type})" if branch_type else ""
-        print_success(f"Forked {source_exp.id} → {new_exp.id}{type_label}")
+        print_success(
+            f"Forked {source_exp.id} \u2192 {new_exp.id}{type_label}",
+            record_id=new_exp.id,
+        )
         if override_params != source_exp.parameters:
             changed = {
                 k: v for k, v in override_params.items() if source_exp.parameters.get(k) != v

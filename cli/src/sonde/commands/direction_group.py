@@ -136,6 +136,7 @@ def direction_create(
             f"Created {result.id} ({resolved_program})",
             details=[f"Title: {title}", f"Question: {question_text}"],
             breadcrumbs=[f"View: sonde direction show {result.id}"],
+            record_id=result.id,
         )
 
 
@@ -204,6 +205,7 @@ def direction_update(
             f"Updated {direction_id}",
             details=[f"Status: {updated.status}", f"Title: {updated.title}"],
             breadcrumbs=[f"View: sonde direction show {direction_id}"],
+            record_id=direction_id,
         )
 
 

@@ -210,9 +210,13 @@ def log(
     log_activity(exp.id, "experiment", "created")
 
     if ctx.obj.get("json"):
-        print_json(exp.model_dump(mode="json"))
+        from sonde.output import ui_url
+
+        data = exp.model_dump(mode="json")
+        data["_ui_url"] = ui_url(exp.id)
+        print_json(data)
     else:
-        print_success(f"Created {exp.id} ({exp.program})")
+        print_success(f"Created {exp.id} ({exp.program})", record_id=exp.id)
         summary = record_summary(exp, 80)
         if summary != "—":
             err.print(f"  {summary}")

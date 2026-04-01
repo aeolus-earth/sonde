@@ -107,7 +107,7 @@ def note(
     if ctx.obj.get("json"):
         print_json(row)
     else:
-        print_success(f"Note {note_id} added to {experiment_id}")
+        print_success(f"Note {note_id} added to {experiment_id}", record_id=experiment_id)
         err.print(f"  [sonde.muted]\u2192 {local_file.relative_to(sonde_dir.parent)}[/]")
 
         # Research hygiene nudge when notes accumulate without a finding
