@@ -40,9 +40,7 @@ def artifact_update(
     aid = artifact_id.strip().upper()
 
     client = get_client()
-    result = client.table("artifacts").update(
-        {"description": description}
-    ).eq("id", aid).execute()
+    result = client.table("artifacts").update({"description": description}).eq("id", aid).execute()
 
     data = to_rows(result.data)
     if not data:
