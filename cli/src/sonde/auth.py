@@ -66,7 +66,10 @@ class NotAuthenticatedError(Exception):
 
 def _ensure_config_dir() -> None:
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    CONFIG_DIR.chmod(0o700)
+    try:
+        CONFIG_DIR.chmod(0o700)
+    except OSError:
+        pass  # Directory created but chmod failed — acceptable on shared machines
 
 
 def save_session(session_data: dict[str, Any]) -> None:

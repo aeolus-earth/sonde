@@ -41,6 +41,16 @@ def login(ctx: click.Context, remote: bool) -> None:
     except TimeoutError as e:
         print_error("Login timed out", str(e), "Try again: sonde login")
         raise SystemExit(1) from None
+    except PermissionError as e:
+        from sonde.config import CONFIG_DIR
+
+        print_error(
+            "Login failed",
+            f"Cannot write to {CONFIG_DIR}: {e}",
+            "Fix permissions: sudo chown -R $(whoami) ~/.config/sonde\n"
+            "  Or use a custom dir: export SONDE_CONFIG_DIR=~/.sonde",
+        )
+        raise SystemExit(1) from None
     except Exception as e:
         print_error("Login failed", str(e), "Check your network and try again: sonde login")
         raise SystemExit(1) from None
