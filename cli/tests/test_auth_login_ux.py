@@ -216,7 +216,10 @@ def test_wait_for_callback_returns_code_on_first_poll(monkeypatch) -> None:
 
     monkeypatch.setattr("sonde.auth.HTTPServer", FakeServer)
     monkeypatch.setattr("sonde.auth._load_callback_html", lambda: b"ok")
-    monkeypatch.setattr("sonde.auth._emit_login_browser_instructions", lambda _port, _url: None)
+    monkeypatch.setattr(
+        "sonde.auth._emit_login_browser_instructions",
+        lambda _port, _url, *, paste_fallback=False: None,
+    )
     monkeypatch.setattr("sonde.auth._prompt_for_manual_callback", lambda _port: "fallback-code")
     monkeypatch.setattr("sonde.auth.time.monotonic", fake_monotonic)
 
@@ -242,7 +245,10 @@ def test_wait_for_callback_raises_timeout_when_manual_also_fails(monkeypatch) ->
     times = iter([0.0, auth.CALLBACK_TIMEOUT + 1.0])
     monkeypatch.setattr("sonde.auth.HTTPServer", FakeServer)
     monkeypatch.setattr("sonde.auth._load_callback_html", lambda: b"ok")
-    monkeypatch.setattr("sonde.auth._emit_login_browser_instructions", lambda _port, _url: None)
+    monkeypatch.setattr(
+        "sonde.auth._emit_login_browser_instructions",
+        lambda _port, _url, *, paste_fallback=False: None,
+    )
     monkeypatch.setattr(
         "sonde.auth._prompt_for_manual_callback", lambda _port: None
     )  # User gives up
@@ -271,7 +277,10 @@ def test_wait_for_callback_uses_manual_fallback_after_timeout(monkeypatch) -> No
 
     monkeypatch.setattr("sonde.auth.HTTPServer", FakeServer)
     monkeypatch.setattr("sonde.auth._load_callback_html", lambda: b"ok")
-    monkeypatch.setattr("sonde.auth._emit_login_browser_instructions", lambda _port, _url: None)
+    monkeypatch.setattr(
+        "sonde.auth._emit_login_browser_instructions",
+        lambda _port, _url, *, paste_fallback=False: None,
+    )
     monkeypatch.setattr("sonde.auth._prompt_for_manual_callback", lambda _port: "manual-789")
     monkeypatch.setattr("sonde.auth.time.monotonic", lambda: next(times))
 

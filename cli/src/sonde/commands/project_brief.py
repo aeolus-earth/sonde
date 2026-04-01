@@ -35,7 +35,7 @@ def _build_project_brief(project_id: str) -> dict[str, Any]:
 
     # Experiments under this project (direct or via direction)
     dir_ids = {d.id for d in project_dirs}
-    all_exps = exp_db.list_experiments(statuses=None, limit=500)
+    all_exps = exp_db.list_experiments(limit=500)
     project_exps = [
         e
         for e in all_exps

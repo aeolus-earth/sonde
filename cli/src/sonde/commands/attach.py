@@ -80,8 +80,9 @@ def attach(
       sonde attach output/*.nc
     """
     # Resolve record
-    if record_id and _detect_record_type(record_id):
-        record_type = _detect_record_type(record_id)
+    detected = _detect_record_type(record_id) if record_id else None
+    if record_id and detected:
+        record_type: str = detected
         record_id = record_id.upper()
     else:
         from sonde.commands._helpers import resolve_experiment_id
@@ -137,23 +138,33 @@ def attach(
         storage_path = f"{record_id}/{relative_str}"
         status = _attach_status(filepath, storage_path)
         try:
-            # Build parent_id kwargs
-            parent_kwargs: dict[str, str | None] = {}
             if record_type == "experiment":
-                parent_kwargs["experiment_id"] = record_id
+                row = upload_file(
+                    filepath,
+                    source,
+                    storage_subpath=storage_path,
+                    artifact_type=artifact_type,
+                    description=description,
+                    experiment_id=record_id,
+                )
             elif record_type == "direction":
-                parent_kwargs["direction_id"] = record_id
-            elif record_type == "project":
-                parent_kwargs["project_id"] = record_id
-
-            row = upload_file(
-                filepath,
-                source,
-                storage_subpath=storage_path,
-                artifact_type=artifact_type,
-                description=description,
-                **parent_kwargs,
-            )
+                row = upload_file(
+                    filepath,
+                    source,
+                    storage_subpath=storage_path,
+                    artifact_type=artifact_type,
+                    description=description,
+                    direction_id=record_id,
+                )
+            else:
+                row = upload_file(
+                    filepath,
+                    source,
+                    storage_subpath=storage_path,
+                    artifact_type=artifact_type,
+                    description=description,
+                    project_id=record_id,
+                )
             local_path = local_dir / relative_path
             local_path.parent.mkdir(parents=True, exist_ok=True)
             local_path.write_bytes(filepath.read_bytes())

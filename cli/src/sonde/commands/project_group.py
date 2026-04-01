@@ -143,6 +143,7 @@ def project_create(
         print_error(
             "Conflicting options",
             "Use --description or --description-file, not both.",
+            "Pass only one of --description or --description-file.",
         )
         raise SystemExit(2)
     if description_file:
@@ -224,6 +225,7 @@ def project_update(
         print_error(
             "Conflicting options",
             "Use --description or --description-file, not both.",
+            "Pass only one of --description or --description-file.",
         )
         raise SystemExit(2)
     if description_file:
@@ -345,6 +347,7 @@ def project_attach(ctx: click.Context, project_id: str, record_ids: tuple[str, .
             print_error(
                 f"Unknown record prefix: {rid}",
                 "Expected EXP-* or DIR-* ID.",
+                "Use IDs like EXP-0001 or DIR-001 (see sonde list / sonde direction list).",
             )
             raise SystemExit(1)
 
@@ -396,6 +399,7 @@ def project_detach(ctx: click.Context, record_ids: tuple[str, ...]) -> None:
             print_error(
                 f"Unknown record prefix: {rid}",
                 "Expected EXP-* or DIR-* ID.",
+                "Use IDs like EXP-0001 or DIR-001 (see sonde list / sonde direction list).",
             )
             raise SystemExit(1)
 
