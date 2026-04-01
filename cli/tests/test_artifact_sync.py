@@ -52,7 +52,7 @@ class TestArtifactHelpers:
         assert not is_text_artifact("plot.png", "image/png")
 
     def test_finalize_deleted_artifacts_without_service_role(self):
-        with patch("sonde.db.artifacts.has_service_role_key", return_value=False):
+        with patch("sonde.db.artifacts.maintenance.has_service_role_key", return_value=False):
             summary = finalize_deleted_artifacts(["EXP-0001/plot.png", "EXP-0001/plot.png"])
 
         assert summary["mode"] == "queued"
@@ -68,9 +68,9 @@ class TestArtifactHelpers:
         mock_supabase.storage.from_.return_value.exists.return_value = True
 
         with (
-            patch("sonde.db.artifacts.get_admin_client", return_value=mock_supabase),
+            patch("sonde.db.artifacts.maintenance.get_admin_client", return_value=mock_supabase),
             patch(
-                "sonde.db.artifacts.list_delete_queue",
+                "sonde.db.artifacts.maintenance.list_delete_queue",
                 side_effect=[
                     [
                         {
@@ -95,9 +95,9 @@ class TestArtifactHelpers:
 
     def test_audit_artifact_sync_reports_storage_drift(self, mock_supabase):
         with (
-            patch("sonde.db.artifacts.get_admin_client", return_value=mock_supabase),
+            patch("sonde.db.artifacts.maintenance.get_admin_client", return_value=mock_supabase),
             patch(
-                "sonde.db.artifacts._fetch_all_rows",
+                "sonde.db.artifacts.maintenance._fetch_all_rows",
                 side_effect=[
                     [
                         {
@@ -119,7 +119,7 @@ class TestArtifactHelpers:
                     ],
                 ],
             ),
-            patch("sonde.db.artifacts._list_bucket_paths", return_value={"EXP-0001/extra.png"}),
+            patch("sonde.db.artifacts.maintenance._list_bucket_paths", return_value={"EXP-0001/extra.png"}),
         ):
             mock_supabase.storage.from_.return_value.exists.return_value = False
             audit = audit_artifact_sync(sample_limit=5)
@@ -221,10 +221,10 @@ class TestArtifactUpload:
             events.append("upload")
 
         with (
-            patch("sonde.db.artifacts.get_client", return_value=mock_supabase),
-            patch("sonde.db.artifacts.find_by_storage_path", return_value=None),
+            patch("sonde.db.artifacts.storage.get_client", return_value=mock_supabase),
+            patch("sonde.db.artifacts.storage.find_by_storage_path", return_value=None),
             patch(
-                "sonde.db.artifacts.create_with_retry", side_effect=create_row
+                "sonde.db.artifacts.storage.create_with_retry", side_effect=create_row
             ) as create_with_retry,
         ):
             mock_supabase.storage.from_.return_value.upload.side_effect = upload_blob
@@ -240,9 +240,9 @@ class TestArtifactUpload:
         artifact.write_text("a,b\n1,2\n", encoding="utf-8")
 
         with (
-            patch("sonde.db.artifacts.get_client", return_value=mock_supabase),
+            patch("sonde.db.artifacts.storage.get_client", return_value=mock_supabase),
             patch(
-                "sonde.db.artifacts.find_by_storage_path",
+                "sonde.db.artifacts.storage.find_by_storage_path",
                 return_value={
                     "id": "ART-0001",
                     "storage_path": "EXP-0001/summary.csv",
@@ -252,10 +252,10 @@ class TestArtifactUpload:
                 },
             ),
             patch(
-                "sonde.db.artifacts.update_metadata",
+                "sonde.db.artifacts.storage.update_metadata",
                 return_value={"id": "ART-0001", "storage_path": "EXP-0001/summary.csv"},
             ) as update_metadata,
-            patch("sonde.db.artifacts.create_with_retry") as create_with_retry,
+            patch("sonde.db.artifacts.storage.create_with_retry") as create_with_retry,
         ):
             row = upload_file(artifact, "human/test", experiment_id="EXP-0001")
 
@@ -271,9 +271,9 @@ class TestArtifactUpload:
         artifact.write_text("a,b\n1,2\n", encoding="utf-8")
 
         with (
-            patch("sonde.db.artifacts.get_client", return_value=mock_supabase),
+            patch("sonde.db.artifacts.storage.get_client", return_value=mock_supabase),
             patch(
-                "sonde.db.artifacts.find_by_storage_path",
+                "sonde.db.artifacts.storage.find_by_storage_path",
                 return_value={
                     "id": "ART-0001",
                     "storage_path": "EXP-0001/summary.csv",
@@ -283,10 +283,10 @@ class TestArtifactUpload:
                 },
             ),
             patch(
-                "sonde.db.artifacts.update_metadata",
+                "sonde.db.artifacts.storage.update_metadata",
                 return_value={"id": "ART-0001", "storage_path": "EXP-0001/summary.csv"},
             ) as update_metadata,
-            patch("sonde.db.artifacts.create_with_retry") as create_with_retry,
+            patch("sonde.db.artifacts.storage.create_with_retry") as create_with_retry,
         ):
             row = upload_file(artifact, "human/test", experiment_id="EXP-0001")
 
@@ -303,10 +303,10 @@ class TestArtifactUpload:
         mock_supabase.storage.from_.return_value.upload.side_effect = RuntimeError("boom")
 
         with (
-            patch("sonde.db.artifacts.get_client", return_value=mock_supabase),
-            patch("sonde.db.artifacts.find_by_storage_path", return_value=None),
+            patch("sonde.db.artifacts.storage.get_client", return_value=mock_supabase),
+            patch("sonde.db.artifacts.storage.find_by_storage_path", return_value=None),
             patch(
-                "sonde.db.artifacts.create_with_retry",
+                "sonde.db.artifacts.storage.create_with_retry",
                 return_value={"id": "ART-0003", "storage_path": "EXP-0001/summary.csv"},
             ),
             pytest.raises(RuntimeError, match="boom"),

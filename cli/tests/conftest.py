@@ -191,7 +191,8 @@ def patched_db(mock_supabase: MagicMock, authenticated: None) -> Generator[Magic
         # Patch the imported reference in all modules that bind get_client at import time
         import sonde.commands.admin as admin_mod
         import sonde.db.activity as activity_mod
-        import sonde.db.artifacts as art_mod
+        import sonde.db.artifacts.crud as art_crud_mod
+        import sonde.db.artifacts.storage as art_storage_mod
         import sonde.db.directions as dir_mod
         import sonde.db.experiments as exp_mod
         import sonde.db.experiments.maintenance as exp_maintenance_mod
@@ -210,7 +211,8 @@ def patched_db(mock_supabase: MagicMock, authenticated: None) -> Generator[Magic
         modules: list[Any] = [
             admin_mod,
             activity_mod,
-            art_mod,
+            art_crud_mod,
+            art_storage_mod,
             dir_mod,
             exp_mod,
             exp_maintenance_mod,
