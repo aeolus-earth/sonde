@@ -28,7 +28,12 @@ SUPABASE_ANON_KEY = os.environ.get(
 )
 
 # -- User config paths (override with SONDE_CONFIG_DIR if ~/.config isn't writable) --
-CONFIG_DIR = Path(os.environ.get("SONDE_CONFIG_DIR", Path.home() / ".config" / "sonde"))
+_config_dir_override = os.environ.get("SONDE_CONFIG_DIR")
+CONFIG_DIR = (
+    Path(_config_dir_override).expanduser()
+    if _config_dir_override
+    else Path.home() / ".config" / "sonde"
+)
 SESSION_FILE = CONFIG_DIR / "session.json"
 _ENV_ONLY_FIELDS = {"supabase_service_role_key"}
 
