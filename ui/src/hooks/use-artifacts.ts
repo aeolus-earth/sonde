@@ -1,15 +1,44 @@
 import { useQuery, useQueries } from "@tanstack/react-query";
-import { supabase } from "@/lib/supabase";
+import { isPptx, isTextRenderable } from "@/lib/artifact-kind";
 import { artifactContentCache } from "@/lib/artifact-content-cache";
 import { queryClient } from "@/lib/query-client";
 import { queryKeys } from "@/lib/query-keys";
+import { supabase } from "@/lib/supabase";
 import type { Artifact } from "@/types/sonde";
+
+const ARTIFACT_SIGNED_URL_STALE_TIME_MS = 50 * 60_000;
+const ARTIFACT_SIGNED_URL_GC_TIME_MS = 55 * 60_000;
+const ARTIFACT_TEXT_GC_TIME_MS = 5 * 60_000;
 
 /** Max blob size to hold in the LRU + Object URL cache (aligned with gallery / chat use). */
 export const BLOB_CACHE_MAX_ENTRY_BYTES = 50 * 1024 * 1024;
 
+function artifactUrlKey(storagePath: string) {
+  return ["artifact-url", storagePath] as const;
+}
+
+function artifactTextKey(storagePath: string) {
+  return ["artifact-text", storagePath] as const;
+}
+
 export function isBlobCacheable(sizeBytes: number | null): boolean {
   return sizeBytes != null && sizeBytes > 0 && sizeBytes <= BLOB_CACHE_MAX_ENTRY_BYTES;
+}
+
+async function fetchArtifactSignedUrl(storagePath: string): Promise<string> {
+  const { data, error } = await supabase.storage
+    .from("artifacts")
+    .createSignedUrl(storagePath, 3600);
+
+  if (error) throw error;
+  return data.signedUrl;
+}
+
+async function fetchArtifactText(storagePath: string): Promise<string> {
+  const { data, error } = await supabase.storage.from("artifacts").download(storagePath);
+
+  if (error) throw error;
+  return await data.text();
 }
 
 async function fetchArtifactBlobObjectUrl(storagePath: string): Promise<string> {
@@ -90,10 +119,6 @@ export function useArtifactsByIds(artifactIds: string[]) {
 }
 
 /**
- * Generate a signed URL for a storage path.
- * Cached for 50 minutes (URLs expire in 60 min).
- */
-/**
  * Download blob into LRU-backed Object URL cache. Use for rendering when
  * {@link isBlobCacheable}; otherwise use {@link useArtifactUrl} (streaming / signed URL).
  */
@@ -108,33 +133,47 @@ export function useArtifactBlob(storagePath: string | null, sizeBytes: number | 
   });
 }
 
-/** Warm blob cache for an artifact (e.g. adjacent gallery items). */
+/** Warm the most appropriate artifact cache for adjacent gallery items. */
 export function prefetchArtifactContent(artifact: Artifact): void {
-  if (!isBlobCacheable(artifact.size_bytes)) return;
-  if (artifactContentCache.has(artifact.storage_path)) return;
+  const storagePath = artifact.storage_path;
+
+  if (isTextRenderable(artifact)) {
+    void queryClient.prefetchQuery({
+      queryKey: artifactTextKey(storagePath),
+      queryFn: async (): Promise<string> => fetchArtifactText(storagePath),
+      staleTime: Number.POSITIVE_INFINITY,
+      gcTime: ARTIFACT_TEXT_GC_TIME_MS,
+    });
+    return;
+  }
+
+  if (isBlobCacheable(artifact.size_bytes) && !isPptx(artifact)) {
+    if (artifactContentCache.has(storagePath)) return;
+
+    void queryClient.prefetchQuery({
+      queryKey: queryKeys.artifacts.blob(storagePath),
+      queryFn: async (): Promise<string> => fetchArtifactBlobObjectUrl(storagePath),
+      staleTime: Number.POSITIVE_INFINITY,
+      gcTime: Number.POSITIVE_INFINITY,
+    });
+    return;
+  }
 
   void queryClient.prefetchQuery({
-    queryKey: queryKeys.artifacts.blob(artifact.storage_path),
-    queryFn: async () => fetchArtifactBlobObjectUrl(artifact.storage_path),
-    staleTime: Number.POSITIVE_INFINITY,
-    gcTime: Number.POSITIVE_INFINITY,
+    queryKey: artifactUrlKey(storagePath),
+    queryFn: async (): Promise<string> => fetchArtifactSignedUrl(storagePath),
+    staleTime: ARTIFACT_SIGNED_URL_STALE_TIME_MS,
+    gcTime: ARTIFACT_SIGNED_URL_GC_TIME_MS,
   });
 }
 
 export function useArtifactUrl(storagePath: string | null) {
   return useQuery({
-    queryKey: ["artifact-url", storagePath] as const,
-    queryFn: async (): Promise<string> => {
-      const { data, error } = await supabase.storage
-        .from("artifacts")
-        .createSignedUrl(storagePath!, 3600); // 1 hour
-
-      if (error) throw error;
-      return data.signedUrl;
-    },
+    queryKey: storagePath ? artifactUrlKey(storagePath) : (["artifact-url", null] as const),
+    queryFn: async (): Promise<string> => fetchArtifactSignedUrl(storagePath!),
     enabled: !!storagePath,
-    staleTime: 50 * 60_000, // cache 50 min (URL good for 60)
-    gcTime: 55 * 60_000,
+    staleTime: ARTIFACT_SIGNED_URL_STALE_TIME_MS,
+    gcTime: ARTIFACT_SIGNED_URL_GC_TIME_MS,
   });
 }
 
@@ -143,17 +182,10 @@ export function useArtifactUrl(storagePath: string | null) {
  */
 export function useArtifactText(storagePath: string | null, enabled: boolean) {
   return useQuery({
-    queryKey: ["artifact-text", storagePath] as const,
-    queryFn: async (): Promise<string> => {
-      const { data, error } = await supabase.storage
-        .from("artifacts")
-        .download(storagePath!);
-
-      if (error) throw error;
-      return await data.text();
-    },
+    queryKey: storagePath ? artifactTextKey(storagePath) : (["artifact-text", null] as const),
+    queryFn: async (): Promise<string> => fetchArtifactText(storagePath!),
     enabled: !!storagePath && enabled,
     staleTime: Number.POSITIVE_INFINITY,
-    gcTime: 5 * 60_000,
+    gcTime: ARTIFACT_TEXT_GC_TIME_MS,
   });
 }
