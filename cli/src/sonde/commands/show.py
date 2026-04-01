@@ -204,7 +204,7 @@ def _show_direction(ctx: click.Context, direction_id: str) -> None:
 
     # Show direction notes if any
     try:
-        from sonde.db import notes_v2 as notes_db
+        from sonde.db import notes as notes_db
 
         dir_notes = notes_db.list_by_record("direction", direction_id)
         if dir_notes:
@@ -362,7 +362,7 @@ def _show_project(ctx: click.Context, project_id: str) -> None:
 
     # Show project notes if any
     try:
-        from sonde.db import notes_v2 as notes_db
+        from sonde.db import notes as notes_db
 
         project_notes = notes_db.list_by_record("project", project_id)
         if project_notes:

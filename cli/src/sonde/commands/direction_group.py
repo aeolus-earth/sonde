@@ -174,7 +174,15 @@ def direction_update(
     project: str | None,
     linear: str | None,
 ) -> None:
-    """Update a direction."""
+    """Update a direction.
+
+    \b
+    Examples:
+      sonde direction update DIR-001 --status paused
+      sonde direction update DIR-001 --context "Narrowing to mid-latitude only"
+      sonde direction update DIR-001 --project PROJ-001
+      sonde direction update DIR-001 --question "New research question?"
+    """
     direction_id = direction_id.upper()
     current = db.get(direction_id)
     if not current:

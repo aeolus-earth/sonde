@@ -26,9 +26,19 @@ def delete(experiment_id: str) -> dict[str, Any]:
             "id", child.id
         ).execute()
 
+    # Delete from polymorphic notes table (primary)
     notes_result = (
-        client.table("experiment_notes").delete().eq("experiment_id", experiment_id).execute()
+        client.table("notes")
+        .delete()
+        .eq("record_type", "experiment")
+        .eq("record_id", experiment_id)
+        .execute()
     )
+    # Legacy cleanup — experiment_notes may still have rows until table is dropped
+    try:
+        client.table("experiment_notes").delete().eq("experiment_id", experiment_id).execute()
+    except Exception:
+        pass
     artifacts_result = (
         client.table("artifacts").delete().eq("experiment_id", experiment_id).execute()
     )

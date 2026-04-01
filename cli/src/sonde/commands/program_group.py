@@ -234,12 +234,20 @@ def program_update(
       sonde program update shared --description "Cross-cutting tools and methods"
     """
     if not name and not description:
-        print_error("Nothing to update", "Provide --name or --description.", "")
+        print_error(
+            "Nothing to update",
+            "Provide --name or --description.",
+            "sonde program update <name> --name <new> --description <new>",
+        )
         raise SystemExit(2)
 
     p = db.get(program_id)
     if not p:
-        print_error(f"Program '{program_id}' not found", "", "sonde program list --all")
+        print_error(
+            f"Program '{program_id}' not found",
+            "No program with this name.",
+            "sonde program list --all",
+        )
         raise SystemExit(1)
 
     updates: dict[str, str] = {}

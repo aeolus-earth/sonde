@@ -9,7 +9,7 @@ from postgrest.exceptions import APIError
 
 from sonde.auth import resolve_source
 from sonde.cli_options import pass_output_options
-from sonde.db import notes_v2 as db
+from sonde.db import notes as db
 from sonde.local import ensure_subdir, find_sonde_dir
 from sonde.output import err, print_error, print_json, print_nudge, print_success
 

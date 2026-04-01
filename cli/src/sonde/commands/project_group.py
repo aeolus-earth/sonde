@@ -117,7 +117,18 @@ def project_create(
     status: str,
     source: str | None,
 ) -> None:
-    """Create a new research project."""
+    """Create a new research project.
+
+    \b
+    Examples:
+      sonde project create "SuperDroplets GPU Port" \\
+        --objective "Port cloud microphysics to GPU"
+      sonde project create "CCN Sensitivity" \\
+        --objective "Map CCN parameter space" \\
+        --description "Full markdown motivation..."
+      sonde project create "WRF Tuning" \\
+        --description-file motivation.md
+    """
     settings = get_settings()
     resolved_program = program or settings.program
     if not resolved_program:
@@ -190,7 +201,15 @@ def project_update(
     status: str | None,
     linear: str | None,
 ) -> None:
-    """Update a project."""
+    """Update a project.
+
+    \b
+    Examples:
+      sonde project update PROJ-001 --name "New Name"
+      sonde project update PROJ-001 --status completed
+      sonde project update PROJ-001 --description-file updated_motivation.md
+      sonde project update PROJ-001 --linear PROJ-42
+    """
     project_id = project_id.upper()
     current = db.get(project_id)
     if not current:

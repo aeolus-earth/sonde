@@ -38,6 +38,8 @@ def _detect_record_type(record_id: str) -> str | None:
     rid = record_id.upper()
     if rid.startswith("EXP-"):
         return "experiment"
+    if rid.startswith("DIR-"):
+        return "direction"
     if rid.startswith("PROJ-"):
         return "project"
     return None
@@ -62,27 +64,20 @@ def attach(
     artifact_type: str | None,
     description: str | None,
 ) -> None:
-    """Import external files into an experiment or project and upload them.
+    """Import external files into an experiment, direction, or project.
 
     If no record ID is given, uses the focused experiment (sonde focus).
-    Accepts EXP-* or PROJ-* IDs.
+    Accepts EXP-*, DIR-*, or PROJ-* IDs.
 
     \b
     Examples:
       sonde attach EXP-0001 figures/precip_delta.png
+      sonde attach DIR-001 literature_review.pdf --type paper
       sonde attach PROJ-001 architecture.pdf --type paper
       sonde attach report.pdf --type paper
       sonde attach output/*.nc
     """
     # Resolve record
-    if record_id and record_id.upper().startswith("DIR-"):
-        print_error(
-            "Direction attachments not yet supported via CLI",
-            "Attach files to individual experiments under this direction.",
-            f"sonde list --direction {record_id.upper()}",
-        )
-        raise SystemExit(1)
-
     if record_id and _detect_record_type(record_id):
         record_type = _detect_record_type(record_id)
         record_id = record_id.upper()
@@ -99,6 +94,16 @@ def attach(
                 f"Experiment {record_id} not found",
                 "Cannot attach files to a nonexistent experiment.",
                 "List experiments: sonde list",
+            )
+            raise SystemExit(1)
+    elif record_type == "direction":
+        from sonde.db import directions as dir_db
+
+        if not dir_db.get(record_id):
+            print_error(
+                f"Direction {record_id} not found",
+                "Cannot attach files to a nonexistent direction.",
+                "List directions: sonde direction list",
             )
             raise SystemExit(1)
     elif record_type == "project":
@@ -135,6 +140,8 @@ def attach(
             parent_kwargs: dict[str, str | None] = {}
             if record_type == "experiment":
                 parent_kwargs["experiment_id"] = record_id
+            elif record_type == "direction":
+                parent_kwargs["direction_id"] = record_id
             elif record_type == "project":
                 parent_kwargs["project_id"] = record_id
 

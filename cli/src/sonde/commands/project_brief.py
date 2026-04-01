@@ -62,9 +62,9 @@ def _build_project_brief(project_id: str) -> dict[str, Any]:
     # Notes
     notes: list[dict] = []
     try:
-        from sonde.db import notes_v2
+        from sonde.db import notes as notes_db
 
-        notes = notes_v2.list_by_record("project", project_id)
+        notes = notes_db.list_by_record("project", project_id)
     except Exception:
         pass
 

@@ -22,7 +22,7 @@ from sonde.config import get_settings
 from sonde.db import directions as dir_db
 from sonde.db import experiments as exp_db
 from sonde.db import findings as find_db
-from sonde.db import notes_v2 as notes_db
+from sonde.db import notes as notes_db
 from sonde.db import program_takeaways as takeaways_db
 from sonde.db import questions as q_db
 from sonde.db.activity import log_activity
@@ -110,11 +110,29 @@ def push_all(ctx: click.Context) -> None:
     except (Exception, SystemExit):
         pass
 
+    # Sync direction and project notes (best-effort)
+    notes_synced = 0
+    try:
+        for subdir_name, record_type, prefix in [
+            ("directions", "direction", "DIR-"),
+            ("projects", "project", "PROJ-"),
+        ]:
+            parent_dir = sonde_dir / subdir_name
+            if parent_dir.is_dir():
+                for record_dir in parent_dir.iterdir():
+                    if record_dir.is_dir() and record_dir.name.startswith(prefix):
+                        notes_synced += _sync_record_notes(
+                            record_type, record_dir.name, record_dir / "notes"
+                        )
+    except (Exception, SystemExit):
+        pass
+
     if ctx.obj.get("json"):
         print_json({
             **counts,
             "takeaways_synced": takeaways_synced,
             "project_takeaways_synced": project_takeaways_synced,
+            "notes_synced": notes_synced,
         })
     else:
         details = [
@@ -127,6 +145,8 @@ def push_all(ctx: click.Context) -> None:
             details.append("Takeaways: synced")
         if project_takeaways_synced:
             details.append(f"Project takeaways: {project_takeaways_synced}")
+        if notes_synced:
+            details.append(f"Direction/project notes: {notes_synced}")
         print_success("Pushed local notebook", details=details)
 
 
@@ -786,11 +806,16 @@ def _artifact_sync_next_steps(experiment_id: str, stats: ArtifactUploadStats) ->
 
 
 def _sync_notes(experiment_id: str, exp_dir: Path) -> int:
-    notes_dir = exp_dir / "notes"
+    """Sync experiment notes from local .sonde/ to DB."""
+    return _sync_record_notes("experiment", experiment_id, exp_dir / "notes")
+
+
+def _sync_record_notes(record_type: str, record_id: str, notes_dir: Path) -> int:
+    """Sync notes for any record type from a local notes directory to DB."""
     if not notes_dir.exists():
         return 0
 
-    existing = notes_db.list_by_experiment(experiment_id)
+    existing = notes_db.list_by_record(record_type, record_id)
     existing_keys = {
         ((note.get("content") or "").strip(), note.get("source") or "") for note in existing
     }
@@ -801,8 +826,8 @@ def _sync_notes(experiment_id: str, exp_dir: Path) -> int:
         key = (body.strip(), str(note_source))
         if not body.strip() or key in existing_keys:
             continue
-        note = notes_db.create_experiment_note(experiment_id, body.strip(), str(note_source))
+        note = notes_db.create(record_type, record_id, body.strip(), str(note_source))
         existing_keys.add(key)
         created += 1
-        log_activity(experiment_id, "experiment", "note_added", {"note_id": note["id"]})
+        log_activity(record_id, record_type, "note_added", {"note_id": note["id"]})
     return created

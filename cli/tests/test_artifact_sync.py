@@ -659,7 +659,7 @@ class TestPullCommands:
                 },
             },
         )
-        monkeypatch.setattr("sonde.db.notes_v2.list_by_experiment", lambda _exp_id: [{"id": "NOTE-1"}])
+        monkeypatch.setattr("sonde.db.notes.list_by_experiment", lambda _exp_id: [{"id": "NOTE-1"}])
         monkeypatch.setattr(
             "sonde.db.artifacts.list_artifacts",
             lambda _exp_id: [{"id": "ART-1", "storage_path": "EXP-0001/plot.png"}],

@@ -1,4 +1,16 @@
-"""Pydantic models — the schema for all Aeolus records."""
+"""Pydantic models — the schema for all Aeolus records.
+
+Naming convention across the hierarchy:
+
+    Entity      Headline (list views)   Body (markdown detail)   Status enum
+    ----------  ----------------------  ----------------------   ----------------------------------
+    Project     objective               description              proposed/active/paused/completed/archived
+    Direction   question                context                  proposed/active/paused/completed/abandoned
+    Experiment  hypothesis              content                  open/running/complete/failed/superseded
+
+The headline is always a one-liner. The body is optional long-form markdown
+shown in `sonde show` and `sonde brief`.
+"""
 
 from sonde.models.direction import Direction, DirectionCreate
 from sonde.models.experiment import Experiment, ExperimentCreate
