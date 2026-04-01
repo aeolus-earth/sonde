@@ -108,7 +108,10 @@ def new(ctx: click.Context, record_type: str, title: str | None, program: str | 
 @pass_output_options
 @click.pass_context
 def new_experiment(ctx: click.Context, title: str | None, program: str | None) -> None:
-    """Scaffold a new experiment file from a template.
+    """Scaffold a local experiment template for editing.
+
+    Creates a markdown file in .sonde/ that you edit and push.
+    For quick inline creation, use: sonde log "content"
 
     \b
     Examples:

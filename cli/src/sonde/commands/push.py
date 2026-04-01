@@ -57,18 +57,67 @@ class ArtifactUploadStats:
     next_steps: list[str] = field(default_factory=list)
 
 
+_DRY_RUN_CATEGORIES = ("experiments", "findings", "questions", "directions")
+
+
+def _dry_run_report(ctx: click.Context) -> None:
+    """Scan .sonde/ and report what would be pushed, without pushing."""
+    try:
+        sonde_dir = find_sonde_dir()
+    except SystemExit:
+        print_error(
+            "No .sonde/ directory found",
+            "There is nothing to push.",
+            "Run sonde init to create a local notebook.",
+        )
+        raise SystemExit(1) from None
+
+    counts: dict[str, int] = {}
+    for category in _DRY_RUN_CATEGORIES:
+        cat_dir = sonde_dir / category
+        if cat_dir.is_dir():
+            counts[category] = len(list(cat_dir.glob("*.md")))
+        else:
+            counts[category] = 0
+
+    takeaways_exists = (sonde_dir / "takeaways.md").exists()
+
+    if ctx.obj.get("json"):
+        print_json({
+            "dry_run": True,
+            "experiments": counts["experiments"],
+            "findings": counts["findings"],
+            "questions": counts["questions"],
+            "directions": counts["directions"],
+            "takeaways": takeaways_exists,
+        })
+    else:
+        labels = []
+        for category in _DRY_RUN_CATEGORIES:
+            singular = category.rstrip("s")
+            n = counts[category]
+            labels.append(f"{n} {singular}(s)" if n != 1 else f"1 {singular}")
+        takeaways_label = "yes" if takeaways_exists else "no"
+        err.print(f"Would push: {', '.join(labels)}, takeaways: {takeaways_label}")
+
+
 @click.group(invoke_without_command=True)
+@click.option("--dry-run", is_flag=True, help="Show what would be pushed without pushing")
 @pass_output_options
 @click.pass_context
-def push(ctx: click.Context) -> None:
+def push(ctx: click.Context, dry_run: bool) -> None:
     """Push local .sonde/ changes to Supabase.
 
     \b
     Examples:
       sonde push
+      sonde push --dry-run
       sonde push experiment EXP-0002
       sonde push finding FIND-001
     """
+    if dry_run:
+        _dry_run_report(ctx)
+        return
     if ctx.invoked_subcommand is None:
         ctx.invoke(push_all)
 

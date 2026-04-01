@@ -471,9 +471,11 @@ def brief(
     gaps: bool,
     gap_params: tuple[str, ...],
 ) -> None:
-    """Generate a research summary.
+    """Program-level research summary — what's active, what we know, what to do next.
 
-    By default, summarizes a single program with active context first.
+    Use this to orient yourself in a specific program.
+    For an org-wide overview across all programs, use: sonde status
+
     Use --active to show only the live experiment, question, and next actions.
 
     \b

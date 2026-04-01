@@ -228,7 +228,7 @@ def fork(
 # Fork helpers
 # ---------------------------------------------------------------------------
 
-_STALE_KEY_PATTERNS = {
+_STALE_KEY_PATTERNS = frozenset({
     "dir",
     "path",
     "file",
@@ -240,7 +240,13 @@ _STALE_KEY_PATTERNS = {
     "tmp",
     "scratch",
     "checkpoint",
-}
+})
+
+
+def _is_stale_key(key: str) -> bool:
+    """Check if key name contains a stale-indicating word (word-boundary, not substring)."""
+    parts = set(key.lower().replace("-", "_").split("_"))
+    return bool(parts & _STALE_KEY_PATTERNS)
 
 
 def _clean_stale_fields(
@@ -264,8 +270,7 @@ def _clean_stale_fields(
         for key, value in d.items():
             if not isinstance(value, str):
                 continue
-            key_lower = key.lower()
-            is_path_key = any(pattern in key_lower for pattern in _STALE_KEY_PATTERNS)
+            is_path_key = _is_stale_key(key)
             is_path_value = "/" in value
             if is_path_key and is_path_value:
                 warnings.append({"source": source_name, "key": key, "value": value})

@@ -160,18 +160,15 @@ class TestCleanStaleFields:
         assert cleaned_m == {}
         assert warnings == []
 
-    def test_direction_id_substring_match_bug(self):
-        """'dir' is a substring of 'direction'. The current code uses substring
-        matching, so 'direction_id' with a path-like value WOULD be stripped.
-        This test documents that behavior (it IS a latent bug)."""
+    def test_direction_id_not_stripped(self):
+        """'direction_id' should NOT be stripped — 'dir' is a stale pattern but
+        'direction' is not. Word-boundary matching prevents false positives."""
         params: dict[str, object] = {"direction_id": "/some/dir/path"}
         cleaned_p, _, warnings = _clean_stale_fields(params, {}, strip=True)
-        # Current implementation uses `pattern in key_lower` which matches
-        # "dir" in "direction_id" — this is the substring match bug.
-        assert "direction_id" not in cleaned_p, (
-            "Current code strips 'direction_id' because 'dir' is a substring of 'direction'"
+        assert "direction_id" in cleaned_p, (
+            "direction_id should be preserved — 'direction' is not a stale word"
         )
-        assert len(warnings) == 1
+        assert len(warnings) == 0
 
     def test_metadata_fields_stripped_independently(self):
         """Parameters and metadata are cleaned independently."""

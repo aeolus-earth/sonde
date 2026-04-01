@@ -98,7 +98,11 @@ def log(
     env_vars: tuple[str, ...],
     blocker: str | None,
 ):
-    """Log an experiment to the knowledge base.
+    """Create an experiment in the knowledge base.
+
+    This is the primary way to create experiments. Write content inline,
+    from a file, or via stdin. For scaffolding a template to edit locally,
+    use: sonde new experiment
 
     \b
     Content can be provided as a positional argument, from a file, or via stdin.

@@ -23,10 +23,10 @@ from sonde.output import (
 @pass_output_options
 @click.pass_context
 def status(ctx: click.Context) -> None:
-    """Show an overview of the entire knowledge base.
+    """Organization-wide overview — all programs, experiment counts, directions.
 
-    Lists all programs, recent experiments, active findings, and open questions
-    across the whole organization. No --program flag needed.
+    Use this to see across all programs at once.
+    For a single program's context, use: sonde brief -p <program>
 
     \b
     Examples:

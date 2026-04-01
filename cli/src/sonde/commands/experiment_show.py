@@ -239,11 +239,21 @@ def show(ctx: click.Context, experiment_id: str, graph: bool) -> None:
         if graph:
             _render_graph(exp)
 
-        breadcrumbs = [
+        # Status-aware workflow hints (what to do next)
+        breadcrumbs = []
+        if exp.status == "open":
+            breadcrumbs.append(f"Start:   sonde start {exp.id}")
+        elif exp.status == "running":
+            breadcrumbs.append(f'Close:   sonde close {exp.id} --finding "..."')
+        elif exp.status == "complete" and not exp.finding:
+            breadcrumbs.append(f'Record:  sonde update {exp.id} --finding "..."')
+        elif exp.status == "complete" and exp.finding:
+            breadcrumbs.append(f"Fork:    sonde fork {exp.id} --type refinement")
+
+        breadcrumbs.extend([
             f"History: sonde history {exp.id}",
             f'Note:    sonde note {exp.id} "observation"',
-            'Search:  sonde search --text "query"',
-        ]
+        ])
         if children or parent:
             breadcrumbs.append(f"Tree:    sonde tree {exp.id}")
         print_breadcrumbs(breadcrumbs)
