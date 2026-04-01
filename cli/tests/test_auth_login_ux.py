@@ -116,10 +116,56 @@ def test_emit_login_skip_browser_env_skips_webbrowser(monkeypatch, capfd) -> Non
     captured = capfd.readouterr()
     assert "https://x.test/" in captured.err
 
-
 def test_emit_login_paste_fallback_shows_paste_hint(monkeypatch, capfd) -> None:
     monkeypatch.setenv("SONDE_LOGIN_NO_BROWSER", "1")
     auth._emit_login_browser_instructions(8443, "https://example.com/oauth", paste_fallback=True)
     captured = capfd.readouterr()
     err_lower = captured.err.lower()
     assert "full url" in err_lower and "paste" in err_lower
+
+
+def test_prompt_for_manual_callback_retries_until_code(monkeypatch, capfd) -> None:
+    responses = iter(
+        [
+            "http://localhost:8123/callback?state=abc",
+            "manual-456",
+        ]
+    )
+    monkeypatch.setattr(auth.err, "input", lambda _prompt: next(responses))
+
+    code = auth._prompt_for_manual_callback(8123)
+
+    assert code == "manual-456"
+    captured = capfd.readouterr()
+    assert "No auth code found in that input" in captured.err
+
+
+def test_wait_for_callback_uses_manual_fallback_after_timeout(monkeypatch) -> None:
+    server_instances: list[FakeServer] = []
+
+    class FakeServer:
+        def __init__(self, *_args, **_kwargs) -> None:
+            self.timeout: int | None = None
+            self.closed = False
+            server_instances.append(self)
+
+        def handle_request(self) -> None:
+            return None
+
+        def server_close(self) -> None:
+            self.closed = True
+
+    times = iter([0.0, auth.CALLBACK_TIMEOUT + 1.0])
+
+    monkeypatch.setattr("sonde.auth.HTTPServer", FakeServer)
+    monkeypatch.setattr("sonde.auth._load_callback_html", lambda: b"ok")
+    monkeypatch.setattr(
+        "sonde.auth._emit_login_browser_instructions", lambda _port, _url, **_kwargs: None
+    )
+    monkeypatch.setattr("sonde.auth._prompt_for_manual_callback", lambda _port: "manual-789")
+    monkeypatch.setattr("sonde.auth.time.monotonic", lambda: next(times))
+
+    code = auth._wait_for_callback(8123, "https://example.com/oauth")
+
+    assert code == "manual-789"
+    assert server_instances[0].closed is True
