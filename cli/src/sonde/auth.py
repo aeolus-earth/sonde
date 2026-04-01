@@ -18,7 +18,7 @@ import webbrowser
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from importlib import resources
-from threading import Event, Lock, Thread
+from threading import Event, Lock
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 

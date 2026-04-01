@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from typing import Any
 
 from sonde.db import rows as to_rows
@@ -35,10 +36,8 @@ def delete(experiment_id: str) -> dict[str, Any]:
         .execute()
     )
     # Legacy cleanup — experiment_notes may still have rows until table is dropped
-    try:
+    with contextlib.suppress(Exception):
         client.table("experiment_notes").delete().eq("experiment_id", experiment_id).execute()
-    except Exception:
-        pass
     artifacts_result = (
         client.table("artifacts").delete().eq("experiment_id", experiment_id).execute()
     )

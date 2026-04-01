@@ -51,7 +51,9 @@ def _detect_record_type(record_id: str) -> str | None:
 @click.option(
     "--type",
     "artifact_type",
-    type=click.Choice(["figure", "paper", "dataset", "notebook", "config", "log", "report", "other"]),
+    type=click.Choice(
+        ["figure", "paper", "dataset", "notebook", "config", "log", "report", "other"]
+    ),
     help="Override artifact type",
 )
 @click.option("--description", "-d", help="Description of the artifact")
@@ -106,14 +108,13 @@ def attach(
                 "List directions: sonde direction list",
             )
             raise SystemExit(1)
-    elif record_type == "project":
-        if not proj_db.get(record_id):
-            print_error(
-                f"Project {record_id} not found",
-                "Cannot attach files to a nonexistent project.",
-                "List projects: sonde project list",
-            )
-            raise SystemExit(1)
+    elif record_type == "project" and not proj_db.get(record_id):
+        print_error(
+            f"Project {record_id} not found",
+            "Cannot attach files to a nonexistent project.",
+            "List projects: sonde project list",
+        )
+        raise SystemExit(1)
 
     user = get_current_user()
     source = resolve_source(user)
@@ -201,7 +202,12 @@ def attach(
                 {"filenames": changed, "count": len(changed)},
             )
 
-    payload = {"record_id": record_id, "record_type": record_type, "summary": asdict(stats), "files": results}
+    payload = {
+        "record_id": record_id,
+        "record_type": record_type,
+        "summary": asdict(stats),
+        "files": results,
+    }
     if failures:
         payload["failures"] = failures
 
@@ -226,7 +232,9 @@ def attach(
             ],
             breadcrumbs=[
                 f"Default workflow: sonde push experiment {record_id}",
-            ] if record_type == "experiment" else [],
+            ]
+            if record_type == "experiment"
+            else [],
         )
 
     if failures:

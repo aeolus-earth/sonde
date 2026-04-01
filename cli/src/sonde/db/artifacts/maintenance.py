@@ -7,9 +7,8 @@ from datetime import UTC, datetime
 from typing import Any
 
 from sonde.db import rows
-from sonde.db.client import get_admin_client, has_service_role_key
-
 from sonde.db.artifacts.inference import ARTIFACT_BUCKET
+from sonde.db.client import get_admin_client, has_service_role_key
 
 
 def list_delete_queue(

@@ -52,7 +52,9 @@ def check_orphan_experiments(data: HealthData) -> list[HealthIssue]:
                     HealthIssue(
                         category="graph",
                         severity="info",
-                        message=f"{exp_id} should inherit project {dir_project} from direction {dir_id}",
+                        message=(
+                            f"{exp_id} should inherit project {dir_project} from direction {dir_id}"
+                        ),
                         record_id=exp_id,
                         fix=f"sonde update {exp_id} --project {dir_project}",
                         penalty=1,
@@ -181,7 +183,10 @@ def check_direction_experiment_mismatch(data: HealthData) -> list[HealthIssue]:
                 HealthIssue(
                     category="graph",
                     severity="warning",
-                    message=f"{exp_id} is in project {exp_project} but its direction {dir_id} is in project {dir_project}",
+                    message=(
+                        f"{exp_id} is in project {exp_project} but its"
+                        f" direction {dir_id} is in project {dir_project}"
+                    ),
                     record_id=exp_id,
                     fix=f"sonde update {exp_id} --project {dir_project}",
                     penalty=2,

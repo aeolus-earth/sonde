@@ -176,11 +176,13 @@ def test_prompt_for_manual_callback_returns_none_on_eof(monkeypatch, capfd) -> N
 
 def test_prompt_for_manual_callback_exhausts_retries(monkeypatch, capfd) -> None:
     """After 3 URLs without a code param, gives up and returns None."""
-    bad_inputs = iter([
-        "http://localhost:8123/callback?error=denied",
-        "http://localhost:8123/callback",
-        "http://localhost:8123/",
-    ])
+    bad_inputs = iter(
+        [
+            "http://localhost:8123/callback?error=denied",
+            "http://localhost:8123/callback",
+            "http://localhost:8123/",
+        ]
+    )
     monkeypatch.setattr(auth.err, "input", lambda _prompt: next(bad_inputs))
     code = auth._prompt_for_manual_callback(8123)
     assert code is None
@@ -190,6 +192,7 @@ def test_prompt_for_manual_callback_exhausts_retries(monkeypatch, capfd) -> None
 
 def test_wait_for_callback_returns_code_on_first_poll(monkeypatch) -> None:
     """Happy path: browser callback arrives immediately on first server poll."""
+
     class FakeServer:
         def __init__(self, *_args, **_kwargs):
             self.timeout = None
@@ -204,7 +207,6 @@ def test_wait_for_callback_returns_code_on_first_poll(monkeypatch) -> None:
             self.closed = True
 
     call_count = [0]
-    original_monotonic = __import__("time").monotonic
 
     def fake_monotonic():
         call_count[0] += 1
@@ -226,11 +228,14 @@ def test_wait_for_callback_returns_code_on_first_poll(monkeypatch) -> None:
 
 def test_wait_for_callback_raises_timeout_when_manual_also_fails(monkeypatch) -> None:
     """If both automatic callback and manual paste fail, raises TimeoutError."""
+
     class FakeServer:
         def __init__(self, *_args, **_kwargs):
             self.timeout = None
+
         def handle_request(self):
             pass
+
         def server_close(self):
             pass
 
@@ -238,7 +243,9 @@ def test_wait_for_callback_raises_timeout_when_manual_also_fails(monkeypatch) ->
     monkeypatch.setattr("sonde.auth.HTTPServer", FakeServer)
     monkeypatch.setattr("sonde.auth._load_callback_html", lambda: b"ok")
     monkeypatch.setattr("sonde.auth._emit_login_browser_instructions", lambda _port, _url: None)
-    monkeypatch.setattr("sonde.auth._prompt_for_manual_callback", lambda _port: None)  # User gives up
+    monkeypatch.setattr(
+        "sonde.auth._prompt_for_manual_callback", lambda _port: None
+    )  # User gives up
     monkeypatch.setattr("sonde.auth.time.monotonic", lambda: next(times))
 
     with pytest.raises(TimeoutError, match="Login timed out"):

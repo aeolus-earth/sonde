@@ -122,7 +122,11 @@ def _build_project_brief(project_id: str) -> dict[str, Any]:
         ],
         "takeaways": takeaway_body,
         "notes": [
-            {"id": n["id"], "content": truncate_text(n["content"], 200), "source": n.get("source", "")}
+            {
+                "id": n["id"],
+                "content": truncate_text(n["content"], 200),
+                "source": n.get("source", ""),
+            }
             for n in notes[:5]
         ],
     }
@@ -225,7 +229,9 @@ def project_brief(ctx: click.Context, project_id: str) -> None:
         for n in brief["notes"][:3]:
             err.print(f"  {n['id']}  {truncate_text(n['content'], 60)}")
 
-    print_breadcrumbs([
-        f"Details: sonde project show {project_id}",
-        f"Takeaways: sonde takeaway --project {project_id} --show",
-    ])
+    print_breadcrumbs(
+        [
+            f"Details: sonde project show {project_id}",
+            f"Takeaways: sonde takeaway --project {project_id} --show",
+        ]
+    )

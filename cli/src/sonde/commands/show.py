@@ -244,11 +244,13 @@ def _show_direction(ctx: click.Context, direction_id: str) -> None:
             title="Findings from this direction",
         )
 
-    print_breadcrumbs([
-        f"\U0001f517 {ui_url(d.id)}",
-        f"List:  sonde list --direction {d.id}",
-        f"Brief: sonde brief -p {d.program}",
-    ])
+    print_breadcrumbs(
+        [
+            f"\U0001f517 {ui_url(d.id)}",
+            f"List:  sonde list --direction {d.id}",
+            f"Brief: sonde brief -p {d.program}",
+        ]
+    )
 
 
 def _show_artifact(ctx: click.Context, artifact_id: str) -> None:
@@ -428,12 +430,14 @@ def _show_project(ctx: click.Context, project_id: str) -> None:
     except Exception:
         err.print("  [sonde.muted](artifacts unavailable)[/]")
 
-    print_breadcrumbs([
-        f"\U0001f517 {ui_url(project_id)}",
-        f"Brief: sonde project brief {project_id}",
-        "Directions: sonde direction list --all",
-        "Experiments: sonde list --all",
-    ])
+    print_breadcrumbs(
+        [
+            f"\U0001f517 {ui_url(project_id)}",
+            f"Brief: sonde project brief {project_id}",
+            "Directions: sonde direction list --all",
+            "Experiments: sonde list --all",
+        ]
+    )
 
 
 def show_dispatch(ctx: click.Context, record_id: str, graph: bool) -> None:

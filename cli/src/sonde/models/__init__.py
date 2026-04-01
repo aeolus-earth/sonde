@@ -2,11 +2,11 @@
 
 Naming convention across the hierarchy:
 
-    Entity      Headline (list views)   Body (markdown detail)   Status enum
-    ----------  ----------------------  ----------------------   ----------------------------------
-    Project     objective               description              proposed/active/paused/completed/archived
-    Direction   question                context                  proposed/active/paused/completed/abandoned
-    Experiment  hypothesis              content                  open/running/complete/failed/superseded
+    Entity      Headline         Body           Status values
+    ----------  ---------------  -------------  ---------------------------------
+    Project     objective        description    proposed/active/paused/completed/archived
+    Direction   question         context        proposed/active/paused/completed/abandoned
+    Experiment  hypothesis       content        open/running/complete/failed/superseded
 
 The headline is always a one-liner. The body is optional long-form markdown
 shown in `sonde show` and `sonde brief`.

@@ -251,10 +251,12 @@ def show(ctx: click.Context, experiment_id: str, graph: bool) -> None:
         elif exp.status == "complete" and exp.finding:
             breadcrumbs.append(f"Fork:    sonde fork {exp.id} --type refinement")
 
-        breadcrumbs.extend([
-            f"History: sonde history {exp.id}",
-            f'Note:    sonde note {exp.id} "observation"',
-        ])
+        breadcrumbs.extend(
+            [
+                f"History: sonde history {exp.id}",
+                f'Note:    sonde note {exp.id} "observation"',
+            ]
+        )
         if children or parent:
             breadcrumbs.append(f"Tree:    sonde tree {exp.id}")
         print_breadcrumbs(breadcrumbs)

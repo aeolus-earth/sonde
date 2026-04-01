@@ -349,13 +349,15 @@ def project_attach(ctx: click.Context, project_id: str, record_ids: tuple[str, .
             raise SystemExit(1)
 
     if ctx.obj.get("json"):
-        print_json({
-            "attached": {
-                "experiments": attached_experiments,
-                "directions": attached_directions,
-            },
-            "project": project_id,
-        })
+        print_json(
+            {
+                "attached": {
+                    "experiments": attached_experiments,
+                    "directions": attached_directions,
+                },
+                "project": project_id,
+            }
+        )
     else:
         print_success(
             f"Attached {len(attached_directions)} direction(s) and "
@@ -398,12 +400,14 @@ def project_detach(ctx: click.Context, record_ids: tuple[str, ...]) -> None:
             raise SystemExit(1)
 
     if ctx.obj.get("json"):
-        print_json({
-            "detached": {
-                "experiments": detached_experiments,
-                "directions": detached_directions,
-            },
-        })
+        print_json(
+            {
+                "detached": {
+                    "experiments": detached_experiments,
+                    "directions": detached_directions,
+                },
+            }
+        )
     else:
         print_success(
             f"Detached {len(detached_directions)} direction(s) and "
@@ -468,17 +472,19 @@ def project_adopt(
         for exp in orphans:
             items.append(f"  {exp.id} (experiment)")
         if ctx.obj.get("json"):
-            print_json({
-                "dry_run": True,
-                "project": project_id,
-                "would_adopt": {
-                    "direction": direction_id if adopt_direction else None,
-                    "experiments": [e.id for e in orphans],
-                },
-            })
+            print_json(
+                {
+                    "dry_run": True,
+                    "project": project_id,
+                    "would_adopt": {
+                        "direction": direction_id if adopt_direction else None,
+                        "experiments": [e.id for e in orphans],
+                    },
+                }
+            )
         else:
             if not items:
-                print_success(f"Nothing to adopt — all records already assigned")
+                print_success("Nothing to adopt — all records already assigned")
             else:
                 err.print(f"[sonde.warning]Would adopt into {project_id}:[/]")
                 for item in items:
@@ -496,13 +502,15 @@ def project_adopt(
         adopted_count += 1
 
     if ctx.obj.get("json"):
-        print_json({
-            "adopted": {
-                "direction": direction_id if adopt_direction else None,
-                "experiments": [e.id for e in orphans],
-            },
-            "project": project_id,
-        })
+        print_json(
+            {
+                "adopted": {
+                    "direction": direction_id if adopt_direction else None,
+                    "experiments": [e.id for e in orphans],
+                },
+                "project": project_id,
+            }
+        )
     else:
         parts = []
         if adopt_direction:
@@ -512,7 +520,7 @@ def project_adopt(
         if parts:
             print_success(f"Adopted {' and '.join(parts)} into {project_id}")
         else:
-            print_success(f"Nothing to adopt — all records already assigned")
+            print_success("Nothing to adopt — all records already assigned")
 
 
 # Wire project brief subcommand

@@ -1,9 +1,14 @@
 import { memo, lazy, Suspense } from "react";
-import { Link } from "@tanstack/react-router";
 import { ChatReferencedArtifacts } from "./chat-referenced-artifacts";
 import { ChatToolActivity } from "./chat-tool-activity";
+import {
+  MentionChipLabel,
+  MentionLink,
+  mentionChipClasses,
+} from "./mention-chip";
 import type { ChatMessageData, MentionRef } from "@/types/chat";
 import { isDefendExistenceCommand } from "@/lib/defend-existence";
+import { cn } from "@/lib/utils";
 
 const AssistantMarkdown = lazy(() =>
   import("./assistant-markdown").then((m) => ({ default: m.AssistantMarkdown }))
@@ -33,21 +38,6 @@ export const ChatMessage = memo(function ChatMessage({ message }: ChatMessagePro
               {formatTime(message.timestamp)}
             </span>
           </div>
-          {message.mentions && message.mentions.length > 0 && (
-            <div className="flex flex-wrap justify-end gap-1">
-              {message.mentions.map((m, idx) => (
-                <Link
-                  key={`${m.id}-${idx}`}
-                  to={mentionRoute(m.type)}
-                  params={{ id: m.id }}
-                  title={mentionTitle(m)}
-                  className="inline-flex max-w-[min(100%,260px)] items-center gap-0.5 truncate rounded-full bg-accent/15 px-2 py-0.5 text-[11px] font-mono text-accent hover:bg-accent/25"
-                >
-                  <MentionChipText m={m} />
-                </Link>
-              ))}
-            </div>
-          )}
           {message.attachments && message.attachments.length > 0 && (
             <div className="flex flex-wrap justify-end gap-1">
               {message.attachments.map((a, i) => (
@@ -69,7 +59,10 @@ export const ChatMessage = memo(function ChatMessage({ message }: ChatMessagePro
             </div>
           )}
           <div className="rounded-[22px] bg-surface-raised px-4 py-2.5 text-[13px] leading-relaxed text-text shadow-sm">
-            <p className="whitespace-pre-wrap">{message.content}</p>
+            <UserMessageInlineContent
+              content={message.content}
+              mentions={message.mentions}
+            />
           </div>
         </div>
       </div>
@@ -90,15 +83,16 @@ export const ChatMessage = memo(function ChatMessage({ message }: ChatMessagePro
         {message.mentions && message.mentions.length > 0 && (
           <div className="flex flex-wrap gap-1.5">
             {message.mentions.map((m, idx) => (
-              <Link
+              <MentionLink
                 key={`${m.id}-${idx}`}
-                to={mentionRoute(m.type)}
-                params={{ id: m.id }}
-                title={mentionTitle(m)}
-                className="inline-flex max-w-[min(100%,260px)] items-center gap-0.5 truncate rounded-full bg-accent/10 px-2 py-0.5 text-[11px] font-mono text-accent hover:bg-accent/18"
+                m={m}
+                className={cn(
+                  mentionChipClasses(m.type, { interactive: true }),
+                  "max-w-[min(100%,260px)]"
+                )}
               >
-                <MentionChipText m={m} />
-              </Link>
+                <MentionChipLabel m={m} />
+              </MentionLink>
             ))}
           </div>
         )}
@@ -127,23 +121,79 @@ export const ChatMessage = memo(function ChatMessage({ message }: ChatMessagePro
   );
 });
 
-function mentionTitle(m: MentionRef): string {
-  if (m.type === "experiment" && m.program) {
-    return `${m.program}/${m.id}`;
+/** Split composer text (`@${id} ` tokens) into plain runs and registered mention pills. */
+function segmentUserMessageWithMentions(
+  content: string,
+  mentions: MentionRef[] | undefined
+): Array<{ type: "text"; text: string } | { type: "mention"; ref: MentionRef }> {
+  if (!mentions?.length) {
+    return [{ type: "text", text: content }];
   }
-  return m.id;
+  const segments: Array<
+    { type: "text"; text: string } | { type: "mention"; ref: MentionRef }
+  > = [];
+  let buf = "";
+  let i = 0;
+  while (i < content.length) {
+    if (content[i] === "@") {
+      let matched: MentionRef | null = null;
+      for (const m of mentions) {
+        if (content.startsWith(`@${m.id}`, i)) {
+          if (!matched || m.id.length > matched.id.length) {
+            matched = m;
+          }
+        }
+      }
+      if (matched) {
+        if (buf) {
+          segments.push({ type: "text", text: buf });
+          buf = "";
+        }
+        segments.push({ type: "mention", ref: matched });
+        i += `@${matched.id}`.length;
+        if (i < content.length && content[i] === " ") {
+          i++;
+        }
+        continue;
+      }
+    }
+    buf += content[i];
+    i++;
+  }
+  if (buf) {
+    segments.push({ type: "text", text: buf });
+  }
+  return segments;
 }
 
-function MentionChipText({ m }: { m: MentionRef }) {
-  if (m.type === "experiment" && m.program) {
-    return (
-      <>
-        <span className="shrink-0 text-[10px] text-text-tertiary">{m.program}/</span>
-        <span className="min-w-0 truncate">{m.id}</span>
-      </>
-    );
-  }
-  return <>@{m.id}</>;
+function UserMessageInlineContent({
+  content,
+  mentions,
+}: {
+  content: string;
+  mentions?: MentionRef[];
+}) {
+  const segments = segmentUserMessageWithMentions(content, mentions);
+  return (
+    <p className="whitespace-pre-wrap break-words">
+      {segments.map((seg, idx) =>
+        seg.type === "text" ? (
+          <span key={`t-${idx}`}>{seg.text}</span>
+        ) : (
+          <MentionLink
+            key={`m-${idx}-${seg.ref.id}`}
+            m={seg.ref}
+            className={cn(
+              mentionChipClasses(seg.ref.type, { interactive: true }),
+              "mx-0.5 inline-flex max-h-[1.6rem] max-w-[min(100%,260px)] align-middle leading-none"
+            )}
+          >
+            <MentionChipLabel m={seg.ref} />
+          </MentionLink>
+        )
+      )}
+    </p>
+  );
 }
 
 function formatTime(ts: number): string {
@@ -151,17 +201,4 @@ function formatTime(ts: number): string {
     hour: "2-digit",
     minute: "2-digit",
   });
-}
-
-function mentionRoute(type: string): string {
-  switch (type) {
-    case "experiment":
-      return "/experiments/$id";
-    case "finding":
-      return "/findings/$id";
-    case "direction":
-      return "/directions/$id";
-    default:
-      return "/experiments/$id";
-  }
 }

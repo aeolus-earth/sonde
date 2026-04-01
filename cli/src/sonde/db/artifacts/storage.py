@@ -9,10 +9,6 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
 
-from sonde.db import rows
-from sonde.db.client import get_client
-from sonde.db.ids import create_with_retry
-
 from sonde.db.artifacts.crud import find_by_storage_path, update_metadata
 from sonde.db.artifacts.inference import (
     ARTIFACT_BUCKET,
@@ -20,6 +16,8 @@ from sonde.db.artifacts.inference import (
     ArtifactTooLargeError,
     infer_type,
 )
+from sonde.db.client import get_client
+from sonde.db.ids import create_with_retry
 
 
 def compute_checksum(filepath: Path) -> str:

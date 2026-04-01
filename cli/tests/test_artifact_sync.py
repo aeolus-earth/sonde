@@ -119,7 +119,10 @@ class TestArtifactHelpers:
                     ],
                 ],
             ),
-            patch("sonde.db.artifacts.maintenance._list_bucket_paths", return_value={"EXP-0001/extra.png"}),
+            patch(
+                "sonde.db.artifacts.maintenance._list_bucket_paths",
+                return_value={"EXP-0001/extra.png"},
+            ),
         ):
             mock_supabase.storage.from_.return_value.exists.return_value = False
             audit = audit_artifact_sync(sample_limit=5)
