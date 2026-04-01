@@ -5,8 +5,8 @@
 
 const ID_RE = /\b(EXP|FIND|DIR|Q)-[A-Za-z0-9]+\b/g;
 
-function recordIdToHref(id: string): string | null {
-  const prefix = id.split("-")[0];
+export function recordIdToHref(id: string): string | null {
+  const prefix = id.split("-")[0]?.toUpperCase();
   switch (prefix) {
     case "EXP":
       return `/experiments/${id}`;
@@ -16,6 +16,8 @@ function recordIdToHref(id: string): string | null {
       return `/directions/${id}`;
     case "Q":
       return "/questions";
+    case "PROJ":
+      return `/projects/${id}`;
     default:
       return null;
   }

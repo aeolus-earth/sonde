@@ -1,4 +1,5 @@
 import { memo, useState } from "react";
+import { Link } from "@tanstack/react-router";
 import {
   ChevronDown,
   ChevronRight,
@@ -6,8 +7,10 @@ import {
   CheckCircle2,
   XCircle,
   Shield,
+  ExternalLink,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { recordIdToHref } from "@/lib/linkify-sonde-ids";
 import type { ToolUseData } from "@/types/chat";
 import {
   ChatArtifactPreviewStrip,
@@ -32,6 +35,69 @@ const statusIcon = {
   error: <XCircle className="h-3 w-3 text-status-failed" />,
 };
 
+// ── Record navigation from tool inputs ────────────────────────────
+
+const RECORD_INPUT_KEYS = [
+  "experiment_id",
+  "finding_id",
+  "direction_id",
+  "question_id",
+  "project_id",
+  "id",
+] as const;
+
+function extractRecordHref(toolUse: ToolUseData): string | null {
+  if (toolUse.status !== "done") return null;
+  const input = toolUse.input;
+  for (const key of RECORD_INPUT_KEYS) {
+    const val = input[key];
+    if (typeof val === "string" && /^(EXP|FIND|DIR|Q|PROJ)-/i.test(val)) {
+      return recordIdToHref(val.toUpperCase());
+    }
+  }
+  return null;
+}
+
+// ── Linkified output — makes record IDs clickable ─────────────────
+
+const RECORD_ID_RE = /\b(EXP|FIND|DIR|Q|ART|PROJ)-[A-Z0-9]+\b/gi;
+
+function LinkifiedOutput({ text }: { text: string }) {
+  const parts: (string | JSX.Element)[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  const re = new RegExp(RECORD_ID_RE.source, "gi");
+
+  while ((match = re.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+    const id = match[0].toUpperCase();
+    const href = recordIdToHref(id);
+    if (href) {
+      parts.push(
+        <Link
+          key={`${match.index}-${id}`}
+          to={href}
+          className="text-accent hover:underline"
+        >
+          {id}
+        </Link>,
+      );
+    } else {
+      parts.push(<span key={`${match.index}-${id}`}>{id}</span>);
+    }
+    lastIndex = match.index + match[0].length;
+  }
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+
+  return <>{parts}</>;
+}
+
+// ── Main component ────────────────────────────────────────────────
+
 interface ChatToolActivityProps {
   toolUse: ToolUseData;
 }
@@ -49,28 +115,50 @@ export const ChatToolActivity = memo(function ChatToolActivity({
         ? parseExperimentShowArtifactCount(toolUse.output)
         : null;
 
+  const recordHref = extractRecordHref(toolUse);
+
   return (
     <div className="my-1 rounded-[5.5px] border border-border-subtle bg-surface text-[12px]">
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="flex w-full items-center gap-1.5 px-2 py-1.5 text-left transition-colors hover:bg-surface-hover"
-      >
-        {expanded ? (
-          <ChevronDown className="h-3 w-3 shrink-0 text-text-quaternary" />
-        ) : (
-          <ChevronRight className="h-3 w-3 shrink-0 text-text-quaternary" />
-        )}
+      <div className="flex w-full items-center gap-1.5 px-2 py-1.5">
+        {/* Expand/collapse toggle */}
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="shrink-0 rounded-[3px] p-0.5 text-text-quaternary transition-colors hover:bg-surface-hover hover:text-text-tertiary"
+        >
+          {expanded ? (
+            <ChevronDown className="h-3 w-3" />
+          ) : (
+            <ChevronRight className="h-3 w-3" />
+          )}
+        </button>
+
         {statusIcon[toolUse.status]}
-        <span className="text-text-secondary font-medium">
-          {toolDisplayName(toolUse.tool)}
-        </span>
+
+        {/* Tool name — navigable when we can extract a record */}
+        {recordHref ? (
+          <Link
+            to={recordHref}
+            className="font-medium text-text-secondary transition-colors hover:text-accent"
+          >
+            {toolDisplayName(toolUse.tool)}
+            <ExternalLink className="ml-1 inline h-2.5 w-2.5 opacity-40" />
+          </Link>
+        ) : (
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="font-medium text-text-secondary text-left"
+          >
+            {toolDisplayName(toolUse.tool)}
+          </button>
+        )}
+
         {toolUse.status === "running" && (
           <span className="text-text-quaternary">running...</span>
         )}
         {toolUse.status === "awaiting_approval" && (
           <span className="text-text-quaternary">awaiting approval…</span>
         )}
-      </button>
+      </div>
 
       {artifactParentId && toolUse.status === "done" && (
         <ChatArtifactPreviewStrip
@@ -88,9 +176,9 @@ export const ChatToolActivity = memo(function ChatToolActivity({
               </span>
               <pre className={cn(
                 "mt-0.5 overflow-x-auto rounded-[3px] bg-surface-raised p-1.5",
-                "text-[11px] text-text-secondary font-mono"
+                "text-[11px] text-text-secondary font-mono whitespace-pre-wrap"
               )}>
-                {JSON.stringify(toolUse.input, null, 2)}
+                <LinkifiedOutput text={JSON.stringify(toolUse.input, null, 2)} />
               </pre>
             </div>
           )}
@@ -101,9 +189,9 @@ export const ChatToolActivity = memo(function ChatToolActivity({
               </span>
               <pre className={cn(
                 "mt-0.5 max-h-[200px] overflow-auto rounded-[3px] bg-surface-raised p-1.5",
-                "text-[11px] text-text-secondary font-mono"
+                "text-[11px] text-text-secondary font-mono whitespace-pre-wrap"
               )}>
-                {toolUse.output}
+                <LinkifiedOutput text={toolUse.output} />
               </pre>
             </div>
           )}

@@ -92,14 +92,22 @@ function parseAttachJson(output: string): string[] {
   }
 }
 
-/** Root-level `_artifacts` / `artifacts` arrays (e.g. experiment show JSON). */
+/** Check common keys for artifact arrays in any JSON output. */
+const ARTIFACT_ARRAY_KEYS = ["_artifacts", "artifacts", "files", "attachments"] as const;
+
 function parseLooseArtifactsFromJsonOutput(output: string): string[] {
   try {
     const parsed = JSON.parse(output.trim()) as unknown;
     if (!parsed || typeof parsed !== "object") return [];
     const o = parsed as Record<string, unknown>;
-    const raw = o._artifacts ?? o.artifacts;
-    return collectIdsFromArtifactRows(raw);
+    for (const key of ARTIFACT_ARRAY_KEYS) {
+      const val = o[key];
+      if (Array.isArray(val)) {
+        const ids = collectIdsFromArtifactRows(val);
+        if (ids.length > 0) return ids;
+      }
+    }
+    return [];
   } catch {
     return [];
   }
