@@ -79,10 +79,21 @@ Default: open + running + failed. Use `--all` for completed/superseded too.
 | **Direction** | Research thread answering a guiding question | "Does spectral bin improve accuracy?" |
 | **Experiment** | Single test with parameters, method, results | EXP-0164 |
 | **Finding** | Atomic, evidence-linked fact from experiments | FIND-042 |
-| **Takeaway** | Program-level synthesis connecting findings | `.sonde/takeaways.md` |
+| **Takeaway** | Program- or project-level synthesis | `.sonde/takeaways.md` or per-project |
 
 Work flows down (programs contain projects contain directions contain experiments).
 Knowledge flows up (experiments produce findings, findings feed takeaways).
+
+### Field naming convention
+
+Each entity has a *headline* (one-liner, shown in list views) and optionally a
+*body* (markdown detail, shown in show/brief):
+
+| Entity | Headline field | Body field | Status values |
+|--------|---------------|------------|---------------|
+| Project | `objective` | `description` | proposed, active, paused, completed, archived |
+| Direction | `question` | `context` | proposed, active, paused, completed, abandoned |
+| Experiment | `hypothesis` | `content` | open, running, complete, failed, superseded |
 
 ---
 
@@ -415,10 +426,36 @@ model comparison study.
 ```bash
 sonde project list -p <program>
 sonde project list -p <program> --json
-sonde project create "SuperDroplets GPU Port" --objective "Port microphysics to GPU" -p <program>
-sonde show PROJ-001
+sonde project show PROJ-001
 sonde project show PROJ-001 --json
-sonde project update PROJ-001 --objective "Updated scope: port + validate microphysics on GPU"
+
+# Create with objective (one-liner) and description (detailed markdown)
+sonde project create "SuperDroplets GPU Port" \
+  --objective "Port microphysics to GPU" \
+  -p <program>
+sonde project create "CCN Sensitivity" \
+  --objective "Map CCN parameter space" \
+  --description-file motivation.md \
+  -p <program>
+
+# Update
+sonde project update PROJ-001 --objective "Updated scope"
+sonde project update PROJ-001 --description-file updated_motivation.md
+sonde project update PROJ-001 --status completed
+
+# Project-level brief (scoped summary with directions, experiments, findings)
+sonde project brief PROJ-001
+sonde project brief PROJ-001 --json
+
+# Project takeaways (scoped synthesis, separate from program takeaways)
+sonde takeaway --project PROJ-001 "Confirmed GPU port viable for spectral bin"
+sonde takeaway --project PROJ-001 --show
+
+# Organize records into projects
+sonde project attach PROJ-001 DIR-001 DIR-002 EXP-0042
+sonde project detach DIR-001
+sonde project adopt PROJ-001 --direction DIR-001
+sonde project delete PROJ-001 --confirm
 ```
 
 ---
@@ -427,24 +464,42 @@ sonde project update PROJ-001 --objective "Updated scope: port + validate microp
 
 ### Notes
 
-Lab notebook entries. When notes accumulate without a finding, you'll be nudged
-to distill the key result.
+Lab notebook entries on experiments, directions, or projects. When experiment
+notes accumulate without a finding, you'll be nudged to distill the key result.
 
 ```bash
+# Experiment notes (most common)
 sonde note EXP-0001 "Retried with higher CCN, same saturation pattern"
 sonde note EXP-0001 --file observations.md
+
+# Direction notes (method rationale, scope changes)
+sonde note DIR-001 "Narrowing scope to mid-latitude storms only"
+
+# Project notes (strategic decisions, stakeholder context)
+sonde note PROJ-001 "Stakeholder feedback: focus on 48h forecast horizon"
+
+# Focused experiment: omit ID to use focused experiment
+sonde note "Observation about CCN response"
 ```
 
 ### Attachments
 
 **Always describe what you attach.** Descriptions appear as captions in the UI.
+Accepts EXP-*, DIR-*, or PROJ-* IDs.
 
 ```bash
+# Experiment attachments
 sonde attach EXP-0001 figures/plot.png -d "Precip anomaly, CCN=1200"
 sonde attach EXP-0001 report.pdf --type paper -d "Final analysis report"
 sonde attach EXP-0001 profiling_artifacts/        # entire directory
 
-# For directories: list then describe each
+# Direction attachments (literature, method docs)
+sonde attach DIR-001 literature_review.pdf --type paper -d "Prior work survey"
+
+# Project attachments (architecture, stakeholder decks)
+sonde attach PROJ-001 architecture.pdf --type report -d "System design overview"
+
+# Describe after attaching
 sonde artifact list EXP-0001 --json
 sonde artifact update ART-0001 -d "Structured timing breakdown from nsight-compute"
 sonde artifact update ART-0002 -d "Raw watchdog stdout from GPU profiling run"
@@ -497,6 +552,28 @@ sonde tag normalize --force           # apply normalization
 ```
 
 Remember: `sonde update --tag` **replaces** all tags. `sonde tag add` **appends**.
+
+---
+
+## Takeaways
+
+Running synthesis -- the "so what" connecting findings into a narrative.
+Update after every experiment close.
+
+```bash
+# Program-level (default)
+sonde takeaway "CCN saturates at ~1500. Next: BL heating interaction."
+sonde takeaway --show
+sonde takeaway --replace "Fresh consolidated summary"
+sonde takeaway -f synthesis.md
+
+# Project-level (scoped)
+sonde takeaway --project PROJ-001 "GPU port confirmed viable for spectral bin"
+sonde takeaway --project PROJ-001 --show
+```
+
+Takeaways sync to DB automatically via `sonde push`. Use `--project` to scope
+to a specific project instead of the whole program.
 
 ---
 

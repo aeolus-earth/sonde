@@ -32,6 +32,7 @@ Check:
 - Does it have **data linked**? (check for `has-data` tag or `metadata.stac_items`)
 - Is the **status** correct? (running but actually finished? open but already done?)
 - Does it have structured metadata? (`repro`, `evidence`, `blocker`, `env_vars`)
+- Does it have a **project link**? (check `project_id` -- orphan experiments are hard to find later)
 
 ### 2. Enrich with `sonde update`
 
