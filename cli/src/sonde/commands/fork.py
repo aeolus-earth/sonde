@@ -17,7 +17,7 @@ from sonde.commands._helpers import (
 )
 from sonde.config import get_settings
 from sonde.db import experiments as db
-from sonde.git import detect_git_context
+from sonde.git import detect_git_context, detect_multi_repo_context, snapshots_to_json
 from sonde.models.experiment import BRANCH_TYPES, ExperimentCreate
 from sonde.output import (
     err,
@@ -123,8 +123,9 @@ def fork(
     settings = get_settings()
     resolved_source = settings.source or resolve_source()
 
-    # Auto-detect git context
+    # Auto-detect git context (single-repo + multi-repo)
     git_ctx = detect_git_context()
+    code_ctx = detect_multi_repo_context()
 
     forked_metadata = merge_structured_metadata(
         dict(source_exp.metadata),
@@ -157,6 +158,7 @@ def fork(
         git_branch=git_ctx.branch if git_ctx else None,
         claimed_by=resolved_source if status == "running" else None,
         claimed_at=datetime.now(UTC) if status == "running" else None,
+        code_context=snapshots_to_json(code_ctx) if code_ctx else None,
     )
 
     new_exp = db.create(data)

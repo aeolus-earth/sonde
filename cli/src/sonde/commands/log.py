@@ -17,7 +17,7 @@ from sonde.commands._helpers import (
 )
 from sonde.config import get_settings
 from sonde.db import experiments as db
-from sonde.git import detect_git_context
+from sonde.git import detect_git_context, detect_multi_repo_context, snapshots_to_json
 from sonde.local import generate_body
 from sonde.models.experiment import ExperimentCreate
 from sonde.output import (
@@ -192,8 +192,9 @@ def log(
     if open_exp:
         status = "open"
 
-    # Auto-detect git context
+    # Auto-detect git context (single-repo + multi-repo)
     git_ctx = detect_git_context()
+    code_ctx = detect_multi_repo_context()
 
     metadata = merge_structured_metadata(
         {},
@@ -220,6 +221,7 @@ def log(
         project_id=project or _inherit_project(direction or settings.default_direction),
         related=[r.strip() for r in related.split(",")] if related else [],
         tags=list(tag),
+        code_context=snapshots_to_json(code_ctx) if code_ctx else None,
     )
 
     exp = db.create(data)

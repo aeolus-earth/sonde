@@ -41,6 +41,7 @@ _FRONTMATTER_KEYS = {
     "git_close_commit",
     "git_close_branch",
     "git_dirty",
+    "code_context",
     # Findings
     "topic",
     "confidence",

@@ -69,6 +69,12 @@ class Settings(BaseSettings):
         description="Privileged Supabase service-role key for admin reconciliation commands",
     )
 
+    # Multi-repo code context (from .aeolus.yaml code_context.repos)
+    code_context_repos: list[str] = Field(
+        default_factory=list,
+        description="Additional repo paths to track for multi-repo code context",
+    )
+
     # Subsystem access (from .aeolus.yaml or env vars)
     s3_bucket: str = Field(default="", description="S3 bucket for large datasets")
     s3_prefix: str = Field(default="", description="S3 key prefix (e.g., programs/weather/)")
