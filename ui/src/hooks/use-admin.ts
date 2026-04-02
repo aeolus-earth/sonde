@@ -1,5 +1,6 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
+import { useEffect } from "react";
 
 export interface AdminStats {
   totalExperiments: number;
@@ -113,6 +114,55 @@ export function useActiveUsers(days = 7) {
   });
 }
 
+/** Rows for usage charts — minimal columns, paginated for large ranges. */
+export interface ActivityUsageRow {
+  created_at: string;
+  actor: string;
+  actor_email: string | null;
+}
+
+const ACTIVITY_PAGE = 1000;
+
+async function fetchActivityUsageRows(
+  fromIso: string,
+  toIso: string
+): Promise<ActivityUsageRow[]> {
+  const all: ActivityUsageRow[] = [];
+  let offset = 0;
+  for (;;) {
+    const { data, error } = await supabase
+      .from("activity_log")
+      .select("created_at, actor, actor_email")
+      .gte("created_at", fromIso)
+      .lte("created_at", toIso)
+      .order("created_at", { ascending: true })
+      .range(offset, offset + ACTIVITY_PAGE - 1);
+
+    if (error) throw error;
+    const batch = (data ?? []) as ActivityUsageRow[];
+    all.push(...batch);
+    if (batch.length < ACTIVITY_PAGE) break;
+    offset += ACTIVITY_PAGE;
+  }
+  return all;
+}
+
+/**
+ * Activity in `[now - days, now]` for charts. Paginates past PostgREST’s default row cap.
+ */
+export function useActivityUsageDetail(days: number) {
+  return useQuery({
+    queryKey: ["admin", "activity-usage-detail", days] as const,
+    queryFn: async (): Promise<ActivityUsageRow[]> => {
+      const to = new Date();
+      const from = new Date(to.getTime() - days * 86400000);
+      return fetchActivityUsageRows(from.toISOString(), to.toISOString());
+    },
+    staleTime: 60_000,
+    placeholderData: keepPreviousData, // smooth transitions when slider changes days
+  });
+}
+
 export function useAgentTokens() {
   return useQuery({
     queryKey: ["admin", "agent-tokens"],
@@ -127,4 +177,63 @@ export function useAgentTokens() {
     },
     staleTime: 60_000,
   });
+}
+
+// --- Database size metrics ---
+
+export interface DbSizes {
+  total_db_bytes: number;
+  table_sizes: Record<string, number>;
+  storage_bytes: number;
+  captured_at: string;
+}
+
+export interface DbSizeSnapshot {
+  id: number;
+  captured_at: string;
+  total_db_bytes: number;
+  table_sizes: Record<string, number>;
+  storage_bytes: number | null;
+}
+
+/** Current database sizes via RPC. Slow-changing data — 5 min staleTime. */
+export function useDbSizes() {
+  return useQuery({
+    queryKey: ["admin", "db-sizes"],
+    queryFn: async (): Promise<DbSizes> => {
+      const { data, error } = await supabase.rpc("get_db_sizes");
+      if (error) throw error;
+      return data as DbSizes;
+    },
+    staleTime: 5 * 60_000,
+  });
+}
+
+/** Historical size snapshots for growth chart. */
+export function useDbSnapshots(days = 30) {
+  return useQuery({
+    queryKey: ["admin", "db-snapshots", days],
+    queryFn: async (): Promise<DbSizeSnapshot[]> => {
+      const since = new Date(Date.now() - days * 86400000).toISOString();
+      const { data, error } = await supabase
+        .from("db_size_snapshots")
+        .select("*")
+        .gte("captured_at", since)
+        .order("captured_at", { ascending: true });
+
+      if (error) throw error;
+      return (data ?? []) as DbSizeSnapshot[];
+    },
+    staleTime: 5 * 60_000,
+  });
+}
+
+/**
+ * Triggers a DB snapshot capture on mount (rate-limited to 1/hour server-side).
+ * Fire-and-forget — we don't block on this.
+ */
+export function useCaptureDbSnapshot() {
+  useEffect(() => {
+    supabase.rpc("capture_db_snapshot").then(/* rate-limited, ignore result */);
+  }, []);
 }

@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { useExperiments } from "@/hooks/use-experiments";
 import { useCurrentFindings } from "@/hooks/use-findings";
@@ -12,13 +12,14 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { RecordLink } from "@/components/shared/record-link";
 import { Section } from "@/components/shared/detail-layout";
 import { MarkdownView } from "@/components/ui/markdown-view";
-import { formatDateTimeShort, formatDateTime } from "@/lib/utils";
+import { cn, formatDateTimeShort, formatDateTime } from "@/lib/utils";
 import {
   AlertTriangle,
   Clock,
   FlaskConical,
   Target,
   BarChart3,
+  ChevronDown,
   Lightbulb,
   Sparkles,
   FolderKanban,
@@ -128,6 +129,84 @@ function BriefExperimentLinks({
             <span className="text-text-quaternary">— {directionById.get(directionId)!.title}</span>
           ) : null}
         </span>
+      )}
+    </div>
+  );
+}
+
+function ParameterGapsPanel({
+  gaps,
+}: {
+  gaps: { parameter: string; values: string[] }[];
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="min-w-0 overflow-hidden rounded-[8px] border border-border bg-surface shadow-sm">
+      <button
+        type="button"
+        id="parameter-gaps-heading"
+        onClick={() => setOpen((o) => !o)}
+        className={cn(
+          "flex w-full min-w-0 items-center justify-between gap-2 px-3 py-2.5 text-left",
+          "transition-colors hover:bg-surface-hover/50",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/35"
+        )}
+        aria-expanded={open}
+        aria-controls="parameter-gaps-panel"
+      >
+        <span className="flex min-w-0 flex-1 items-center gap-2">
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border-subtle bg-surface-raised text-text-secondary">
+            <BarChart3 className="h-3.5 w-3.5" aria-hidden />
+          </span>
+          <span className="min-w-0">
+            <span className="block text-[12px] font-medium text-text">Parameter gaps</span>
+            <span className="mt-0.5 block text-[10px] text-text-quaternary">
+              Single value tested so far
+            </span>
+          </span>
+          <span className="shrink-0 rounded-full border border-border-subtle bg-bg px-2 py-0.5 text-[10px] font-medium tabular-nums text-text-tertiary">
+            {gaps.length}
+          </span>
+        </span>
+        <ChevronDown
+          className={cn(
+            "h-4 w-4 shrink-0 text-text-quaternary transition-transform duration-200",
+            open && "rotate-180"
+          )}
+          aria-hidden
+        />
+      </button>
+
+      {open && (
+        <div
+          id="parameter-gaps-panel"
+          role="region"
+          aria-labelledby="parameter-gaps-heading"
+          className="border-t border-border-subtle px-3 pb-3 pt-1"
+        >
+          <p className="mb-2 text-[11px] leading-relaxed text-text-tertiary">
+            Completed experiments only expose one value for these parameters — consider varying
+            them in follow-on work.
+          </p>
+          <ul className="divide-y divide-border-subtle rounded-md border border-border-subtle bg-bg/80">
+            {gaps.map((g) => (
+              <li
+                key={g.parameter}
+                className="min-w-0 px-2.5 py-2 sm:grid sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] sm:items-start sm:gap-x-3 sm:gap-y-1"
+              >
+                <span className="block min-w-0 break-words font-mono text-[11px] font-medium leading-snug text-text">
+                  {g.parameter}
+                </span>
+                <span className="mt-1 block min-w-0 sm:mt-0">
+                  <span className="inline-block max-w-full rounded-md bg-surface-raised px-2 py-1 font-mono text-[10px] leading-snug text-text-secondary break-words [overflow-wrap:anywhere]">
+                    {g.values[0]}
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
     </div>
   );
@@ -492,25 +571,7 @@ export default function BriefPage() {
           </Section>
 
           {/* Gaps */}
-          {gaps.length > 0 && (
-            <div className="rounded-[8px] border border-status-open/20 bg-status-open/5 p-3">
-              <div className="mb-2 flex items-center gap-2 text-[11px] font-medium uppercase tracking-wider text-status-open">
-                <BarChart3 className="h-3.5 w-3.5" />
-                Parameter Gaps
-              </div>
-              <p className="mb-2 text-[11px] text-text-tertiary">
-                Parameters tested with only a single value.
-              </p>
-              <div className="space-y-1.5">
-                {gaps.map((g) => (
-                  <div key={g.parameter} className="flex items-center gap-2">
-                    <span className="font-mono text-[11px] text-text">{g.parameter}</span>
-                    <span className="font-mono text-[10px] text-text-quaternary">= {g.values[0]}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          {gaps.length > 0 && <ParameterGapsPanel gaps={gaps} />}
 
           {/* Stale */}
           {staleOpen.length > 0 && (

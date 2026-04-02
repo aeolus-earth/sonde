@@ -1,9 +1,29 @@
-import { useAdminStats, useActiveUsers, useAgentTokens } from "@/hooks/use-admin";
+import { useState, useMemo } from "react";
+import {
+  useAdminStats,
+  useActiveUsers,
+  useAgentTokens,
+  useActivityUsageDetail,
+  useDbSizes,
+  useDbSnapshots,
+  useCaptureDbSnapshot,
+} from "@/hooks/use-admin";
 import { useGlobalActivity } from "@/hooks/use-activity";
+import { useRealtimeInvalidation } from "@/hooks/use-realtime";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { RecordLink } from "@/components/shared/record-link";
+import { UsageChart } from "@/components/visualizations/usage-chart";
+import {
+  UsageByActorChart,
+  USAGE_BY_ACTOR_TOP_N,
+} from "@/components/visualizations/usage-by-actor-chart";
+import { DbSizeChart } from "@/components/visualizations/db-size-chart";
+import { formatBytes } from "@/lib/format";
+import { DbGrowthChart } from "@/components/visualizations/db-growth-chart";
 import { formatDateTimeShort, cn } from "@/lib/utils";
+import { Link } from "@tanstack/react-router";
+import { ArrowLeft } from "lucide-react";
 
 const cardClass =
   "rounded-[8px] border border-border bg-surface p-3";
@@ -56,15 +76,46 @@ function tokenStatusLabel(token: {
   return "active";
 }
 
+function usageRangeLabel(days: number): string {
+  const to = new Date();
+  const from = new Date(to.getTime() - days * 86400000);
+  const opts: Intl.DateTimeFormatOptions = {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  };
+  return `${from.toLocaleDateString(undefined, opts)} – ${to.toLocaleDateString(undefined, opts)}`;
+}
+
 export default function AdminDashboard() {
+  const [usageDays, setUsageDays] = useState(30);
+
   const { data: stats, isLoading: statsLoading } = useAdminStats();
   const { data: activity } = useGlobalActivity(50);
   const { data: users } = useActiveUsers(7);
   const { data: tokens } = useAgentTokens();
+  const { data: usageRows, isLoading: usageLoading } = useActivityUsageDetail(usageDays);
+  const { data: dbSizes, isLoading: dbSizesLoading } = useDbSizes();
+  const { data: dbSnapshots, isLoading: dbSnapshotsLoading } = useDbSnapshots(30);
+
+  useCaptureDbSnapshot(); // fire-and-forget, rate-limited to 1/hour server-side
+
+  const usageRowCount = useMemo(() => usageRows?.length ?? 0, [usageRows]);
+
+  useRealtimeInvalidation("activity_log", ["admin"]);
+  useRealtimeInvalidation("activity_log", ["activity", "global"]);
 
   return (
     <div className="mx-auto max-w-[1100px] space-y-6 px-4 py-6">
-      <h1 className="text-[15px] font-semibold text-text">Admin</h1>
+      <div className="flex items-center gap-2">
+        <Link
+          to="/"
+          className="shrink-0 rounded-[5.5px] p-1 text-text-tertiary transition-colors hover:bg-surface-hover hover:text-text-secondary"
+        >
+          <ArrowLeft size={16} />
+        </Link>
+        <h1 className="text-[15px] font-semibold text-text">Admin</h1>
+      </div>
 
       {/* Stats */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -89,6 +140,135 @@ export default function AdminDashboard() {
           loading={statsLoading}
         />
       </div>
+
+      {/* Usage charts */}
+      <section className="space-y-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h2 className="text-[13px] font-medium text-text-secondary">Activity usage</h2>
+            <p className="mt-0.5 text-[11px] text-text-quaternary">
+              {usageRangeLabel(usageDays)}
+              {usageRowCount > 0 && (
+                <span className="text-text-quaternary/80">
+                  {" "}
+                  · {usageRowCount.toLocaleString()} event{usageRowCount !== 1 ? "s" : ""} loaded
+                </span>
+              )}
+            </p>
+          </div>
+          <div className="flex w-full min-w-0 flex-col gap-1.5 sm:w-[min(100%,280px)]">
+            <div className="flex items-center justify-between gap-2 text-[11px] text-text-tertiary">
+              <span>Time range</span>
+              <span className="font-medium tabular-nums text-text-secondary">
+                Last {usageDays} days
+              </span>
+            </div>
+            <input
+              type="range"
+              min={7}
+              max={90}
+              step={1}
+              value={usageDays}
+              onChange={(e) => setUsageDays(Number(e.target.value))}
+              className={cn(
+                "h-2 w-full cursor-pointer appearance-none rounded-full bg-surface-raised",
+                "[&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent [&::-webkit-slider-thumb]:shadow-sm",
+                "[&::-moz-range-thumb]:h-3.5 [&::-moz-range-thumb]:w-3.5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-accent"
+              )}
+              aria-label="Number of days of activity to show"
+            />
+            <div className="flex justify-between text-[10px] text-text-quaternary">
+              <span>7d</span>
+              <span>90d</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-2">
+          <div className={cn(cardClass, "pt-4 pr-1")}>
+            <p className="mb-2 px-1 text-[11px] font-medium text-text-tertiary">All activity</p>
+            {usageLoading ? (
+              <Skeleton className="h-[180px] w-full" />
+            ) : (
+              <UsageChart entries={usageRows ?? []} days={usageDays} />
+            )}
+          </div>
+          <div className={cn(cardClass, "pt-4 pr-1")}>
+            <p className="mb-2 px-1 text-[11px] font-medium text-text-tertiary">
+              By person (top {USAGE_BY_ACTOR_TOP_N}, rest as Other)
+            </p>
+            {usageLoading ? (
+              <Skeleton className="h-[220px] w-full" />
+            ) : (
+              <UsageByActorChart rows={usageRows ?? []} days={usageDays} />
+            )}
+          </div>
+        </div>
+      </section>
+
+      {/* Database storage */}
+      <section className="space-y-3">
+        <h2 className="text-[13px] font-medium text-text-secondary">
+          Database storage
+        </h2>
+
+        {/* Summary stat cards */}
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <StatCard
+            value={dbSizes ? formatBytes(dbSizes.total_db_bytes) : "—"}
+            label="Total database"
+            loading={dbSizesLoading}
+          />
+          <StatCard
+            value={dbSizes ? formatBytes(dbSizes.storage_bytes) : "—"}
+            label="Artifact files"
+            loading={dbSizesLoading}
+          />
+          <StatCard
+            value={
+              dbSizes
+                ? formatBytes(dbSizes.total_db_bytes + dbSizes.storage_bytes)
+                : "—"
+            }
+            label="Combined"
+            loading={dbSizesLoading}
+          />
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-2">
+          {/* Table sizes */}
+          <div className={cn(cardClass, "pt-4 pr-1")}>
+            <p className="mb-2 px-1 text-[11px] font-medium text-text-tertiary">
+              Size by table
+            </p>
+            {dbSizesLoading ? (
+              <Skeleton className="h-[180px] w-full" />
+            ) : dbSizes ? (
+              <DbSizeChart tableSizes={dbSizes.table_sizes} />
+            ) : (
+              <p className="py-8 text-center text-[12px] text-text-quaternary">
+                Could not load table sizes.
+              </p>
+            )}
+          </div>
+
+          {/* Growth over time */}
+          <div className={cn(cardClass, "pt-4 pr-1")}>
+            <p className="mb-2 px-1 text-[11px] font-medium text-text-tertiary">
+              Growth over time
+            </p>
+            {dbSnapshotsLoading ? (
+              <Skeleton className="h-[180px] w-full" />
+            ) : (dbSnapshots ?? []).length > 0 ? (
+              <DbGrowthChart snapshots={dbSnapshots!} />
+            ) : (
+              <p className="py-8 text-center text-[12px] text-text-quaternary">
+                No snapshots yet — growth data will appear after the first hour.
+              </p>
+            )}
+          </div>
+        </div>
+      </section>
 
       {/* Activity feed */}
       <section>
