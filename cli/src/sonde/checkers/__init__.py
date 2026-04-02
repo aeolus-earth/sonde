@@ -14,7 +14,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from sonde.checkers.brief import check_brief_staleness
-from sonde.checkers.directions import check_complete_directions
+from sonde.checkers.directions import check_complete_directions, check_direction_no_synthesis
 from sonde.checkers.experiments import (
     check_dirty_provenance,
     check_missing_method,
@@ -52,6 +52,7 @@ CHECKERS: list[Checker] = [
     check_weakened_evidence,
     check_tag_duplicates,
     check_complete_directions,
+    check_direction_no_synthesis,
     # Graph connectivity
     check_orphan_experiments,
     check_orphan_directions,

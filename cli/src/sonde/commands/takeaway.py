@@ -105,6 +105,7 @@ def _read_file_body(path: Path) -> str | None:
 @click.argument("content", required=False, default=None)
 @click.option("--program", "-p", help="Program (for display only; default from .aeolus.yaml)")
 @click.option("--project", help="Scope takeaway to a project (PROJ-* ID)")
+@click.option("--direction", help="Scope takeaway to a direction (DIR-* ID)")
 @click.option(
     "--file",
     "-f",
@@ -126,29 +127,35 @@ def takeaway(
     content: str | None,
     program: str | None,
     project: str | None,
+    direction: str | None,
     from_file: str | None,
     show: bool,
     replace_content: str | None,
 ) -> None:
-    """Maintain program- or project-level research takeaways.
+    """Maintain program-, project-, or direction-level research takeaways.
 
     Takeaways are your running synthesis — the "so what" of the research.
     While findings record individual facts, takeaways connect them into
     a narrative: what the program has learned and where to go next.
 
-    Use --project to scope takeaways to a specific project.
+    Use --project or --direction to scope takeaways.
 
     \b
     Examples:
       sonde takeaway "CCN saturates at ~1500. Next: BL heating."
       sonde takeaway --project PROJ-001 "Confirmed approach works for mid-lat"
-      sonde takeaway -f synthesis.md
+      sonde takeaway --direction DIR-001 "CCN saturation confirmed at 1500"
       sonde takeaway --show
-      sonde takeaway --project PROJ-001 --show
+      sonde takeaway --direction DIR-001 --show
       sonde takeaway --replace "Fresh consolidated summary"
     """
     settings = get_settings()
     resolved_program = program or settings.program or "unknown"
+
+    if direction:
+        direction = direction.upper()
+        _handle_direction_takeaway(ctx, direction, content, from_file, show, replace_content)
+        return
 
     if project:
         project = project.upper()
@@ -320,3 +327,124 @@ def _handle_project_takeaway(
         print_success(f"Takeaway added ({project_id})")
         err.print(f"  View: sonde takeaway --project {project_id} --show")
         err.print(f"  Project: sonde project show {project_id}")
+
+
+def _sync_direction_to_db(direction_id: str) -> None:
+    """Best-effort sync of direction takeaways to the database."""
+    try:
+        from sonde.db import direction_takeaways as dtw_db
+
+        body = dtw_db.read_takeaways_file(find_sonde_dir(), direction_id)
+        if body:
+            dtw_db.upsert(direction_id, body)
+    except Exception:
+        pass
+
+
+def _direction_takeaways_path(direction_id: str) -> Path:
+    """Return the path for a direction's takeaways.md."""
+    from sonde.local import resolve_record_path
+
+    sonde_dir = find_sonde_dir()
+    dir_path = resolve_record_path(sonde_dir, "directions", direction_id)
+    if dir_path is not None:
+        path = dir_path.parent / "takeaways.md"
+    else:
+        path = sonde_dir / "directions" / direction_id / "takeaways.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _handle_direction_takeaway(
+    ctx: click.Context,
+    direction_id: str,
+    content: str | None,
+    from_file: str | None,
+    show: bool,
+    replace_content: str | None,
+) -> None:
+    """Handle --direction scoped takeaway operations."""
+    if not direction_id.startswith("DIR-"):
+        print_error(
+            f"Invalid direction ID: {direction_id}",
+            "Expected a DIR-* ID.",
+            "sonde direction list",
+        )
+        raise SystemExit(2)
+
+    if not show:
+        try:
+            from sonde.db import directions as dir_db
+
+            if not dir_db.get(direction_id):
+                print_error(
+                    f"Direction {direction_id} not found",
+                    "Cannot add takeaways to a nonexistent direction.",
+                    "sonde direction list",
+                )
+                raise SystemExit(1)
+        except SystemExit:
+            raise
+        except Exception:
+            pass
+
+    path = _direction_takeaways_path(direction_id)
+
+    if show:
+        body = _read_file_body(path)
+        if ctx.obj.get("json"):
+            print_json({"direction": direction_id, "takeaways": body})
+        elif body:
+            err.print(f"\n[sonde.heading]Takeaways ({direction_id})[/]\n")
+            err.print(body)
+            err.print()
+        else:
+            err.print(f"\n[sonde.muted]No takeaways yet for {direction_id}[/]")
+            err.print(f'  Add one: sonde takeaway --direction {direction_id} "what you learned"\n')
+        return
+
+    if replace_content is not None:
+        source = resolve_source()
+        result_path = _replace_takeaways(replace_content, source, path)
+        _sync_direction_to_db(direction_id)
+        if ctx.obj.get("json"):
+            print_json(
+                {
+                    "replaced": True,
+                    "direction": direction_id,
+                    "source": source,
+                    "path": str(result_path),
+                }
+            )
+        else:
+            print_success(f"Takeaways consolidated ({direction_id})")
+        return
+
+    if from_file:
+        content = Path(from_file).read_text(encoding="utf-8")
+    if not content:
+        print_error(
+            "No takeaway content",
+            "Provide a takeaway as an argument or --file.",
+            f'sonde takeaway --direction {direction_id} "what you learned"',
+        )
+        raise SystemExit(2)
+
+    source = resolve_source()
+    _append_takeaway(content, source, path)
+    _sync_direction_to_db(direction_id)
+
+    if ctx.obj.get("json"):
+        print_json(
+            {
+                "appended": True,
+                "direction": direction_id,
+                "content": content.strip(),
+                "source": source,
+                "path": str(path),
+            }
+        )
+    else:
+        print_success(f"Takeaway added ({direction_id})")
+        err.print(f"  View: sonde takeaway --direction {direction_id} --show")
+        err.print(f"  Direction: sonde direction show {direction_id}")

@@ -210,6 +210,25 @@ Good: "CCN saturates at ~1500 across all 3 schemes. The effect is robust --
        BL heating interaction shifts the saturation point."
 ```
 
+### Direction synthesis
+
+When a direction's experiments are done, synthesize what you learned:
+
+```bash
+sonde takeaway --direction DIR-001 "CCN saturation confirmed at 1500.
+Spectral bin produces 8% less enhancement than bulk. Next: combined forcing."
+sonde takeaway --direction DIR-001 --show
+```
+
+### Research trajectory
+
+See what changed recently:
+```bash
+sonde brief -p <program> --days 7       # what happened this week
+sonde brief -p <program> --days 30      # monthly view
+sonde brief -p <program> --since 2026-03-15
+```
+
 ---
 
 ## Updating experiments

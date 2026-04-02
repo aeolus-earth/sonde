@@ -157,6 +157,26 @@ def push_all(ctx: click.Context) -> None:
     except (Exception, SystemExit):
         pass
 
+    # Sync direction takeaways (best-effort)
+    direction_takeaways_synced = 0
+    try:
+        from sonde.db import direction_takeaways as dtw_db
+
+        for search_root in [sonde_dir / "directions", sonde_dir / "projects"]:
+            if not search_root.is_dir():
+                continue
+            for tw_file in search_root.rglob("takeaways.md"):
+                if not tw_file.is_file():
+                    continue
+                dir_name = tw_file.parent.name
+                if dir_name.startswith("DIR-"):
+                    body = dtw_db.read_takeaways_file(sonde_dir, dir_name)
+                    if body:
+                        dtw_db.upsert(dir_name, body)
+                        direction_takeaways_synced += 1
+    except (Exception, SystemExit):
+        pass
+
     # Sync direction and project notes (best-effort) — search flat and nested
     notes_synced = 0
     try:
@@ -181,6 +201,7 @@ def push_all(ctx: click.Context) -> None:
                 **counts,
                 "takeaways_synced": takeaways_synced,
                 "project_takeaways_synced": project_takeaways_synced,
+                "direction_takeaways_synced": direction_takeaways_synced,
                 "notes_synced": notes_synced,
             }
         )
@@ -195,6 +216,8 @@ def push_all(ctx: click.Context) -> None:
             details.append("Takeaways: synced")
         if project_takeaways_synced:
             details.append(f"Project takeaways: {project_takeaways_synced}")
+        if direction_takeaways_synced:
+            details.append(f"Direction takeaways: {direction_takeaways_synced}")
         if notes_synced:
             details.append(f"Direction/project notes: {notes_synced}")
         print_success("Pushed local notebook", details=details)

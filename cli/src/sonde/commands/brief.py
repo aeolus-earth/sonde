@@ -244,6 +244,71 @@ def _build_motivation(program: str | None) -> dict[str, Any] | None:
 # ---------------------------------------------------------------------------
 
 
+def _build_trajectory(
+    program: str | None,
+    *,
+    days: int | None = None,
+    since: str | None = None,
+) -> dict[str, Any] | None:
+    """Build a trajectory section showing what changed in a time window."""
+    from datetime import timedelta
+
+    from sonde.db.activity import get_recent
+
+    if days is None and since is None:
+        return None
+
+    cutoff = since or (datetime.now(UTC) - timedelta(days=days or 7)).strftime("%Y-%m-%d")
+
+    activity = get_recent(program=program, since=cutoff, limit=500)
+    if not activity:
+        return {"period": f"since {cutoff}", "events": 0}
+
+    # Group by outcome
+    completed: list[dict[str, Any]] = []
+    failed: list[dict[str, Any]] = []
+    new_findings: list[dict[str, Any]] = []
+    direction_changes: list[dict[str, Any]] = []
+    new_questions: list[dict[str, Any]] = []
+
+    for entry in activity:
+        action = entry.get("action", "")
+        record_id = entry.get("record_id", "")
+        details = entry.get("details") or {}
+
+        if action == "status_changed" and record_id.startswith("EXP-"):
+            if details.get("to") == "complete":
+                completed.append({"id": record_id, "date": entry["created_at"][:10]})
+            elif details.get("to") == "failed":
+                failed.append({"id": record_id, "date": entry["created_at"][:10]})
+
+        elif action == "status_changed" and record_id.startswith("DIR-"):
+            direction_changes.append(
+                {
+                    "id": record_id,
+                    "from": details.get("from"),
+                    "to": details.get("to"),
+                    "date": entry["created_at"][:10],
+                }
+            )
+
+        elif action == "created" and record_id.startswith("FIND-"):
+            new_findings.append({"id": record_id, "date": entry["created_at"][:10]})
+
+        elif action == "created" and record_id.startswith("Q-"):
+            new_questions.append({"id": record_id, "date": entry["created_at"][:10]})
+
+    return {
+        "period": f"since {cutoff}",
+        "events": len(activity),
+        "completed": completed,
+        "failed": failed,
+        "new_findings": new_findings,
+        "direction_changes": direction_changes,
+        "new_questions": new_questions,
+    }
+
+
 def _build_brief_data(
     title: str,
     experiments: list[Experiment],
@@ -449,6 +514,7 @@ def refresh_brief(program: str) -> None:
 @click.option("--direction", "-d", help="Filter by research direction ID")
 @click.option("--tag", multiple=True, help="Filter by tag (repeatable)")
 @click.option("--since", help="Only include experiments after this date (YYYY-MM-DD)")
+@click.option("--days", type=int, help="Include trajectory for the last N days")
 @click.option("--all", "show_all", is_flag=True, help="Brief across all programs")
 @click.option("--active", "show_active", is_flag=True, help="Show only the live context")
 @click.option("--save", is_flag=True, help="Also save to .sonde/brief.md")
@@ -467,6 +533,7 @@ def brief(
     direction: str | None,
     tag: tuple[str, ...],
     since: str | None,
+    days: int | None,
     show_all: bool,
     show_active: bool,
     save: bool,
@@ -534,6 +601,11 @@ def brief(
     questions = q_db.list_questions(program=resolved)
 
     data = _build_brief_data(title, experiments, findings, questions, program=resolved)
+
+    # Add trajectory section when temporal flags are provided
+    trajectory = _build_trajectory(resolved, days=days, since=since)
+    if trajectory:
+        data["trajectory"] = trajectory
 
     cross_coverage = None
     if gaps:
