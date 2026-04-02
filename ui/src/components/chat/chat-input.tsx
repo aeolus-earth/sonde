@@ -515,7 +515,7 @@ export const ChatInput = memo(function ChatInput({
           >
             {showRotatingPlaceholder && (
               <div
-                className="pointer-events-none absolute inset-0 z-0 flex items-center text-left text-[14px] leading-5 text-text-quaternary select-none"
+                className="pointer-events-none absolute inset-0 z-0 flex items-start justify-start overflow-hidden py-2.5 text-left text-[14px] leading-5 text-text-quaternary select-none"
                 aria-hidden
               >
                 {rotatingPlaceholderText}
@@ -542,7 +542,8 @@ export const ChatInput = memo(function ChatInput({
               rows={1}
               aria-label="Chat message"
               className={cn(
-                "relative z-10 min-h-10 max-h-[192px] w-full resize-none bg-transparent py-2.5 text-[14px] leading-5 text-text placeholder:text-text-quaternary",
+                "relative z-10 min-h-10 max-h-[192px] w-full resize-none bg-transparent px-0 py-2.5 text-[14px] leading-5 text-text placeholder:text-text-quaternary",
+                "align-top placeholder:leading-5",
                 "focus:outline-none disabled:opacity-40"
               )}
               style={{ fieldSizing: "content" } as React.CSSProperties}
@@ -580,43 +581,6 @@ export const ChatInput = memo(function ChatInput({
           </div>
         </div>
         </div>
-      </div>
-
-      <div
-        className={cn(
-          "mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-text-quaternary",
-          embedded && "justify-start"
-        )}
-      >
-        <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
-          <span>
-            <kbd className="rounded-[2px] border border-border px-0.5">Enter</kbd>{" "}
-            send
-          </span>
-          <span className="text-text-quaternary/60">|</span>
-          <span>
-            <kbd className="rounded-[2px] border border-border px-0.5">
-              Shift+Enter
-            </kbd>{" "}
-            newline
-          </span>
-          <span className="text-text-quaternary/60">|</span>
-          <span>
-            <kbd className="rounded-[2px] border border-border px-0.5">@</kbd>{" "}
-            mention
-          </span>
-          <span className="text-text-quaternary/60">|</span>
-          <span>+ attach files</span>
-        </span>
-        <span className="hidden min-[380px]:inline text-text-quaternary/60">
-          |
-        </span>
-        <span className="text-text-tertiary/90 max-[379px]:basis-full sm:basis-auto">
-          <kbd className="rounded-[2px] border border-border px-0.5">
-            /defend-my-existence
-          </kbd>{" "}
-          PRD sparring
-        </span>
       </div>
     </div>
   );
