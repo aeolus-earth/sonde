@@ -9,7 +9,14 @@ import pytest
 from click.testing import CliRunner
 
 from sonde.cli import cli
-from sonde.runtimes import RUNTIMES, detect_runtimes, resolve_runtimes
+from sonde.runtimes import (
+    RUNTIMES,
+    _build_default_mcp_config,
+    _find_server_dir,
+    configure_mcp_server,
+    detect_runtimes,
+    resolve_runtimes,
+)
 from sonde.skills import (
     bundled_skills,
     check_freshness,
@@ -195,6 +202,136 @@ class TestBundledSkills:
         skills = bundled_skills()
         stems = [s[0] for s in skills]
         assert stems == sorted(stems)
+
+
+# ---------------------------------------------------------------------------
+# CLI integration (setup command)
+# ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# MCP server detection and config
+# ---------------------------------------------------------------------------
+
+
+class TestFindServerDir:
+    def test_env_var_takes_priority(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        server_dir = tmp_path / "my-server"
+        server_dir.mkdir()
+        (server_dir / "package.json").write_text("{}")
+        monkeypatch.setenv("SONDE_SERVER_DIR", str(server_dir))
+        assert _find_server_dir() == server_dir
+
+    def test_env_var_ignored_if_no_package_json(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        empty_dir = tmp_path / "empty"
+        empty_dir.mkdir()
+        monkeypatch.setenv("SONDE_SERVER_DIR", str(empty_dir))
+        # Falls through to path-based detection — should NOT return empty_dir
+        result = _find_server_dir()
+        assert result != empty_dir
+
+    def test_finds_real_repo_server(self, monkeypatch: pytest.MonkeyPatch):
+        """In the sonde repo, the real server/ directory should be found."""
+        monkeypatch.delenv("SONDE_SERVER_DIR", raising=False)
+        result = _find_server_dir()
+        # Running inside the repo, so should find it
+        assert result is not None
+        assert (result / "package.json").exists()
+
+
+class TestBuildDefaultMcpConfig:
+    def test_uses_node_server_when_found(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        server_dir = tmp_path / "server"
+        server_dir.mkdir()
+        (server_dir / "package.json").write_text("{}")
+        monkeypatch.setenv("SONDE_SERVER_DIR", str(server_dir))
+        monkeypatch.delenv("SONDE_TOKEN", raising=False)
+
+        config = _build_default_mcp_config()
+        assert config is not None
+        assert config["command"] == "npx"
+        assert config["args"] == ["tsx", "src/index.ts"]
+        assert config["cwd"] == str(server_dir)
+        assert "env" not in config  # No token set
+
+    def test_includes_token_when_set(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        server_dir = tmp_path / "server"
+        server_dir.mkdir()
+        (server_dir / "package.json").write_text("{}")
+        monkeypatch.setenv("SONDE_SERVER_DIR", str(server_dir))
+        monkeypatch.setenv("SONDE_TOKEN", "sonde_bt_test123")
+
+        config = _build_default_mcp_config()
+        assert config is not None
+        assert config["env"] == {"SONDE_TOKEN": "sonde_bt_test123"}
+
+    def test_falls_back_to_cli_when_no_server(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.delenv("SONDE_TOKEN", raising=False)
+        # Force _find_server_dir to return None
+        monkeypatch.setattr("sonde.runtimes._find_server_dir", lambda: None)
+        monkeypatch.setattr("sonde.runtimes.shutil.which", lambda _: "/usr/bin/sonde")
+        config = _build_default_mcp_config()
+        assert config is not None
+        assert config["command"] == "/usr/bin/sonde"
+        assert config["args"] == ["mcp", "serve"]
+
+    def test_returns_none_when_nothing_available(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.setattr("sonde.runtimes._find_server_dir", lambda: None)
+        monkeypatch.setattr("sonde.runtimes.shutil.which", lambda _: None)
+        assert _build_default_mcp_config() is None
+
+
+class TestConfigureMcpServer:
+    def test_writes_config_to_settings(self, tmp_path: Path):
+        settings_path = tmp_path / ".claude" / "settings.json"
+        config = {"command": "npx", "args": ["tsx", "src/index.ts"], "cwd": "/srv"}
+
+        changed = configure_mcp_server(settings_path, "sonde", config)
+        assert changed is True
+        assert settings_path.exists()
+
+        import json
+
+        data = json.loads(settings_path.read_text())
+        assert data["mcpServers"]["sonde"] == config
+
+    def test_idempotent(self, tmp_path: Path):
+        settings_path = tmp_path / "settings.json"
+        config = {"command": "npx", "args": ["tsx"]}
+
+        configure_mcp_server(settings_path, "sonde", config)
+        changed = configure_mcp_server(settings_path, "sonde", config)
+        assert changed is False
+
+    def test_preserves_other_servers(self, tmp_path: Path):
+        import json
+
+        settings_path = tmp_path / "settings.json"
+        settings_path.write_text(json.dumps({"mcpServers": {"other": {"command": "other-cmd"}}}))
+
+        config = {"command": "npx", "args": ["tsx"]}
+        configure_mcp_server(settings_path, "sonde", config)
+
+        data = json.loads(settings_path.read_text())
+        assert "other" in data["mcpServers"]
+        assert "sonde" in data["mcpServers"]
+
+    def test_returns_false_when_no_config_available(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        settings_path = tmp_path / "settings.json"
+        monkeypatch.setattr("sonde.runtimes._find_server_dir", lambda: None)
+        monkeypatch.setattr("sonde.runtimes.shutil.which", lambda _: None)
+
+        changed = configure_mcp_server(settings_path)
+        assert changed is False
+        assert not settings_path.exists()
 
 
 # ---------------------------------------------------------------------------
