@@ -93,6 +93,57 @@ def resolve_runtimes(project_root: Path, names: str | None) -> list[RuntimeSpec]
 # ---------------------------------------------------------------------------
 
 
+def _find_server_dir() -> Path | None:
+    """Find the MCP server directory (server/) relative to the sonde repo."""
+    import os
+
+    # Check env var override first
+    explicit = os.environ.get("SONDE_SERVER_DIR")
+    if explicit:
+        p = Path(explicit)
+        if (p / "package.json").exists():
+            return p
+
+    # Walk up from CLI package to find repo root → server/
+    cli_dir = Path(__file__).resolve().parent.parent.parent  # cli/src/sonde → cli/
+    repo_dir = cli_dir.parent
+    server_dir = repo_dir / "server"
+    if (server_dir / "package.json").exists():
+        return server_dir
+
+    # Check CWD-relative (for users who cd into the repo)
+    cwd_server = Path.cwd() / "server"
+    if (cwd_server / "package.json").exists():
+        return cwd_server
+
+    return None
+
+
+def _build_default_mcp_config() -> dict | None:
+    """Build the default MCP server config, detecting the Node.js server."""
+    import os
+
+    server_dir = _find_server_dir()
+    if server_dir:
+        config: dict = {
+            "command": "npx",
+            "args": ["tsx", "src/index.ts"],
+            "cwd": str(server_dir),
+        }
+        # Include SONDE_TOKEN in env for agent mode
+        token = os.environ.get("SONDE_TOKEN", "")
+        if token:
+            config["env"] = {"SONDE_TOKEN": token}
+        return config
+
+    # Fallback: sonde CLI on PATH (for standalone installs without the server)
+    sonde_path = shutil.which("sonde")
+    if sonde_path:
+        return {"command": sonde_path, "args": ["mcp", "serve"]}
+
+    return None
+
+
 def configure_mcp_server(
     settings_path: Path,
     server_name: str = "sonde",
@@ -100,10 +151,9 @@ def configure_mcp_server(
 ) -> bool:
     """Add an MCP server to a JSON settings file. Returns True if changed."""
     if server_config is None:
-        sonde_path = shutil.which("sonde")
-        if not sonde_path:
+        server_config = _build_default_mcp_config()
+        if not server_config:
             return False
-        server_config = {"command": sonde_path, "args": ["mcp", "serve"]}
 
     if settings_path.exists():
         try:

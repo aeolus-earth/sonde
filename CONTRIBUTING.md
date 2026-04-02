@@ -46,7 +46,8 @@ cd cli && uv run sonde login
 |---------|-----|
 | "Session expired" | Run `sonde login` to re-authenticate |
 | OAuth won't open browser (SSH/remote) | CLI prints a URL — copy it to your local browser |
-| Agent auth | Set `SONDE_TOKEN` env var (ask team lead for a token) |
+| Agent auth | Set `SONDE_TOKEN` env var — see [docs/agent-setup.md](docs/agent-setup.md) |
+| "Permission denied: ~/.config/sonde" | `sudo chown -R $(whoami) ~/.config/sonde` or `export SONDE_CONFIG_DIR=~/.sonde` |
 | "Permission denied" on DB ops | Your program membership may not include that program — check `sonde whoami` |
 | "Error connecting" after `sonde login` | Check `.env` has correct `AEOLUS_SUPABASE_URL` |
 
