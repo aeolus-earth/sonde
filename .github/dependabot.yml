@@ -6,20 +6,15 @@ updates:
     schedule:
       interval: "weekly"
       day: "monday"
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 5
     groups:
-      vite:
-        patterns:
-          - "vite"
-          - "@vitejs/*"
-      react:
-        patterns:
-          - "react"
-          - "react-dom"
-          - "@types/react*"
-      tanstack:
-        patterns:
-          - "@tanstack/*"
+      ui-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+      ui-major:
+        update-types:
+          - "major"
     labels:
       - "dependencies"
       - "ui"
@@ -31,6 +26,14 @@ updates:
       interval: "weekly"
       day: "monday"
     open-pull-requests-limit: 5
+    groups:
+      server-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+      server-major:
+        update-types:
+          - "major"
     labels:
       - "dependencies"
       - "server"
@@ -42,6 +45,10 @@ updates:
       interval: "weekly"
       day: "monday"
     open-pull-requests-limit: 5
+    groups:
+      cli-all:
+        patterns:
+          - "*"
     labels:
       - "dependencies"
       - "cli"
@@ -52,7 +59,11 @@ updates:
     schedule:
       interval: "weekly"
       day: "monday"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 3
+    groups:
+      actions-all:
+        patterns:
+          - "*"
     labels:
       - "dependencies"
       - "ci"
