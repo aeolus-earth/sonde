@@ -53,7 +53,7 @@ jobs:
         run: npx playwright test e2e/deployed.spec.ts --reporter=github
 
       - name: Upload report on failure
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: production-smoke-report
