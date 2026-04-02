@@ -74,11 +74,7 @@ def _dry_run_report(ctx: click.Context) -> None:
 
     counts: dict[str, int] = {}
     for category in _DRY_RUN_CATEGORIES:
-        cat_dir = sonde_dir / category
-        if cat_dir.is_dir():
-            counts[category] = len(list(cat_dir.glob("*.md")))
-        else:
-            counts[category] = 0
+        counts[category] = len(_discover_record_files(sonde_dir, category))
 
     takeaways_exists = (sonde_dir / "takeaways.md").exists()
 
@@ -161,20 +157,21 @@ def push_all(ctx: click.Context) -> None:
     except (Exception, SystemExit):
         pass
 
-    # Sync direction and project notes (best-effort)
+    # Sync direction and project notes (best-effort) — search flat and nested
     notes_synced = 0
     try:
-        for subdir_name, record_type, prefix in [
-            ("directions", "direction", "DIR-"),
-            ("projects", "project", "PROJ-"),
-        ]:
-            parent_dir = sonde_dir / subdir_name
-            if parent_dir.is_dir():
-                for record_dir in parent_dir.iterdir():
-                    if record_dir.is_dir() and record_dir.name.startswith(prefix):
-                        notes_synced += _sync_record_notes(
-                            record_type, record_dir.name, record_dir / "notes"
-                        )
+        for search_root in [sonde_dir / "directions", sonde_dir / "projects"]:
+            if not search_root.is_dir():
+                continue
+            for notes_dir in search_root.rglob("notes"):
+                if not notes_dir.is_dir():
+                    continue
+                record_dir = notes_dir.parent
+                name = record_dir.name
+                if name.startswith("DIR-"):
+                    notes_synced += _sync_record_notes("direction", name, notes_dir)
+                elif name.startswith("PROJ-"):
+                    notes_synced += _sync_record_notes("project", name, notes_dir)
     except (Exception, SystemExit):
         pass
 
@@ -320,15 +317,71 @@ def _push_directory(category: str, *, use_json: bool | None = None) -> int:
         ctx = click.get_current_context(silent=True)
         use_json = bool(ctx and ctx.obj and ctx.obj.get("json"))
     sonde_dir = find_sonde_dir()
-    directory = sonde_dir / category
-    if not directory.exists():
-        return 0
 
+    files = _discover_record_files(sonde_dir, category)
+    seen_ids: set[str] = set()
     count = 0
-    for filepath in sorted(directory.glob("*.md")):
+    for filepath in files:
+        # Deduplicate: same record may exist in flat and nested layouts
+        fm, _ = parse_markdown(filepath.read_text(encoding="utf-8"))
+        record_id = str(fm.get("id", "")).upper()
+        if record_id and record_id in seen_ids:
+            continue
+        if record_id:
+            seen_ids.add(record_id)
         _push_file(category, filepath, use_json=use_json)
         count += 1
     return count
+
+
+def _discover_record_files(sonde_dir: Path, category: str) -> list[Path]:
+    """Discover all record files for a category across flat and nested layouts."""
+    files: list[Path] = []
+
+    if category in ("findings", "questions"):
+        # Findings and questions are always flat
+        flat_dir = sonde_dir / category
+        if flat_dir.is_dir():
+            files.extend(flat_dir.glob("*.md"))
+        return sorted(files)
+
+    if category == "experiments":
+        # Flat layout
+        flat_dir = sonde_dir / "experiments"
+        if flat_dir.is_dir():
+            files.extend(flat_dir.glob("*.md"))
+        # Nested under projects/
+        projects_dir = sonde_dir / "projects"
+        if projects_dir.is_dir():
+            files.extend(p for p in projects_dir.rglob("EXP-*.md") if p.is_file())
+        # Nested under orphan directions/
+        dirs_dir = sonde_dir / "directions"
+        if dirs_dir.is_dir():
+            files.extend(p for p in dirs_dir.rglob("EXP-*.md") if p.is_file())
+        return sorted(set(files))
+
+    if category == "directions":
+        # Flat layout (legacy DIR-xxx.md files)
+        flat_dir = sonde_dir / "directions"
+        if flat_dir.is_dir():
+            files.extend(flat_dir.glob("DIR-*.md"))
+            # Nested direction.md inside directions/DIR-xxx/
+            for d in flat_dir.iterdir():
+                if d.is_dir() and d.name.startswith("DIR-"):
+                    dm = d / "direction.md"
+                    if dm.is_file():
+                        files.append(dm)
+        # Nested under projects/
+        projects_dir = sonde_dir / "projects"
+        if projects_dir.is_dir():
+            files.extend(p for p in projects_dir.rglob("direction.md") if p.is_file())
+        return sorted(set(files))
+
+    # Fallback for unknown categories
+    flat_dir = sonde_dir / category
+    if flat_dir.is_dir():
+        files.extend(flat_dir.glob("*.md"))
+    return sorted(files)
 
 
 def _push_one(category: str, name: str, *, use_json: bool | None = None) -> dict[str, Any]:
@@ -479,6 +532,7 @@ def _upsert_experiment(
         "metadata": frontmatter.get("metadata") or {},
         "data_sources": frontmatter.get("data_sources") or [],
         "direction_id": frontmatter.get("direction_id"),
+        "project_id": frontmatter.get("project_id"),
         "related": frontmatter.get("related") or [],
         "parent_id": frontmatter.get("parent_id"),
         "branch_type": frontmatter.get("branch_type"),
@@ -618,12 +672,15 @@ def _upsert_direction(frontmatter: dict[str, Any], body: str, filepath: Path) ->
     source = _resolve_source(frontmatter)
     title = frontmatter.get("title") or _extract_heading(body, filepath.stem.replace("-", " "))
     question = frontmatter.get("question") or _extract_context(body) or title
-    payload = {
+    payload: dict[str, Any] = {
         "program": program,
         "title": title,
         "question": question,
         "status": frontmatter.get("status", "active"),
         "source": source,
+        "project_id": frontmatter.get("project_id"),
+        "parent_direction_id": frontmatter.get("parent_direction_id"),
+        "spawned_from_experiment_id": frontmatter.get("spawned_from_experiment_id"),
     }
 
     existing_id = str(frontmatter.get("id", "")).upper()
