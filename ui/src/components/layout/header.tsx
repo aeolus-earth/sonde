@@ -1,6 +1,6 @@
 import { memo } from "react";
-import { useRouter } from "@tanstack/react-router";
-import { PanelLeftClose, PanelLeft, Search, LogOut, Moon, Sun, Menu } from "lucide-react";
+import { Link, useRouter } from "@tanstack/react-router";
+import { PanelLeftClose, PanelLeft, Search, LogOut, Moon, Sun, Menu, Shield } from "lucide-react";
 import {
   useUIStore,
   useSidebarOpen,
@@ -73,6 +73,15 @@ export const Header = memo(function Header() {
         </button>
         {user && (
           <>
+            {user.email === "mason@aeolus.earth" && (
+              <Link
+                to="/admin"
+                className="rounded-[5.5px] p-1 text-text-quaternary transition-colors hover:bg-surface-hover hover:text-text-tertiary"
+                title="Admin dashboard"
+              >
+                <Shield className="h-3.5 w-3.5" />
+              </Link>
+            )}
             <span className="text-[12px] text-text-tertiary">{user.email}</span>
             <button
               type="button"
