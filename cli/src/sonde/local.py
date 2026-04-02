@@ -218,6 +218,13 @@ def generate_body(record: dict[str, Any]) -> str:
         lines.append(question)
         lines.append("")
 
+    # Hypothesis (when title is not the hypothesis itself)
+    hypothesis = record.get("hypothesis")
+    if hypothesis and record.get("title") and hypothesis != record.get("title"):
+        lines.append("## Hypothesis")
+        lines.append(hypothesis)
+        lines.append("")
+
     # Parameters
     params = record.get("parameters", {})
     if params:
@@ -390,13 +397,17 @@ tags: []
 
 # Title
 
-Describe your experiment here. Include whatever is relevant:
-- What you're testing and why
-- Method, setup, parameters
-- Results and observations
-- What you learned
+## Hypothesis
+What you expect to find and why.
 
-Be as detailed or brief as the research requires.
+## Method
+Exact procedure: tools, commands, parameters, config changes.
+
+## Results
+Raw observations, measurements, outputs.
+
+## Finding
+Interpretation — what this means for the research direction.
 """,
     "direction": """---
 program: {program}
@@ -580,3 +591,88 @@ def extract_finding_text(content: str) -> str | None:
         if paragraph and not paragraph.startswith("#"):
             return paragraph
     return None
+
+
+# ---------------------------------------------------------------------------
+# Content section parsing — structured methodology
+# ---------------------------------------------------------------------------
+
+STANDARD_SECTIONS = ("Hypothesis", "Method", "Results", "Finding")
+"""Canonical section order for experiment content."""
+
+
+def parse_sections(content: str) -> dict[str, str]:
+    """Parse markdown content into named sections.
+
+    Returns a dict keyed by lowercased section name. The key ``""``
+    holds everything before the first ``## `` header (title + preamble).
+    """
+    import re
+
+    sections: dict[str, str] = {}
+    current_key = ""
+    current_lines: list[str] = []
+
+    for line in content.splitlines():
+        if re.match(r"^## \S", line):
+            sections[current_key] = "\n".join(current_lines).strip()
+            current_key = line[3:].strip().lower()
+            current_lines = []
+        else:
+            current_lines.append(line)
+
+    sections[current_key] = "\n".join(current_lines).strip()
+    return sections
+
+
+def has_section(content: str, section: str) -> bool:
+    """Check whether content contains a ``## {section}`` header."""
+    import re
+
+    pattern = rf"^## {re.escape(section)}\s*$"
+    return bool(re.search(pattern, content, re.IGNORECASE | re.MULTILINE))
+
+
+def update_section(content: str, section: str, body: str) -> str:
+    """Replace or insert a named section in markdown content.
+
+    If the section already exists, its body is replaced. Otherwise the
+    section is inserted at the canonical position (Hypothesis → Method →
+    Results → Finding).
+    """
+    import re
+
+    # Normalise section name to title case for the header
+    display_name = section.strip().title()
+
+    # If section exists, replace its body
+    # Use (?:\n|$) to handle both newline and end-of-string after the header
+    pattern = rf"(^## {re.escape(display_name)}\s*(?:\n|$))(.*?)(?=^## |\Z)"
+    match = re.search(pattern, content, re.IGNORECASE | re.MULTILINE | re.DOTALL)
+    if match:
+        replacement = f"## {display_name}\n{body.strip()}\n\n"
+        return content[: match.start()] + replacement + content[match.end() :].lstrip("\n")
+
+    # Section doesn't exist — insert at canonical position
+    canonical = [s.lower() for s in STANDARD_SECTIONS]
+    sec_lower = section.lower()
+    target_idx = canonical.index(sec_lower) if sec_lower in canonical else len(canonical)
+    new_block = f"## {display_name}\n{body.strip()}\n\n"
+
+    # Find the first existing section that comes after our target in canonical order
+    lines = content.splitlines(keepends=True)
+    insert_before: int | None = None
+    for i, line in enumerate(lines):
+        if re.match(r"^## \S", line):
+            sec_name = line[3:].strip().lower()
+            if sec_name in canonical and canonical.index(sec_name) > target_idx:
+                insert_before = i
+                break
+
+    if insert_before is not None:
+        before = "".join(lines[:insert_before]).rstrip("\n") + "\n\n"
+        after = "".join(lines[insert_before:])
+        return before + new_block + after
+
+    # No later section found — append at the end
+    return content.rstrip("\n") + "\n\n" + new_block

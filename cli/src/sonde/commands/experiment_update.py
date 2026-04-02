@@ -43,6 +43,8 @@ from sonde.output import (
 @click.option("--finding", help="Update finding")
 @click.option("--content", "-c", "content_text", help="Replace content body")
 @click.option("--content-file", type=click.Path(exists=True), help="Replace content from file")
+@click.option("--method", help="Update the ## Method section in content")
+@click.option("--results", "results_text", help="Update the ## Results section in content")
 @click.option("--direction", help="Set or change the parent research direction")
 @click.option("--project", help="Set or change the parent project")
 @click.option("--linear", help="Link to a Linear issue ID (e.g. AEO-123)")
@@ -62,6 +64,8 @@ def update(
     finding: str | None,
     content_text: str | None,
     content_file: str | None,
+    method: str | None,
+    results_text: str | None,
     direction: str | None,
     project: str | None,
     linear: str | None,
@@ -114,6 +118,17 @@ def update(
         updates["content"] = Path(content_file).read_text(encoding="utf-8").strip()
     elif content_text is not None:
         updates["content"] = content_text
+
+    # Section-level content updates (read → patch → write back)
+    if method is not None or results_text is not None:
+        from sonde.local import update_section
+
+        existing_content = updates.get("content") or exp.content or ""
+        if method is not None:
+            existing_content = update_section(existing_content, "method", method)
+        if results_text is not None:
+            existing_content = update_section(existing_content, "results", results_text)
+        updates["content"] = existing_content
 
     # Params: merge file + inline with existing
     try:

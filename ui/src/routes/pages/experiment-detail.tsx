@@ -115,7 +115,14 @@ export default function ExperimentDetailPage() {
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start">
         {/* Main + meta (single column) */}
         <div className="min-w-0 flex-1 space-y-3">
-          {exp.hypothesis && (
+          {exp.content && (
+            <Section title="Content">
+              <MarkdownView content={exp.content} />
+            </Section>
+          )}
+
+          {/* Legacy structured fields — shown only when content is absent */}
+          {!exp.content && exp.hypothesis && (
             <Section title="Hypothesis">
               {looksLikeMarkdown(exp.hypothesis) ? (
                 <MarkdownView content={exp.hypothesis} />
@@ -127,7 +134,7 @@ export default function ExperimentDetailPage() {
             </Section>
           )}
 
-          {exp.finding && (
+          {!exp.content && exp.finding && (
             <Section title="Finding">
               {looksLikeMarkdown(exp.finding) ? (
                 <MarkdownView content={exp.finding} />
@@ -200,12 +207,13 @@ export default function ExperimentDetailPage() {
             <ArtifactGallery parentId={exp.id} />
           </Section>
 
-          {!exp.hypothesis &&
+          {!exp.content &&
+            !exp.hypothesis &&
             !exp.finding &&
             exp.artifact_count === 0 &&
             (!notes || notes.length === 0) && (
               <div className="rounded-[8px] border border-border-subtle py-10 text-center text-[13px] text-text-quaternary">
-                No hypothesis, finding, notes, or artifacts recorded yet.
+                No content, findings, notes, or artifacts recorded yet.
               </div>
             )}
 

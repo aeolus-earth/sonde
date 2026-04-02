@@ -49,16 +49,19 @@ export function createExperimentTools(sondeToken: string) {
 
     tool(
       "sonde_experiment_log",
-      "Log a new experiment. Provide a hypothesis and optional parameters, tags, and direction.",
+      "Log a new experiment. Provide content (preferred — use ## Hypothesis, ## Method, ## Results, ## Finding sections) or a hypothesis string, plus optional tags and direction.",
       {
-        hypothesis: z.string().describe("The hypothesis being tested"),
+        content: z.string().optional().describe("Full markdown content for the experiment body (preferred). Use ## Hypothesis, ## Method, ## Results, ## Finding sections."),
+        hypothesis: z.string().optional().describe("The hypothesis being tested (legacy — prefer content with sections)"),
         direction: z.string().optional().describe("Direction ID to link to"),
         tag: z.array(z.string()).optional().describe("Tags to apply"),
         parent: z.string().optional().describe("Parent experiment ID for branching"),
         branch_type: z.enum(["exploratory", "refinement", "alternative", "debug", "replication"]).optional(),
       },
       async (args) => {
-        const flags = ["experiment", "log", "--json", "--hypothesis", args.hypothesis];
+        const flags = ["experiment", "log", "--json"];
+        if (args.content) flags.push(args.content);
+        else if (args.hypothesis) flags.push("--hypothesis", args.hypothesis);
         if (args.direction) flags.push("--direction", args.direction);
         if (args.tag) for (const t of args.tag) flags.push("--tag", t);
         if (args.parent) flags.push("--parent", args.parent);
@@ -82,11 +85,15 @@ export function createExperimentTools(sondeToken: string) {
 
     tool(
       "sonde_experiment_update",
-      "Update an experiment's finding, hypothesis, status, tags, direction, project, or Linear link. Use this to assign experiments to projects/directions or link to Linear issues.",
+      "Update an experiment's content, methodology sections, finding, hypothesis, status, tags, direction, project, or Linear link. Use --method/--results to update individual ## sections without replacing entire content.",
       {
         experiment_id: z.string().describe("Experiment ID"),
+        content: z.string().optional().describe("Replace the full content body"),
+        method: z.string().optional().describe("Update the ## Method section in content"),
+        results: z.string().optional().describe("Update the ## Results section in content"),
         finding: z.string().optional().describe("Set the finding/result"),
         hypothesis: z.string().optional().describe("Update the hypothesis"),
+        status: z.enum(["open", "running", "complete", "failed", "superseded"]).optional().describe("Update status"),
         direction: z.string().optional().describe("Link to a direction ID"),
         project: z.string().optional().describe("Link to a project ID (e.g. PROJ-001)"),
         linear: z.string().optional().describe("Link to a Linear issue ID (e.g. AEO-123)"),
@@ -94,8 +101,12 @@ export function createExperimentTools(sondeToken: string) {
       },
       async (args) => {
         const flags = ["experiment", "update", args.experiment_id, "--json"];
+        if (args.content) flags.push("--content", args.content);
+        if (args.method) flags.push("--method", args.method);
+        if (args.results) flags.push("--results", args.results);
         if (args.finding) flags.push("--finding", args.finding);
         if (args.hypothesis) flags.push("--hypothesis", args.hypothesis);
+        if (args.status) flags.push("--status", args.status);
         if (args.direction) flags.push("--direction", args.direction);
         if (args.project) flags.push("--project", args.project);
         if (args.linear) flags.push("--linear", args.linear);

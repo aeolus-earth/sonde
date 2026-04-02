@@ -40,7 +40,7 @@ The preferred way to enrich experiments is `sonde update`. Do not pull/edit/push
 
 ```bash
 # Set the content body (the most important update)
-sonde update EXP-0001 -c "## Objective\nTest CCN=1500 saturation threshold\n\n## Method\nSpectral bin, 25km, North Atlantic"
+sonde update EXP-0001 -c "## Hypothesis\nTest CCN=1500 saturation threshold\n\n## Method\nSpectral bin, 25km, North Atlantic"
 
 # Or from a markdown file (better for longer content)
 sonde update EXP-0001 --content-file analysis.md
@@ -70,7 +70,7 @@ sonde update EXP-0001 \
 Good experiment content follows this template. Adapt to what is relevant — not every section applies to every experiment — but these sections make records searchable, reproducible, and useful to future agents:
 
 ```markdown
-## Objective
+## Hypothesis
 What you're testing and why.
 Reference the finding or question that motivated it.
 
@@ -88,7 +88,7 @@ What happened. Numbers, not narratives.
 - Domain-mean temperature bias: -0.3K
 - Spinup time: 6h
 
-## Interpretation
+## Finding
 What it means. Connect to prior work.
 Does it support, contradict, or extend prior findings?
 
@@ -97,6 +97,12 @@ Where the output lives:
 - S3: `s3://aeolus-data/experiments/EXP-XXXX/output.zarr`
 - STAC: `nwp-simulations/EXP-XXXX-output`
 - Load: `xr.open_zarr("s3://aeolus-data/experiments/EXP-XXXX/output.zarr")`
+```
+
+You can update individual sections without replacing the whole body:
+```bash
+sonde update EXP-0001 --method "Modified run_config.yaml: scheme=spectral_bin, ccn=1500"
+sonde update EXP-0001 --results "Enhancement: 5.8%, LWC: 1.03 g/m3, spinup: 6h"
 ```
 
 **The first line of content matters most.** It is what appears in `sonde list`, `sonde search`, and `sonde brief`. A first line like "Spectral bin CCN=1500, 8% less enhancement than bulk" is findable. A first line like "Run 3" is not.
@@ -309,7 +315,7 @@ After (properly formatted with `sonde update`):
 ```bash
 # 1. Add structured content
 sonde update EXP-0042 --content-file - <<'EOF'
-## Objective
+## Hypothesis
 Test whether spectral bin microphysics changes CCN sensitivity
 relative to bulk 2-moment at CCN=1200. Motivated by FIND-001
 (CCN saturation with bulk scheme).
@@ -326,7 +332,7 @@ relative to bulk 2-moment at CCN=1200. Motivated by FIND-001
 - Domain-mean temperature bias: -0.3K
 - Spinup time: 6h (same as bulk)
 
-## Interpretation
+## Finding
 Spectral bin produces substantially less enhancement (8% less) than
 bulk at the same CCN. Consistent with FIND-001 saturation hypothesis
 but the threshold appears lower with spectral bin. Need to test

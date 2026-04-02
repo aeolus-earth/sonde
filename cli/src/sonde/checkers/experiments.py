@@ -128,6 +128,52 @@ def check_no_content(data: HealthData) -> list[HealthIssue]:
     return issues
 
 
+def check_missing_method(data: HealthData) -> list[HealthIssue]:
+    """Flag complete experiments with content but no ## Method section."""
+    from sonde.local import has_section
+
+    issues: list[HealthIssue] = []
+    for e in data.experiments:
+        if e["status"] not in ("complete", "failed"):
+            continue
+        content = e.get("content") or ""
+        if content and not has_section(content, "Method"):
+            issues.append(
+                HealthIssue(
+                    category="experiment",
+                    severity="info",
+                    record_id=e["id"],
+                    message="complete with no ## Method section",
+                    fix=f'sonde update {e["id"]} --method "..."',
+                    penalty=1,
+                )
+            )
+    return issues
+
+
+def check_missing_results(data: HealthData) -> list[HealthIssue]:
+    """Flag complete experiments with content but no ## Results section."""
+    from sonde.local import has_section
+
+    issues: list[HealthIssue] = []
+    for e in data.experiments:
+        if e["status"] not in ("complete", "failed"):
+            continue
+        content = e.get("content") or ""
+        if content and not has_section(content, "Results"):
+            issues.append(
+                HealthIssue(
+                    category="experiment",
+                    severity="info",
+                    record_id=e["id"],
+                    message="complete with no ## Results section",
+                    fix=f'sonde update {e["id"]} --results "..."',
+                    penalty=1,
+                )
+            )
+    return issues
+
+
 def check_dirty_provenance(data: HealthData) -> list[HealthIssue]:
     """Flag completed experiments closed with dirty git state."""
     issues: list[HealthIssue] = []

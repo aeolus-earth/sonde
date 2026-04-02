@@ -42,7 +42,11 @@ def _ago(hours: int) -> str:
 def _make_experiment(
     exp_id: str,
     status: str = "complete",
-    content: str | None = "# Experiment\n\nRan simulation.",
+    content: str | None = (
+        "# Experiment\n\n## Hypothesis\nTest hypothesis.\n\n"
+        "## Method\nRan simulation.\n\n## Results\nObserved output.\n\n"
+        "## Finding\nConclusion."
+    ),
     finding: str | None = "Found something interesting",
     tags: list[str] | None = None,
     direction_id: str | None = None,

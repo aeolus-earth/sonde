@@ -473,9 +473,25 @@ def _change_status(
             )
         else:
             print_nudge(
-                "Document your approach — method, parameters, expected outcome:",
-                f'sonde update {experiment_id} "## Objective\\n<what & why>\\n\\n'
-                f'## Setup\\n<config, hardware, command>\\n\\n## Expected\\n<success criteria>"',
+                "Document your approach — hypothesis and method:",
+                f'sonde update {experiment_id} --method "<your procedure, tools, parameters>"',
+            )
+
+    # Nudge: missing results section at close
+    if (
+        new_status in ("complete", "failed")
+        and not ctx.obj.get("json")
+        and exp_after
+        and exp_after.content
+    ):
+        from sonde.local import has_section
+
+        if not has_section(exp_after.content, "Results"):
+            from sonde.output import print_nudge
+
+            print_nudge(
+                "Document raw results before writing the finding:",
+                f'sonde update {experiment_id} --results "<observations, measurements>"',
             )
 
     # Nudge: no finding recorded at close
