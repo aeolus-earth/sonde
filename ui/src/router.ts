@@ -18,11 +18,13 @@ import { Route as briefRoute } from "./routes/brief";
 import { Route as projectsRoute } from "./routes/projects/index";
 import { Route as projectDetailRoute } from "./routes/projects/$id";
 import { Route as timelineRoute } from "./routes/timeline";
+import { Route as adminRoute } from "./routes/admin";
 import { Route as notFoundRoute } from "./routes/$";
 
 const routeTree = rootRoute.addChildren([
   loginRoute,
   authCallbackRoute,
+  adminRoute,
   authenticatedRoute.addChildren([
     indexRoute,
     dashboardRoute,
