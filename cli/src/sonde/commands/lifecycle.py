@@ -10,7 +10,7 @@ from sonde.auth import resolve_source
 from sonde.cli_options import pass_output_options
 from sonde.db import experiments as db
 from sonde.db.activity import log_activity
-from sonde.git import detect_git_context
+from sonde.git import detect_git_context, detect_multi_repo_context, snapshots_to_json
 from sonde.models.experiment import Experiment
 from sonde.output import err, print_error, print_json, print_success
 
@@ -358,6 +358,7 @@ def _change_status(
 
     # Git provenance — capture context for start and close
     git_ctx = detect_git_context()
+    code_ctx = detect_multi_repo_context()
 
     # Close: enforce clean working tree (unless --force or not in a git repo)
     if new_status in ("complete", "failed") and git_ctx and git_ctx.dirty and not force:
@@ -391,6 +392,10 @@ def _change_status(
         updates["git_close_commit"] = git_ctx.commit
         updates["git_close_branch"] = git_ctx.branch
         updates["git_dirty"] = git_ctx.dirty
+
+    # Multi-repo code context: capture at every transition
+    if code_ctx:
+        updates["code_context"] = snapshots_to_json(code_ctx)
 
     db.update(experiment_id, updates)
 

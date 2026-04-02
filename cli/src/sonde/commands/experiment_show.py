@@ -107,6 +107,16 @@ def show(ctx: click.Context, experiment_id: str, graph: bool) -> None:
             elif exp.git_dirty is not None:
                 git_info += " (dirty)" if exp.git_dirty else " (clean)"
             header.append(f"[sonde.muted]Git: {git_info}[/]")
+        if exp.code_context:
+            header.append(f"[sonde.muted]Code context ({len(exp.code_context)} repo(s)):[/]")
+            for repo in exp.code_context:
+                dirty_flag = " [dim red]dirty[/]" if repo.get("dirty") else ""
+                branch = repo.get("branch", "")
+                branch_str = f" ({branch})" if branch else ""
+                header.append(
+                    f"[sonde.muted]  {repo['name']}: "
+                    f"{repo['commit'][:8]}{branch_str}{dirty_flag}[/]"
+                )
         if exp.related:
             header.append(f"[sonde.muted]Related: {', '.join(exp.related)}[/]")
         if exp.parent_id:

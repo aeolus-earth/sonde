@@ -26,7 +26,7 @@ from sonde.db import notes as notes_db
 from sonde.db import program_takeaways as takeaways_db
 from sonde.db import questions as q_db
 from sonde.db.activity import log_activity
-from sonde.git import detect_git_context
+from sonde.git import detect_git_context, detect_multi_repo_context, snapshots_to_json
 from sonde.local import extract_finding_text, find_sonde_dir, parse_markdown, resolve_record_path
 from sonde.models.direction import DirectionCreate
 from sonde.models.experiment import ExperimentCreate
@@ -465,6 +465,7 @@ def _upsert_experiment(
     program = _resolve_program(frontmatter)
     source = _resolve_source(frontmatter)
     git_ctx = detect_git_context()
+    code_ctx = detect_multi_repo_context()
 
     payload: dict[str, Any] = {
         "program": program,
@@ -491,6 +492,8 @@ def _upsert_experiment(
         "git_close_commit": frontmatter.get("git_close_commit"),
         "git_close_branch": frontmatter.get("git_close_branch"),
         "git_dirty": frontmatter.get("git_dirty"),
+        "code_context": frontmatter.get("code_context")
+        or (snapshots_to_json(code_ctx) if code_ctx else None),
     }
 
     existing_id = str(frontmatter.get("id", "")).upper()

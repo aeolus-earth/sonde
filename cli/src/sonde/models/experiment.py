@@ -57,6 +57,9 @@ class ExperimentCreate(BaseModel):
     git_dirty: bool | None = None
     data_sources: list[str] = Field(default_factory=list)
 
+    # Multi-repo code context (array of repo snapshots)
+    code_context: list[dict[str, Any]] | None = None
+
     # Links
     direction_id: str | None = None
     project_id: str | None = None

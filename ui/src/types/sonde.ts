@@ -42,6 +42,15 @@ export type ArtifactType =
 
 export type RecordType = "experiment" | "finding" | "question" | "direction" | "project";
 
+export interface RepoSnapshot {
+  name: string;
+  remote: string;
+  commit: string;
+  branch: string;
+  dirty: boolean;
+  modified_files?: string[];
+}
+
 export type ProjectStatus =
   | "proposed"
   | "active"
@@ -112,6 +121,9 @@ export interface Experiment {
   git_close_commit: string | null;
   git_close_branch: string | null;
   git_dirty: boolean | null;
+
+  // Multi-repo code context
+  code_context: RepoSnapshot[] | null;
 
   // References
   data_sources: string[];

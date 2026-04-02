@@ -23,6 +23,7 @@ import { NoteForm } from "@/components/experiments/note-form";
 import { StatusControls } from "@/components/experiments/status-controls";
 import { TagEditor } from "@/components/experiments/tag-editor";
 import { GitProvenance } from "@/components/experiments/git-provenance";
+import { CodeContext } from "@/components/experiments/code-context";
 import { ChatPanel } from "@/components/chat/chat-panel";
 import { ChatPageProvider } from "@/contexts/chat-page-context";
 import { ArrowLeft, ChevronRight, MessageSquare } from "lucide-react";
@@ -240,6 +241,13 @@ export default function ExperimentDetailPage() {
           {(exp.git_commit || exp.git_close_commit) && (
             <Section title="Git Provenance">
               <GitProvenance experiment={exp} />
+            </Section>
+          )}
+
+          {/* Multi-repo code context */}
+          {exp.code_context && exp.code_context.length > 0 && (
+            <Section title="Code Context" count={exp.code_context.length}>
+              <CodeContext snapshots={exp.code_context} />
             </Section>
           )}
 
