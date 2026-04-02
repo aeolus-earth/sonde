@@ -121,9 +121,13 @@ def promote_question(
 
 
 def delete_question(question_id: str) -> None:
-    """Delete a question and emit audit activity after success."""
-    db.delete(question_id)
+    """Delete a question and emit audit activity.
+
+    Activity is logged BEFORE the delete so that can_access_record()
+    can still verify the record exists (RLS requires it).
+    """
     activity_db.log_activity(question_id, "question", "deleted", {"deleted_by": resolve_source()})
+    db.delete(question_id)
 
 
 def _rollback_promoted_record(record_type: str, record_id: str) -> None:

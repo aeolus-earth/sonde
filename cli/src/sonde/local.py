@@ -224,7 +224,12 @@ def parse_markdown(content: str) -> tuple[dict[str, Any], str]:
     The frontmatter is metadata for the database.
     The body is the freeform research content.
     """
+    import re
+
     content = content.strip()
+    # Strip leading HTML comments (e.g. "<!-- Pulled from remote -->")
+    # so that files written by render_record() can be pushed back safely.
+    content = re.sub(r"^<!--.*?-->\s*", "", content, flags=re.DOTALL)
     if not content.startswith("---"):
         return {}, content
 

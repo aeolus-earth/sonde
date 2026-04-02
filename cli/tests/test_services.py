@@ -100,7 +100,8 @@ def test_promote_question_rolls_back_created_experiment_when_update_fails() -> N
     log_activity.assert_not_called()
 
 
-def test_delete_experiment_logs_after_delete() -> None:
+def test_delete_experiment_logs_before_delete() -> None:
+    """Activity must be logged BEFORE the delete so RLS can still verify the record."""
     manager = MagicMock()
     delete_record = MagicMock(return_value={"notes": 1})
     log_record = MagicMock()
@@ -116,6 +117,6 @@ def test_delete_experiment_logs_after_delete() -> None:
 
     assert result == {"notes": 1}
     assert manager.mock_calls == [
-        call.delete_record("EXP-0001"),
         call.log_record("EXP-0001", "experiment", "deleted", {"deleted_by": "human/test"}),
+        call.delete_record("EXP-0001"),
     ]
