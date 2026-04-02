@@ -1,0 +1,60 @@
+name: Production Smoke
+
+on:
+  # Triggers after Vercel deploys to production
+  deployment_status:
+  # Manual trigger for on-demand verification
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "URL to test (leave blank for production default)"
+        required: false
+        type: string
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    # Run on: manual dispatch, OR successful production deploy
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.deployment_status.state == 'success' &&
+       github.event.deployment_status.environment == 'Production')
+    defaults:
+      run:
+        working-directory: ui
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright
+        run: npx playwright install chromium --with-deps
+
+      - name: Resolve target URL
+        id: url
+        run: |
+          URL="${{ inputs.url || vars.SONDE_UI_URL }}"
+          if [ -z "$URL" ]; then
+            echo "::error::No URL to test. Set SONDE_UI_URL in repo variables or pass a URL via workflow dispatch."
+            exit 1
+          fi
+          echo "target=$URL" >> "$GITHUB_OUTPUT"
+          echo "Smoke testing: $URL"
+
+      - name: Run production smoke tests
+        env:
+          E2E_BASE_URL: ${{ steps.url.outputs.target }}
+        run: npx playwright test e2e/deployed.spec.ts --reporter=github
+
+      - name: Upload report on failure
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: production-smoke-report
+          path: ui/playwright-report/
