@@ -18,7 +18,8 @@ import {
   UsageByActorChart,
   USAGE_BY_ACTOR_TOP_N,
 } from "@/components/visualizations/usage-by-actor-chart";
-import { DbSizeChart, formatBytes } from "@/components/visualizations/db-size-chart";
+import { DbSizeChart } from "@/components/visualizations/db-size-chart";
+import { formatBytes } from "@/lib/format";
 import { DbGrowthChart } from "@/components/visualizations/db-growth-chart";
 import { formatDateTimeShort, cn } from "@/lib/utils";
 import { Link } from "@tanstack/react-router";

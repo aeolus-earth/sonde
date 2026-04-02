@@ -1,6 +1,6 @@
 import { memo, useMemo } from "react";
 import { useThemeCssColors } from "@/hooks/use-theme-css-colors";
-import { formatBytes } from "./db-size-chart";
+import { formatBytes } from "@/lib/format";
 import type { DbSizeSnapshot } from "@/hooks/use-admin";
 import {
   AreaChart,
