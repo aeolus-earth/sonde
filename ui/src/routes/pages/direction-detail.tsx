@@ -70,7 +70,7 @@ export default function DirectionDetailPage() {
         items={[
           { label: "Directions", to: "/directions" },
           ...(parentDir
-            ? [{ label: `${parentDir.id} ${parentDir.title}`, to: "/directions/$id", params: { id: parentDir.id } }]
+            ? [{ label: `${parentDir.id} ${parentDir.title}`, to: `/directions/${parentDir.id}` }]
             : []),
           { label: dir.id },
         ]}

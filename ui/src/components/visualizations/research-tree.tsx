@@ -519,7 +519,7 @@ export const ResearchTree = memo(function ResearchTree({
             next.delete(row.toggleKey);
             return next;
           });
-        } else if (row.hasChildren) {
+        } else if (row.kind === "experiment" && row.hasChildren) {
           setCollapsed((prev) => {
             const next = new Set(prev);
             next.delete(row.toggleKey);
@@ -531,7 +531,7 @@ export const ResearchTree = memo(function ResearchTree({
         const row = rows[focusedIndex];
         if (row.kind === "project" || row.kind === "direction" || row.kind === "ungrouped") {
           setCollapsed((prev) => new Set(prev).add(row.toggleKey));
-        } else if (row.hasChildren) {
+        } else if (row.kind === "experiment" && row.hasChildren) {
           setCollapsed((prev) => new Set(prev).add(row.toggleKey));
         }
       }

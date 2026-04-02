@@ -234,18 +234,20 @@ def _collect_tree_rows(
         child_dirs = dir_db.get_children(root_id)
         for child in child_dirs:
             # Add a synthetic direction header node
-            rows.append({
-                "id": child.id,
-                "parent_id": child.spawned_from_experiment_id,
-                "depth": 0,
-                "status": child.status,
-                "branch_type": None,
-                "source": child.source,
-                "content": child.title,
-                "finding": None,
-                "updated_at": child.updated_at.isoformat() if child.updated_at else None,
-                "_is_direction": True,
-            })
+            rows.append(
+                {
+                    "id": child.id,
+                    "parent_id": child.spawned_from_experiment_id,
+                    "depth": 0,
+                    "status": child.status,
+                    "branch_type": None,
+                    "source": child.source,
+                    "content": child.title,
+                    "finding": None,
+                    "updated_at": child.updated_at.isoformat() if child.updated_at else None,
+                    "_is_direction": True,
+                }
+            )
             child_exps = db.list_by_direction(child.id)
             child_roots = [e for e in child_exps if not e.parent_id]
             for cr in child_roots:
