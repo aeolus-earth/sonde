@@ -29,6 +29,14 @@ After setup, `sonde list`, `sonde log`, `sonde show`, and `sonde search` are the
 
 ---
 
+## Sonde UI
+
+The web UI is live at **[sonde-neon.vercel.app](https://sonde-neon.vercel.app)**. It deploys automatically from `main` — merge to `main` and Vercel promotes the build to production. Branch pushes create preview deployments only.
+
+Source: [`ui/`](./ui/)
+
+---
+
 ## Repository layout
 
 | Path | Role |

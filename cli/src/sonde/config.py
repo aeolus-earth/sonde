@@ -61,7 +61,7 @@ class Settings(BaseSettings):
     source: str = Field(default="", description="Default source attribution")
     default_direction: str = Field(default="", description="Default research direction ID")
     ui_url: str = Field(
-        default="https://sonde-green.vercel.app",
+        default="https://sonde-neon.vercel.app",
         description="Base URL of the Sonde web UI (for clickable links in CLI output)",
     )
     supabase_service_role_key: str = Field(
