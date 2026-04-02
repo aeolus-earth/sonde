@@ -60,12 +60,42 @@ def update(direction_id: str, updates: dict[str, Any]) -> Direction | None:
     return Direction(**data[0]) if data else None
 
 
+def get_children(direction_id: str) -> list[Direction]:
+    """Get child directions of a parent direction."""
+    client = get_client()
+    result = (
+        client.table("directions")
+        .select("*")
+        .eq("parent_direction_id", direction_id)
+        .order("created_at")
+        .execute()
+    )
+    return [Direction(**row) for row in to_rows(result.data)]
+
+
+def get_parent(direction_id: str) -> Direction | None:
+    """Get the parent direction if this is a sub-direction."""
+    d = get(direction_id)
+    if d and d.parent_direction_id:
+        return get(d.parent_direction_id)
+    return None
+
+
 def delete(direction_id: str) -> dict[str, Any]:
     """Delete a direction. Clears direction_id on linked experiments.
 
     Returns count of experiments that had their direction_id cleared.
     """
     client = get_client()
+    # Orphan child directions
+    child_result = (
+        client.table("directions").select("id").eq("parent_direction_id", direction_id).execute()
+    )
+    child_count = len(to_rows(child_result.data))
+    if child_count:
+        client.table("directions").update({"parent_direction_id": None}).eq(
+            "parent_direction_id", direction_id
+        ).execute()
     # Find and clear experiments referencing this direction
     exp_result = client.table("experiments").select("id").eq("direction_id", direction_id).execute()
     count = len(to_rows(exp_result.data))
@@ -84,6 +114,7 @@ def delete(direction_id: str) -> dict[str, Any]:
 
     return {
         "experiments_cleared": count,
+        "child_directions_orphaned": child_count,
         "artifacts": len(artifact_rows),
         "artifact_cleanup": finalize_deleted_artifacts(
             [row["storage_path"] for row in artifact_rows if row.get("storage_path")]

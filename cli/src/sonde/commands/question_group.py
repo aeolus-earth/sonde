@@ -165,6 +165,83 @@ def question_promote(
         )
 
 
+@question.command("update")
+@click.argument("question_id")
+@click.option(
+    "--status",
+    type=click.Choice(["open", "investigating", "promoted", "dismissed"]),
+    help="Update status",
+)
+@click.option("--context", "context_text", help="Update context")
+@click.option("--question", "question_text", help="Update question text")
+@click.option("--tag", multiple=True, help="Set tags (replaces existing)")
+@click.option("--raised-by", help="Set who raised this question")
+@pass_output_options
+@click.pass_context
+def question_update(
+    ctx: click.Context,
+    question_id: str,
+    status: str | None,
+    context_text: str | None,
+    question_text: str | None,
+    tag: tuple[str, ...],
+    raised_by: str | None,
+) -> None:
+    """Update fields on an existing question.
+
+    \b
+    Examples:
+      sonde question update Q-013 --status investigating
+      sonde question update Q-013 --context "Narrowed to ptxas compile phase"
+      sonde question update Q-013 --tag runtime --tag warm-baseline
+    """
+    question_id = question_id.upper()
+    q = db.get(question_id)
+    if not q:
+        print_error(
+            f"{question_id} not found",
+            "No question with this ID.",
+            "List questions: sonde question list --all",
+        )
+        raise SystemExit(1)
+
+    from typing import Any
+
+    updates: dict[str, Any] = {}
+    if status is not None:
+        updates["status"] = status
+    if context_text is not None:
+        updates["context"] = context_text
+    if question_text is not None:
+        updates["question"] = question_text
+    if tag:
+        updates["tags"] = list(tag)
+    if raised_by is not None:
+        updates["raised_by"] = raised_by
+
+    if not updates:
+        err.print("[sonde.muted]Nothing to update.[/]")
+        return
+
+    updated = db.update(question_id, updates)
+    if not updated:
+        print_error(
+            f"Failed to update {question_id}",
+            "Update returned no data.",
+            f"Verify the question exists: sonde question show {question_id}",
+        )
+        raise SystemExit(1)
+
+    log_activity(question_id, "question", "updated", updates)
+
+    if ctx.obj.get("json"):
+        print_json(updated.model_dump(mode="json"))
+    else:
+        print_success(f"Updated {question_id}", record_id=question_id)
+        if "status" in updates:
+            err.print(f"  Status: {updates['status']}")
+
+
 @question.command("delete")
 @click.argument("question_id")
 @click.option("--confirm", is_flag=True, help="Confirm deletion")

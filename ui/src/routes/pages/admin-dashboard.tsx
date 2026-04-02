@@ -7,6 +7,7 @@ import {
   useDbSizes,
   useDbSnapshots,
   useCaptureDbSnapshot,
+  useAuthEvents,
 } from "@/hooks/use-admin";
 import { useGlobalActivity } from "@/hooks/use-activity";
 import { useRealtimeInvalidation } from "@/hooks/use-realtime";
@@ -97,6 +98,7 @@ export default function AdminDashboard() {
   const { data: usageRows, isLoading: usageLoading } = useActivityUsageDetail(usageDays);
   const { data: dbSizes, isLoading: dbSizesLoading } = useDbSizes();
   const { data: dbSnapshots, isLoading: dbSnapshotsLoading } = useDbSnapshots(30);
+  const { data: authEvents } = useAuthEvents(50);
 
   useCaptureDbSnapshot(); // fire-and-forget, rate-limited to 1/hour server-side
 
@@ -352,6 +354,64 @@ export default function AdminDashboard() {
                 <span className="ml-auto text-text-quaternary">
                   last seen {formatDateTimeShort(user.last_seen)}
                 </span>
+              </div>
+            ))
+          )}
+        </div>
+      </section>
+
+      {/* Auth events */}
+      <section>
+        <h2 className="mb-2 text-[13px] font-medium text-text-secondary">
+          Login history
+        </h2>
+        <div className={cn(cardClass, "p-0 overflow-hidden")}>
+          {(authEvents ?? []).length === 0 ? (
+            <p className="px-3 py-4 text-[12px] text-text-quaternary">
+              No login events recorded yet.
+            </p>
+          ) : (
+            (authEvents ?? []).map((evt) => (
+              <div
+                key={evt.id}
+                className={cn(rowClass, "flex items-center gap-3 text-[12px]")}
+              >
+                <span className="w-[120px] shrink-0 text-text-quaternary">
+                  {formatDateTimeShort(evt.created_at)}
+                </span>
+                <Badge
+                  variant={
+                    evt.event_type === "login"
+                      ? "open"
+                      : evt.event_type === "logout"
+                        ? "tag"
+                        : "running"
+                  }
+                >
+                  {evt.event_type}
+                </Badge>
+                <span
+                  className={cn(
+                    "w-[160px] shrink-0 truncate font-medium",
+                    evt.actor.startsWith("agent/")
+                      ? "text-accent"
+                      : "text-text"
+                  )}
+                >
+                  {evt.actor_email
+                    ? evt.actor_email.split("@")[0]
+                    : evt.actor}
+                </span>
+                {evt.client_version && (
+                  <span className="text-text-quaternary">
+                    v{evt.client_version}
+                  </span>
+                )}
+                {evt.programs && evt.programs.length > 0 && (
+                  <span className="ml-auto truncate text-text-quaternary">
+                    {evt.programs.join(", ")}
+                  </span>
+                )}
               </div>
             ))
           )}

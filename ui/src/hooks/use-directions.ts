@@ -39,3 +39,37 @@ export function useDirections() {
     enabled: !!program,
   });
 }
+
+export function useChildDirections(parentId: string) {
+  return useQuery({
+    queryKey: queryKeys.directions.children(parentId),
+    queryFn: async (): Promise<DirectionSummary[]> => {
+      const { data, error } = await supabase
+        .from("direction_status")
+        .select("*")
+        .eq("parent_direction_id", parentId)
+        .order("created_at", { ascending: true });
+
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!parentId,
+  });
+}
+
+export function useParentDirection(parentId: string | null | undefined) {
+  return useQuery({
+    queryKey: queryKeys.directions.detail(parentId ?? ""),
+    queryFn: async (): Promise<DirectionSummary> => {
+      const { data, error } = await supabase
+        .from("direction_status")
+        .select("*")
+        .eq("id", parentId!)
+        .single();
+
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!parentId,
+  });
+}

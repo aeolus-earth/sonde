@@ -71,7 +71,7 @@ def direction_list(
             "id": d.id,
             "status": d.status,
             "program": d.program,
-            "title": d.title,
+            "title": (f"\u2514 {d.title}" if d.parent_direction_id else d.title),
             "question": d.question,
         }
         for d in directions
@@ -103,6 +103,8 @@ def direction_show(ctx: click.Context, direction_id: str) -> None:
 @click.option("--context", "-c", help="Motivation, scope, or background for this direction")
 @click.option("--project", help="Parent project ID")
 @click.option("--source", "-s", help="Who created this direction")
+@click.option("--parent-direction", "parent_direction", help="Parent direction ID")
+@click.option("--from", "from_experiment", help="Experiment ID that spawned this direction")
 @pass_output_options
 @click.pass_context
 def direction_create(
@@ -114,10 +116,48 @@ def direction_create(
     project: str | None,
     status: str,
     source: str | None,
+    parent_direction: str | None,
+    from_experiment: str | None,
 ) -> None:
     """Create a new research direction."""
     settings = get_settings()
-    resolved_program = program or settings.program
+
+    # Validate parent direction if provided
+    parent_dir = None
+    if parent_direction:
+        parent_direction = parent_direction.upper()
+        parent_dir = db.get(parent_direction)
+        if not parent_dir:
+            print_error(
+                f"Parent direction {parent_direction} not found",
+                "No direction with this ID.",
+                "sonde direction list",
+            )
+            raise SystemExit(1)
+        if parent_dir.parent_direction_id:
+            print_error(
+                f"{parent_direction} is already a sub-direction",
+                "Direction nesting is limited to 2 levels.",
+                f"Use {parent_dir.parent_direction_id} as the parent instead.",
+            )
+            raise SystemExit(1)
+
+    # Validate spawning experiment if provided
+    if from_experiment:
+        from_experiment = from_experiment.upper()
+        from sonde.db import experiments as exp_db
+
+        exp = exp_db.get(from_experiment)
+        if not exp:
+            print_error(
+                f"Experiment {from_experiment} not found",
+                "No experiment with this ID.",
+                "sonde list",
+            )
+            raise SystemExit(1)
+
+    # Inherit program and project from parent if not specified
+    resolved_program = program or (parent_dir.program if parent_dir else None) or settings.program
     if not resolved_program:
         print_error(
             "No program specified",
@@ -126,25 +166,35 @@ def direction_create(
         )
         raise SystemExit(2)
 
+    resolved_project = project or (parent_dir.project_id if parent_dir else None)
+
     resolved_source = source or settings.source or resolve_source()
     data = DirectionCreate(
         program=resolved_program,
         title=title,
         question=question_text,
         context=context,
-        project_id=project,
+        project_id=resolved_project,
         status=cast(Literal["proposed", "active", "paused", "completed", "abandoned"], status),
         source=resolved_source,
+        parent_direction_id=parent_direction,
+        spawned_from_experiment_id=from_experiment,
     )
     result = db.create(data)
-    log_activity(result.id, "direction", "created")
+    details: dict = {"parent_direction": parent_direction, "spawned_from": from_experiment}
+    log_activity(result.id, "direction", "created", {k: v for k, v in details.items() if v})
 
     if ctx.obj.get("json"):
         print_json(result.model_dump(mode="json"))
     else:
+        detail_lines = [f"Title: {title}", f"Question: {question_text}"]
+        if parent_direction:
+            detail_lines.append(f"Parent: {parent_direction}")
+        if from_experiment:
+            detail_lines.append(f"Spawned from: {from_experiment}")
         print_success(
             f"Created {result.id} ({resolved_program})",
-            details=[f"Title: {title}", f"Question: {question_text}"],
+            details=detail_lines,
             breadcrumbs=[f"View: sonde direction show {result.id}"],
             record_id=result.id,
         )
@@ -161,6 +211,7 @@ def direction_create(
     help="Update status",
 )
 @click.option("--project", help="Set or change the parent project")
+@click.option("--parent-direction", "parent_direction", help="Set or change parent direction")
 @click.option("--linear", help="Link to a Linear issue ID (e.g. AEO-123)")
 @pass_output_options
 @click.pass_context
@@ -172,6 +223,7 @@ def direction_update(
     context: str | None,
     status: str | None,
     project: str | None,
+    parent_direction: str | None,
     linear: str | None,
 ) -> None:
     """Update a direction.
@@ -182,6 +234,7 @@ def direction_update(
       sonde direction update DIR-001 --context "Narrowing to mid-latitude only"
       sonde direction update DIR-001 --project PROJ-001
       sonde direction update DIR-001 --question "New research question?"
+      sonde direction update DIR-015 --parent-direction DIR-002
     """
     direction_id = direction_id.upper()
     current = db.get(direction_id)
@@ -193,6 +246,25 @@ def direction_update(
         )
         raise SystemExit(1)
 
+    # Validate parent direction if being set
+    if parent_direction:
+        parent_direction = parent_direction.upper()
+        parent_dir = db.get(parent_direction)
+        if not parent_dir:
+            print_error(
+                f"Parent direction {parent_direction} not found",
+                "No direction with this ID.",
+                "sonde direction list",
+            )
+            raise SystemExit(1)
+        if parent_dir.parent_direction_id:
+            print_error(
+                f"{parent_direction} is already a sub-direction",
+                "Direction nesting is limited to 2 levels.",
+                f"Use {parent_dir.parent_direction_id} as the parent instead.",
+            )
+            raise SystemExit(1)
+
     updates = {
         key: value
         for key, value in {
@@ -201,6 +273,7 @@ def direction_update(
             "context": context,
             "status": status,
             "project_id": project,
+            "parent_direction_id": parent_direction,
             "linear_id": linear,
         }.items()
         if value is not None
@@ -251,9 +324,12 @@ def direction_delete(ctx: click.Context, direction_id: str, confirm: bool) -> No
         from sonde.db import experiments as exp_db
 
         exp_count = len(exp_db.list_by_direction(direction_id))
+        children = db.get_children(direction_id)
         err.print(f"[sonde.warning]This will delete {direction_id}[/]")
         if exp_count:
             err.print(f"  {exp_count} experiment(s) will have direction_id cleared")
+        if children:
+            err.print(f"  {len(children)} sub-direction(s) will be orphaned")
         err.print("  Use --confirm to proceed.")
         raise SystemExit(1)
 
@@ -276,6 +352,111 @@ def direction_delete(ctx: click.Context, direction_id: str, confirm: bool) -> No
                     err.print(f"  {cleanup['already_absent']} artifact blob(s) were already absent")
                 if cleanup.get("failed"):
                     err.print(f"  {cleanup['failed']} artifact blob(s) still need reconciliation")
+
+
+@direction.command("fork")
+@click.argument("direction_id")
+@click.argument("question_text")
+@click.option("--title", "-t", required=True, help="Short title for the sub-direction")
+@click.option("--from", "from_experiment", help="Experiment ID that spawned this sub-direction")
+@click.option("--context", "-c", help="Motivation, scope, or background")
+@click.option("--source", "-s", help="Who created this direction")
+@click.option(
+    "--status",
+    type=click.Choice(["proposed", "active", "paused", "completed", "abandoned"]),
+    default="active",
+    help="Direction status",
+)
+@pass_output_options
+@click.pass_context
+def direction_fork(
+    ctx: click.Context,
+    direction_id: str,
+    question_text: str,
+    title: str,
+    from_experiment: str | None,
+    context: str | None,
+    source: str | None,
+    status: str,
+) -> None:
+    """Fork a direction to create a focused sub-investigation.
+
+    Inherits program and project from the parent direction.
+
+    \b
+    Examples:
+      sonde direction fork DIR-002 \\
+        --from EXP-0201 \\
+        --title "Fix compile_raised_backward" \\
+        "Why does compile_raised_backward fail?"
+    """
+    direction_id = direction_id.upper()
+    parent_dir = db.get(direction_id)
+    if not parent_dir:
+        print_error(
+            f"Direction {direction_id} not found",
+            "No direction with this ID.",
+            "sonde direction list",
+        )
+        raise SystemExit(1)
+
+    if parent_dir.parent_direction_id:
+        print_error(
+            f"{direction_id} is already a sub-direction",
+            "Direction nesting is limited to 2 levels.",
+            f"Fork the root direction {parent_dir.parent_direction_id} instead.",
+        )
+        raise SystemExit(1)
+
+    # Validate spawning experiment if provided
+    if from_experiment:
+        from_experiment = from_experiment.upper()
+        from sonde.db import experiments as exp_db
+
+        exp = exp_db.get(from_experiment)
+        if not exp:
+            print_error(
+                f"Experiment {from_experiment} not found",
+                "No experiment with this ID.",
+                "sonde list",
+            )
+            raise SystemExit(1)
+
+    settings = get_settings()
+    resolved_source = source or settings.source or resolve_source()
+
+    data = DirectionCreate(
+        program=parent_dir.program,
+        title=title,
+        question=question_text,
+        context=context,
+        project_id=parent_dir.project_id,
+        status=cast(Literal["proposed", "active", "paused", "completed", "abandoned"], status),
+        source=resolved_source,
+        parent_direction_id=direction_id,
+        spawned_from_experiment_id=from_experiment,
+    )
+    result = db.create(data)
+
+    details: dict = {"forked_from": direction_id, "spawned_from": from_experiment}
+    log_activity(result.id, "direction", "created", {k: v for k, v in details.items() if v})
+
+    if ctx.obj.get("json"):
+        parent_data = parent_dir.model_dump(mode="json")
+        print_json({"created": result.model_dump(mode="json"), "parent": parent_data})
+    else:
+        detail_lines = [f"Title: {title}", f"Parent: {direction_id} ({parent_dir.title})"]
+        if from_experiment:
+            detail_lines.append(f"Spawned from: {from_experiment}")
+        print_success(
+            f"Forked {direction_id} \u2192 {result.id}",
+            details=detail_lines,
+            breadcrumbs=[
+                f"View:  sonde direction show {result.id}",
+                f"Tree:  sonde tree {direction_id}",
+            ],
+            record_id=result.id,
+        )
 
 
 direction.add_command(new_direction)

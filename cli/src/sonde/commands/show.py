@@ -179,10 +179,25 @@ def _show_direction(ctx: click.Context, direction_id: str) -> None:
     all_findings = find_db.list_active(program=d.program)
     findings = [f for f in all_findings if exp_ids & set(f.evidence)]
 
+    # Fetch hierarchy info
+    children = dir_db.get_children(direction_id)
+    parent_dir = None
+    if d.parent_direction_id:
+        parent_dir = dir_db.get(d.parent_direction_id)
+    spawned_exp = None
+    if d.spawned_from_experiment_id:
+        spawned_exp = exp_db.get(d.spawned_from_experiment_id)
+
     if ctx.obj.get("json"):
         data = d.model_dump(mode="json")
         data["_experiments"] = [e.model_dump(mode="json") for e in experiments]
         data["_findings"] = [f.model_dump(mode="json") for f in findings]
+        if parent_dir:
+            data["_parent_direction"] = parent_dir.model_dump(mode="json")
+        if spawned_exp:
+            data["_spawned_from"] = spawned_exp.model_dump(mode="json")
+        if children:
+            data["_child_directions"] = [c.model_dump(mode="json") for c in children]
         print_json(data)
         return
 
@@ -195,6 +210,13 @@ def _show_direction(ctx: click.Context, direction_id: str) -> None:
         f"[sonde.heading]{d.id}[/]  {styled_status(d.status)}  {d.program}",
         f"[sonde.muted]Source: {d.source or '—'}  Created: {d_created}[/]",
         f"[sonde.muted]{complete} complete, {running} running, {open_count} open[/]",
+    ]
+    if parent_dir:
+        header.append(f"[sonde.muted]Parent: {parent_dir.id} ({parent_dir.title})[/]")
+    if spawned_exp:
+        summary = record_summary(spawned_exp, 40)
+        header.append(f"[sonde.muted]Spawned from: {spawned_exp.id}  {summary}[/]")
+    header += [
         f"\n[sonde.heading]{d.title}[/]",
         f"{d.question}",
     ]
@@ -234,6 +256,22 @@ def _show_direction(ctx: click.Context, direction_id: str) -> None:
             )
         print_table(["id", "status", "source", "summary"], exp_rows, title="Experiments")
 
+    if children:
+        child_rows = [
+            {
+                "id": c.id,
+                "status": c.status,
+                "title": c.title,
+                "experiments": str(len(exp_db.list_by_direction(c.id))),
+            }
+            for c in children
+        ]
+        print_table(
+            ["id", "status", "title", "experiments"],
+            child_rows,
+            title="Sub-directions",
+        )
+
     if findings:
         print_table(
             ["id", "finding", "confidence"],
@@ -244,13 +282,14 @@ def _show_direction(ctx: click.Context, direction_id: str) -> None:
             title="Findings from this direction",
         )
 
-    print_breadcrumbs(
-        [
-            f"\U0001f517 {ui_url(d.id)}",
-            f"List:  sonde list --direction {d.id}",
-            f"Brief: sonde brief -p {d.program}",
-        ]
-    )
+    breadcrumbs = [
+        f"\U0001f517 {ui_url(d.id)}",
+        f"List:  sonde list --direction {d.id}",
+        f"Brief: sonde brief -p {d.program}",
+    ]
+    if not d.parent_direction_id:
+        breadcrumbs.append(f"Fork:  sonde direction fork {d.id} --title <title> <question>")
+    print_breadcrumbs(breadcrumbs)
 
 
 def _show_artifact(ctx: click.Context, artifact_id: str) -> None:
