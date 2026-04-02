@@ -37,3 +37,12 @@ jobs:
             -H "Authorization: Bearer ${{ vars.SUPABASE_ANON_KEY }}" \
             "https://${{ secrets.SUPABASE_PROJECT_REF }}.supabase.co/rest/v1/rpc/get_schema_version")
           echo "Schema version after deploy: $VERSION"
+
+      - name: Post-deploy smoke test
+        if: ${{ vars.SONDE_UI_URL != '' }}
+        run: |
+          STATUS=$(curl -sf -o /dev/null -w "%{http_code}" "${{ vars.SONDE_UI_URL }}")
+          echo "UI status: $STATUS"
+          if [ "$STATUS" != "200" ]; then
+            echo "::warning::UI returned $STATUS after migration deploy"
+          fi
