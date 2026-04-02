@@ -237,3 +237,35 @@ export function useCaptureDbSnapshot() {
     supabase.rpc("capture_db_snapshot").then(/* rate-limited, ignore result */);
   }, []);
 }
+
+// --- Auth events ---
+
+export interface AuthEvent {
+  id: number;
+  event_type: "login" | "logout" | "token_auth";
+  actor: string;
+  actor_email: string | null;
+  actor_name: string | null;
+  user_id: string | null;
+  programs: string[] | null;
+  client_version: string | null;
+  details: Record<string, unknown>;
+  created_at: string;
+}
+
+export function useAuthEvents(limit = 50) {
+  return useQuery({
+    queryKey: ["admin", "auth-events", limit],
+    queryFn: async (): Promise<AuthEvent[]> => {
+      const { data, error } = await supabase
+        .from("auth_events")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(limit);
+
+      if (error) throw error;
+      return (data ?? []) as AuthEvent[];
+    },
+    staleTime: 30_000,
+  });
+}

@@ -55,6 +55,19 @@ def login(ctx: click.Context, remote: bool) -> None:
         print_error("Login failed", str(e), "Check your network and try again: sonde login")
         raise SystemExit(1) from None
 
+    # Log the auth event (best-effort, won't block login on failure)
+    from sonde.db.auth_events import record_event
+
+    record_event(
+        "login",
+        actor=f"human/{user.email.split('@')[0]}",
+        actor_email=user.email,
+        actor_name=user.name,
+        user_id=user.user_id,
+        programs=user.programs,
+        details={"remote": remote},
+    )
+
     if ctx.obj.get("json"):
         print_json({"email": user.email, "user_id": user.user_id})
     else:
@@ -71,6 +84,24 @@ def logout(ctx: click.Context) -> None:
     Examples:
       sonde logout
     """
+    # Log before clearing session (need auth to write).
+    # Best-effort only — must never prevent logout.
+    try:
+        if auth.is_authenticated():
+            user = auth.get_current_user()
+            if user and not user.is_agent:
+                from sonde.db.auth_events import record_event
+
+                record_event(
+                    "logout",
+                    actor=f"human/{user.email.split('@')[0]}",
+                    actor_email=user.email,
+                    actor_name=user.name,
+                    user_id=user.user_id,
+                )
+    except BaseException:
+        pass
+
     auth.clear_session()
     if ctx.obj.get("json"):
         print_json({"logged_out": True})
