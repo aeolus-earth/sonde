@@ -139,12 +139,64 @@ def collect_next_steps(sections: list[DoctorSection], *, limit: int = 3) -> list
     return fixes
 
 
+def check_install_shadows() -> DoctorCheck:
+    """Detect if another sonde installation shadows this one on PATH."""
+    import shutil
+    import sys
+
+    this_exe = sys.argv[0]
+    path_exe = shutil.which("sonde")
+
+    if not path_exe:
+        return DoctorCheck(
+            title="Installation",
+            status="warn",
+            summary="sonde not found on PATH",
+            details=["The current invocation works but 'sonde' may not resolve in other shells."],
+        )
+
+    this_resolved = Path(this_exe).resolve()
+    path_resolved = Path(path_exe).resolve()
+
+    if this_resolved != path_resolved:
+        return DoctorCheck(
+            title="Installation",
+            status="warn",
+            summary="Multiple sonde installations detected",
+            details=[
+                f"Running:  {this_resolved}",
+                f"PATH has: {path_resolved}",
+                "Another install is shadowing this one. Commands may be missing.",
+            ],
+            fix=f"pip uninstall sonde -y  # remove the shadow at {path_resolved}",
+        )
+
+    from sonde.cli import cli
+
+    cmd_count = len(cli.commands)
+    if cmd_count < 25:
+        return DoctorCheck(
+            title="Installation",
+            status="warn",
+            summary=f"Only {cmd_count} commands registered (expected 30+)",
+            details=["Some command modules may be failing to import silently."],
+            fix="pip install --force-reinstall 'sonde @ git+https://github.com/aeolus-earth/sonde.git@main#subdirectory=cli'",
+        )
+
+    return DoctorCheck(
+        title="Installation",
+        status="ok",
+        summary=f"{cmd_count} commands, no shadow installs",
+    )
+
+
 def build_local_section(*, deep: bool = False) -> DoctorSection:
     """Inspect local runtime, skills, and MCP readiness."""
     project_root = find_project_root()
     root = project_root or Path.home()
     runtimes = detect_runtimes(root)
     checks = [
+        check_install_shadows(),
         check_runtime_detection(project_root, runtimes),
         check_skill_freshness(root, runtimes),
         check_mcp_configuration(project_root, runtimes),
