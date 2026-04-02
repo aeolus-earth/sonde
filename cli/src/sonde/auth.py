@@ -65,8 +65,11 @@ class NotAuthenticatedError(Exception):
 
 
 def _ensure_config_dir() -> None:
+    import contextlib
+
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    CONFIG_DIR.chmod(0o700)
+    with contextlib.suppress(OSError):
+        CONFIG_DIR.chmod(0o700)
 
 
 def save_session(session_data: dict[str, Any]) -> None:
