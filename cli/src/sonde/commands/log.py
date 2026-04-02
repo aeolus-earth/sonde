@@ -256,15 +256,12 @@ def log(
         if not exp.content and not exp.hypothesis:
             print_nudge(
                 "Describe what you're testing and why — be specific for grepability:",
-                f'sonde update {exp.id} "## Objective\\n'
-                f'Test CCN=1500 saturation\\n\\n## Method\\nSpectral bin, 25km"',
+                f'sonde update {exp.id} --method "Spectral bin, 25km, CCN=1500"',
             )
         elif exp.content and len(exp.content.strip()) < 100:
             print_nudge(
-                "Short logs lose context. Include: objective,"
-                " method, key parameters, expected outcome.",
-                f'sonde update {exp.id} -c "## Objective\\n...'
-                f'\\n## Method\\n...\\n## Expected\\n..."',
+                "Short logs lose context. Add method and expected outcome:",
+                f'sonde update {exp.id} --method "<procedure, params, expected>"',
             )
         elif not exp.direction_id:
             print_nudge(

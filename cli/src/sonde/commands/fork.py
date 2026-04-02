@@ -306,6 +306,5 @@ def _fork_content_nudge(exp_id: str, branch_type: str | None) -> tuple[str, str]
         )
     return (
         "Document what you're testing:",
-        f'sonde update {exp_id} "## Objective\\n<what & why>\\n\\n'
-        f'## Setup\\n<config, hardware, command>\\n\\n## Expected\\n<success criteria>"',
+        f'sonde update {exp_id} --method "<procedure, params, expected outcome>"',
     )
