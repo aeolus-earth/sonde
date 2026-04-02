@@ -188,6 +188,10 @@ def log(
             }
         )
 
+    # Scaffold section headers for open experiments with no content
+    if open_exp and not content:
+        content = "## Hypothesis\n\n## Method\n\n## Results\n\n## Finding\n"
+
     # Status override for --open flag
     if open_exp:
         status = "open"

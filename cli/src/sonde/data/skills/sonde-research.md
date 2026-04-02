@@ -103,16 +103,26 @@ The markdown body is the primary vehicle. Legacy fields (`--hypothesis`,
 `--params`, `--result`) still work but are secondary.
 
 ```bash
-# Content-first (preferred)
-sonde log -p <program> "## Objective
-Test CCN=1500 with spectral bin microphysics at 25km resolution.
+# Content-first (preferred) — use standard sections
+sonde log -p <program> "## Hypothesis
+Doubling CCN to 1500 should drop enhancement below 10%.
 
 ## Method
 Modified run_config.yaml: scheme=spectral_bin, ccn=1500, domain=ERCOT.
-Submitted via sbatch with 4 A100 GPUs.
+Submitted via sbatch with 4 A100 GPUs. Based on EXP-0158.
 
-## Expected
-Enhancement should drop below 10% based on prior CCN sweep."
+## Results
+Enhancement: 5.8% (down from 13.6% at CCN=1200).
+
+## Finding
+CCN=1500 shows 8% less enhancement, consistent with saturation."
+
+# Open for later (scaffolds section headers automatically)
+sonde log --open -p <program> "Test combined BL heating + seeding"
+
+# Update individual sections as work progresses
+sonde update EXP-0001 --method "Changed scheme to spectral_bin, ccn=1500"
+sonde update EXP-0001 --results "Enhancement: 5.8%, LWC: 1.03 g/m3"
 
 # From file or stdin
 sonde log -p <program> -f experiment-notes.md
@@ -122,17 +132,9 @@ echo "detailed analysis" | sonde log -p <program> --stdin
 sonde log -p <program> --params-file run_config.yaml
 sonde log -p <program> --params-file config.yaml --result '{"rmse": 2.3}'
 
-# Structured fields (still supported)
-sonde log --quick -p <program> \
-  --params '{"ccn": 1500, "scheme": "spectral_bin"}' \
-  --result '{"precip_delta_pct": 5.8}'
-
 # Structured metadata: reproducibility, environment
 sonde log -p <program> --repro "python run.py --config cfg.yaml"
 sonde fork EXP-0001 --env CUDA_VERSION=12.0
-
-# Open for later
-sonde log --open -p <program> "Test combined BL heating + seeding"
 ```
 
 `--source` is set automatically. Git commit, repo, and branch are auto-detected.
@@ -148,9 +150,26 @@ sonde log --open -p <program> "Test combined BL heating + seeding"
 
 ## What makes a good experiment
 
+### Standard sections
+
+Every experiment should have four sections in its content body:
+
+| Section | When to write | What goes here |
+|---------|--------------|----------------|
+| `## Hypothesis` | At creation/start | What you expect and why |
+| `## Method` | At creation/start | Exact procedure, tools, commands, parameters |
+| `## Results` | During/after run | Raw observations, measurements, outputs |
+| `## Finding` | At close | Interpretation — what this means |
+
+Use section-level updates to fill these in as work progresses:
+```bash
+sonde update EXP-0001 --method "Modified run_config.yaml: scheme=spectral_bin, ccn=1500"
+sonde update EXP-0001 --results "Enhancement: 5.8% (down from 13.6% at CCN=1200)"
+```
+
 ### Experiment log
 
-- Clear objective with expected outcome
+- Clear hypothesis with expected outcome
 - Specific parameters (not "some config changes")
 - Method (what you actually did, reproducibly)
 - References prior work (parent experiment, related findings)
@@ -159,13 +178,15 @@ sonde log --open -p <program> "Test combined BL heating + seeding"
 
 **Good:**
 ```
-## Objective
-Test CCN=1500 with spectral bin microphysics at 25km resolution.
+## Hypothesis
+Doubling CCN to 1500 should drop enhancement below 10%.
 ## Method
 Modified run_config.yaml: scheme=spectral_bin, ccn=1500, domain=ERCOT.
 Submitted via sbatch with 4 A100 GPUs. Based on EXP-0158 (saturation at CCN=1200).
-## Expected
-Enhancement should drop below 10% based on prior sweep (EXP-0142 through EXP-0158).
+## Results
+Enhancement: 5.8% (vs 13.6% at CCN=1200). LWC: 1.03 g/m3.
+## Finding
+CCN saturation confirmed — enhancement drops 8% from CCN=1200 to CCN=1500.
 ```
 
 ### Finding

@@ -17,6 +17,8 @@ from sonde.checkers.brief import check_brief_staleness
 from sonde.checkers.directions import check_complete_directions
 from sonde.checkers.experiments import (
     check_dirty_provenance,
+    check_missing_method,
+    check_missing_results,
     check_no_content,
     check_no_finding,
     check_no_tags,
@@ -44,6 +46,8 @@ CHECKERS: list[Checker] = [
     check_no_finding,
     check_no_tags,
     check_no_content,
+    check_missing_method,
+    check_missing_results,
     check_dirty_provenance,
     check_weakened_evidence,
     check_tag_duplicates,
