@@ -55,7 +55,7 @@ export const DbSizeChart = memo(function DbSizeChart({
             padding: "6px 10px",
           }}
           cursor={{ fill: colors.surfaceHover }}
-          formatter={(value: number) => [formatBytes(value), "Size"]}
+          formatter={(value) => [formatBytes(Number(value)), "Size"]}
         />
         <Bar
           dataKey="bytes"

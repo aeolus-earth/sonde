@@ -68,11 +68,11 @@ export const DbGrowthChart = memo(function DbGrowthChart({
             padding: "6px 10px",
           }}
           cursor={{ stroke: colors.textQuaternary, strokeDasharray: "4 4" }}
-          formatter={(value: number, name: string) => [
-            formatBytes(value),
+          formatter={(value, name) => [
+            formatBytes(Number(value)),
             name === "db" ? "Database" : "Files",
           ]}
-          labelFormatter={(label: string) => label}
+          labelFormatter={(label) => String(label)}
         />
         <Area
           type="monotone"
