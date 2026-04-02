@@ -37,6 +37,7 @@ function minimalExp(over: Partial<ExperimentSummary>): ExperimentSummary {
     git_close_commit: null,
     git_close_branch: null,
     git_dirty: null,
+    code_context: null,
     artifact_count: 0,
     artifact_types: null,
     artifact_filenames: null,
