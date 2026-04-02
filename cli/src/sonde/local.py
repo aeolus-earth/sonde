@@ -646,7 +646,8 @@ def update_section(content: str, section: str, body: str) -> str:
     display_name = section.strip().title()
 
     # If section exists, replace its body
-    pattern = rf"(^## {re.escape(display_name)}\s*\n)(.*?)(?=^## |\Z)"
+    # Use (?:\n|$) to handle both newline and end-of-string after the header
+    pattern = rf"(^## {re.escape(display_name)}\s*(?:\n|$))(.*?)(?=^## |\Z)"
     match = re.search(pattern, content, re.IGNORECASE | re.MULTILINE | re.DOTALL)
     if match:
         replacement = f"## {display_name}\n{body.strip()}\n\n"
