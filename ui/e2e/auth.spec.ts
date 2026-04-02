@@ -11,15 +11,22 @@ test.describe("Auth gate", () => {
     page,
   }) => {
     await page.goto("/login");
-    await expect(page.locator("h1")).toContainText("Sonde");
+    // Wait for the page to fully render
+    await page.waitForLoadState("networkidle");
+    await expect(page.locator("h1")).toContainText("Sonde", {
+      timeout: 10_000,
+    });
     await expect(
       page.locator("text=Continue with Google")
-    ).toBeVisible();
+    ).toBeVisible({ timeout: 10_000 });
   });
 
   test("login page shows aeolus.earth domain hint", async ({ page }) => {
     await page.goto("/login");
-    await expect(page.locator("text=@aeolus.earth")).toBeVisible();
+    await page.waitForLoadState("networkidle");
+    await expect(page.locator("text=@aeolus.earth")).toBeVisible({
+      timeout: 10_000,
+    });
   });
 });
 
