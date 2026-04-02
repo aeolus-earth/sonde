@@ -31,7 +31,15 @@ from sonde.db.artifacts import (
     is_text_artifact,
     list_for_experiments,
 )
-from sonde.local import ensure_subdir, find_sonde_dir, render_record, write_record
+from sonde.local import (
+    build_direction_index,
+    compute_record_dir,
+    ensure_subdir,
+    find_sonde_dir,
+    render_record,
+    write_nested_record,
+    write_record,
+)
 from sonde.output import err, print_error, print_json, print_success
 
 ARTIFACT_CHOICES = ("none", "text", "media", "all")
@@ -281,11 +289,11 @@ def pull_direction(ctx: click.Context, direction_id: str) -> None:
         )
         raise SystemExit(1)
 
-    path = _write_record_with_body(
-        sonde_dir, "directions", direction.id, direction.model_dump(mode="json")
-    )
+    d_dict = direction.model_dump(mode="json")
+    rel_dir = compute_record_dir("direction", d_dict)
+    path = write_nested_record(sonde_dir, rel_dir, "direction.md", render_record(d_dict))
     if ctx.obj.get("json"):
-        print_json(direction.model_dump(mode="json"))
+        print_json(d_dict)
     else:
         print_success(f"Pulled {direction.id} → {path.relative_to(sonde_dir.parent)}")
 
@@ -299,9 +307,9 @@ def pull_directions(ctx: click.Context) -> None:
     sonde_dir = find_sonde_dir()
     directions = dir_db.list_directions(program=program, statuses=None, limit=10000)
     for direction in directions:
-        _write_record_with_body(
-            sonde_dir, "directions", direction.id, direction.model_dump(mode="json")
-        )
+        d_dict = direction.model_dump(mode="json")
+        rel_dir = compute_record_dir("direction", d_dict)
+        write_nested_record(sonde_dir, rel_dir, "direction.md", render_record(d_dict))
     if ctx.obj.get("json"):
         print_json({"count": len(directions), "ids": [d.id for d in directions]})
         return
@@ -342,6 +350,10 @@ def _run_experiment_pull(
         roots=roots,
         program=program,
     )
+
+    # Build direction_index for nested placement
+    direction_index = _build_direction_index_for_experiments(experiments)
+
     sync = _sync_experiments(
         sonde_dir,
         experiments,
@@ -349,6 +361,7 @@ def _run_experiment_pull(
         artifact_mode=mode,
         use_json=bool(ctx.obj.get("json")),
         follow_up_command=_media_follow_up(selector_summary, program),
+        direction_index=direction_index,
     )
     if selector_kind == "single":
         sync.next_steps = _pull_next_steps(experiments[0]["id"], sync)
@@ -369,7 +382,8 @@ def _run_experiment_pull(
         return
 
     if selector_kind == "single":
-        path = sonde_dir / "experiments" / f"{experiments[0]['id']}.md"
+        rel_dir = compute_record_dir("experiment", experiments[0], direction_index=direction_index)
+        path = sonde_dir / rel_dir / f"{experiments[0]['id']}.md"
         print_success(f"Pulled {experiments[0]['id']} → {path.relative_to(sonde_dir.parent)}")
     else:
         print_success(f"Pulled {len(experiments)} experiment(s)")
@@ -504,30 +518,11 @@ def _pull_all(ctx: click.Context) -> None:
     findings = find_db.list_findings(program=program, include_superseded=True, limit=10000)
     questions = q_db.list_questions(program=program, include_all=True, limit=10000)
     directions = dir_db.list_directions(program=program, statuses=None, limit=10000)
-    sync = _sync_experiments(
-        sonde_dir,
-        experiments,
-        selector={"kind": "program", "program": program},
-        artifact_mode=ctx.obj.get("pull_artifacts", "text"),
-        use_json=bool(ctx.obj.get("json")),
-        follow_up_command=f"sonde pull -p {program} --artifacts media",
-    )
+    dir_dicts = [d.model_dump(mode="json") for d in directions]
+    direction_index = build_direction_index(dir_dicts)
 
-    for finding in findings:
-        _write_record_with_body(sonde_dir, "findings", finding.id, finding.model_dump(mode="json"))
-    for question in questions:
-        _write_record_with_body(
-            sonde_dir, "questions", question.id, question.model_dump(mode="json")
-        )
-    for direction in directions:
-        _write_record_with_body(
-            sonde_dir, "directions", direction.id, direction.model_dump(mode="json")
-        )
-
-    tw = takeaways_db.get(program)
-    takeaways_db.write_takeaways_file(sonde_dir, tw.body if tw else None)
-
-    # Pull project takeaways (best-effort — table may not exist yet)
+    # Write projects (best-effort — fetch for hierarchy + takeaways)
+    projects: list[Any] = []
     project_takeaways_count = 0
     try:
         from sonde.db import project_takeaways as ptw_db
@@ -535,12 +530,54 @@ def _pull_all(ctx: click.Context) -> None:
 
         projects = proj_db.list_projects(program=program, statuses=None, limit=200)
         for p in projects:
+            p_data = p.model_dump(mode="json")
+            rel_dir = compute_record_dir("project", p_data)
+            write_nested_record(sonde_dir, rel_dir, "project.md", render_record(p_data))
             ptw = ptw_db.get(p.id)
             if ptw and ptw.body.strip():
                 ptw_db.write_takeaways_file(sonde_dir, p.id, ptw.body)
                 project_takeaways_count += 1
     except (Exception, SystemExit):
         pass
+
+    # Write directions nested under projects
+    for d_dict in dir_dicts:
+        rel_dir = compute_record_dir("direction", d_dict)
+        write_nested_record(sonde_dir, rel_dir, "direction.md", render_record(d_dict))
+
+    # Write experiments nested under directions/projects
+    sync = _sync_experiments(
+        sonde_dir,
+        experiments,
+        selector={"kind": "program", "program": program},
+        artifact_mode=ctx.obj.get("pull_artifacts", "text"),
+        use_json=bool(ctx.obj.get("json")),
+        follow_up_command=f"sonde pull -p {program} --artifacts media",
+        direction_index=direction_index,
+    )
+
+    # Findings and questions stay flat
+    for finding in findings:
+        _write_record_with_body(sonde_dir, "findings", finding.id, finding.model_dump(mode="json"))
+    for question in questions:
+        _write_record_with_body(
+            sonde_dir, "questions", question.id, question.model_dump(mode="json")
+        )
+
+    tw = takeaways_db.get(program)
+    takeaways_db.write_takeaways_file(sonde_dir, tw.body if tw else None)
+
+    # Generate tree.md index
+    from sonde.local import generate_tree_md
+
+    tree_content = generate_tree_md(
+        projects=[p.model_dump(mode="json") for p in projects],
+        directions=dir_dicts,
+        experiments=experiments,
+        findings=[f.model_dump(mode="json") for f in findings],
+        questions=[q.model_dump(mode="json") for q in questions],
+    )
+    (sonde_dir / "tree.md").write_text(tree_content, encoding="utf-8")
 
     if ctx.obj.get("json"):
         print_json(
@@ -578,14 +615,20 @@ def _sync_experiments(
     artifact_mode: str,
     use_json: bool,
     follow_up_command: str | None,
+    direction_index: dict[str, dict[str, Any]] | None = None,
 ) -> ArtifactSyncSummary:
+    # Build a map of exp_id → resolved base dir for artifact placement
+    exp_base_dirs: dict[str, Path] = {}
+
     for exp in experiments:
-        _write_record_with_body(sonde_dir, "experiments", exp["id"], exp)
-        ensure_subdir(sonde_dir, f"experiments/{exp['id']}")
+        rel_dir = compute_record_dir("experiment", exp, direction_index=direction_index)
+        write_nested_record(sonde_dir, rel_dir, f"{exp['id']}.md", render_record(exp))
+        exp_base = ensure_subdir(sonde_dir, f"{rel_dir}/{exp['id']}")
+        exp_base_dirs[exp["id"]] = exp_base
         try:
             notes = notes_db.list_by_experiment(exp["id"])
             if notes:
-                _write_notes(sonde_dir, exp["id"], notes)
+                _write_notes(exp_base, notes)
         except APIError as exc:
             from sonde.db import classify_api_error
 
@@ -603,6 +646,7 @@ def _sync_experiments(
         mode=artifact_mode,
         use_json=use_json,
         follow_up_command=follow_up_command,
+        exp_base_dirs=exp_base_dirs,
     )
 
 
@@ -614,6 +658,7 @@ def _download_selected_artifacts(
     mode: str,
     use_json: bool,
     follow_up_command: str | None,
+    exp_base_dirs: dict[str, Path] | None = None,
 ) -> ArtifactSyncSummary:
     summary = ArtifactSyncSummary(mode=mode)
     if mode == "none" or not experiments:
@@ -643,7 +688,9 @@ def _download_selected_artifacts(
         if not should_select:
             continue
 
-        local_path, local_action = _planned_pull_target(sonde_dir, artifact)
+        local_path, local_action = _planned_pull_target(
+            sonde_dir, artifact, exp_base_dirs=exp_base_dirs
+        )
         fingerprint = build_fingerprint(
             storage_path,
             local_action,
@@ -736,12 +783,23 @@ def _download_selected_artifacts(
     return summary
 
 
-def _planned_pull_target(sonde_dir: Path, artifact: dict[str, Any]) -> tuple[Path, str]:
+def _planned_pull_target(
+    sonde_dir: Path,
+    artifact: dict[str, Any],
+    *,
+    exp_base_dirs: dict[str, Path] | None = None,
+) -> tuple[Path, str]:
     from sonde.db.validate import contained_path
 
     experiment_id = str(artifact.get("experiment_id") or "")
     storage_path = str(artifact.get("storage_path") or "")
-    exp_dir = sonde_dir / "experiments" / experiment_id
+
+    # Use resolved nested dir if available, fall back to flat layout
+    if exp_base_dirs and experiment_id in exp_base_dirs:
+        exp_dir = exp_base_dirs[experiment_id]
+    else:
+        exp_dir = sonde_dir / "experiments" / experiment_id
+
     if storage_path.startswith(f"{experiment_id}/"):
         relative = storage_path[len(experiment_id) + 1 :]
     else:
@@ -865,6 +923,28 @@ def _format_bytes(value: int) -> str:
     return f"{value} B"
 
 
+def _build_direction_index_for_experiments(
+    experiments: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """Build a minimal direction_index by fetching directions referenced by experiments."""
+    dir_ids = {exp.get("direction_id") for exp in experiments if exp.get("direction_id")}
+    if not dir_ids:
+        return {}
+    index: dict[str, dict[str, Any]] = {}
+    for dir_id in dir_ids:
+        try:
+            d = dir_db.get(dir_id)
+            if d:
+                data = d.model_dump(mode="json")
+                index[dir_id] = {
+                    "project_id": data.get("project_id"),
+                    "parent_direction_id": data.get("parent_direction_id"),
+                }
+        except Exception:
+            pass
+    return index
+
+
 def _write_record_with_body(
     sonde_dir: Path,
     category: str,
@@ -874,8 +954,9 @@ def _write_record_with_body(
     return write_record(sonde_dir, category, record_id, render_record(record))
 
 
-def _write_notes(sonde_dir: Path, experiment_id: str, notes: list[dict[str, Any]]) -> None:
-    notes_dir = ensure_subdir(sonde_dir, f"experiments/{experiment_id}/notes")
+def _write_notes(exp_base_dir: Path, notes: list[dict[str, Any]]) -> None:
+    notes_dir = exp_base_dir / "notes"
+    notes_dir.mkdir(parents=True, exist_ok=True)
     for note in notes:
         timestamp = note.get("created_at", "")[:19].replace(":", "-")
         filename = f"{timestamp}.md"

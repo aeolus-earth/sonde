@@ -3,13 +3,22 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 import click
 
 from sonde.cli_options import pass_output_options
 from sonde.config import get_settings
-from sonde.local import ensure_subdir, find_sonde_dir, render_record, write_record
+from sonde.local import (
+    build_direction_index,
+    compute_record_dir,
+    ensure_subdir,
+    find_sonde_dir,
+    render_record,
+    write_nested_record,
+    write_record,
+)
 from sonde.output import err, print_error, print_json, print_success
 
 
@@ -58,25 +67,45 @@ def sync(ctx: click.Context, program: str | None) -> None:
     all_findings = find_db.list_findings(program=program, include_superseded=True, limit=10000)
     questions = q_db.list_questions(program=program, include_all=True, limit=10000)
     directions = dir_db.list_directions(program=program, statuses=None, limit=10000)
+    dir_dicts = [d.model_dump(mode="json") for d in directions]
+    direction_index = build_direction_index(dir_dicts)
 
-    # Write experiment records + notes
+    # Write projects (best-effort)
+    projects: list[Any] = []
+    try:
+        from sonde.db import projects as proj_db
+
+        projects = proj_db.list_projects(program=program, statuses=None, limit=200)
+        for p in projects:
+            p_data = p.model_dump(mode="json")
+            rel_dir = compute_record_dir("project", p_data)
+            write_nested_record(sonde_dir, rel_dir, "project.md", render_record(p_data))
+    except (Exception, SystemExit):
+        pass
+
+    # Write directions nested under projects
+    for d_dict in dir_dicts:
+        rel_dir = compute_record_dir("direction", d_dict)
+        write_nested_record(sonde_dir, rel_dir, "direction.md", render_record(d_dict))
+
+    # Write experiment records + notes (nested)
     for exp in experiments:
         data = exp.model_dump(mode="json")
-        write_record(sonde_dir, "experiments", exp.id, render_record(data))
-        ensure_subdir(sonde_dir, f"experiments/{exp.id}")
+        rel_dir = compute_record_dir("experiment", data, direction_index=direction_index)
+        write_nested_record(sonde_dir, rel_dir, f"{exp.id}.md", render_record(data))
+        exp_base = ensure_subdir(sonde_dir, f"{rel_dir}/{exp.id}")
         try:
             notes = notes_db.list_by_experiment(exp.id)
             if notes:
-                _write_notes(sonde_dir, exp.id, notes)
+                _write_notes(exp_base, notes)
         except Exception:
             pass  # Non-critical — notes may not be available
 
+    # Findings and questions stay flat
     for f in all_findings:
         write_record(sonde_dir, "findings", f.id, render_record(f.model_dump(mode="json")))
     for q in questions:
         write_record(sonde_dir, "questions", q.id, render_record(q.model_dump(mode="json")))
-    for d in directions:
-        write_record(sonde_dir, "directions", d.id, render_record(d.model_dump(mode="json")))
 
     tw = takeaways_db.get(program)
     takeaways_db.write_takeaways_file(sonde_dir, tw.body if tw else None)
@@ -126,6 +155,21 @@ def sync(ctx: click.Context, program: str | None) -> None:
 
     if not use_json:
         err.print("  [sonde.muted]Generated index.jsonl[/]")
+
+    # -- Generate tree.md --
+    from sonde.local import generate_tree_md
+
+    tree_content = generate_tree_md(
+        projects=[p.model_dump(mode="json") for p in projects],
+        directions=dir_dicts,
+        experiments=[e.model_dump(mode="json") for e in experiments],
+        findings=[f.model_dump(mode="json") for f in all_findings],
+        questions=[q.model_dump(mode="json") for q in questions],
+    )
+    (sonde_dir / "tree.md").write_text(tree_content, encoding="utf-8")
+
+    if not use_json:
+        err.print("  [sonde.muted]Generated tree.md[/]")
 
     # -- Summary --
     running = [e for e in experiments if e.status == "running"]
@@ -189,8 +233,9 @@ def _one_line(exp: Any) -> str:
     return exp.finding[:60] if exp.finding else ""
 
 
-def _write_notes(sonde_dir: Any, experiment_id: str, notes: list[dict[str, Any]]) -> None:
-    notes_dir = ensure_subdir(sonde_dir, f"experiments/{experiment_id}/notes")
+def _write_notes(exp_base_dir: Path, notes: list[dict[str, Any]]) -> None:
+    notes_dir = exp_base_dir / "notes"
+    notes_dir.mkdir(parents=True, exist_ok=True)
     for note in notes:
         timestamp = note.get("created_at", "")[:19].replace(":", "-")
         filename = f"{timestamp}.md"

@@ -8,14 +8,12 @@ from pathlib import Path
 import click
 
 from sonde.cli_options import pass_output_options
-from sonde.db.validate import contained_path
 from sonde.local import find_sonde_dir, resolve_record_path
 from sonde.output import print_error, print_json, print_success
 
 
 def _remove_local_record(category: str, name: str) -> Path:
     sonde_dir = find_sonde_dir()
-    directory = sonde_dir / category
     try:
         candidate = resolve_record_path(sonde_dir, category, name)
     except ValueError:
@@ -28,14 +26,15 @@ def _remove_local_record(category: str, name: str) -> Path:
     if candidate is not None:
         candidate.unlink()
         if category == "experiments":
-            exp_dir = contained_path(directory, candidate.stem)
-            if exp_dir.exists():
+            # Artifact dir is a sibling directory named after the experiment ID
+            exp_dir = candidate.parent / candidate.stem
+            if exp_dir.is_dir():
                 shutil.rmtree(exp_dir)
         return candidate
 
     print_error(
         f"Local record not found: {name}",
-        f"No .md file matching '{name}' in .sonde/{category}/",
+        f"No .md file matching '{name}' in .sonde/",
         "Use the exact local filename stem or record ID.",
     )
     raise SystemExit(1)

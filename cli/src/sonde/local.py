@@ -33,8 +33,12 @@ _FRONTMATTER_KEYS = {
     "git_branch",
     "data_sources",
     "direction_id",
+    "project_id",
     "parent_id",
     "branch_type",
+    # Directions
+    "parent_direction_id",
+    "spawned_from_experiment_id",
     "claimed_by",
     "claimed_at",
     "run_at",
@@ -98,25 +102,23 @@ def ensure_subdir(sonde_dir: Path, name: str) -> Path:
 
 
 def resolve_record_path(sonde_dir: Path, category: str, name: str) -> Path | None:
-    """Resolve an existing record path under ``.sonde/<category>`` safely.
+    """Resolve an existing record path under ``.sonde/`` safely.
 
-    Handles two layouts:
-      - ``<category>/EXP-0001.md``          (file-only, from log/new)
-      - ``<category>/EXP-0001/EXP-0001.md`` (directory, from pull with artifacts)
+    Searches the flat layout first (``<category>/EXP-0001.md``), then
+    falls back to the nested hierarchy (``projects/**/EXP-0001.md``).
     """
     from sonde.db.validate import contained_path
 
     base_dir = sonde_dir / category
     stem = name.removesuffix(".md")
 
-    # Build candidates: flat files first, then files inside directories
+    # 1. Flat layout: check <category>/<name>.md and <category>/<name>/<name>.md
     candidates = [
         f"{stem}.md",
         f"{stem.upper()}.md",
         f"{stem}/{stem}.md",
         f"{stem}/{stem.upper()}.md",
     ]
-    # Deduplicate while preserving order
     seen: set[str] = set()
     unique: list[str] = []
     for c in candidates:
@@ -131,6 +133,35 @@ def resolve_record_path(sonde_dir: Path, category: str, name: str) -> Path | Non
             raise ValueError(f"Unsafe local record path: {name!r}") from None
         if path.exists() and path.is_file():
             return path
+
+    # 2. Nested layout: search under projects/ and directions/
+    result = _search_nested_record(sonde_dir, category, stem)
+    if result is not None:
+        return result
+
+    return None
+
+
+def _search_nested_record(sonde_dir: Path, category: str, stem: str) -> Path | None:
+    """Search nested hierarchy for a record by ID stem."""
+    stem_upper = stem.upper()
+
+    if category == "experiments":
+        # Experiments: EXP-xxx.md under projects/ or directions/
+        for search_root in [sonde_dir / "projects", sonde_dir / "directions"]:
+            if search_root.is_dir():
+                for candidate in search_root.rglob(f"{stem_upper}.md"):
+                    if candidate.is_file():
+                        return candidate
+
+    elif category == "directions":
+        # Directions: direction.md inside a DIR-xxx/ directory, or DIR-xxx.md flat
+        for search_root in [sonde_dir / "projects", sonde_dir / "directions"]:
+            if search_root.is_dir():
+                for candidate in search_root.rglob("direction.md"):
+                    if candidate.is_file() and candidate.parent.name == stem_upper:
+                        return candidate
+
     return None
 
 
@@ -250,12 +281,82 @@ def parse_markdown(content: str) -> tuple[dict[str, Any], str]:
 
 
 # ---------------------------------------------------------------------------
+# Nested hierarchy — path resolution
+# ---------------------------------------------------------------------------
+
+DirectionIndex = dict[str, dict[str, Any]]
+"""Mapping of direction ID → {project_id, parent_direction_id}."""
+
+
+def compute_record_dir(
+    record_type: str,
+    record: dict[str, Any],
+    *,
+    direction_index: DirectionIndex | None = None,
+) -> str:
+    """Compute the directory path for a record, relative to .sonde/.
+
+    Returns a string like ``"projects/PROJ-001/DIR-001"`` or ``"experiments"``.
+    The caller appends the filename (e.g. ``EXP-001.md`` or ``direction.md``).
+    """
+    if record_type == "finding":
+        return "findings"
+    if record_type == "question":
+        return "questions"
+    if record_type == "project":
+        return f"projects/{record['id']}"
+
+    if record_type == "direction":
+        project_id = record.get("project_id")
+        parent_dir_id = record.get("parent_direction_id")
+        dir_id = record["id"]
+        if project_id and parent_dir_id:
+            return f"projects/{project_id}/{parent_dir_id}/{dir_id}"
+        if project_id:
+            return f"projects/{project_id}/{dir_id}"
+        return f"directions/{dir_id}"
+
+    if record_type == "experiment":
+        dir_id = record.get("direction_id")
+        if dir_id and direction_index and dir_id in direction_index:
+            dir_info = direction_index[dir_id]
+            # Reuse direction path logic
+            dir_record = {"id": dir_id, **dir_info}
+            return compute_record_dir("direction", dir_record)
+        project_id = record.get("project_id")
+        if project_id:
+            return f"projects/{project_id}"
+        return "experiments"
+
+    raise ValueError(f"Unknown record type: {record_type}")
+
+
+def build_direction_index(directions: list[dict[str, Any]]) -> DirectionIndex:
+    """Build a direction lookup from a list of direction records."""
+    return {
+        d["id"]: {
+            "project_id": d.get("project_id"),
+            "parent_direction_id": d.get("parent_direction_id"),
+        }
+        for d in directions
+    }
+
+
+def write_nested_record(sonde_dir: Path, relative_dir: str, filename: str, content: str) -> Path:
+    """Write a record to a nested path under .sonde/."""
+    subdir = ensure_subdir(sonde_dir, relative_dir)
+    filepath = subdir / filename
+    filepath.write_text(content, encoding="utf-8")
+    return filepath
+
+
+# ---------------------------------------------------------------------------
 # File operations
 # ---------------------------------------------------------------------------
 
 
 def write_record(sonde_dir: Path, category: str, record_id: str, content: str) -> Path:
-    """Write a rendered record to .sonde/."""
+    """Write a rendered record to .sonde/ (flat layout)."""
     from sonde.db.validate import validate_id
 
     validate_id(record_id)
@@ -339,6 +440,99 @@ tags: []
 Write your observations, analysis, or literature review here.
 """,
 }
+
+
+# ---------------------------------------------------------------------------
+# Tree index generation
+# ---------------------------------------------------------------------------
+
+
+def generate_tree_md(
+    *,
+    projects: list[dict[str, Any]],
+    directions: list[dict[str, Any]],
+    experiments: list[dict[str, Any]],
+    findings: list[dict[str, Any]],
+    questions: list[dict[str, Any]],
+) -> str:
+    """Generate a tree.md index showing the full research hierarchy."""
+    from collections import defaultdict
+
+    lines = ["# Research Tree", ""]
+
+    # Build lookup structures
+    dirs_by_project: dict[str | None, list[dict[str, Any]]] = defaultdict(list)
+    sub_dirs: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for d in directions:
+        if d.get("parent_direction_id"):
+            sub_dirs[d["parent_direction_id"]].append(d)
+        else:
+            dirs_by_project[d.get("project_id")].append(d)
+
+    exps_by_dir: dict[str | None, list[dict[str, Any]]] = defaultdict(list)
+    exps_by_project_no_dir: dict[str | None, list[dict[str, Any]]] = defaultdict(list)
+    orphan_exps: list[dict[str, Any]] = []
+    for exp in experiments:
+        if exp.get("direction_id"):
+            exps_by_dir[exp["direction_id"]].append(exp)
+        elif exp.get("project_id"):
+            exps_by_project_no_dir[exp["project_id"]].append(exp)
+        else:
+            orphan_exps.append(exp)
+
+    def _exp_line(exp: dict[str, Any], indent: int) -> str:
+        title = exp.get("title") or exp.get("hypothesis") or exp["id"]
+        status = exp.get("status", "")
+        prefix = "  " * indent + "- "
+        return f"{prefix}{exp['id']}: {title} [{status}]"
+
+    def _render_dir(d: dict[str, Any], indent: int) -> None:
+        title = d.get("title") or d["id"]
+        status = d.get("status", "")
+        prefix = "  " * indent + "- "
+        lines.append(f"{prefix}{d['id']}: {title} ({status})")
+        for child_dir in sub_dirs.get(d["id"], []):
+            _render_dir(child_dir, indent + 1)
+        for exp in exps_by_dir.get(d["id"], []):
+            lines.append(_exp_line(exp, indent + 1))
+
+    # Projects
+    for project in projects:
+        name = project.get("name") or project["id"]
+        lines.append(f"## {project['id']}: {name}")
+        for d in dirs_by_project.get(project["id"], []):
+            _render_dir(d, 0)
+        for exp in exps_by_project_no_dir.get(project["id"], []):
+            lines.append(_exp_line(exp, 0))
+        lines.append("")
+
+    # Orphan directions (no project)
+    orphan_dirs = dirs_by_project.get(None, [])
+    if orphan_dirs or orphan_exps:
+        lines.append("## Unassigned")
+        for d in orphan_dirs:
+            _render_dir(d, 0)
+        for exp in orphan_exps:
+            lines.append(_exp_line(exp, 0))
+        lines.append("")
+
+    # Findings
+    if findings:
+        lines.append(f"## Findings ({len(findings)})")
+        for f in findings:
+            topic = f.get("topic") or f["id"]
+            lines.append(f"- {f['id']}: {topic} [{f.get('confidence', '')}]")
+        lines.append("")
+
+    # Questions
+    if questions:
+        lines.append(f"## Questions ({len(questions)})")
+        for q in questions:
+            question = q.get("question") or q["id"]
+            lines.append(f"- {q['id']}: {question} [{q.get('status', '')}]")
+        lines.append("")
+
+    return "\n".join(lines) + "\n"
 
 
 # ---------------------------------------------------------------------------
