@@ -1,0 +1,85 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      notes:
+        description: "Release notes (leave blank for auto-generated changelog)"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history for changelog generation
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Get current version
+        id: version
+        run: |
+          VERSION=$(python -c "
+          import re
+          text = open('cli/src/sonde/__init__.py').read()
+          print(re.search(r'__version__ = \"(.+)\"', text)[1])
+          ")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Current version: $VERSION"
+
+      - name: Check tag exists
+        run: |
+          if ! git rev-parse "v${{ steps.version.outputs.version }}" >/dev/null 2>&1; then
+            echo "WARNING: Tag v${{ steps.version.outputs.version }} does not exist."
+            echo "Creating tag now..."
+            git tag "v${{ steps.version.outputs.version }}"
+            git push --tags
+          fi
+
+      - name: Generate changelog from commits
+        id: changelog
+        run: |
+          LAST_TAG=$(git tag --sort=-v:refname | grep -v "v${{ steps.version.outputs.version }}" | head -1)
+          if [ -n "$LAST_TAG" ]; then
+            RANGE="${LAST_TAG}..v${{ steps.version.outputs.version }}"
+            echo "Changelog range: $RANGE"
+          else
+            RANGE="v${{ steps.version.outputs.version }}"
+            echo "No previous tag — using last 30 commits"
+          fi
+
+          {
+            echo "log<<EOF"
+            if [ -n "$LAST_TAG" ]; then
+              git log "$RANGE" --oneline --no-merges | head -50
+            else
+              git log --oneline -30 --no-merges
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: Sonde v${{ steps.version.outputs.version }}
+          body: |
+            ## Sonde v${{ steps.version.outputs.version }}
+
+            ### Install
+            ```bash
+            uv tool install "sonde @ git+https://github.com/aeolus-earth/sonde.git@v${{ steps.version.outputs.version }}#subdirectory=cli"
+            ```
+
+            ### Changes
+            ${{ inputs.notes || steps.changelog.outputs.log }}
+          draft: false
+          prerelease: false

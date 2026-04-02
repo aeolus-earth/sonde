@@ -1,6 +1,6 @@
 [project]
 name = "sonde"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Scientific discovery management CLI for the Aeolus research platform"
 readme = "README.md"
 license = "MIT"
@@ -25,6 +25,9 @@ sonde = "sonde.cli:cli"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "src/sonde/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/sonde"]
