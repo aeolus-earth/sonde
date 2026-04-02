@@ -18,6 +18,8 @@ class DirectionCreate(BaseModel):
     project_id: str | None = None
     status: Literal["proposed", "active", "paused", "completed", "abandoned"] = "active"
     source: str
+    parent_direction_id: str | None = None
+    spawned_from_experiment_id: str | None = None
 
 
 class Direction(DirectionCreate):

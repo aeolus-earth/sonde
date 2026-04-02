@@ -5,7 +5,7 @@ import {
   useExperimentAncestors,
   useExperimentChildren,
 } from "@/hooks/use-experiments";
-import { useDirection } from "@/hooks/use-directions";
+import { useDirection, useParentDirection } from "@/hooks/use-directions";
 import { useProject } from "@/hooks/use-projects";
 import { usePrograms } from "@/hooks/use-programs";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -49,6 +49,7 @@ export function ExperimentLineage({ experiment: exp }: { experiment: ExperimentS
   const { data: children, isPending: childrenPending } = useExperimentChildren(exp.id);
   const { data: project, isPending: projectPending } = useProject(exp.project_id ?? "");
   const { data: direction, isPending: directionPending } = useDirection(exp.direction_id ?? "");
+  const { data: parentDirection, isPending: parentDirPending } = useParentDirection(direction?.parent_direction_id);
 
   const programLabel = useMemo(() => {
     const row = programs?.find((p) => p.id === exp.program);
@@ -59,7 +60,8 @@ export function ExperimentLineage({ experiment: exp }: { experiment: ExperimentS
     ancestorsPending ||
     childrenPending ||
     (!!exp.project_id && projectPending) ||
-    (!!exp.direction_id && directionPending);
+    (!!exp.direction_id && directionPending) ||
+    (!!direction?.parent_direction_id && parentDirPending);
 
   if (lineageLoading) {
     return <ExperimentLineageSkeleton />;
@@ -80,6 +82,20 @@ export function ExperimentLineage({ experiment: exp }: { experiment: ExperimentS
             <Sep />
             <Link to="/projects/$id" params={{ id: exp.project_id }} className={segProject}>
               {project?.name ?? exp.project_id}
+            </Link>
+          </>
+        )}
+
+        {parentDirection && (
+          <>
+            <Sep />
+            <Link
+              to="/directions/$id"
+              params={{ id: parentDirection.id }}
+              className={segDirection}
+              title={parentDirection.title}
+            >
+              {parentDirection.title}
             </Link>
           </>
         )}

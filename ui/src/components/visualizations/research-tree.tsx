@@ -180,6 +180,16 @@ type TreeRowData =
       childCount: number;
       toggleKey: string;
       findings: Finding[];
+    }
+  | {
+      kind: "sub-direction";
+      rowKey: string;
+      depth: number;
+      dir: DirectionSummary;
+      parentDirId: string;
+      expCount: number;
+      statusCounts: Record<string, number>;
+      toggleKey: string;
     };
 
 const ROW_H = 40;
@@ -322,7 +332,7 @@ export const ResearchTree = memo(function ResearchTree({
       const projCollapsed = collapsed.has(pid);
 
       const dirsInProj = directions
-        .filter((d) => bucketProjectId(d.project_id, knownProjectIds) === bucketId)
+        .filter((d) => bucketProjectId(d.project_id, knownProjectIds) === bucketId && !d.parent_direction_id)
         .sort((a, b) => a.title.localeCompare(b.title));
 
       const allInProject = experimentsForTree.filter(
@@ -369,6 +379,34 @@ export const ResearchTree = memo(function ResearchTree({
 
         for (const exp of rootExps) {
           addExperimentRows(exp, 2, childMapFiltered, collapsed, findingsByExp, rows);
+        }
+
+        // Add child (sub) directions after the parent direction's experiments
+        const childDirs = directions.filter((d) => d.parent_direction_id === dir.id);
+        for (const childDir of childDirs) {
+          const subHeaderId = `subdir-${childDir.id}`;
+          const subDirCollapsed = collapsed.has(subHeaderId);
+          const subDirExps = experimentsForTree.filter((e) => e.direction_id === childDir.id);
+          const subDirRootExps = subDirExps.filter((e) => isRoot(e));
+
+          if (isFiltering && subDirExps.length === 0) continue;
+
+          rows.push({
+            kind: "sub-direction",
+            rowKey: subHeaderId,
+            depth: 2,
+            dir: childDir,
+            parentDirId: dir.id,
+            expCount: subDirExps.length,
+            statusCounts: countStatuses(subDirExps),
+            toggleKey: subHeaderId,
+          });
+
+          if (!subDirCollapsed) {
+            for (const exp of subDirRootExps) {
+              addExperimentRows(exp, 3, childMapFiltered, collapsed, findingsByExp, rows);
+            }
+          }
         }
       }
 
@@ -438,7 +476,7 @@ export const ResearchTree = memo(function ResearchTree({
     (row: TreeRowData) => {
       if (row.kind === "project") {
         if (row.projectId) onNavigate({ kind: "project", id: row.projectId });
-      } else if (row.kind === "direction") {
+      } else if (row.kind === "direction" || row.kind === "sub-direction") {
         onNavigate({ kind: "direction", id: row.dir.id });
       } else if (row.kind === "ungrouped") {
         return;
@@ -593,6 +631,65 @@ export const ResearchTree = memo(function ResearchTree({
             )}
           </span>
           <Compass className="h-3.5 w-3.5 shrink-0 text-accent" />
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-[12px] font-medium text-text">{row.dir.title}</div>
+            <div className="mt-0.5 flex flex-wrap items-center gap-2">
+              <span className="font-mono text-[10px] text-text-quaternary">{row.dir.id}</span>
+              <div className="flex items-center gap-1.5">
+                {Object.entries(row.statusCounts).map(([status, count]) => (
+                  <span
+                    key={status}
+                    className="flex items-center gap-0.5 text-[10px]"
+                    style={{
+                      color: statusColor[status as ExperimentStatus] ?? colors.textQuaternary,
+                    }}
+                  >
+                    <span className="inline-block h-[5px] w-[5px] rounded-full bg-current" />
+                    {count}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (row.kind === "sub-direction") {
+      const expanded = !collapsed.has(row.toggleKey);
+      return (
+        <div
+          key={row.rowKey}
+          role="row"
+          tabIndex={0}
+          onClick={() => {
+            setFocusedIndex(index);
+            toggle(row.toggleKey);
+          }}
+          onDoubleClick={(e) => {
+            e.stopPropagation();
+            onNavigate({ kind: "direction", id: row.dir.id });
+          }}
+          onKeyDown={(e) => {
+            if (e.key === " ") {
+              e.preventDefault();
+              toggle(row.toggleKey);
+            }
+          }}
+          className={cn(
+            "flex cursor-pointer items-center gap-2 border-b border-border-subtle border-l-[3px] border-l-accent/60 pr-2 text-left transition-colors",
+            focused ? "bg-surface-hover ring-1 ring-inset ring-accent" : "hover:bg-surface-hover/80"
+          )}
+          style={{ ...pad(row.depth), minHeight: ROW_H }}
+        >
+          <span className="text-accent">
+            {expanded ? (
+              <ChevronDown className="h-3.5 w-3.5" />
+            ) : (
+              <ChevronRight className="h-3.5 w-3.5" />
+            )}
+          </span>
+          <GitFork className="h-3.5 w-3.5 shrink-0 text-accent" />
           <div className="min-w-0 flex-1">
             <div className="truncate text-[12px] font-medium text-text">{row.dir.title}</div>
             <div className="mt-0.5 flex flex-wrap items-center gap-2">

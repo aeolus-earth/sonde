@@ -116,6 +116,17 @@ def _relative_age(dt_str: str | None) -> str:
 
 def _format_node_label(row: dict, *, frontier: bool = False) -> str:
     """Format one tree node for Rich output."""
+    if row.get("_is_direction"):
+        parts = [
+            f"[bold sonde.accent]{row['id']}[/bold sonde.accent]",
+            styled_status(row.get("status", "active")),
+            row.get("content") or "",
+        ]
+        age = _relative_age(row.get("updated_at"))
+        if age:
+            parts.append(f"[dim]{age}[/dim]")
+        return "  ".join(parts)
+
     parts = [f"[bold]{row['id']}[/bold]", styled_status(row.get("status", "open"))]
     parts.append(record_summary(row, 50))
     if row.get("branch_type"):
@@ -209,6 +220,8 @@ def _collect_tree_rows(
         return db.get_subtree(root_id, max_depth=max_depth)
 
     if root_id and root_id.startswith("DIR-"):
+        from sonde.db import directions as dir_db
+
         exps = db.list_by_direction(root_id)
         roots = [e for e in exps if not e.parent_id]
         rows: list[dict] = []
@@ -216,6 +229,33 @@ def _collect_tree_rows(
             rows.extend(db.get_subtree(r.id, max_depth=max_depth))
         if not roots:
             rows = [e.model_dump(mode="json") | {"depth": 0} for e in exps]
+
+        # Include child directions and their experiment trees
+        child_dirs = dir_db.get_children(root_id)
+        for child in child_dirs:
+            # Add a synthetic direction header node
+            rows.append({
+                "id": child.id,
+                "parent_id": child.spawned_from_experiment_id,
+                "depth": 0,
+                "status": child.status,
+                "branch_type": None,
+                "source": child.source,
+                "content": child.title,
+                "finding": None,
+                "updated_at": child.updated_at.isoformat() if child.updated_at else None,
+                "_is_direction": True,
+            })
+            child_exps = db.list_by_direction(child.id)
+            child_roots = [e for e in child_exps if not e.parent_id]
+            for cr in child_roots:
+                subtree = db.get_subtree(cr.id, max_depth=max_depth)
+                for node in subtree:
+                    # Re-parent root experiments under the direction header
+                    if node.get("parent_id") is None:
+                        node["parent_id"] = child.id
+                    node["depth"] = node.get("depth", 0) + 1
+                rows.extend(subtree)
         return rows
 
     if program:

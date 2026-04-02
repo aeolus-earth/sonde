@@ -178,6 +178,8 @@ export interface Direction {
   source: string;
   /** Present when direction_status includes project_id (migration applied). */
   project_id?: string | null;
+  parent_direction_id?: string | null;
+  spawned_from_experiment_id?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -187,6 +189,7 @@ export interface DirectionSummary extends Direction {
   complete_count: number;
   open_count: number;
   running_count: number;
+  child_direction_count: number;
 }
 
 export interface Question {

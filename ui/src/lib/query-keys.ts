@@ -21,6 +21,7 @@ export const queryKeys = {
     all: (program: string) => ["directions", program] as const,
     detail: (id: string) => ["directions", "detail", id] as const,
     status: (program: string) => ["directions", "status", program] as const,
+    children: (parentId: string) => ["directions", "children", parentId] as const,
   },
   questions: {
     all: (program: string) => ["questions", program] as const,

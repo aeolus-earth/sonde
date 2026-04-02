@@ -410,7 +410,7 @@ export const ExperimentGraph = memo(function ExperimentGraph({
       );
 
       const dirsInProj = directions
-        .filter((d) => bucketProjectId(d.project_id, knownProjectIds) === bucketId)
+        .filter((d) => bucketProjectId(d.project_id, knownProjectIds) === bucketId && !d.parent_direction_id)
         .sort((a, b) => a.title.localeCompare(b.title));
 
       rawNodes.push({
@@ -471,6 +471,54 @@ export const ExperimentGraph = memo(function ExperimentGraph({
               rawNodes,
               rawEdges
             );
+          }
+
+          // Add child (sub) directions under this parent direction
+          const childDirs = directions.filter((d) => d.parent_direction_id === dir.id);
+          for (const childDir of childDirs) {
+            const subHeaderId = `dir-${childDir.id}`;
+            const isSubDirExpanded = expanded.has(subHeaderId);
+            const subDirExps = experiments.filter((e) => e.direction_id === childDir.id);
+            const subDirRootExps = subDirExps.filter((e) => isRoot(e));
+
+            rawNodes.push({
+              id: subHeaderId,
+              type: "direction",
+              position: { x: 0, y: 0 },
+              data: {
+                label: childDir.title,
+                dirId: childDir.id,
+                count: subDirExps.length,
+                expanded: isSubDirExpanded,
+                statusCounts: countStatuses(subDirExps),
+                statusColors: statusColor,
+              } as Record<string, unknown>,
+              draggable: true,
+            });
+
+            rawEdges.push({
+              id: `${headerId}->${subHeaderId}`,
+              source: headerId,
+              target: subHeaderId,
+              type: "smoothstep",
+              style: projEdgeStyle,
+            });
+
+            if (isSubDirExpanded) {
+              for (const exp of subDirRootExps) {
+                addExperimentSubtree(
+                  exp,
+                  0,
+                  subHeaderId,
+                  childMap,
+                  expanded,
+                  statusColor,
+                  colors.border,
+                  rawNodes,
+                  rawEdges
+                );
+              }
+            }
           }
         }
       }

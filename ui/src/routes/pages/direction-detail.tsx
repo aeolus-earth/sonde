@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback } from "react";
 import { getRouteApi, Link } from "@tanstack/react-router";
 import { ROUTE_API } from "../route-ids";
-import { useDirection } from "@/hooks/use-directions";
+import { useDirection, useChildDirections, useParentDirection } from "@/hooks/use-directions";
 import { useExperimentsByDirection } from "@/hooks/use-experiments";
 import { useRecordActivity } from "@/hooks/use-activity";
 import { useHotkey } from "@/hooks/use-keyboard";
@@ -10,7 +10,7 @@ import { Skeleton, DetailSectionSkeleton, ExperimentRowSkeleton } from "@/compon
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { Section, DetailRow } from "@/components/shared/detail-layout";
 import { formatDateTime, formatDateTimeShort } from "@/lib/utils";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, GitFork } from "lucide-react";
 import type { ExperimentStatus } from "@/types/sonde";
 
 const routeApi = getRouteApi(ROUTE_API.authDirectionDetail);
@@ -21,6 +21,8 @@ export default function DirectionDetailPage() {
   const { data: dir, isLoading: loadingDir } = useDirection(id);
   const { data: experiments, isLoading: loadingExps } = useExperimentsByDirection(id);
   const { data: activity } = useRecordActivity(id);
+  const { data: childDirections } = useChildDirections(id);
+  const { data: parentDir } = useParentDirection(dir?.parent_direction_id);
   const [statusFilter, setStatusFilter] = useState<ExperimentStatus | "all">("all");
   useHotkey("Escape", useCallback(() => navigate({ to: "/directions" }), [navigate]));
 
@@ -67,6 +69,9 @@ export default function DirectionDetailPage() {
       <Breadcrumb
         items={[
           { label: "Directions", to: "/directions" },
+          ...(parentDir
+            ? [{ label: `${parentDir.id} ${parentDir.title}`, to: "/directions/$id", params: { id: parentDir.id } }]
+            : []),
           { label: dir.id },
         ]}
       />
@@ -99,11 +104,60 @@ export default function DirectionDetailPage() {
       <div className="grid gap-3 lg:grid-cols-[1fr_280px]">
         <div className="space-y-3">
           <Section title="Research Question">
+            {dir.spawned_from_experiment_id && (
+              <div className="mb-2 flex items-center gap-1.5 text-[12px] text-text-tertiary">
+                <GitFork className="h-3 w-3" />
+                <span>Spawned from</span>
+                <Link
+                  to="/experiments/$id"
+                  params={{ id: dir.spawned_from_experiment_id }}
+                  className="font-mono text-accent hover:underline"
+                >
+                  {dir.spawned_from_experiment_id}
+                </Link>
+              </div>
+            )}
             <p className="text-[14px] font-medium text-text">{dir.title}</p>
             <p className="mt-1 text-[13px] leading-relaxed text-text-secondary">
               {dir.question}
             </p>
           </Section>
+
+          {childDirections && childDirections.length > 0 && (
+            <Section title="Sub-directions" count={childDirections.length}>
+              <div className="divide-y divide-border-subtle">
+                {childDirections.map((child) => (
+                  <div
+                    key={child.id}
+                    onClick={() => navigate({ to: "/directions/$id", params: { id: child.id } })}
+                    className="flex cursor-pointer items-center gap-3 px-3 py-2 transition-colors hover:bg-surface-hover"
+                  >
+                    <GitFork className="h-3.5 w-3.5 shrink-0 text-text-quaternary" />
+                    <span className="font-mono text-[12px] font-medium text-text">
+                      {child.id}
+                    </span>
+                    <Badge
+                      variant={
+                        child.status === "active" ? "running" :
+                        child.status === "completed" ? "complete" :
+                        child.status === "abandoned" ? "failed" : "default"
+                      }
+                    >
+                      {child.status}
+                    </Badge>
+                    <span className="min-w-0 flex-1 truncate text-[12px] text-text-tertiary">
+                      {child.title}
+                    </span>
+                    <div className="flex items-center gap-1.5 text-[11px]">
+                      <Badge variant="complete">{child.complete_count}</Badge>
+                      <Badge variant="running">{child.running_count}</Badge>
+                      <Badge variant="open">{child.open_count}</Badge>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Section>
+          )}
 
           {/* Experiments under this direction */}
           <div className="rounded-[8px] border border-border bg-surface">
@@ -177,6 +231,29 @@ export default function DirectionDetailPage() {
                   {dir.status}
                 </Badge>
               </DetailRow>
+              {parentDir && (
+                <DetailRow label="Parent">
+                  <Link
+                    to="/directions/$id"
+                    params={{ id: parentDir.id }}
+                    className="font-mono text-[12px] text-accent hover:underline"
+                  >
+                    {parentDir.id}
+                  </Link>
+                  <span className="ml-1 text-[11px] text-text-quaternary">{parentDir.title}</span>
+                </DetailRow>
+              )}
+              {dir.spawned_from_experiment_id && (
+                <DetailRow label="Spawned from">
+                  <Link
+                    to="/experiments/$id"
+                    params={{ id: dir.spawned_from_experiment_id }}
+                    className="font-mono text-[12px] text-accent hover:underline"
+                  >
+                    {dir.spawned_from_experiment_id}
+                  </Link>
+                </DetailRow>
+              )}
               <DetailRow label="Created">
                 <span title={formatDateTime(dir.created_at)}>
                   {formatDateTimeShort(dir.created_at)}
@@ -186,6 +263,9 @@ export default function DirectionDetailPage() {
               <DetailRow label="Complete">{dir.complete_count}</DetailRow>
               <DetailRow label="Running">{dir.running_count}</DetailRow>
               <DetailRow label="Open">{dir.open_count}</DetailRow>
+              {childDirections && childDirections.length > 0 && (
+                <DetailRow label="Sub-directions">{childDirections.length}</DetailRow>
+              )}
             </div>
           </Section>
 

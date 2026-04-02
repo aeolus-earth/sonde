@@ -149,6 +149,7 @@ def check_install_shadows() -> DoctorCheck:
 
     if not path_exe:
         return DoctorCheck(
+            id="install-not-on-path",
             title="Installation",
             status="warn",
             summary="sonde not found on PATH",
@@ -160,6 +161,7 @@ def check_install_shadows() -> DoctorCheck:
 
     if this_resolved != path_resolved:
         return DoctorCheck(
+            id="install-shadow",
             title="Installation",
             status="warn",
             summary="Multiple sonde installations detected",
@@ -176,6 +178,7 @@ def check_install_shadows() -> DoctorCheck:
     cmd_count = len(cli.commands)
     if cmd_count < 25:
         return DoctorCheck(
+            id="install-low-commands",
             title="Installation",
             status="warn",
             summary=f"Only {cmd_count} commands registered (expected 30+)",
@@ -184,6 +187,7 @@ def check_install_shadows() -> DoctorCheck:
         )
 
     return DoctorCheck(
+        id="install-ok",
         title="Installation",
         status="ok",
         summary=f"{cmd_count} commands, no shadow installs",
