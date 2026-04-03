@@ -37,6 +37,18 @@ def bundled_skills() -> list[tuple[str, str]]:
     return sorted(skills)  # deterministic order
 
 
+def bundled_agents() -> list[tuple[str, str]]:
+    """Return (stem, content) pairs for all bundled agent definitions."""
+    source = resources.files("sonde.data.agents")
+    agents = []
+    for item in source.iterdir():
+        if item.name.endswith(".md"):
+            stem = item.name.removesuffix(".md")
+            content = item.read_text(encoding="utf-8")
+            agents.append((stem, content))
+    return sorted(agents)
+
+
 def content_hash(text: str) -> str:
     """SHA-256 of skill content, truncated to 12 hex chars."""
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
@@ -45,6 +57,26 @@ def content_hash(text: str) -> str:
 # ---------------------------------------------------------------------------
 # Deployment
 # ---------------------------------------------------------------------------
+
+
+def deploy_agent(
+    root: Path,
+    stem: str,
+    content: str,
+) -> tuple[Path, bool]:
+    """Write an agent definition to .claude/agents/.
+
+    Returns (path, changed) where changed=False if content was already identical.
+    """
+    target_dir = root / ".claude" / "agents"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    dest = target_dir / f"{stem}.md"
+
+    if dest.exists() and dest.read_text(encoding="utf-8") == content:
+        return dest, False
+
+    dest.write_text(content, encoding="utf-8")
+    return dest, True
 
 
 def deploy_skill(

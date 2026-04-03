@@ -12,8 +12,10 @@ from sonde.cli_options import pass_output_options
 from sonde.output import err, print_banner, print_error, print_json, print_success
 from sonde.runtimes import configure_mcp_server, resolve_runtimes
 from sonde.skills import (
+    bundled_agents,
     bundled_skills,
     check_freshness,
+    deploy_agent,
     deploy_skill,
     save_manifest,
 )
@@ -145,6 +147,24 @@ def setup(
         summary["skills"] = {
             "bundled": len(skills),
             "deployed_changes": total_changed,
+        }
+
+        # Deploy agents (.claude/agents/ — claude-code only)
+        agents = bundled_agents()
+        agents_changed = 0
+        for stem, content in agents:
+            dest, changed = deploy_agent(root, stem, content)
+            if changed:
+                agents_changed += 1
+                rel = dest.relative_to(root)
+                err.print(f"  [sonde.muted]-> {rel}[/sonde.muted]")
+        if agents_changed:
+            print_success(f"{agents_changed} agent(s) deployed")
+        elif agents and not quiet:
+            err.print("  [sonde.muted]All agents current (no changes)[/sonde.muted]")
+        summary["agents"] = {
+            "bundled": len(agents),
+            "deployed_changes": agents_changed,
         }
 
     # -- Step 5: Configure MCP server --
