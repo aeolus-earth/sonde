@@ -545,6 +545,17 @@ def _pull_all(ctx: click.Context) -> None:
         rel_dir = compute_record_dir("direction", d_dict)
         write_nested_record(sonde_dir, rel_dir, "direction.md", render_record(d_dict))
 
+    # Pull direction takeaways (best-effort)
+    try:
+        from sonde.db import direction_takeaways as dtw_db
+
+        for d_dict in dir_dicts:
+            dtw = dtw_db.get(d_dict["id"])
+            if dtw and dtw.body.strip():
+                dtw_db.write_takeaways_file(sonde_dir, d_dict["id"], dtw.body)
+    except (Exception, SystemExit):
+        pass
+
     # Write experiments nested under directions/projects
     sync = _sync_experiments(
         sonde_dir,

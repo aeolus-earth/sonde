@@ -302,6 +302,22 @@ def direction_update(
             record_id=direction_id,
         )
 
+        # Nudge: synthesize findings when completing a direction
+        if status in ("completed", "abandoned") and not ctx.obj.get("json"):
+            try:
+                from sonde.db import direction_takeaways as dtw_db
+
+                existing = dtw_db.get(direction_id)
+                if not existing or not existing.body.strip():
+                    from sonde.output import print_nudge
+
+                    print_nudge(
+                        "Synthesize what this direction's experiments taught you:",
+                        f'sonde takeaway --direction {direction_id} "what we learned"',
+                    )
+            except Exception:
+                pass
+
 
 @direction.command("delete")
 @click.argument("direction_id")

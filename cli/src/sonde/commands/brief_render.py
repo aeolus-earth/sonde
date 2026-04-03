@@ -151,6 +151,38 @@ def render_human(
         f"{stats['open_questions']} question(s)[/]"
     )
 
+    # Trajectory — what changed recently (when temporal flags used)
+    trajectory = data.get("trajectory")
+    if trajectory and trajectory.get("events"):
+        err.print(f"\n[sonde.heading]Trajectory ({trajectory['period']})[/]")
+        completed = trajectory.get("completed") or []
+        failed = trajectory.get("failed") or []
+        new_findings = trajectory.get("new_findings") or []
+        dir_changes = trajectory.get("direction_changes") or []
+        new_questions = trajectory.get("new_questions") or []
+
+        parts = []
+        if completed:
+            parts.append(f"{len(completed)} completed")
+        if failed:
+            parts.append(f"{len(failed)} failed")
+        if new_findings:
+            parts.append(f"{len(new_findings)} finding(s)")
+        if dir_changes:
+            parts.append(f"{len(dir_changes)} direction change(s)")
+        if new_questions:
+            parts.append(f"{len(new_questions)} question(s)")
+        if parts:
+            err.print(f"  [sonde.muted]{', '.join(parts)}[/]")
+        for e in completed[:5]:
+            err.print(f"    {e['id']} completed ({e['date']})")
+        for e in failed[:3]:
+            err.print(f"    {e['id']} failed ({e['date']})")
+        for f in new_findings[:5]:
+            err.print(f"    {f['id']} created ({f['date']})")
+        for d in dir_changes[:5]:
+            err.print(f"    {d['id']}: {d.get('from', '?')} → {d.get('to', '?')}")
+
     # Motivation — why we're doing this
     render_motivation(data)
 
@@ -374,6 +406,28 @@ def render_markdown(data: dict) -> str:
         f"{stats['open']} open, {stats['findings']} finding(s), "
         f"{stats['open_questions']} question(s)\n",
     ]
+
+    # Trajectory
+    trajectory = data.get("trajectory")
+    if trajectory and trajectory.get("events"):
+        lines.append(f"## Trajectory ({trajectory['period']})\n")
+        completed = trajectory.get("completed") or []
+        failed = trajectory.get("failed") or []
+        new_findings = trajectory.get("new_findings") or []
+        dir_changes = trajectory.get("direction_changes") or []
+        if completed:
+            for e in completed[:10]:
+                lines.append(f"- {e['id']} completed ({e['date']})")
+        if failed:
+            for e in failed[:5]:
+                lines.append(f"- {e['id']} failed ({e['date']})")
+        if new_findings:
+            for f in new_findings[:10]:
+                lines.append(f"- {f['id']} created ({f['date']})")
+        if dir_changes:
+            for d in dir_changes[:10]:
+                lines.append(f"- {d['id']}: {d.get('from', '?')} → {d.get('to', '?')}")
+        lines.append("")
 
     # Motivation
     m = data.get("motivation")
