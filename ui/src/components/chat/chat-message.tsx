@@ -58,7 +58,7 @@ export const ChatMessage = memo(function ChatMessage({ message }: ChatMessagePro
               </span>
             </div>
           )}
-          <div className="rounded-[22px] bg-surface-raised px-4 py-2.5 text-[13px] leading-relaxed text-text shadow-sm">
+          <div className="rounded-[22px] border border-border-subtle bg-surface-raised px-4 py-2.5 text-[13px] leading-relaxed text-text dark:border-white/[0.08] dark:bg-white/[0.06]">
             <UserMessageInlineContent
               content={message.content}
               mentions={message.mentions}
@@ -98,7 +98,7 @@ export const ChatMessage = memo(function ChatMessage({ message }: ChatMessagePro
         )}
 
         {message.content && (
-          <div className="rounded-[5.5px] bg-surface px-3 py-2 text-[13px] leading-relaxed text-text">
+          <div className="rounded-[5.5px] border border-border-subtle bg-surface px-3 py-2 text-[13px] leading-relaxed text-text dark:border-white/[0.06] dark:bg-white/[0.03]">
             <Suspense fallback={<span className="whitespace-pre-wrap">{message.content}</span>}>
               <AssistantMarkdown content={message.content} />
             </Suspense>

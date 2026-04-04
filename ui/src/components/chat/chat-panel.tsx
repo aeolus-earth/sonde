@@ -89,8 +89,8 @@ function ChatPanelInner({ glass }: { glass: boolean }) {
     <div
       className={
         glass
-          ? "relative flex h-full w-full min-h-0 flex-col overflow-hidden rounded-[14px] border border-black/[0.06] bg-surface/28 shadow-none backdrop-blur-[28px] dark:border-white/[0.08] dark:bg-black/[0.12]"
-          : "relative flex h-full w-full min-h-0 flex-col overflow-hidden rounded-[10px] border border-border-subtle bg-surface shadow-sm"
+          ? "relative flex h-full w-full min-h-0 flex-col overflow-hidden rounded-[14px] border border-border bg-surface-raised shadow-sm dark:border-white/[0.08] dark:bg-[#151514] dark:shadow-none dark:backdrop-blur-[28px]"
+          : "relative flex h-full w-full min-h-0 flex-col overflow-hidden rounded-[10px] border border-border-subtle bg-surface-raised shadow-sm"
       }
     >
       <ChatSessionTabs
