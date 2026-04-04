@@ -1,5 +1,7 @@
 /**
- * Sandbox bootstrap — create sandbox, install sonde, populate corpus.
+ * Sandbox bootstrap — create sandbox, install sonde CLI.
+ *
+ * Corpus pull happens lazily on first message (when we know the program).
  */
 
 import {
@@ -8,23 +10,24 @@ import {
   type CreateSandboxOptions,
 } from "./daytona-client.js";
 
-export interface SandboxInitOptions extends CreateSandboxOptions {
-  /** Skip corpus pull (for testing). */
-  skipPull?: boolean;
-}
+export type SandboxInitOptions = CreateSandboxOptions;
 
-/** Prefix all sandbox commands with PATH fix for pip-installed scripts. */
+/** Prefix for commands that need pip-installed scripts on PATH. */
 const PATH_PREFIX = 'export PATH="$HOME/.local/bin:$PATH" && ';
 
 /**
- * Create a sandbox ready for agent use: sonde CLI installed, corpus populated.
+ * Create a sandbox with sonde CLI installed and ready.
+ * Does NOT pull the corpus — call `sandboxHandle.pullCorpus(program)` later.
  */
 export async function initSandbox(
   opts: SandboxInitOptions
 ): Promise<SandboxHandle> {
+  console.log("[sandbox] Creating Daytona sandbox...");
   const sandbox = await createSandbox(opts);
+  console.log("[sandbox] Sandbox created");
 
   // Install sonde CLI from GitHub (public repo)
+  console.log("[sandbox] Installing sonde CLI...");
   const installResult = await sandbox.exec(
     'pip install --quiet "sonde @ git+https://github.com/aeolus-earth/sonde.git#subdirectory=cli" 2>&1',
     { timeout: 120 }
@@ -34,9 +37,10 @@ export async function initSandbox(
       "[sandbox] Failed to install sonde CLI:",
       installResult.stdout
     );
+    throw new Error("Sonde CLI installation failed in sandbox");
   }
 
-  // Add ~/.local/bin to PATH permanently so sonde is always available
+  // Add ~/.local/bin to PATH permanently
   await sandbox.exec(
     'echo \'export PATH="$HOME/.local/bin:$PATH"\' >> ~/.bashrc && ' +
       'echo \'export PATH="$HOME/.local/bin:$PATH"\' >> ~/.zshrc',
@@ -49,23 +53,9 @@ export async function initSandbox(
   );
   if (verifyResult.exitCode !== 0) {
     console.error("[sandbox] sonde CLI not available:", verifyResult.stdout);
-  } else {
-    console.log("[sandbox] sonde CLI ready:", verifyResult.stdout.trim());
+    throw new Error("Sonde CLI not available after installation");
   }
-
-  // Pull corpus if program specified and not skipped
-  if (opts.program && !opts.skipPull) {
-    console.log(`[sandbox] Pulling corpus for ${opts.program}...`);
-    const pullResult = await sandbox.exec(
-      `${PATH_PREFIX}sonde pull -p ${opts.program} --artifacts none`,
-      { timeout: 60 }
-    );
-    if (pullResult.exitCode !== 0) {
-      console.error("[sandbox] sonde pull failed:", pullResult.stdout);
-    } else {
-      console.log("[sandbox] Corpus populated");
-    }
-  }
+  console.log("[sandbox] sonde CLI ready:", verifyResult.stdout.trim());
 
   return sandbox;
 }

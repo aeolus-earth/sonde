@@ -39,6 +39,7 @@ export function handleWebSocket(
   let approvalBridge: ReturnType<typeof createToolApprovalBridge> | null = null;
   let sandboxHandle: SandboxHandle | null = null;
   let sandboxInitPromise: Promise<void> | null = null;
+  let corpusPulled = false;
 
   return {
     async onOpen(_evt, ws) {
@@ -114,6 +115,25 @@ export function handleWebSocket(
 
       switch (msg.type) {
         case "message":
+          // Lazy corpus pull on first message in sandbox mode
+          if (sandboxHandle && !corpusPulled) {
+            const mentionProgram = msg.mentions?.find((m) => m.program)?.program;
+            const program =
+              mentionProgram ??
+              process.env.SONDE_SANDBOX_PROGRAM ??
+              "weather-intervention";
+            console.log(`[sandbox] Pulling corpus for ${program}...`);
+            send(ws, { type: "text_delta", content: `*Setting up research corpus for ${program}...*\n\n` });
+            const pullResult = await sandboxHandle.pullCorpus(program);
+            if (pullResult.exitCode === 0) {
+              console.log("[sandbox] Corpus ready");
+              corpusPulled = true;
+            } else {
+              console.error("[sandbox] Pull failed:", pullResult.stdout);
+              send(ws, { type: "text_delta", content: `*Warning: corpus pull had issues. Some data may be unavailable.*\n\n` });
+              corpusPulled = true; // Don't retry every message
+            }
+          }
           await handleUserMessage(
             session,
             ws,

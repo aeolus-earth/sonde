@@ -26,6 +26,9 @@ export interface SandboxHandle {
   /** Search files by content pattern (grep-like). */
   findFiles(path: string, pattern: string): Promise<string[]>;
 
+  /** Pull the sonde corpus for a program (text only, no artifacts). */
+  pullCorpus(program: string): Promise<{ exitCode: number; stdout: string }>;
+
   /** Clean up the sandbox. */
   dispose(): Promise<void>;
 
@@ -119,6 +122,19 @@ function wrapSandbox(sandbox: Sandbox): SandboxHandle {
     async findFiles(path, pattern) {
       const results = await sandbox.fs.findFiles(path, pattern);
       return results.map((f) => (f as { file: string }).file ?? String(f));
+    },
+
+    async pullCorpus(program) {
+      const cmd =
+        `export PATH="$HOME/.local/bin:$PATH" && ` +
+        `sonde pull -p ${program} --artifacts none 2>&1`;
+      const result = await sandbox.process.executeCommand(
+        cmd,
+        undefined,
+        undefined,
+        60
+      );
+      return { exitCode: result.exitCode, stdout: result.result ?? "" };
     },
 
     async dispose() {
