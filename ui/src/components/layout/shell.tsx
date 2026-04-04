@@ -41,13 +41,24 @@ function ProgramReadyGate({ children }: { children: ReactNode }) {
 }
 
 export function Shell({ children }: { children: ReactNode }) {
+  const matchRoute = useMatchRoute();
+  const isHome = matchRoute({ to: "/", fuzzy: false });
+
   return (
-    <div className="relative flex h-screen overflow-hidden bg-bg">
+    <div className="relative flex h-dvh min-h-dvh overflow-hidden bg-bg">
       <AssistantCanvasLayer />
-      <div className="relative z-10 flex min-h-0 min-w-0 flex-1">
-        <Sidebar />
+      {/* When on home with canvas, let pointer events pass through to canvas cards.
+          Sidebar + header get pointer-events-auto so they stay clickable. */}
+      <div
+        className={`relative z-10 flex min-h-0 min-w-0 flex-1${isHome ? " pointer-events-none" : ""}`}
+      >
+        <div className="pointer-events-auto">
+          <Sidebar />
+        </div>
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-          <Header />
+          <div className="pointer-events-auto">
+            <Header />
+          </div>
           <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overflow-x-hidden px-6 py-5">
             <ProgramReadyGate>{children}</ProgramReadyGate>
           </main>
