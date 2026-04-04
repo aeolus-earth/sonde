@@ -38,6 +38,7 @@ export function handleWebSocket(
   let session: AgentSession | null = null;
   let approvalBridge: ReturnType<typeof createToolApprovalBridge> | null = null;
   let sandboxHandle: SandboxHandle | null = null;
+  let sandboxInitPromise: Promise<void> | null = null;
 
   return {
     async onOpen(_evt, ws) {
@@ -56,34 +57,42 @@ export function handleWebSocket(
 
       approvalBridge = createToolApprovalBridge(ws);
 
-      if (isSandboxMode()) {
-        try {
-          const { initSandbox } = await import("./sandbox/sandbox-init.js");
-          sandboxHandle = await initSandbox({
-            sondeToken: token,
-            supabaseUrl: process.env.VITE_SUPABASE_URL,
-            supabaseKey: process.env.VITE_SUPABASE_ANON_KEY,
-          });
-          session = createSandboxAgentSession({
-            canUseTool: approvalBridge.canUseTool,
-            sandbox: sandboxHandle,
-          });
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : "Sandbox init failed";
-          console.error("[sandbox] Init failed, falling back to MCP:", msg);
-          session = createAgentSession(token, {
-            canUseTool: approvalBridge.canUseTool,
-          });
-        }
-      } else {
-        session = createAgentSession(token, {
-          canUseTool: approvalBridge.canUseTool,
-        });
-      }
+      // Always create MCP session immediately so the UI connects fast
+      session = createAgentSession(token, {
+        canUseTool: approvalBridge.canUseTool,
+      });
       send(ws, { type: "session", sessionId: session.sessionId });
+
+      // Start sandbox init in background (non-blocking)
+      if (isSandboxMode()) {
+        sandboxInitPromise = (async () => {
+          try {
+            const { initSandbox } = await import("./sandbox/sandbox-init.js");
+            sandboxHandle = await initSandbox({
+              sondeToken: token,
+              supabaseUrl: process.env.VITE_SUPABASE_URL,
+              supabaseKey: process.env.VITE_SUPABASE_ANON_KEY,
+            });
+            // Upgrade to sandbox session once ready
+            session = createSandboxAgentSession({
+              canUseTool: approvalBridge!.canUseTool,
+              sandbox: sandboxHandle,
+            });
+            console.log("[sandbox] Ready — session upgraded");
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : "Sandbox init failed";
+            console.error("[sandbox] Init failed, staying on MCP:", msg);
+          }
+        })();
+      }
     },
 
     async onMessage(evt, ws) {
+      // Wait for sandbox init if still in progress
+      if (sandboxInitPromise) {
+        await sandboxInitPromise;
+        sandboxInitPromise = null;
+      }
       if (!session) return;
 
       let raw: string;

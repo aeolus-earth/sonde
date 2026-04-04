@@ -27,7 +27,9 @@ export function createSandboxTools(sandbox: SandboxHandle) {
       },
       async (args) => {
         try {
-          const result = await sandbox.exec(args.command, {
+          // Ensure PATH includes ~/.local/bin so pip-installed sonde is available
+          const cmd = `export PATH="$HOME/.local/bin:$PATH" && ${args.command}`;
+          const result = await sandbox.exec(cmd, {
             cwd: args.cwd,
             timeout: 30,
           });
