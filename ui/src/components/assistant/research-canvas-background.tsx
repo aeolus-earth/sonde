@@ -24,27 +24,32 @@ const LAYER_SCALE = 1.55;
 const MAX_PAN_FRACTION = (LAYER_SCALE - 1) / 2;
 
 /**
- * Card positions — scattered around the edges, leaving the center clear
- * for the chat bubble (~30–65% vertical, ~20–80% horizontal is the danger zone).
- * Cards cluster in four corners + top/bottom strips.
+ * Card positions — orbit the center chat box within the visible viewport.
+ *
+ * The inner layer is 155%, so the viewport maps to roughly 18–82% of the layer.
+ * Chat box sits at ~50% center. Cards scatter around it like papers on a desk —
+ * close enough to see, far enough to not overlap the chat input.
+ *
+ * Layout: 2 above-left, 2 above-right, 2 left-of-center, 2 right-of-center,
+ * 1 below-left, 1 below-right.
  */
 const CARD_SLOTS = [
-  /* ── top-left cluster ── */
-  { top: "3%", left: "2%", w: "clamp(132px, 17vw, 228px)", rotate: -3.2, z: 2 },
-  { top: "15%", left: "1%", w: "clamp(120px, 15vw, 200px)", rotate: 2.1, z: 3 },
-  /* ── top-right cluster ── */
-  { top: "2%", left: "72%", w: "clamp(148px, 19vw, 252px)", rotate: 2.4, z: 1 },
-  { top: "16%", left: "76%", w: "clamp(110px, 12vw, 180px)", rotate: -1.1, z: 0 },
-  /* ── top center (above chat) ── */
-  { top: "4%", left: "38%", w: "clamp(100px, 11vw, 168px)", rotate: 1.2, z: 1 },
-  /* ── bottom-left cluster ── */
-  { top: "72%", left: "1%", w: "clamp(138px, 16vw, 220px)", rotate: -1.5, z: 1 },
-  { top: "84%", left: "3%", w: "clamp(140px, 17vw, 230px)", rotate: 2.6, z: 2 },
-  /* ── bottom-right cluster ── */
-  { top: "70%", left: "74%", w: "clamp(156px, 20vw, 260px)", rotate: -2.8, z: 2 },
-  { top: "85%", left: "70%", w: "clamp(128px, 14vw, 210px)", rotate: 3, z: 4 },
-  /* ── bottom center (below chat) ── */
-  { top: "82%", left: "36%", w: "clamp(124px, 15vw, 215px)", rotate: -2.2, z: 1 },
+  /* ── above-left ── */
+  { top: "20%", left: "14%", w: "clamp(130px, 16vw, 220px)", rotate: -3.2, z: 2 },
+  { top: "24%", left: "30%", w: "clamp(110px, 12vw, 175px)", rotate: 1.8, z: 1 },
+  /* ── above-right ── */
+  { top: "19%", left: "56%", w: "clamp(115px, 13vw, 185px)", rotate: -1.4, z: 1 },
+  { top: "22%", left: "72%", w: "clamp(135px, 17vw, 230px)", rotate: 2.4, z: 2 },
+  /* ── left of center (beside chat) ── */
+  { top: "40%", left: "10%", w: "clamp(125px, 15vw, 210px)", rotate: 2.1, z: 3 },
+  { top: "52%", left: "8%", w: "clamp(120px, 14vw, 195px)", rotate: -1.5, z: 1 },
+  /* ── right of center (beside chat) ── */
+  { top: "38%", left: "76%", w: "clamp(140px, 18vw, 245px)", rotate: -2.8, z: 2 },
+  { top: "53%", left: "74%", w: "clamp(118px, 13vw, 190px)", rotate: 3, z: 4 },
+  /* ── below-left ── */
+  { top: "66%", left: "16%", w: "clamp(128px, 15vw, 215px)", rotate: 2.6, z: 2 },
+  /* ── below-right ── */
+  { top: "67%", left: "62%", w: "clamp(122px, 14vw, 200px)", rotate: -2.2, z: 1 },
 ] as const;
 
 function clampAxis(n: number, maxAbs: number): number {
