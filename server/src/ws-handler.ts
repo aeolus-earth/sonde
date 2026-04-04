@@ -2,8 +2,14 @@ import type { Context } from "hono";
 import type { WSEvents, WSContext } from "hono/ws";
 import type { WebSocket } from "ws";
 import { verifyToken } from "./auth.js";
-import { createAgentSession, type AgentSession } from "./agent.js";
+import {
+  createAgentSession,
+  createSandboxAgentSession,
+  isSandboxMode,
+  type AgentSession,
+} from "./agent.js";
 import { createToolApprovalBridge } from "./tool-approval-bridge.js";
+import type { SandboxHandle } from "./sandbox/daytona-client.js";
 import type {
   ClientMessage,
   ServerMessage,
@@ -31,6 +37,7 @@ export function handleWebSocket(
 
   let session: AgentSession | null = null;
   let approvalBridge: ReturnType<typeof createToolApprovalBridge> | null = null;
+  let sandboxHandle: SandboxHandle | null = null;
 
   return {
     async onOpen(_evt, ws) {
@@ -48,9 +55,31 @@ export function handleWebSocket(
       }
 
       approvalBridge = createToolApprovalBridge(ws);
-      session = createAgentSession(token, {
-        canUseTool: approvalBridge.canUseTool,
-      });
+
+      if (isSandboxMode()) {
+        try {
+          const { initSandbox } = await import("./sandbox/sandbox-init.js");
+          sandboxHandle = await initSandbox({
+            sondeToken: token,
+            supabaseUrl: process.env.VITE_SUPABASE_URL,
+            supabaseKey: process.env.VITE_SUPABASE_ANON_KEY,
+          });
+          session = createSandboxAgentSession({
+            canUseTool: approvalBridge.canUseTool,
+            sandbox: sandboxHandle,
+          });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : "Sandbox init failed";
+          console.error("[sandbox] Init failed, falling back to MCP:", msg);
+          session = createAgentSession(token, {
+            canUseTool: approvalBridge.canUseTool,
+          });
+        }
+      } else {
+        session = createAgentSession(token, {
+          canUseTool: approvalBridge.canUseTool,
+        });
+      }
       send(ws, { type: "session", sessionId: session.sessionId });
     },
 
@@ -111,6 +140,10 @@ export function handleWebSocket(
         session.close();
         session = null;
       }
+      if (sandboxHandle) {
+        sandboxHandle.dispose().catch(() => {});
+        sandboxHandle = null;
+      }
     },
 
     onError(_evt) {
@@ -119,6 +152,10 @@ export function handleWebSocket(
       if (session) {
         session.close();
         session = null;
+      }
+      if (sandboxHandle) {
+        sandboxHandle.dispose().catch(() => {});
+        sandboxHandle = null;
       }
     },
   };

@@ -1,8 +1,10 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { CanUseTool } from "@anthropic-ai/claude-agent-sdk";
 import { createSondeMcpServer } from "./mcp/sonde-server.js";
+import { createSandboxMcpServer } from "./sandbox/sandbox-mcp-server.js";
 import { getPendingTasks, clearPendingTasks } from "./mcp/tools/tasks.js";
 import type { AgentEvent } from "./types.js";
+import type { SandboxHandle } from "./sandbox/daytona-client.js";
 
 const SYSTEM_PROMPT = `You are a Sonde research assistant for the Aeolus atmospheric science team. You help scientists inspect, log, and manage experiments, findings, directions, and questions using the Sonde tools.
 
@@ -214,5 +216,217 @@ export function createAgentSession(
       abortController.abort();
     },
   };
+}
+
+// ---------------------------------------------------------------------------
+// Sandbox agent session — tools execute inside a Daytona sandbox
+// ---------------------------------------------------------------------------
+
+const SANDBOX_SYSTEM_PROMPT = `You are a Sonde research assistant with full shell access to a sandbox environment.
+The sandbox has the sonde CLI installed and the program's .sonde/ research corpus.
+
+You have 4 tools:
+- sandbox_exec: Run any shell command (sonde CLI, grep, find, cat, etc.)
+- sandbox_read: Read a file by path
+- sandbox_write: Write a file (requires user approval)
+- sandbox_glob: Find files by pattern
+
+The .sonde/ directory contains the full research corpus in a nested hierarchy:
+  .sonde/projects/PROJ-001/DIR-001/EXP-001.md
+  .sonde/findings/FIND-001.md
+  .sonde/tree.md (auto-generated index)
+
+Use shell commands naturally:
+- sonde brief -p <program> --json     (research summary)
+- sonde list -p <program> --json      (experiments)
+- grep -r "keyword" .sonde/           (search the corpus)
+- cat .sonde/tree.md                  (view the hierarchy)
+- sonde show EXP-0001 --json          (full experiment detail)
+
+For mutations (log, update, close, tag, etc.), the user must approve.
+
+Formatting:
+- Use Markdown with ### headings, bullet lists, and tables.
+- Link record IDs: [EXP-0001](/experiments/EXP-0001), [FIND-001](/findings/FIND-001).
+- Summarize command output in prose — do not dump raw JSON unless asked.
+- After write operations, confirm what changed and suggest the next step.`;
+
+export interface CreateSandboxAgentSessionOptions {
+  canUseTool: CanUseTool;
+  sandbox: SandboxHandle;
+}
+
+export function createSandboxAgentSession(
+  sessionOptions: CreateSandboxAgentSessionOptions
+): AgentSession {
+  const firstSessionId: string = crypto.randomUUID();
+  let sessionId: string = firstSessionId;
+  let abortController = new AbortController();
+  const { sandbox } = sessionOptions;
+
+  return {
+    get sessionId() {
+      return sessionId;
+    },
+
+    async *query(
+      prompt: string,
+      queryOptions?: { resumeSessionId?: string }
+    ): AsyncIterable<AgentEvent> {
+      abortController = new AbortController();
+      clearPendingTasks();
+
+      const clientResume = queryOptions?.resumeSessionId?.trim();
+      const resume =
+        clientResume && clientResume.length > 0 ? clientResume : undefined;
+
+      const q = query({
+        prompt,
+        options: {
+          abortController,
+          model: resolveAgentModel(),
+          systemPrompt: SANDBOX_SYSTEM_PROMPT,
+          resume,
+          mcpServers: { "sonde-sandbox": createSandboxMcpServer(sandbox) },
+          permissionMode: "default",
+          canUseTool: sessionOptions.canUseTool,
+          maxTurns: MAX_TURNS,
+          maxBudgetUsd: MAX_BUDGET_USD,
+          includePartialMessages: true,
+        },
+      });
+
+      let assistantText = "";
+      let assistantMessageId = "";
+
+      for await (const rawMsg of q) {
+        const msg = rawMsg as Record<string, unknown>;
+        if (msg.type === "system" && msg.subtype === "init") {
+          const nextId = (msg as { session_id?: string }).session_id;
+          if (typeof nextId === "string" && nextId.length > 0) {
+            sessionId = nextId;
+            yield { type: "session", sessionId: nextId };
+          }
+          const model = (msg as { model?: string }).model;
+          if (typeof model === "string" && model.length > 0) {
+            yield { type: "model_info", model };
+          }
+          continue;
+        }
+
+        if (msg.type === "stream_event" && "event" in msg) {
+          const event = msg.event as Record<string, unknown>;
+          const eventType = event.type as string;
+
+          if (eventType === "content_block_start") {
+            const block = event.content_block as Record<string, unknown>;
+            if (block?.type === "tool_use") {
+              yield {
+                type: "tool_use_start",
+                id: block.id as string,
+                tool: block.name as string,
+                input: {},
+              };
+            }
+          }
+
+          if (eventType === "content_block_delta") {
+            const delta = event.delta as Record<string, unknown>;
+            if (delta?.type === "text_delta") {
+              const text = delta.text as string;
+              assistantText += text;
+              yield { type: "text_delta", content: text };
+            }
+          }
+
+          if (eventType === "content_block_stop") {
+            const tasks = getPendingTasks();
+            if (tasks.length > 0) {
+              yield { type: "tasks", tasks: [...tasks] };
+            }
+          }
+
+          continue;
+        }
+
+        if (msg.type === "assistant") {
+          assistantMessageId =
+            ((msg as Record<string, unknown>).uuid as string) ?? "";
+          const message = (msg as Record<string, unknown>).message as Record<
+            string,
+            unknown
+          >;
+          const content = message?.content as
+            | Array<Record<string, unknown>>
+            | undefined;
+
+          if (content) {
+            for (const block of content) {
+              if (block.type === "tool_use") {
+                yield {
+                  type: "tool_use_end",
+                  id: block.id as string,
+                  output: "",
+                };
+              }
+            }
+          }
+
+          if (assistantText) {
+            yield {
+              type: "text_done",
+              content: assistantText,
+              messageId: assistantMessageId,
+            };
+            assistantText = "";
+          }
+          continue;
+        }
+
+        if (msg.type === "result") {
+          const result = msg as Record<string, unknown>;
+          if (result.subtype !== "success") {
+            const errors = (result.errors as string[]) ?? [];
+            yield {
+              type: "error",
+              message:
+                errors.join("; ") || `Agent stopped: ${result.subtype}`,
+            };
+          }
+          break;
+        }
+      }
+
+      if (assistantText) {
+        yield {
+          type: "text_done",
+          content: assistantText,
+          messageId: assistantMessageId,
+        };
+      }
+
+      const finalTasks = getPendingTasks();
+      if (finalTasks.length > 0) {
+        yield { type: "tasks", tasks: [...finalTasks] };
+      }
+    },
+
+    abort() {
+      abortController.abort();
+    },
+
+    close() {
+      abortController.abort();
+      // Sandbox disposal handled by ws-handler on close
+    },
+  };
+}
+
+/** Check if sandbox mode is enabled. */
+export function isSandboxMode(): boolean {
+  const backend = process.env.SONDE_AGENT_BACKEND?.trim().toLowerCase();
+  if (backend === "sandbox") return true;
+  if (backend === "auto") return !!process.env.DAYTONA_API_KEY;
+  return false;
 }
 

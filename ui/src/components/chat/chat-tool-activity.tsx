@@ -20,10 +20,28 @@ import {
 } from "@/components/chat/chat-artifact-preview";
 
 function toolDisplayName(tool: string): string {
+  // Sandbox tools get friendly names
+  if (tool === "sandbox_exec") return "shell";
+  if (tool === "sandbox_read") return "read file";
+  if (tool === "sandbox_write") return "write file";
+  if (tool === "sandbox_glob") return "find files";
   return tool
     .replace(/^mcp__sonde__/, "")
     .replace(/^sonde_/, "")
     .replace(/_/g, " ");
+}
+
+/** Extract the command string from sandbox_exec input for display. */
+function sandboxCommandLabel(toolUse: ToolUseData): string | null {
+  if (
+    toolUse.tool !== "sandbox_exec" &&
+    toolUse.tool !== "sandbox_read" &&
+    toolUse.tool !== "sandbox_glob"
+  ) {
+    return null;
+  }
+  const cmd = toolUse.input.command ?? toolUse.input.path ?? toolUse.input.pattern;
+  return typeof cmd === "string" ? cmd : null;
 }
 
 const statusIcon = {
@@ -150,6 +168,13 @@ export const ChatToolActivity = memo(function ChatToolActivity({
           >
             {toolDisplayName(toolUse.tool)}
           </button>
+        )}
+
+        {/* Sandbox tools: show command/path inline */}
+        {sandboxCommandLabel(toolUse) && (
+          <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-text-quaternary">
+            {sandboxCommandLabel(toolUse)}
+          </span>
         )}
 
         {toolUse.status === "running" && (
