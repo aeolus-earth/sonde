@@ -36,19 +36,37 @@ from sonde.output import (
 @click.option(
     "--params-file", "params_file", type=click.Path(exists=True), help="Params from YAML/JSON file"
 )
-@click.option("--result", help="Results as JSON")
 @click.option(
-    "--result-file", "result_file", type=click.Path(exists=True), help="Results from YAML/JSON file"
+    "--result",
+    help="Structured JSON dict (queryable). For narrative, use --results.",
+)
+@click.option(
+    "--result-file",
+    "result_file",
+    type=click.Path(exists=True),
+    help="Structured results from YAML/JSON file",
 )
 @click.option("--finding", help="Update finding")
-@click.option("--content", "-c", "content_text", help="Replace content body")
-@click.option("--content-file", type=click.Path(exists=True), help="Replace content from file")
-@click.option("--method", help="Update the ## Method section in content")
-@click.option("--results", "results_text", help="Update the ## Results section in content")
+@click.option("--content", "-c", "content_text", help="Replace entire content body")
+@click.option(
+    "--content-file",
+    type=click.Path(exists=True),
+    help="Replace entire content from file",
+)
+@click.option("--method", help="Update ## Method section in content")
+@click.option(
+    "--results",
+    "results_text",
+    help="Update ## Results narrative section. For JSON, use --result.",
+)
 @click.option("--direction", help="Set or change the parent research direction")
 @click.option("--project", help="Set or change the parent project")
 @click.option("--linear", help="Link to a Linear issue ID (e.g. AEO-123)")
-@click.option("--tag", multiple=True, help="Set tags (replaces existing)")
+@click.option(
+    "--tag",
+    multiple=True,
+    help="Set tags (REPLACES all). To append: sonde tag add",
+)
 @structured_metadata_options
 @pass_output_options
 @click.pass_context
