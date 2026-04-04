@@ -7,8 +7,8 @@ import {
   useState,
 } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { Loader2 } from "lucide-react";
 import { ChatMessage } from "./chat-message";
-import { BrailleLive } from "./braille-activity";
 import { ChatEmptyState } from "./chat-empty-state";
 import { cn } from "@/lib/utils";
 import type { ChatMessageData } from "@/types/chat";
@@ -18,12 +18,15 @@ interface ChatMessagesProps {
   isStreaming: boolean;
   /** True when chat is embedded (e.g. experiment page); hides Assistant-only chrome. */
   embedded?: boolean;
+  /** Frosted / translucent shell (Assistant canvas layout). */
+  glass?: boolean;
 }
 
 export const ChatMessages = memo(function ChatMessages({
   messages,
   isStreaming,
   embedded = false,
+  glass = false,
 }: ChatMessagesProps) {
   const parentRef = useRef<HTMLDivElement>(null);
   const ignoreScrollRef = useRef(false);
@@ -257,9 +260,19 @@ export const ChatMessages = memo(function ChatMessages({
       </div>
 
       {isStreaming && !embedded && (
-        <div className="border-t border-border-subtle/80 px-4 py-3 md:px-6">
+        <div
+          className={cn(
+            "border-t px-4 py-3 md:px-6",
+            glass
+              ? "border-black/[0.08] dark:border-white/[0.08]"
+              : "border-border-subtle/80",
+          )}
+        >
           <div className="mx-auto flex max-w-[52rem] items-center gap-2 text-[12px] text-text-quaternary">
-            <BrailleLive className="text-text-tertiary" />
+            <Loader2
+              className="h-3.5 w-3.5 shrink-0 animate-spin text-text-tertiary"
+              aria-hidden
+            />
             <span className="text-[11px] text-text-quaternary">Thinking…</span>
           </div>
         </div>
@@ -274,7 +287,12 @@ export const ChatMessages = memo(function ChatMessages({
             setUserScrolledUp(false);
             scrollToBottom();
           }}
-          className="sticky bottom-2 left-1/2 -translate-x-1/2 rounded-full bg-surface-raised border border-border px-3 py-1 text-[11px] text-text-secondary shadow-sm hover:bg-surface-hover"
+          className={cn(
+            "sticky bottom-2 left-1/2 -translate-x-1/2 rounded-full border px-3 py-1 text-[11px] text-text-secondary shadow-sm",
+            glass
+              ? "border-black/15 bg-surface/55 backdrop-blur-md hover:bg-surface/70 dark:border-white/15 dark:bg-black/35 dark:hover:bg-black/45"
+              : "border-border bg-surface-raised hover:bg-surface-hover",
+          )}
         >
           Scroll to bottom
         </button>

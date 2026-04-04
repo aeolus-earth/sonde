@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { useQuery, useQueries } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { artifactContentCache } from "@/lib/artifact-content-cache";
@@ -134,6 +135,37 @@ export function useArtifactUrl(storagePath: string | null) {
     },
     enabled: !!storagePath,
     staleTime: 50 * 60_000, // cache 50 min (URL good for 60)
+    gcTime: 55 * 60_000,
+  });
+}
+
+/**
+ * One storage round-trip for many paths; seeds {@link useArtifactUrl} cache entries.
+ */
+export function useBatchArtifactUrls(storagePaths: string[]) {
+  const { paths, pathsKey } = useMemo(() => {
+    const u = [...new Set(storagePaths.filter(Boolean))];
+    u.sort((a, b) => a.localeCompare(b));
+    return { paths: u, pathsKey: JSON.stringify(u) };
+  }, [storagePaths]);
+
+  return useQuery({
+    queryKey: queryKeys.artifacts.urlBatch(pathsKey),
+    queryFn: async (): Promise<void> => {
+      if (paths.length === 0) return;
+      const { data, error } = await supabase.storage
+        .from("artifacts")
+        .createSignedUrls(paths, 3600);
+
+      if (error) throw error;
+      for (const row of data ?? []) {
+        if (!row.error && row.signedUrl && row.path) {
+          queryClient.setQueryData(["artifact-url", row.path], row.signedUrl);
+        }
+      }
+    },
+    enabled: paths.length > 0,
+    staleTime: 50 * 60_000,
     gcTime: 55 * 60_000,
   });
 }

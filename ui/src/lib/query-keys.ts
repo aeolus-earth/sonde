@@ -31,6 +31,11 @@ export const queryKeys = {
     byParent: (parentId: string) => ["artifacts", parentId] as const,
     detail: (artifactId: string) => ["artifacts", "detail", artifactId] as const,
     blob: (storagePath: string | null) => ["artifacts", "blob", storagePath] as const,
+    /** Sorted joined program ids — cross-program canvas feed */
+    assistantCanvas: (programsKey: string) =>
+      ["artifacts", "assistantCanvas", programsKey] as const,
+    /** Deduped sorted paths for batch signed URL fetch */
+    urlBatch: (pathsKey: string) => ["artifacts", "urlBatch", pathsKey] as const,
   },
   notes: {
     byRecord: (type: string, id: string) => ["notes", type, id] as const,

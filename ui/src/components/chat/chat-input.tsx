@@ -24,6 +24,10 @@ interface ChatInputProps {
   pageContext?: PageContext | null;
   /** Embedded column (e.g. experiment): no rotating placeholder; full-width composer. */
   embedded?: boolean;
+  /** Translucent shell (Assistant canvas). */
+  glass?: boolean;
+  /** Assistant home bubble: no top bar border; sits inside a rounded glass pill. */
+  layout?: "panel" | "bubble";
   onSend: (
     content: string,
     mentions: MentionRef[],
@@ -37,6 +41,8 @@ interface ChatInputProps {
 export const ChatInput = memo(function ChatInput({
   pageContext,
   embedded = false,
+  glass = false,
+  layout = "panel",
   onSend,
   onCancel,
   isStreaming,
@@ -352,8 +358,21 @@ export const ChatInput = memo(function ChatInput({
     showRotatingPlaceholder
   );
 
+  const bubbleShell = glass && layout === "bubble";
+
   return (
-    <div className="relative w-full shrink-0 border-t border-border-subtle bg-surface px-3 py-3 md:px-4">
+    <div
+      className={cn(
+        "relative w-full shrink-0 backdrop-blur-xl",
+        bubbleShell
+          ? "border-0 bg-transparent px-5 py-4 md:px-6 md:py-5"
+          : "border-t px-3 py-3 md:px-4",
+        !bubbleShell &&
+          (glass
+            ? "border-black/[0.05] bg-black/[0.08] backdrop-blur-[24px] dark:border-white/[0.07] dark:bg-black/[0.14]"
+            : "border-border-subtle bg-surface"),
+      )}
+    >
       <input
         ref={fileInputRef}
         type="file"
@@ -428,11 +447,14 @@ export const ChatInput = memo(function ChatInput({
       <div
         className={cn(
           "flex w-full",
-          embedded ? "justify-stretch" : "justify-center"
+          embedded || bubbleShell ? "justify-stretch" : "justify-center",
         )}
       >
         <div
-          className={cn("relative", embedded && "min-w-0 w-full")}
+          className={cn(
+            "relative",
+            (embedded || bubbleShell) && "min-w-0 w-full",
+          )}
           onDragEnter={handleComposerDragEnter}
           onDragLeave={handleComposerDragLeave}
           onDragOver={handleComposerDragOver}
@@ -441,10 +463,11 @@ export const ChatInput = memo(function ChatInput({
         >
           <div
             className={cn(
-              "pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-[26px]",
+              "pointer-events-none absolute inset-0 z-10 flex items-center justify-center",
+              bubbleShell ? "rounded-[32px]" : "rounded-[26px]",
               "bg-accent/[0.07] ring-2 ring-accent/40 ring-inset",
               "transition-opacity duration-300 ease-in-out",
-              showFileDropChrome ? "opacity-100" : "opacity-0"
+              showFileDropChrome ? "opacity-100" : "opacity-0",
             )}
             aria-hidden={!showFileDropChrome}
           >
@@ -454,13 +477,21 @@ export const ChatInput = memo(function ChatInput({
           </div>
         <div
           className={cn(
-            "flex min-w-0 flex-col rounded-[26px] border border-border-subtle bg-bg px-2 py-1.5 shadow-sm",
-            "transition-[box-shadow,border-color,ring] duration-300 ease-in-out",
-            "focus-within:border-border focus-within:shadow-md md:px-2.5",
-            embedded
-              ? "w-full max-w-full"
-              : "inline-flex w-max min-w-0 max-w-[min(100%,calc(28ch*1.4+6rem))]",
-            showFileDropChrome && "border-accent/45 ring-2 ring-accent/35"
+            "flex min-w-0 flex-col",
+            bubbleShell
+              ? "w-full max-w-full rounded-none border-0 bg-transparent px-0 py-0 shadow-none backdrop-blur-none focus-within:border-transparent focus-within:shadow-none dark:focus-within:border-transparent"
+              : [
+                  "rounded-[26px] border px-2 py-1.5 shadow-sm",
+                  "transition-[box-shadow,border-color,ring] duration-300 ease-in-out",
+                  "focus-within:shadow-md md:px-2.5",
+                  glass
+                    ? "border-black/10 bg-surface/40 backdrop-blur-lg focus-within:border-black/18 dark:border-white/12 dark:bg-white/[0.06] dark:focus-within:border-white/18"
+                    : "border-border-subtle bg-bg focus-within:border-border",
+                  embedded
+                    ? "w-full max-w-full"
+                    : "inline-flex w-max min-w-0 max-w-[min(100%,calc(28ch*1.4+6rem))]",
+                  showFileDropChrome && "border-accent/45 ring-2 ring-accent/35",
+                ],
           )}
         >
           <div
@@ -491,15 +522,24 @@ export const ChatInput = memo(function ChatInput({
               )}
             </div>
           )}
-          <div className="flex w-full min-w-0 items-center gap-1.5 md:gap-2">
+          <div
+            className={cn(
+              "flex w-full min-w-0 gap-1.5 md:gap-2",
+              bubbleShell ? "items-end gap-2" : "items-center",
+            )}
+          >
           <button
             type="button"
             disabled={disabled}
             onClick={() => fileInputRef.current?.click()}
             className={cn(
               "flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-text-tertiary transition-colors",
-              "hover:bg-surface-hover hover:text-text-secondary",
-              "disabled:pointer-events-none disabled:opacity-40"
+              "hover:text-text-secondary disabled:pointer-events-none disabled:opacity-40",
+              bubbleShell && glass
+                ? "mb-0.5 text-zinc-500 hover:bg-white/10 hover:text-zinc-300 dark:text-zinc-500 dark:hover:bg-white/10 dark:hover:text-zinc-200"
+                : glass
+                  ? "hover:bg-black/15 dark:hover:bg-white/10"
+                  : "hover:bg-surface-hover",
             )}
             title="Add files"
             aria-label="Add files"
@@ -510,7 +550,7 @@ export const ChatInput = memo(function ChatInput({
           <div
             className={cn(
               "relative min-w-0 shrink",
-              embedded ? "w-full flex-1" : "w-[calc(28ch*1.4)]"
+              embedded || bubbleShell ? "w-full flex-1" : "w-[calc(28ch*1.4)]",
             )}
           >
             {showRotatingPlaceholder && (
@@ -542,9 +582,10 @@ export const ChatInput = memo(function ChatInput({
               rows={1}
               aria-label="Chat message"
               className={cn(
-                "relative z-10 min-h-10 max-h-[192px] w-full resize-none bg-transparent px-0 py-2.5 text-[14px] leading-5 text-text placeholder:text-text-quaternary",
+                "relative z-10 max-h-[192px] w-full resize-none bg-transparent px-0 py-2.5 text-[15px] leading-6 text-text placeholder:text-text-quaternary",
+                bubbleShell ? "min-h-[5.5rem] sm:min-h-[6.5rem]" : "min-h-10",
                 "align-top placeholder:leading-5",
-                "focus:outline-none disabled:opacity-40"
+                "focus:outline-none disabled:opacity-40",
               )}
               style={{ fieldSizing: "content" } as React.CSSProperties}
             />
@@ -554,7 +595,10 @@ export const ChatInput = memo(function ChatInput({
             <button
               type="button"
               onClick={onCancel}
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-status-failed/12 text-status-failed transition-colors hover:bg-status-failed/20"
+              className={cn(
+                "flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-status-failed/12 text-status-failed transition-colors hover:bg-status-failed/20",
+                bubbleShell && "mb-0.5",
+              )}
               title="Stop"
               aria-label="Stop"
             >
@@ -568,13 +612,24 @@ export const ChatInput = memo(function ChatInput({
               className={cn(
                 "flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-colors",
                 canSend
-                  ? "bg-accent text-on-accent hover:bg-accent-hover"
-                  : "bg-surface-raised text-text-quaternary"
+                  ? bubbleShell
+                    ? "mb-0.5 bg-white text-zinc-900 shadow-sm hover:bg-white/95 dark:bg-white dark:text-zinc-950 dark:hover:bg-white/92"
+                    : "bg-accent text-on-accent hover:bg-accent-hover"
+                  : glass
+                    ? bubbleShell
+                      ? "mb-0.5 bg-white/[0.06] text-zinc-500 dark:bg-white/[0.08] dark:text-zinc-500"
+                      : "bg-black/12 text-text-quaternary backdrop-blur-sm dark:bg-white/[0.08]"
+                    : "bg-surface-raised text-text-quaternary",
               )}
               title="Send"
               aria-label="Send"
             >
-              <ArrowUp className="h-5 w-5 stroke-[2.25]" />
+              <ArrowUp
+                className={cn(
+                  "h-5 w-5 stroke-[2.25]",
+                  canSend && bubbleShell && "stroke-zinc-900 dark:stroke-zinc-950",
+                )}
+              />
             </button>
           )}
           </div>

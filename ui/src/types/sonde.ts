@@ -232,6 +232,8 @@ export interface Artifact {
   experiment_id: string | null;
   finding_id: string | null;
   direction_id: string | null;
+  /** Present when artifact is attached to a project (migration `20260401000004`). */
+  project_id?: string | null;
   source: string;
   created_at: string;
 }

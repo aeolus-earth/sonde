@@ -6,7 +6,7 @@ import { supabase } from "@/lib/supabase";
 function AuthenticatedLayout() {
   return (
     <Shell>
-      <div className="animate-page-enter">
+      <div className="animate-page-enter flex min-h-0 flex-1 flex-col">
         <Outlet />
       </div>
     </Shell>

@@ -1,9 +1,18 @@
 import { useMemo, type ReactNode } from "react";
+import { useMatchRoute } from "@tanstack/react-router";
 import { usePrograms } from "@/hooks/use-programs";
 import { useActiveProgram } from "@/stores/program";
+import { ResearchCanvasBackground } from "@/components/assistant/research-canvas-background";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Sidebar } from "./sidebar";
 import { Header } from "./header";
+
+function AssistantCanvasLayer() {
+  const matchRoute = useMatchRoute();
+  const isHome = matchRoute({ to: "/", fuzzy: false });
+  if (!isHome) return null;
+  return <ResearchCanvasBackground />;
+}
 
 function ProgramReadyGate({ children }: { children: ReactNode }) {
   const program = useActiveProgram();
@@ -33,13 +42,16 @@ function ProgramReadyGate({ children }: { children: ReactNode }) {
 
 export function Shell({ children }: { children: ReactNode }) {
   return (
-    <div className="flex h-screen overflow-hidden bg-bg">
-      <Sidebar />
-      <div className="flex flex-1 flex-col overflow-hidden">
-        <Header />
-        <main className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-6 py-5">
-          <ProgramReadyGate>{children}</ProgramReadyGate>
-        </main>
+    <div className="relative flex h-screen overflow-hidden bg-bg">
+      <AssistantCanvasLayer />
+      <div className="relative z-10 flex min-h-0 min-w-0 flex-1">
+        <Sidebar />
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          <Header />
+          <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overflow-x-hidden px-6 py-5">
+            <ProgramReadyGate>{children}</ProgramReadyGate>
+          </main>
+        </div>
       </div>
     </div>
   );

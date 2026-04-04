@@ -10,6 +10,7 @@ interface ChatSessionTabsProps {
   onSelect: (id: string) => void;
   onAdd: () => void;
   onClose: (id: string) => void;
+  glass?: boolean;
 }
 
 export const ChatSessionTabs = memo(function ChatSessionTabs({
@@ -19,9 +20,17 @@ export const ChatSessionTabs = memo(function ChatSessionTabs({
   onSelect,
   onAdd,
   onClose,
+  glass = false,
 }: ChatSessionTabsProps) {
   return (
-    <div className="flex shrink-0 items-center gap-1 border-b border-border-subtle bg-surface-raised/40 px-2 py-1.5">
+    <div
+      className={cn(
+        "flex shrink-0 items-center gap-1 border-b px-2 py-1.5 backdrop-blur-md",
+        glass
+          ? "border-black/[0.05] bg-black/[0.06] backdrop-blur-xl dark:border-white/[0.07] dark:bg-white/[0.03]"
+          : "border-border-subtle bg-surface-raised/40",
+      )}
+    >
       <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto">
         {tabs.map((tab) => {
           const active = tab.id === activeTabId;
@@ -32,8 +41,12 @@ export const ChatSessionTabs = memo(function ChatSessionTabs({
               className={cn(
                 "group flex max-w-[9.5rem] shrink-0 items-center rounded-[6px] border border-transparent",
                 active
-                  ? "border-border-subtle bg-surface text-text"
-                  : "bg-transparent text-text-tertiary hover:bg-surface-hover hover:text-text-secondary"
+                  ? glass
+                    ? "border-black/10 bg-surface/55 text-text shadow-sm backdrop-blur-md dark:border-white/12 dark:bg-white/[0.08]"
+                    : "border-border-subtle bg-surface text-text"
+                  : glass
+                    ? "bg-transparent text-text-tertiary hover:bg-black/10 hover:text-text-secondary dark:hover:bg-white/[0.06]"
+                    : "bg-transparent text-text-tertiary hover:bg-surface-hover hover:text-text-secondary"
               )}
             >
               <button
@@ -60,7 +73,10 @@ export const ChatSessionTabs = memo(function ChatSessionTabs({
                     onClose(tab.id);
                   }}
                   title="Close tab"
-                  className="shrink-0 rounded-[4px] p-0.5 text-text-quaternary opacity-0 transition-opacity hover:bg-surface-hover hover:text-text-secondary group-hover:opacity-100"
+                  className={cn(
+                    "shrink-0 rounded-[4px] p-0.5 text-text-quaternary opacity-0 transition-opacity hover:text-text-secondary group-hover:opacity-100",
+                    glass ? "hover:bg-black/20 dark:hover:bg-white/10" : "hover:bg-surface-hover",
+                  )}
                 >
                   <X className="h-3 w-3" />
                 </button>
@@ -73,7 +89,12 @@ export const ChatSessionTabs = memo(function ChatSessionTabs({
         type="button"
         onClick={onAdd}
         title="New chat tab"
-        className="shrink-0 rounded-[6px] border border-border-subtle bg-surface p-1.5 text-text-tertiary transition-colors hover:bg-surface-hover hover:text-text-secondary"
+        className={cn(
+          "shrink-0 rounded-[6px] border p-1.5 text-text-tertiary transition-colors hover:text-text-secondary",
+          glass
+            ? "border-black/8 bg-surface/45 backdrop-blur-md hover:bg-surface/55 dark:border-white/10 dark:bg-white/[0.05] dark:hover:bg-white/[0.08]"
+            : "border-border-subtle bg-surface hover:bg-surface-hover",
+        )}
       >
         <Plus className="h-3.5 w-3.5" />
       </button>
