@@ -55,9 +55,15 @@ def _inherit_project(direction_id: str | None) -> str | None:
 @click.option(
     "--params-file", "params_file", type=click.Path(exists=True), help="Params from YAML/JSON file"
 )
-@click.option("--result", help="Results as JSON string (legacy)")
 @click.option(
-    "--result-file", "result_file", type=click.Path(exists=True), help="Results from YAML/JSON file"
+    "--result",
+    help="Structured JSON dict (legacy). Prefer ## Results section.",
+)
+@click.option(
+    "--result-file",
+    "result_file",
+    type=click.Path(exists=True),
+    help="Structured results from YAML/JSON file (legacy)",
 )
 @click.option("--finding", help="What you learned (legacy)")
 @click.option("--source", "-s", help="Who logged this (default: human/$USER)")

@@ -140,6 +140,28 @@ sonde update EXP-0001 --results "Enhancement: 5.8%, LWC: 1.03 g/m3"
 sonde update EXP-0001 --finding "CCN saturates at 1500"
 ```
 
+### CAUTION: `--result` vs `--results` — they are different
+
+| Flag | What it does | Example |
+|------|-------------|---------|
+| `--results` | Updates the `## Results` **narrative section** in the content body | `--results "Enhancement: 5.8%"` |
+| `--result` | Sets the **structured JSON dict** (queryable across experiments) | `--result '{"rmse": 2.3}'` |
+
+Use `--results` (plural) for narrative observations. Use `--result` (singular) for structured key-value metrics.
+
+### CAUTION: `--tag` on update REPLACES all tags
+
+```bash
+# This REPLACES all tags — existing tags are removed:
+sonde update EXP-0001 --tag foo --tag bar
+
+# To APPEND a tag without removing existing ones:
+sonde tag add EXP-0001 new-tag
+
+# To remove a single tag:
+sonde tag remove EXP-0001 old-tag
+```
+
 ### From file or stdin
 
 ```bash

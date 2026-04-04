@@ -252,6 +252,15 @@ sonde update EXP-0001 --tag cloud-seeding --tag subtropical  # replaces ALL tags
 **Important:** `--tag` on update **replaces** all existing tags. To append, use
 `sonde tag add EXP-0001 new-tag`.
 
+### `--result` vs `--results` — they are different
+
+| Flag | What it does | Example |
+|------|-------------|---------|
+| `--results` | Updates the `## Results` **narrative section** in content | `--results "Enhancement: 5.8%"` |
+| `--result` | Sets the **structured JSON dict** (queryable) | `--result '{"rmse": 2.3}'` |
+
+Use `--results` (plural) for observations. Use `--result` (singular) for structured metrics.
+
 ---
 
 ## Lifecycle
