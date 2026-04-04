@@ -23,18 +23,28 @@ import type { AssistantCanvasArtifactRow } from "@/hooks/use-assistant-canvas-ar
 const LAYER_SCALE = 1.55;
 const MAX_PAN_FRACTION = (LAYER_SCALE - 1) / 2;
 
-/** Percent / clamp positions — Flora-like scatter, stable per slot index. */
+/**
+ * Card positions — scattered around the edges, leaving the center clear
+ * for the chat bubble (~30–65% vertical, ~20–80% horizontal is the danger zone).
+ * Cards cluster in four corners + top/bottom strips.
+ */
 const CARD_SLOTS = [
-  { top: "7%", left: "4%", w: "clamp(132px, 17vw, 228px)", rotate: -3.2, z: 2 },
-  { top: "14%", left: "68%", w: "clamp(148px, 19vw, 252px)", rotate: 2.4, z: 1 },
-  { top: "38%", left: "2%", w: "clamp(120px, 15vw, 200px)", rotate: 2.1, z: 3 },
-  { top: "42%", left: "72%", w: "clamp(156px, 20vw, 260px)", rotate: -2.8, z: 2 },
-  { top: "58%", left: "8%", w: "clamp(138px, 16vw, 220px)", rotate: -1.5, z: 1 },
-  { top: "62%", left: "58%", w: "clamp(128px, 14vw, 210px)", rotate: 3, z: 4 },
-  { top: "18%", left: "36%", w: "clamp(110px, 12vw, 180px)", rotate: 1.2, z: 0 },
-  { top: "78%", left: "4%", w: "clamp(140px, 17vw, 230px)", rotate: 2.6, z: 2 },
-  { top: "82%", left: "48%", w: "clamp(124px, 15vw, 215px)", rotate: -2.2, z: 1 },
-  { top: "28%", left: "52%", w: "clamp(100px, 11vw, 168px)", rotate: -1.1, z: 3 },
+  /* ── top-left cluster ── */
+  { top: "3%", left: "2%", w: "clamp(132px, 17vw, 228px)", rotate: -3.2, z: 2 },
+  { top: "15%", left: "1%", w: "clamp(120px, 15vw, 200px)", rotate: 2.1, z: 3 },
+  /* ── top-right cluster ── */
+  { top: "2%", left: "72%", w: "clamp(148px, 19vw, 252px)", rotate: 2.4, z: 1 },
+  { top: "16%", left: "76%", w: "clamp(110px, 12vw, 180px)", rotate: -1.1, z: 0 },
+  /* ── top center (above chat) ── */
+  { top: "4%", left: "38%", w: "clamp(100px, 11vw, 168px)", rotate: 1.2, z: 1 },
+  /* ── bottom-left cluster ── */
+  { top: "72%", left: "1%", w: "clamp(138px, 16vw, 220px)", rotate: -1.5, z: 1 },
+  { top: "84%", left: "3%", w: "clamp(140px, 17vw, 230px)", rotate: 2.6, z: 2 },
+  /* ── bottom-right cluster ── */
+  { top: "70%", left: "74%", w: "clamp(156px, 20vw, 260px)", rotate: -2.8, z: 2 },
+  { top: "85%", left: "70%", w: "clamp(128px, 14vw, 210px)", rotate: 3, z: 4 },
+  /* ── bottom center (below chat) ── */
+  { top: "82%", left: "36%", w: "clamp(124px, 15vw, 215px)", rotate: -2.2, z: 1 },
 ] as const;
 
 function clampAxis(n: number, maxAbs: number): number {
@@ -102,9 +112,23 @@ const CanvasArtifactCard = memo(function CanvasArtifactCard({
       aria-label={`Open ${artifact.linkTo.kind} ${recordLabel}, ${artifact.filename}`}
       draggable={false}
     >
-      <div className="flex items-start justify-between gap-1 px-2 pt-1.5 pb-1">
-        <span className={cn(labelClass, "min-w-0 truncate font-mono")}>{recordLabel}</span>
-        <span className={cn(labelClass, "max-w-[45%] shrink-0 truncate text-right normal-case tracking-normal")}>
+      <div className="flex flex-col gap-0 px-2 pt-1.5 pb-1">
+        <div className="flex items-center gap-1 overflow-hidden">
+          <span
+            className={cn(
+              "inline-block shrink-0 rounded-[3px] px-1 py-[1px] text-[8px] font-bold uppercase leading-none tracking-[0.08em]",
+              artifact.linkTo.kind === "experiment"
+                ? dark ? "bg-white/10 text-white/40" : "bg-accent/10 text-accent/70"
+                : artifact.linkTo.kind === "direction"
+                  ? dark ? "bg-emerald-400/15 text-emerald-400/50" : "bg-emerald-500/10 text-emerald-600/70"
+                  : dark ? "bg-amber-400/15 text-amber-400/50" : "bg-amber-500/10 text-amber-600/70",
+            )}
+          >
+            {artifact.linkTo.kind === "experiment" ? "exp" : artifact.linkTo.kind === "direction" ? "dir" : "proj"}
+          </span>
+          <span className={cn(labelClass, "min-w-0 truncate font-mono")}>{recordLabel}</span>
+        </div>
+        <span className={cn(labelClass, "truncate normal-case tracking-normal")}>
           {artifact.filename}
         </span>
       </div>
@@ -286,8 +310,8 @@ export const ResearchCanvasBackground = memo(function ResearchCanvasBackground()
     <div
       ref={canvasRef}
       className={cn(
-        "fixed inset-0 z-0 overflow-hidden rounded-none",
-        dark ? "bg-[#060606]" : "bg-bg",
+        /* Must match shell `bg-bg` — any mismatch shows as a seam at the viewport edge. */
+        "fixed inset-0 z-0 min-h-dvh overflow-hidden rounded-none bg-bg",
         canvasInteractive ? "pointer-events-auto" : "pointer-events-none",
       )}
     >
@@ -322,14 +346,6 @@ export const ResearchCanvasBackground = memo(function ResearchCanvasBackground()
                 : "[background-image:radial-gradient(circle_at_center,var(--palette-border)_1px,transparent_1px)] [background-size:22px_22px] opacity-[0.35]",
             )}
           />
-          <div
-            aria-hidden
-            className={cn(
-              "pointer-events-none absolute inset-0",
-              dark ? "bg-gradient-to-b from-black/20 via-black/45 to-black/65" : "bg-gradient-to-b from-transparent via-bg/30 to-bg/85",
-            )}
-          />
-
           {canvasInteractive && (
             <div
               className="absolute inset-0 z-[2] touch-none cursor-grab active:cursor-grabbing"
