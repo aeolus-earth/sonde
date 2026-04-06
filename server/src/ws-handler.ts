@@ -113,7 +113,8 @@ export function handleWebSocket(
                 process.env.VITE_SUPABASE_ANON_KEY
               );
               if (sandbox) {
-                await sandbox.setToken(token!);
+                // setToken deferred — runs in background, not blocking onOpen
+                sandbox.setToken(token!).catch(() => {});
                 session = createSandboxAgentSession({
                   canUseTool: approvalBridge!.canUseTool,
                   sandbox,
