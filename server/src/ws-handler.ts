@@ -103,6 +103,10 @@ export function handleWebSocket(
     async onMessage(evt, ws) {
       // Wait for sandbox init before processing first message
       if (sandboxInitPromise) {
+        send(ws, {
+          type: "text_delta",
+          content: "⏳ *Preparing sandbox environment...*\n\n",
+        });
         await sandboxInitPromise;
         sandboxInitPromise = null;
       }

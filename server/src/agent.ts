@@ -401,6 +401,11 @@ export function createSandboxAgentSession(
       let assistantText = "";
       let assistantMessageId = "";
 
+      // Track tool input JSON as it streams in (input_json_delta)
+      const toolInputBuffers = new Map<number, string>();
+      const toolIdByIndex = new Map<number, string>();
+      const toolNameByIndex = new Map<number, string>();
+
       for await (const rawMsg of q) {
         const msg = rawMsg as Record<string, unknown>;
         if (msg.type === "system" && msg.subtype === "init") {
@@ -419,14 +424,20 @@ export function createSandboxAgentSession(
         if (msg.type === "stream_event" && "event" in msg) {
           const event = msg.event as Record<string, unknown>;
           const eventType = event.type as string;
+          const index = (event.index as number) ?? -1;
 
           if (eventType === "content_block_start") {
             const block = event.content_block as Record<string, unknown>;
             if (block?.type === "tool_use") {
+              const id = block.id as string;
+              const name = block.name as string;
+              toolIdByIndex.set(index, id);
+              toolNameByIndex.set(index, name);
+              toolInputBuffers.set(index, "");
               yield {
                 type: "tool_use_start",
-                id: block.id as string,
-                tool: block.name as string,
+                id,
+                tool: name,
                 input: {},
               };
             }
@@ -438,6 +449,12 @@ export function createSandboxAgentSession(
               const text = delta.text as string;
               assistantText += text;
               yield { type: "text_delta", content: text };
+            }
+            // Accumulate tool input JSON
+            if (delta?.type === "input_json_delta") {
+              const partial = (delta.partial_json as string) ?? "";
+              const prev = toolInputBuffers.get(index) ?? "";
+              toolInputBuffers.set(index, prev + partial);
             }
           }
 
@@ -465,10 +482,11 @@ export function createSandboxAgentSession(
           if (content) {
             for (const block of content) {
               if (block.type === "tool_use") {
+                const blockInput = block.input as Record<string, unknown> | undefined;
                 yield {
                   type: "tool_use_end",
                   id: block.id as string,
-                  output: "",
+                  output: JSON.stringify(blockInput ?? {}, null, 2),
                 };
               }
             }
@@ -481,6 +499,20 @@ export function createSandboxAgentSession(
               messageId: assistantMessageId,
             };
             assistantText = "";
+          }
+          continue;
+        }
+
+        // Capture tool results — the actual output from tool execution
+        if (msg.type === "tool_result") {
+          const toolUseId = (msg as { tool_use_id?: string }).tool_use_id;
+          const resultContent = (msg as { content?: string }).content ?? "";
+          if (toolUseId) {
+            yield {
+              type: "tool_use_end",
+              id: toolUseId,
+              output: resultContent,
+            };
           }
           continue;
         }
