@@ -70,7 +70,8 @@ export async function createSandbox(
   const sandbox = await daytona.create({
     language: "python",
     envVars,
-    autoStopInterval: 15, // Auto-stop after 15 min idle (safety net)
+    autoStopInterval: 15, // Stop after 15 min idle
+    autoDeleteInterval: 30, // Delete 30 min after stopping (45 min total worst case)
   });
 
   return wrapSandbox(sandbox);

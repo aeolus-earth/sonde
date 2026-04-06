@@ -36,12 +36,27 @@ const server = serve({ fetch: app.fetch, port }, (info) => {
 
 injectWebSocket(server);
 
-// Clean up orphaned Daytona sandboxes on startup (reclaim disk quota)
+// Daytona sandbox lifecycle management
 import { isSandboxMode } from "./agent.js";
 if (isSandboxMode()) {
+  // Clean up orphaned sandboxes from previous server runs on startup
   import("./sandbox/daytona-client.js").then(({ cleanupStaleSandboxes }) =>
     cleanupStaleSandboxes().catch((err) =>
       console.error("[sandbox] Startup cleanup failed:", err.message)
     )
   );
+
+  // Clean up all sandboxes on graceful shutdown (Ctrl+C, SIGTERM, etc.)
+  const shutdownCleanup = () => {
+    console.log("[sandbox] Server shutting down, cleaning up sandboxes...");
+    import("./sandbox/daytona-client.js").then(({ cleanupStaleSandboxes }) =>
+      cleanupStaleSandboxes()
+        .catch(() => {})
+        .finally(() => process.exit(0))
+    );
+    // Force exit after 10s if cleanup hangs
+    setTimeout(() => process.exit(1), 10_000);
+  };
+  process.on("SIGINT", shutdownCleanup);
+  process.on("SIGTERM", shutdownCleanup);
 }
