@@ -277,16 +277,29 @@ async function handleUserMessage(
   const prompt = chunks.join("\n\n");
 
   try {
-    // The Agent SDK sometimes produces zero events on the first query of
-    // a new session. If that happens, retry once without a resume ID.
+    // The Agent SDK's first query on a new session can hang indefinitely.
+    // Race it against a timeout — if no events in 10s, abort and retry.
     for (let attempt = 0; attempt < 2; attempt++) {
       const resume = attempt === 0 ? clientSessionId : undefined;
       console.log("[ws] session.query() attempt", attempt + 1, "resume:", resume?.slice(0, 12) ?? "none");
       let gotEvents = false;
+      let timedOut = false;
+
+      // Timeout: abort the session if no events within 10s
+      const timeoutId = setTimeout(() => {
+        if (!gotEvents) {
+          console.log("[ws] Timeout on attempt", attempt + 1, "— aborting");
+          timedOut = true;
+          session.abort();
+        }
+      }, 10_000);
+
+      try {
       for await (const event of session.query(prompt, {
         resumeSessionId: resume,
       })) {
         gotEvents = true;
+        clearTimeout(timeoutId);
       console.log("[ws] event:", event.type);
       switch (event.type) {
         case "session":
@@ -328,6 +341,11 @@ async function handleUserMessage(
           break;
       }
     }
+      } catch (queryErr) {
+        clearTimeout(timeoutId);
+        if (!timedOut) throw queryErr;
+        // Timed out — will retry on next iteration
+      }
       // If we got events, we're done. If not, retry.
       if (gotEvents) break;
       console.log("[ws] No events on attempt", attempt + 1, "— retrying");
