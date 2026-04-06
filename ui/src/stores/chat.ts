@@ -58,6 +58,9 @@ export interface ChatState {
 
   addMessage: (tabId: string, msg: ChatMessageData) => void;
   appendToLastMessage: (tabId: string, text: string) => void;
+  appendThinkingToLastMessage: (tabId: string, text: string) => void;
+  /** If the assistant has only thinking text and no answer (no-tool turn), merge into content. */
+  promoteThinkingToContentIfNeeded: (tabId: string) => void;
   addToolUseToLastMessage: (tabId: string, toolUse: ToolUseData) => void;
   updateToolUse: (
     tabId: string,
@@ -151,6 +154,41 @@ const chatStateCreator: StateCreator<ChatState, [], [], ChatState> = (set) => ({
                 content: last.content + text,
               };
             }
+            return copy;
+          }),
+        })),
+
+      appendThinkingToLastMessage: (tabId, text) =>
+        set((s) => ({
+          tabs: mapTabsMessages(s.tabs, tabId, (msgs) => {
+            const copy = [...msgs];
+            const last = copy[copy.length - 1];
+            if (last?.role === "assistant") {
+              const prev = last.thinkingContent ?? "";
+              copy[copy.length - 1] = {
+                ...last,
+                thinkingContent: prev + text,
+              };
+            }
+            return copy;
+          }),
+        })),
+
+      promoteThinkingToContentIfNeeded: (tabId) =>
+        set((s) => ({
+          tabs: mapTabsMessages(s.tabs, tabId, (msgs) => {
+            const copy = [...msgs];
+            const last = copy[copy.length - 1];
+            if (last?.role !== "assistant") return msgs;
+            const think = last.thinkingContent?.trim() ?? "";
+            const body = last.content?.trim() ?? "";
+            if (think.length === 0 || body.length > 0) return msgs;
+            if ((last.toolUses?.length ?? 0) > 0) return msgs;
+            copy[copy.length - 1] = {
+              ...last,
+              content: last.thinkingContent ?? "",
+              thinkingContent: undefined,
+            };
             return copy;
           }),
         })),

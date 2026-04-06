@@ -60,7 +60,7 @@ export const ChatMessages = memo(function ChatMessages({
 
   const last = messages[messages.length - 1];
   const lastMessageScrollKey = last
-    ? `${last.content}\0${JSON.stringify(last.toolUses ?? [])}`
+    ? `${last.content}\0${last.thinkingContent ?? ""}\0${JSON.stringify(last.toolUses ?? [])}`
     : "";
 
   // One rAF per frame max while streaming — avoids fighting the user's wheel/trackpad.
@@ -252,7 +252,12 @@ export const ChatMessages = memo(function ChatMessages({
               className="px-4 py-3 md:px-6"
             >
               <div className="mx-auto max-w-[52rem]">
-                <ChatMessage message={msg} />
+                <ChatMessage
+                  message={msg}
+                  isStreamingLast={
+                    isStreaming && virtualItem.index === messages.length - 1
+                  }
+                />
               </div>
             </div>
           );

@@ -1,5 +1,5 @@
 import { memo, lazy, Suspense } from "react";
-import { ChatToolActivity } from "./chat-tool-activity";
+import { ChatToolChain } from "./chat-tool-chain";
 import {
   MentionChipLabel,
   MentionLink,
@@ -15,9 +15,14 @@ const AssistantMarkdown = lazy(() =>
 
 interface ChatMessageProps {
   message: ChatMessageData;
+  /** True when this is the last message and the assistant reply is still streaming. */
+  isStreamingLast?: boolean;
 }
 
-export const ChatMessage = memo(function ChatMessage({ message }: ChatMessageProps) {
+export const ChatMessage = memo(function ChatMessage({
+  message,
+  isStreamingLast = false,
+}: ChatMessageProps) {
   if (message.role === "system") {
     return (
       <div className="flex justify-center px-1">
@@ -95,9 +100,14 @@ export const ChatMessage = memo(function ChatMessage({ message }: ChatMessagePro
           </div>
         )}
 
-        {message.toolUses?.map((tu) => (
-          <ChatToolActivity key={tu.id} toolUse={tu} />
-        ))}
+        {((message.toolUses && message.toolUses.length > 0) ||
+          (message.thinkingContent && message.thinkingContent.trim().length > 0)) && (
+          <ChatToolChain
+            toolUses={message.toolUses ?? []}
+            thinkingContent={message.thinkingContent}
+            isStreamingLast={isStreamingLast}
+          />
+        )}
 
         {message.content && (
           <div className="rounded-[5.5px] border border-border-subtle bg-surface-raised px-3 py-2 text-[13px] leading-relaxed text-text dark:border-white/[0.08]">

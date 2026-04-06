@@ -34,6 +34,8 @@ export interface ChatMessageData {
   id: string;
   role: "user" | "assistant" | "system";
   content: string;
+  /** Model reasoning / exploration shown in the tool chain, not the answer bubble. */
+  thinkingContent?: string;
   mentions?: MentionRef[];
   attachments?: ChatAttachmentMeta[];
   toolUses?: ToolUseData[];
@@ -112,6 +114,11 @@ export interface ServerTextDelta {
   content: string;
 }
 
+export interface ServerThinkingDelta {
+  type: "thinking_delta";
+  content: string;
+}
+
 export interface ServerTextDone {
   type: "text_done";
   content: string;
@@ -158,6 +165,7 @@ export type ServerMessage =
   | ServerSession
   | ServerModelInfo
   | ServerTextDelta
+  | ServerThinkingDelta
   | ServerTextDone
   | ServerToolUseStart
   | ServerToolUseEnd

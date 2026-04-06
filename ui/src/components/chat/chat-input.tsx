@@ -667,6 +667,8 @@ export const ChatInput = memo(function ChatInput({
               aria-label="Chat message"
               className={cn(
                 "relative z-10 max-h-[192px] w-full resize-none bg-transparent px-0 py-2.5 text-[15px] leading-6 align-top placeholder:leading-5 focus:outline-none disabled:opacity-[0.78]",
+                /* Hide native scrollbar (global styles draw a rounded gray thumb that reads as a stray bar). */
+                "[scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden",
                 bubbleShell
                   ? "min-h-[5.5rem] text-white caret-white placeholder:text-zinc-400 sm:min-h-[6.5rem]"
                   : "min-h-10 text-text placeholder:text-text-tertiary",

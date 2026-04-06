@@ -294,6 +294,9 @@ async function handleUserMessage(
         case "text_delta":
           send(ws, { type: "text_delta", content: event.content });
           break;
+        case "thinking_delta":
+          send(ws, { type: "thinking_delta", content: event.content });
+          break;
         case "text_done":
           send(ws, {
             type: "text_done",

@@ -2,7 +2,7 @@ import { memo, useMemo } from "react";
 import { useQueries } from "@tanstack/react-query";
 import { fetchArtifactsByParentId, useArtifactsByIds } from "@/hooks/use-artifacts";
 import { useWorkspaceItems } from "@/hooks/use-workspace-items";
-import { useChatStore } from "@/stores/chat";
+import { useScopedChatStore } from "@/contexts/chat-store-context";
 import { queryKeys } from "@/lib/query-keys";
 import { cn } from "@/lib/utils";
 import { WorkspaceExperimentSection } from "@/components/chat/workspace-experiment-section";
@@ -62,10 +62,16 @@ export const WorkspacePanel = memo(function WorkspacePanel({
 }: {
   glass?: boolean;
 }) {
-  const messages = useChatStore((s) => {
+  const messages = useScopedChatStore((s) => {
     const t = s.tabs.find((x) => x.id === s.activeTabId);
     return t?.messages ?? [];
   });
+  const agentModel = useScopedChatStore((s) => s.agentModel);
+  const modelLabel =
+    agentModel ??
+    (typeof import.meta.env.VITE_AGENT_MODEL_LABEL === "string"
+      ? import.meta.env.VITE_AGENT_MODEL_LABEL.trim() || null
+      : null);
 
   const { items, explicitArtifactIds } = useWorkspaceItems(messages);
 
@@ -106,12 +112,24 @@ export const WorkspacePanel = memo(function WorkspacePanel({
     <div className={shell}>
       <div className="pointer-events-auto flex min-h-0 flex-1 flex-col px-3 py-3 sm:px-4 sm:py-4">
         <div className="mb-3 shrink-0 border-b border-border-subtle pb-2">
-          <h2 className="font-display text-[13px] font-normal tracking-wide text-text-tertiary">
-            Workspace
-          </h2>
-          <p className="text-[10px] text-text-quaternary">
-            Experiments and artifacts from this thread
-          </p>
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h2 className="font-display text-[13px] font-normal tracking-wide text-text-tertiary">
+                Workspace
+              </h2>
+              <p className="text-[10px] text-text-quaternary">
+                Experiments and artifacts from this thread
+              </p>
+            </div>
+            {modelLabel ? (
+              <span
+                className="max-w-[min(12rem,45%)] shrink-0 truncate text-right font-mono text-[10px] leading-snug text-text-quaternary"
+                title={modelLabel}
+              >
+                {modelLabel}
+              </span>
+            ) : null}
+          </div>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden pr-1">

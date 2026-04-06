@@ -1,16 +1,15 @@
 import { memo } from "react";
-import { ExternalLink } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useArtifacts } from "@/hooks/use-artifacts";
 import { useDirection } from "@/hooks/use-directions";
 import { useFinding } from "@/hooks/use-findings";
 import { useProject } from "@/hooks/use-projects";
-import { mentionChipClasses } from "@/components/chat/mention-chip";
+import { workspaceRecordBarClassName } from "@/components/chat/workspace-record-bar-styles";
 import type { WorkspaceItemKind } from "@/hooks/use-workspace-items";
 import { cn } from "@/lib/utils";
 import { WorkspaceArtifactCarousel } from "@/components/chat/workspace-artifact-carousel";
-import type { RecordType } from "@/types/sonde";
 
 function routeForKind(
   kind: WorkspaceItemKind,
@@ -25,6 +24,19 @@ function routeForKind(
       return { to: "/projects/$id", params: { id } };
     default:
       return { to: "/experiments/$id", params: { id } };
+  }
+}
+
+function recordLabel(kind: Exclude<WorkspaceItemKind, "experiment">): string {
+  switch (kind) {
+    case "direction":
+      return "Direction";
+    case "finding":
+      return "Finding";
+    case "project":
+      return "Project";
+    default:
+      return "Record";
   }
 }
 
@@ -62,67 +74,88 @@ export const WorkspaceRecordSection = memo(function WorkspaceRecordSection({
         ? find.data?.finding
         : proj.data?.name;
 
+  const program =
+    kind === "direction"
+      ? dir.data?.program
+      : kind === "finding"
+        ? find.data?.program
+        : proj.data?.program;
+
   if (loading) {
     return (
-      <section className="space-y-2 border-b border-border-subtle pb-4 last:border-b-0 last:pb-0">
-        <Skeleton className="h-4 w-40 rounded-[4px]" />
-        <Skeleton className="h-16 w-full rounded-[6px]" />
+      <section className="space-y-3 pb-5 last:pb-0">
+        <div className="rounded-2xl border border-white/20 bg-white/[0.2] p-3 backdrop-blur-md dark:border-white/[0.08] dark:bg-white/[0.03]">
+          <div className="flex justify-between gap-3">
+            <Skeleton className="h-4 w-36 rounded-lg" />
+            <Skeleton className="h-3 w-20 rounded-md" />
+          </div>
+          <Skeleton className="mt-2 h-3 w-full max-w-md rounded-md" />
+        </div>
+        <Skeleton className="h-36 w-full rounded-[10px]" />
       </section>
     );
   }
 
   if (error) {
     return (
-      <section className="border-b border-border-subtle pb-4 last:border-b-0 last:pb-0">
+      <section className="pb-5 last:pb-0">
         <p className="text-[12px] text-status-failed">Could not load {recordId}.</p>
       </section>
     );
   }
 
-  const chipType: RecordType =
-    kind === "direction"
-      ? "direction"
-      : kind === "finding"
-        ? "finding"
-        : "project";
-
   const route = routeForKind(kind, recordId);
+  const ariaLabel = `Open ${recordLabel(kind).toLowerCase()} ${recordId}`;
 
   return (
-    <section className="space-y-3 border-b border-border-subtle pb-4 last:border-b-0 last:pb-0">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0 flex-1 space-y-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <span
-              className={cn(
-                mentionChipClasses(chipType),
-                "max-w-[min(100%,260px)]"
+    <section className="space-y-3 pb-5 last:pb-0">
+      <Link
+        to={route.to}
+        params={route.params}
+        className={workspaceRecordBarClassName()}
+        aria-label={ariaLabel}
+      >
+        <div className="flex items-start gap-2">
+          <div className="min-w-0 flex-1 space-y-1">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                <span className="truncate font-mono text-[13px] font-semibold tracking-tight text-text">
+                  {recordId}
+                </span>
+                <span className="rounded-full bg-white/35 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-text-tertiary dark:bg-white/[0.08]">
+                  {recordLabel(kind)}
+                </span>
+              </div>
+              {program && (
+                <span className="max-w-[min(50%,12rem)] shrink-0 text-right text-[10px] font-semibold uppercase leading-tight tracking-[0.12em] text-text-quaternary">
+                  {program}
+                </span>
               )}
-            >
-              <span className="font-mono">{recordId}</span>
-            </span>
+            </div>
+            {title?.trim() && (
+              <p className="line-clamp-2 text-[12px] font-medium leading-snug text-text-secondary">
+                {title.trim()}
+              </p>
+            )}
           </div>
-          <p className="line-clamp-2 text-[12px] leading-snug text-text-secondary">
-            {title?.trim() || "—"}
-          </p>
+          <ChevronRight
+            className={cn(
+              "mt-1 h-4 w-4 shrink-0 text-text-quaternary/70",
+              "transition-all duration-300 ease-out",
+              "opacity-40 group-hover:translate-x-0.5 group-hover:opacity-100",
+            )}
+            aria-hidden
+          />
         </div>
-        <Link
-          to={route.to}
-          params={route.params}
-          className="inline-flex shrink-0 items-center gap-1 rounded-[6px] border border-border-subtle px-2 py-1 text-[11px] text-text-secondary transition-colors hover:bg-surface-hover hover:text-text"
-        >
-          Open
-          <ExternalLink className="h-3 w-3 opacity-60" aria-hidden />
-        </Link>
-      </div>
+      </Link>
 
-      <div className="min-w-0">
+      <div className="min-w-0 pl-0.5">
         {artLoading ? (
           <div className="space-y-2">
             <Skeleton className="h-3 w-28 rounded bg-border-subtle" />
             <div className="flex gap-3">
-              <Skeleton className="h-36 min-w-[12rem] flex-1 rounded-[8px]" />
-              <Skeleton className="h-36 min-w-[8rem] shrink-0 rounded-[8px] opacity-60" />
+              <Skeleton className="h-36 min-w-[12rem] flex-1 rounded-[10px]" />
+              <Skeleton className="h-36 min-w-[8rem] shrink-0 rounded-[10px] opacity-60" />
             </div>
           </div>
         ) : (

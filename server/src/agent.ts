@@ -99,6 +99,8 @@ export function createAgentSession(
 
       let assistantText = "";
       let assistantMessageId = "";
+      /** Once true, streamed `text_delta` is treated as the final answer, not chain "thinking". */
+      let seenToolUseInQuery = false;
 
       for await (const rawMsg of q) {
         const msg = rawMsg as Record<string, unknown>;
@@ -122,6 +124,7 @@ export function createAgentSession(
           if (eventType === "content_block_start") {
             const block = event.content_block as Record<string, unknown>;
             if (block?.type === "tool_use") {
+              seenToolUseInQuery = true;
               yield {
                 type: "tool_use_start",
                 id: block.id as string,
@@ -133,10 +136,22 @@ export function createAgentSession(
 
           if (eventType === "content_block_delta") {
             const delta = event.delta as Record<string, unknown>;
-            if (delta?.type === "text_delta") {
+            const dtype = delta?.type as string | undefined;
+            if (dtype === "thinking_delta") {
+              const th = (delta.thinking as string) ?? "";
+              if (th.length > 0) {
+                yield { type: "thinking_delta", content: th };
+              }
+              continue;
+            }
+            if (dtype === "text_delta") {
               const text = delta.text as string;
-              assistantText += text;
-              yield { type: "text_delta", content: text };
+              if (!seenToolUseInQuery) {
+                yield { type: "thinking_delta", content: text };
+              } else {
+                assistantText += text;
+                yield { type: "text_delta", content: text };
+              }
             }
           }
 
@@ -400,6 +415,7 @@ export function createSandboxAgentSession(
 
       let assistantText = "";
       let assistantMessageId = "";
+      let seenToolUseInQuery = false;
 
       // Track tool input JSON as it streams in (input_json_delta)
       const toolInputBuffers = new Map<number, string>();
@@ -429,6 +445,7 @@ export function createSandboxAgentSession(
           if (eventType === "content_block_start") {
             const block = event.content_block as Record<string, unknown>;
             if (block?.type === "tool_use") {
+              seenToolUseInQuery = true;
               const id = block.id as string;
               const name = block.name as string;
               toolIdByIndex.set(index, id);
@@ -445,10 +462,20 @@ export function createSandboxAgentSession(
 
           if (eventType === "content_block_delta") {
             const delta = event.delta as Record<string, unknown>;
-            if (delta?.type === "text_delta") {
+            const dtype = delta?.type as string | undefined;
+            if (dtype === "thinking_delta") {
+              const th = (delta.thinking as string) ?? "";
+              if (th.length > 0) {
+                yield { type: "thinking_delta", content: th };
+              }
+            } else if (dtype === "text_delta") {
               const text = delta.text as string;
-              assistantText += text;
-              yield { type: "text_delta", content: text };
+              if (!seenToolUseInQuery) {
+                yield { type: "thinking_delta", content: text };
+              } else {
+                assistantText += text;
+                yield { type: "text_delta", content: text };
+              }
             }
             // Accumulate tool input JSON
             if (delta?.type === "input_json_delta") {

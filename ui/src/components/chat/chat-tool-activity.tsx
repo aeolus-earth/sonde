@@ -1,4 +1,4 @@
-import { memo, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import {
   ChevronDown,
@@ -19,7 +19,7 @@ import {
   parseExperimentShowArtifactCount,
 } from "@/components/chat/chat-artifact-preview";
 
-function toolDisplayName(tool: string): string {
+export function toolDisplayName(tool: string): string {
   // Sandbox tools get friendly names
   if (tool === "sandbox_exec") return "shell";
   if (tool === "sandbox_read") return "read file";
@@ -29,6 +29,10 @@ function toolDisplayName(tool: string): string {
     .replace(/^mcp__sonde__/, "")
     .replace(/^sonde_/, "")
     .replace(/_/g, " ");
+}
+
+function normalizedToolName(tool: string): string {
+  return tool.replace(/^mcp__sonde__/, "");
 }
 
 /** Extract the command string from sandbox_exec input for display. */
@@ -44,13 +48,54 @@ function sandboxCommandLabel(toolUse: ToolUseData): string | null {
   return typeof cmd === "string" ? cmd : null;
 }
 
+/** One-line description for the collapsed row (Claude-style summary). */
+export function toolSummary(toolUse: ToolUseData): string {
+  const toolNorm = normalizedToolName(toolUse.tool);
+  const input = toolUse.input;
+
+  const getStr = (key: string): string | undefined => {
+    const v = input[key];
+    return typeof v === "string" ? v : undefined;
+  };
+
+  if (toolNorm === "sonde_experiment_show") {
+    const id = getStr("experiment_id") ?? getStr("id");
+    if (id) return `Fetched experiment ${id}`;
+    return "Fetched experiment";
+  }
+  if (toolNorm === "sonde_artifacts_list") {
+    const id = getStr("experiment_id") ?? getStr("project_id") ?? getStr("id");
+    if (id) return `Listed artifacts for ${id}`;
+    return "Listed artifacts";
+  }
+  if (toolNorm === "sandbox_exec") {
+    const cmd = getStr("command");
+    if (cmd) return `Ran ${cmd}`;
+    return "Ran shell command";
+  }
+  if (toolNorm === "sandbox_read") {
+    const path = getStr("path");
+    if (path) return `Read ${path}`;
+    return "Read file";
+  }
+  if (toolNorm === "sandbox_write") {
+    const path = getStr("path");
+    if (path) return `Wrote ${path}`;
+    return "Wrote file";
+  }
+  if (toolNorm === "sandbox_glob") {
+    const pattern = getStr("pattern");
+    if (pattern) return `Found files matching ${pattern}`;
+    return "Find files";
+  }
+  return toolDisplayName(toolUse.tool);
+}
+
 const statusIcon = {
-  running: <Loader2 className="h-3 w-3 animate-spin text-status-running" />,
-  awaiting_approval: (
-    <Shield className="h-3 w-3 text-accent" />
-  ),
-  done: <CheckCircle2 className="h-3 w-3 text-status-complete" />,
-  error: <XCircle className="h-3 w-3 text-status-failed" />,
+  running: <Loader2 className="h-3 w-3 shrink-0 animate-spin text-status-running" />,
+  awaiting_approval: <Shield className="h-3 w-3 shrink-0 text-accent" />,
+  done: <CheckCircle2 className="h-3 w-3 shrink-0 text-status-complete" />,
+  error: <XCircle className="h-3 w-3 shrink-0 text-status-failed" />,
 };
 
 // ── Record navigation from tool inputs ────────────────────────────
@@ -118,12 +163,32 @@ function LinkifiedOutput({ text }: { text: string }) {
 
 interface ChatToolActivityProps {
   toolUse: ToolUseData;
+  /** Render as a row inside the tool chain (no per-row card chrome). */
+  chainMode?: boolean;
 }
 
 export const ChatToolActivity = memo(function ChatToolActivity({
   toolUse,
+  chainMode = false,
 }: ChatToolActivityProps) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(
+    () => toolUse.status === "running" || toolUse.status === "awaiting_approval",
+  );
+  const prevStatus = useRef(toolUse.status);
+
+  useEffect(() => {
+    if (toolUse.status === "running" || toolUse.status === "awaiting_approval") {
+      setExpanded(true);
+    }
+    if (
+      (prevStatus.current === "running" || prevStatus.current === "awaiting_approval") &&
+      (toolUse.status === "done" || toolUse.status === "error")
+    ) {
+      setExpanded(false);
+    }
+    prevStatus.current = toolUse.status;
+  }, [toolUse.status]);
+
   const toolNorm = toolUse.tool.replace(/^mcp__sonde__/, "");
   const artifactParentId = artifactPreviewParentId(toolNorm, toolUse.input);
   const artifactCountHint =
@@ -134,54 +199,66 @@ export const ChatToolActivity = memo(function ChatToolActivity({
         : null;
 
   const recordHref = extractRecordHref(toolUse);
+  const cmdLabel = sandboxCommandLabel(toolUse);
+  const isActive = toolUse.status === "running" || toolUse.status === "awaiting_approval";
 
   return (
-    <div className="my-1 rounded-[5.5px] border border-border-subtle bg-surface text-[12px]">
-      <div className="flex w-full items-center gap-1.5 px-2 py-1.5">
-        {/* Expand/collapse toggle */}
+    <div
+      className={cn(
+        "text-[12px]",
+        chainMode
+          ? "my-0 rounded-none border-0 bg-transparent py-1.5 dark:bg-transparent"
+          : "my-1 rounded-[5.5px] border border-border-subtle bg-surface",
+      )}
+    >
+      <div className="flex w-full items-stretch gap-0.5">
         <button
-          onClick={() => setExpanded(!expanded)}
-          className="shrink-0 rounded-[3px] p-0.5 text-text-quaternary transition-colors hover:bg-surface-hover hover:text-text-tertiary"
+          type="button"
+          onClick={() => setExpanded((e) => !e)}
+          aria-expanded={expanded}
+          className={cn(
+            "flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1.5 text-left transition-colors",
+            "rounded-[5.5px] hover:bg-surface-hover",
+          )}
         >
           {expanded ? (
-            <ChevronDown className="h-3 w-3" />
+            <ChevronDown className="h-3 w-3 shrink-0 text-text-quaternary" />
           ) : (
-            <ChevronRight className="h-3 w-3" />
+            <ChevronRight className="h-3 w-3 shrink-0 text-text-quaternary" />
           )}
+
+          {statusIcon[toolUse.status]}
+
+          <span className="min-w-0 flex-1">
+            {isActive ? (
+              <span className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                <span className="font-medium text-text-secondary">{toolDisplayName(toolUse.tool)}</span>
+                {cmdLabel && (
+                  <span className="truncate font-mono text-[11px] text-text-quaternary">{cmdLabel}</span>
+                )}
+                {toolUse.status === "running" && (
+                  <span className="text-text-quaternary">running…</span>
+                )}
+                {toolUse.status === "awaiting_approval" && (
+                  <span className="text-text-quaternary">awaiting approval…</span>
+                )}
+              </span>
+            ) : (
+              <span className="text-text-tertiary">{toolSummary(toolUse)}</span>
+            )}
+          </span>
         </button>
 
-        {statusIcon[toolUse.status]}
-
-        {/* Tool name — navigable when we can extract a record */}
-        {recordHref ? (
+        {recordHref && (
           <Link
             to={recordHref}
-            className="font-medium text-text-secondary transition-colors hover:text-accent"
+            className="flex shrink-0 items-center self-center rounded-[3px] p-2 text-text-secondary transition-colors hover:bg-surface-hover hover:text-accent"
+            aria-label="Open linked record"
+            title="Open record"
+            onClick={(e) => e.stopPropagation()}
           >
-            {toolDisplayName(toolUse.tool)}
-            <ExternalLink className="ml-1 inline h-2.5 w-2.5 opacity-40" />
+            <ExternalLink className="h-3 w-3 opacity-70" />
           </Link>
-        ) : (
-          <button
-            onClick={() => setExpanded(!expanded)}
-            className="font-medium text-text-secondary text-left"
-          >
-            {toolDisplayName(toolUse.tool)}
-          </button>
-        )}
-
-        {/* Sandbox tools: show command/path inline */}
-        {sandboxCommandLabel(toolUse) && (
-          <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-text-quaternary">
-            {sandboxCommandLabel(toolUse)}
-          </span>
-        )}
-
-        {toolUse.status === "running" && (
-          <span className="text-text-quaternary">running...</span>
-        )}
-        {toolUse.status === "awaiting_approval" && (
-          <span className="text-text-quaternary">awaiting approval…</span>
         )}
       </div>
 
@@ -193,29 +270,33 @@ export const ChatToolActivity = memo(function ChatToolActivity({
       )}
 
       {expanded && (
-        <div className="border-t border-border-subtle px-2 py-1.5 space-y-1">
+        <div className="space-y-1 border-t border-border-subtle px-2 py-1.5">
           {Object.keys(toolUse.input).length > 0 && (
             <div>
-              <span className="text-[10px] font-medium text-text-quaternary uppercase tracking-wider">
-                Input
+              <span className="text-[10px] font-medium uppercase tracking-wider text-text-quaternary">
+                Request
               </span>
-              <pre className={cn(
-                "mt-0.5 overflow-x-auto rounded-[3px] bg-surface-raised p-1.5",
-                "text-[11px] text-text-secondary font-mono whitespace-pre-wrap"
-              )}>
+              <pre
+                className={cn(
+                  "mt-0.5 overflow-x-auto rounded-[3px] bg-surface-raised p-1.5",
+                  "font-mono text-[11px] text-text-secondary whitespace-pre-wrap",
+                )}
+              >
                 <LinkifiedOutput text={JSON.stringify(toolUse.input, null, 2)} />
               </pre>
             </div>
           )}
           {toolUse.output && (
             <div>
-              <span className="text-[10px] font-medium text-text-quaternary uppercase tracking-wider">
-                Output
+              <span className="text-[10px] font-medium uppercase tracking-wider text-text-quaternary">
+                Response
               </span>
-              <pre className={cn(
-                "mt-0.5 max-h-[200px] overflow-auto rounded-[3px] bg-surface-raised p-1.5",
-                "text-[11px] text-text-secondary font-mono whitespace-pre-wrap"
-              )}>
+              <pre
+                className={cn(
+                  "mt-0.5 max-h-[200px] overflow-auto rounded-[3px] bg-surface-raised p-1.5",
+                  "font-mono text-[11px] text-text-secondary whitespace-pre-wrap",
+                )}
+              >
                 <LinkifiedOutput text={toolUse.output} />
               </pre>
             </div>
