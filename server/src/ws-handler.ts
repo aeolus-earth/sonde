@@ -39,6 +39,7 @@ export function handleWebSocket(
   let approvalBridge: ReturnType<typeof createToolApprovalBridge> | null = null;
   let sandboxHandle: SandboxHandle | null = null;
   let corpusPulled = false;
+  let closed = false;
 
   return {
     async onOpen(_evt, ws) {
@@ -68,6 +69,12 @@ export function handleWebSocket(
             supabaseUrl: process.env.VITE_SUPABASE_URL,
             supabaseKey: process.env.VITE_SUPABASE_ANON_KEY,
           });
+          // If connection was closed during init, clean up immediately
+          if (closed) {
+            console.log("[sandbox] Connection closed during init, cleaning up");
+            sandboxHandle.dispose().catch(() => {});
+            return;
+          }
           session = createSandboxAgentSession({
             canUseTool: approvalBridge.canUseTool,
             sandbox: sandboxHandle,
@@ -162,6 +169,7 @@ export function handleWebSocket(
     },
 
     onClose() {
+      closed = true;
       approvalBridge?.dispose();
       approvalBridge = null;
       if (session) {
@@ -169,12 +177,14 @@ export function handleWebSocket(
         session = null;
       }
       if (sandboxHandle) {
+        console.log("[sandbox] Cleaning up on disconnect");
         sandboxHandle.dispose().catch(() => {});
         sandboxHandle = null;
       }
     },
 
     onError(_evt) {
+      closed = true;
       approvalBridge?.dispose();
       approvalBridge = null;
       if (session) {
@@ -182,6 +192,7 @@ export function handleWebSocket(
         session = null;
       }
       if (sandboxHandle) {
+        console.log("[sandbox] Cleaning up on error");
         sandboxHandle.dispose().catch(() => {});
         sandboxHandle = null;
       }
