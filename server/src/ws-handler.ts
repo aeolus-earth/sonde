@@ -76,6 +76,10 @@ export function handleWebSocket(
         } catch (err) {
           const msg = err instanceof Error ? err.message : "Sandbox init failed";
           console.error("[sandbox] Init failed, falling back to MCP:", msg);
+          send(ws, {
+            type: "error",
+            message: `Sandbox unavailable: ${msg}. Using API tools instead.`,
+          });
           session = createAgentSession(token, {
             canUseTool: approvalBridge.canUseTool,
           });

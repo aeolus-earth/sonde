@@ -70,9 +70,34 @@ export async function createSandbox(
   const sandbox = await daytona.create({
     language: "python",
     envVars,
+    autoStopInterval: 15, // Auto-stop after 15 min idle (safety net)
   });
 
   return wrapSandbox(sandbox);
+}
+
+/**
+ * Delete all existing Daytona sandboxes. Called on server startup to
+ * reclaim quota from sandboxes orphaned by crashes or ungraceful shutdowns.
+ */
+export async function cleanupStaleSandboxes(): Promise<number> {
+  const daytona = getDaytona();
+  const result = await daytona.list();
+  const items = (result as { items?: Sandbox[] }).items ?? [];
+  if (items.length === 0) return 0;
+
+  console.log(`[sandbox] Cleaning up ${items.length} stale sandbox(es)...`);
+  let deleted = 0;
+  for (const s of items) {
+    try {
+      await s.delete();
+      deleted++;
+    } catch {
+      // Best-effort — some may already be deleting
+    }
+  }
+  console.log(`[sandbox] Cleaned up ${deleted} sandbox(es)`);
+  return deleted;
 }
 
 export async function getSandboxById(id: string): Promise<SandboxHandle> {

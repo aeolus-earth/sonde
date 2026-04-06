@@ -35,3 +35,13 @@ const server = serve({ fetch: app.fetch, port }, (info) => {
 });
 
 injectWebSocket(server);
+
+// Clean up orphaned Daytona sandboxes on startup (reclaim disk quota)
+import { isSandboxMode } from "./agent.js";
+if (isSandboxMode()) {
+  import("./sandbox/daytona-client.js").then(({ cleanupStaleSandboxes }) =>
+    cleanupStaleSandboxes().catch((err) =>
+      console.error("[sandbox] Startup cleanup failed:", err.message)
+    )
+  );
+}
