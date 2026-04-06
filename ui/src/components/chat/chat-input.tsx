@@ -385,32 +385,33 @@ export const ChatInput = memo(function ChatInput({
       {showConnectionBanner && (
         <div
           className={cn(
-            "mb-3 flex items-start gap-2.5 rounded-xl border px-3 py-2.5",
-            bubbleShell
-              ? connectionStatus === "disconnected"
-                ? "border-red-400/45 bg-red-950/55 text-red-50"
-                : "border-amber-400/40 bg-amber-950/45 text-amber-50"
-              : connectionStatus === "disconnected"
-                ? "border-status-failed/40 bg-status-failed/10 text-text"
-                : "border-status-running/35 bg-status-running/8 text-text",
+            "mb-3 flex items-center gap-2.5 rounded-2xl px-4 py-3",
+            "backdrop-blur-2xl shadow-lg",
+            "transition-all duration-500 ease-out",
+            connectionStatus === "disconnected"
+              ? cn(
+                  "border border-red-500/15 bg-red-500/8 text-text-secondary",
+                  "dark:border-red-400/20 dark:bg-red-500/10 dark:text-red-200/80",
+                )
+              : cn(
+                  "border border-amber-500/15 bg-amber-500/6 text-text-secondary",
+                  "dark:border-amber-400/20 dark:bg-amber-500/8 dark:text-amber-200/80",
+                ),
           )}
           role={connectionStatus === "disconnected" ? "alert" : "status"}
         >
-          <span className="mt-0.5 shrink-0">
+          <span className="shrink-0">
             <ChatConnectionDot connectionStatus={connectionStatus} />
           </span>
           <div className="min-w-0 flex-1">
             <p className="text-[13px] font-medium leading-snug">
               {connectionStatus === "disconnected"
-                ? "Warning: Agent not connected"
+                ? "Agent not connected"
                 : "Connecting to agent…"}
             </p>
             {agentModel ? (
               <p
-                className={cn(
-                  "mt-0.5 truncate font-mono text-[10px]",
-                  bubbleShell ? "text-white/55" : "text-text-tertiary",
-                )}
+                className="mt-0.5 truncate font-mono text-[10px] opacity-50"
                 title={agentModel}
               >
                 {agentModel}
