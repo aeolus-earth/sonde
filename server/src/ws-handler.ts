@@ -101,19 +101,6 @@ export function handleWebSocket(
         }
 
         send(ws, { type: "session", sessionId: session.sessionId });
-
-        // Warm up the Agent SDK session — the first query() on a new session
-        // initializes internal state and produces no events. Drain it here
-        // so the user's first real message gets a response.
-        console.log("[ws] Warming up agent session...");
-        try {
-          for await (const _event of session.query("ping", {})) {
-            // Drain events (if any) without forwarding to client
-          }
-        } catch {
-          // Warm-up failure is non-critical
-        }
-        console.log("[ws] Session warm-up complete");
       } finally {
         // Always resolve — even on error — so onMessage doesn't hang forever
         resolveReady!();
@@ -288,10 +275,16 @@ async function handleUserMessage(
   const prompt = chunks.join("\n\n");
 
   try {
-    console.log("[ws] session.query() starting, resume:", clientSessionId?.slice(0, 12) ?? "none");
-    for await (const event of session.query(prompt, {
-      resumeSessionId: clientSessionId,
-    })) {
+    // The Agent SDK sometimes produces zero events on the first query of
+    // a new session. If that happens, retry once without a resume ID.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const resume = attempt === 0 ? clientSessionId : undefined;
+      console.log("[ws] session.query() attempt", attempt + 1, "resume:", resume?.slice(0, 12) ?? "none");
+      let gotEvents = false;
+      for await (const event of session.query(prompt, {
+        resumeSessionId: resume,
+      })) {
+        gotEvents = true;
       console.log("[ws] event:", event.type);
       switch (event.type) {
         case "session":
@@ -332,6 +325,10 @@ async function handleUserMessage(
           send(ws, { type: "error", message: event.message });
           break;
       }
+    }
+      // If we got events, we're done. If not, retry.
+      if (gotEvents) break;
+      console.log("[ws] No events on attempt", attempt + 1, "— retrying");
     }
     send(ws, { type: "done" });
   } catch (err) {
