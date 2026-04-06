@@ -38,7 +38,7 @@ export const ChatTaskList = memo(function ChatTaskList({
       className={cn(
         "mx-3 my-2 rounded-[8px] border border-dashed backdrop-blur-md",
         glass
-          ? "border-white/20 bg-black/25 dark:border-white/15 dark:bg-black/30"
+          ? "border-border bg-surface dark:border-white/15 dark:bg-black/30 dark:backdrop-blur-md"
           : "border-border-subtle bg-surface-raised/50",
       )}
     >

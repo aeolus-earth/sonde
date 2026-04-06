@@ -24,13 +24,15 @@ async function fetchArtifactBlobObjectUrl(storagePath: string): Promise<string> 
 
 /** Shared fetch for `useArtifacts` and chat inline parent-based previews. */
 export async function fetchArtifactsByParentId(parentId: string): Promise<Artifact[]> {
-  const prefix = parentId.split("-")[0];
+  const prefix = parentId.split("-")[0]?.toUpperCase();
   const column =
     prefix === "EXP"
       ? "experiment_id"
       : prefix === "FIND"
         ? "finding_id"
-        : "direction_id";
+        : prefix === "PROJ"
+          ? "project_id"
+          : "direction_id";
 
   const { data, error } = await supabase
     .from("artifacts")

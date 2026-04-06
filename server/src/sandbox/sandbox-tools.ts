@@ -13,12 +13,12 @@ export function createSandboxTools(sandbox: SandboxHandle) {
   return [
     tool(
       "sandbox_exec",
-      "Run a shell command in the sandbox. Use for sonde CLI commands (sonde list, sonde show, sonde brief, sonde log, etc.) and file operations (grep, find, cat, head, tail, wc). The sandbox has the full .sonde/ research corpus and the sonde CLI installed.",
+      "Run a shell command in the sandbox. Use for searching the .sonde/ research corpus (grep, find, cat, head, tail, wc), running Python scripts, and sonde CLI commands. The sandbox has the full research corpus at /home/daytona/.sonde/.",
       {
         command: z
           .string()
           .describe(
-            "Shell command to execute. Examples: 'sonde brief -p weather-intervention --json', 'grep -r \"CCN\" .sonde/', 'cat .sonde/tree.md'"
+            "Shell command to execute. Examples: 'grep -rl \"CCN\" /home/daytona/.sonde/ --include=\"*.md\"', 'cat /home/daytona/.sonde/tree.md', 'python3 analysis.py', 'sonde show EXP-0001 --json'"
           ),
         cwd: z
           .string()
@@ -31,7 +31,7 @@ export function createSandboxTools(sandbox: SandboxHandle) {
           const cmd = `export PATH="$HOME/.local/bin:$PATH" && ${args.command}`;
           const result = await sandbox.exec(cmd, {
             cwd: args.cwd,
-            timeout: 30,
+            timeout: 60,
           });
           const output = result.stdout || "(no output)";
           const text =

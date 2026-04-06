@@ -1,4 +1,6 @@
 import { ChatPanel } from "@/components/chat/chat-panel";
+import { WorkspacePanel } from "@/components/chat/workspace-panel";
+import { WorkspaceChatSplit } from "@/components/home/workspace-chat-split";
 import { useChatStore } from "@/stores/chat";
 
 function useExpanded(): boolean {
@@ -17,9 +19,11 @@ export default function HomePage() {
             What should we <em className="italic text-text-secondary">explore?</em>
           </h1>
         )}
-        <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col">
-          <ChatPanel variant="canvas" />
-        </div>
+        <WorkspaceChatSplit
+          expanded={expanded}
+          chat={<ChatPanel variant="canvas" />}
+          workspace={<WorkspacePanel glass />}
+        />
       </div>
     </div>
   );

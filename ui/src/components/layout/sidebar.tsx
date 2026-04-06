@@ -151,7 +151,7 @@ export const Sidebar = memo(function Sidebar() {
   return (
     <aside
       className={cn(
-        "flex h-screen flex-col border-r border-border bg-surface transition-[width] duration-300 ease-out motion-reduce:transition-none",
+        "flex h-dvh min-h-dvh flex-col border-r border-border bg-surface transition-[width] duration-300 ease-out motion-reduce:transition-none",
         iconOnly ? "w-14" : "w-[220px]"
       )}
     >

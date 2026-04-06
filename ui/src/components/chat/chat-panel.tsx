@@ -5,7 +5,6 @@ import { ChatStoreApiContext, useScopedChatStore } from "@/contexts/chat-store-c
 import { useEmbeddedChatStore } from "@/stores/chat";
 import { cn } from "@/lib/utils";
 import { ChatHeader } from "./chat-header";
-import { ChatConnectionDot } from "./chat-connection-dot";
 import { ChatMessages } from "./chat-messages";
 import { ChatInput } from "./chat-input";
 import { ChatTaskList } from "./chat-task-list";
@@ -89,7 +88,7 @@ function ChatPanelInner({ glass }: { glass: boolean }) {
     <div
       className={
         glass
-          ? "relative flex h-full w-full min-h-0 flex-col overflow-hidden rounded-[14px] border border-border bg-surface-raised shadow-sm dark:border-white/[0.08] dark:bg-[#151514] dark:shadow-none dark:backdrop-blur-[28px]"
+          ? "relative flex h-full w-full min-h-0 flex-col overflow-hidden rounded-[14px] border border-border bg-surface-raised shadow-sm dark:border-white/[0.08] dark:bg-surface dark:shadow-none dark:backdrop-blur-[28px]"
           : "relative flex h-full w-full min-h-0 flex-col overflow-hidden rounded-[10px] border border-border-subtle bg-surface-raised shadow-sm"
       }
     >
@@ -137,23 +136,9 @@ function ChatPanelInner({ glass }: { glass: boolean }) {
         onCancel={cancel}
         isStreaming={isStreaming}
         disabled={!isConnected}
+        connectionStatus={connectionStatus}
+        agentModel={modelLabel}
       />
-
-      <div className="pointer-events-none absolute bottom-3 right-3 z-20 flex max-w-[min(100%,22rem)] flex-row items-center justify-end gap-2">
-        {modelLabel && (
-          <div
-            className="min-w-0 max-w-[min(100%,18rem)] select-none text-right"
-            title={modelLabel}
-          >
-            <span className="block truncate text-[10px] font-mono text-text-quaternary/90">
-              {modelLabel}
-            </span>
-          </div>
-        )}
-        <div className="pointer-events-auto shrink-0">
-          <ChatConnectionDot connectionStatus={connectionStatus} />
-        </div>
-      </div>
     </div>
   );
 

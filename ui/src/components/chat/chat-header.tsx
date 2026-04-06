@@ -23,7 +23,7 @@ export const ChatHeader = memo(function ChatHeader({
     : "";
 
   const chipClass = glass
-    ? "border-black/[0.06] bg-black/[0.08] backdrop-blur-md dark:border-white/[0.1] dark:bg-white/[0.05]"
+    ? "border-border-subtle bg-surface-raised dark:border-white/[0.1] dark:bg-white/[0.05] dark:backdrop-blur-md"
     : "border-border-subtle bg-surface-raised";
 
   if (!hasMessages && experimentContext) {
@@ -31,7 +31,7 @@ export const ChatHeader = memo(function ChatHeader({
       <div
         className={cn(
           "border-b px-3 py-2.5",
-          glass ? "border-black/[0.06] dark:border-white/[0.1]" : "border-border",
+          glass ? "border-border-subtle dark:border-white/[0.1]" : "border-border",
         )}
       >
         <p
@@ -59,7 +59,7 @@ export const ChatHeader = memo(function ChatHeader({
     <div
       className={cn(
         "flex flex-col gap-2 border-b px-3 py-3",
-        glass ? "border-black/[0.06] dark:border-white/[0.1]" : "border-border",
+        glass ? "border-border-subtle dark:border-white/[0.1]" : "border-border",
       )}
     >
       {experimentContext && (
@@ -87,7 +87,7 @@ export const ChatHeader = memo(function ChatHeader({
           className={cn(
             "shrink-0 rounded-[5.5px] p-1.5 text-text-tertiary transition-colors hover:text-text-secondary",
             glass
-              ? "hover:bg-black/20 dark:hover:bg-white/10"
+              ? "hover:bg-surface-hover dark:hover:bg-white/10"
               : "hover:bg-surface-hover",
           )}
         >

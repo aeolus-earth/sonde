@@ -17,6 +17,7 @@ import { useActiveProgram } from "@/stores/program";
 import { useChatStore } from "@/stores/chat";
 import { cn } from "@/lib/utils";
 import { isVideo } from "@/lib/artifact-kind";
+import { CanvasHierarchyFlow } from "./canvas-hierarchy-flow";
 import type { AssistantCanvasArtifactRow } from "@/hooks/use-assistant-canvas-artifacts";
 
 /** Layer is 155% × viewport; centering leaves ~27.5% overhang each side — pan must stay within that. */
@@ -373,6 +374,8 @@ export const ResearchCanvasBackground = memo(function ResearchCanvasBackground()
                 reduceMotion={reduceMotion}
               />
             ))}
+
+          <CanvasHierarchyFlow dark={dark} />
         </div>
       </div>
     </div>

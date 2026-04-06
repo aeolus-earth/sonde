@@ -1,9 +1,8 @@
 import { memo, useCallback } from "react";
-import { FlaskConical, BookOpen, HelpCircle, Layers } from "lucide-react";
+import { FlaskConical, BookOpen, HelpCircle } from "lucide-react";
 import type { ConnectionStatus, MentionRef, PageContext } from "@/types/chat";
 import { cn } from "@/lib/utils";
 import { ChatInput } from "./chat-input";
-import { ChatConnectionDot } from "./chat-connection-dot";
 
 const SUGGESTIONS = [
   {
@@ -20,11 +19,6 @@ const SUGGESTIONS = [
     icon: HelpCircle,
     label: "Open research questions",
     prompt: "List all open research questions that haven't been answered yet, grouped by direction.",
-  },
-  {
-    icon: Layers,
-    label: "Compare directions",
-    prompt: "Compare our active research directions — what progress has been made on each and which looks most promising?",
   },
 ] as const;
 
@@ -61,10 +55,9 @@ export const CanvasBubble = memo(function CanvasBubble({
   );
 
   return (
-    <div className="pointer-events-none relative flex h-full w-full min-h-0 flex-col items-center justify-center px-3 py-6 sm:px-4">
+    <div className="pointer-events-none relative flex h-full w-full min-h-0 flex-col items-center justify-center pb-[18vh] px-3 py-6 sm:px-4">
       <div className="pointer-events-auto relative flex w-full max-w-[min(42rem,70vw)] flex-col items-center gap-4">
 
-        {/* Page title — part of the centered group */}
         <h1 className="mb-1 w-full text-center font-display text-[clamp(1.65rem,3.8vw,2.25rem)] font-normal leading-[1.12] tracking-[0.03em] text-text">
           What should we{" "}
           <em className="italic text-text-secondary">explore?</em>
@@ -74,10 +67,11 @@ export const CanvasBubble = memo(function CanvasBubble({
         <div
           className={cn(
             "relative w-full overflow-hidden rounded-[32px]",
-            "border border-black/[0.08] bg-surface-raised/92",
-            "shadow-[0_24px_64px_-12px_rgba(0,0,0,0.2),0_8px_16px_-8px_rgba(0,0,0,0.1)]",
-            "ring-1 ring-black/[0.04] backdrop-blur-2xl",
-            "dark:border-white/[0.12] dark:bg-[#1c1c1e]/90",
+            /* Dark shell on cream canvas — text color is driven in ChatInput (white), not theme text. */
+            "border border-white/[0.1] bg-[#1c1c1e] text-zinc-100",
+            "shadow-[0_20px_48px_-16px_rgba(0,0,0,0.35),0_8px_20px_-8px_rgba(0,0,0,0.25)]",
+            "ring-1 ring-white/[0.06] backdrop-blur-2xl",
+            "dark:border-white/[0.12] dark:bg-[#141414]/95",
             "dark:shadow-[0_28px_72px_-16px_rgba(0,0,0,0.65),0_12px_24px_-12px_rgba(0,0,0,0.45)]",
             "dark:ring-white/[0.06]",
           )}
@@ -91,19 +85,9 @@ export const CanvasBubble = memo(function CanvasBubble({
             onCancel={onCancel}
             isStreaming={isStreaming}
             disabled={disabled}
+            connectionStatus={connectionStatus}
+            agentModel={modelLabel}
           />
-          {/* Connection dot + model label — bottom-left inside the card */}
-          <div className="pointer-events-none absolute bottom-[1.15rem] left-[1.4rem] z-20 flex items-center gap-1.5">
-            <ChatConnectionDot connectionStatus={connectionStatus} />
-            {modelLabel && (
-              <span
-                className="min-w-0 max-w-[14rem] truncate font-mono text-[10px] text-text-quaternary/60"
-                title={modelLabel}
-              >
-                {modelLabel}
-              </span>
-            )}
-          </div>
         </div>
 
         {/* Suggestion pills */}
@@ -118,7 +102,7 @@ export const CanvasBubble = memo(function CanvasBubble({
                 "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5",
                 "text-[12px] font-medium leading-none text-text-secondary",
                 "transition-colors duration-150",
-                "border-black/[0.12] bg-black/[0.06] hover:bg-black/[0.11] hover:text-text",
+                "border-border bg-surface-hover/90 hover:bg-surface-hover hover:text-text",
                 "dark:border-white/[0.14] dark:bg-white/[0.06] dark:hover:bg-white/[0.11] dark:hover:text-white",
                 "disabled:pointer-events-none disabled:opacity-40",
                 "backdrop-blur-lg",

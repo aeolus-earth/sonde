@@ -264,7 +264,7 @@ export const ChatMessages = memo(function ChatMessages({
           className={cn(
             "border-t px-4 py-3 md:px-6",
             glass
-              ? "border-black/[0.08] dark:border-white/[0.08]"
+              ? "border-border dark:border-white/[0.08]"
               : "border-border-subtle/80",
           )}
         >
@@ -290,7 +290,7 @@ export const ChatMessages = memo(function ChatMessages({
           className={cn(
             "sticky bottom-2 left-1/2 -translate-x-1/2 rounded-full border px-3 py-1 text-[11px] text-text-secondary shadow-sm",
             glass
-              ? "border-black/15 bg-surface/55 backdrop-blur-md hover:bg-surface/70 dark:border-white/15 dark:bg-black/35 dark:hover:bg-black/45"
+              ? "border-border bg-surface-raised shadow-sm hover:bg-surface-hover dark:border-white/15 dark:bg-black/35 dark:hover:bg-black/45 dark:backdrop-blur-md"
               : "border-border bg-surface-raised hover:bg-surface-hover",
           )}
         >

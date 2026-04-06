@@ -63,7 +63,11 @@ export function createSondeMarkdownComponents(
         {children}
       </ol>
     ),
-    li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+    li: ({ children }) => (
+      <li className="text-[13px] leading-relaxed text-text-secondary [&_p]:mb-1 [&_p]:last:mb-0">
+        {children}
+      </li>
+    ),
     a: Anchor,
     strong: ({ children }) => (
       <strong className="font-semibold text-text">{children}</strong>
@@ -111,17 +115,21 @@ export function createSondeMarkdownComponents(
     hr: () => <hr className="my-3 border-border-subtle" />,
     table: ({ children }) => (
       <div className="my-2 overflow-x-auto">
-        <table className="w-full text-left text-[12px]">{children}</table>
+        <table className="w-full text-left text-[12px] text-text">{children}</table>
       </div>
     ),
+    tbody: ({ children }) => <tbody>{children}</tbody>,
+    tr: ({ children }) => <tr>{children}</tr>,
     thead: ({ children }) => (
       <thead className="border-b border-border">{children}</thead>
     ),
     th: ({ children }) => (
-      <th className="px-2 py-1 font-medium text-text-tertiary">{children}</th>
+      <th className="px-2 py-1 text-left font-medium text-text-secondary first:rounded-tl last:rounded-tr">
+        {children}
+      </th>
     ),
     td: ({ children }) => (
-      <td className="border-b border-border-subtle px-2 py-1 text-text-secondary">
+      <td className="border-b border-border-subtle px-2 py-1 text-[12px] text-text-secondary">
         {children}
       </td>
     ),

@@ -92,7 +92,7 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
   const prepared = useMemo(() => linkifySondeRecordIds(content), [content]);
 
   return (
-    <div className="prose prose-sm max-w-none text-text prose-headings:text-text">
+    <div className="assistant-markdown max-w-none text-text [&_*]:max-w-none">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={assistantComponents}

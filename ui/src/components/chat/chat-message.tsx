@@ -1,5 +1,4 @@
 import { memo, lazy, Suspense } from "react";
-import { ChatReferencedArtifacts } from "./chat-referenced-artifacts";
 import { ChatToolActivity } from "./chat-tool-activity";
 import {
   MentionChipLabel,
@@ -58,7 +57,7 @@ export const ChatMessage = memo(function ChatMessage({ message }: ChatMessagePro
               </span>
             </div>
           )}
-          <div className="rounded-[22px] border border-border-subtle bg-surface-raised px-4 py-2.5 text-[13px] leading-relaxed text-text dark:border-white/[0.08] dark:bg-white/[0.06]">
+          <div className="rounded-[22px] border border-border-subtle bg-surface-raised px-4 py-2.5 text-[13px] leading-relaxed text-text dark:border-white/[0.08]">
             <UserMessageInlineContent
               content={message.content}
               mentions={message.mentions}
@@ -71,7 +70,6 @@ export const ChatMessage = memo(function ChatMessage({ message }: ChatMessagePro
 
   return (
     <div className="flex w-full flex-col items-start gap-2 px-1">
-      {/* Prose column uses 90% max when the chat shell is narrow so artifacts below can span full column width */}
       <div className="w-full max-w-[min(100%,42rem,90%)] space-y-2">
         <div className="flex items-baseline gap-2">
           <span className="text-[11px] font-medium text-text-tertiary">Sonde</span>
@@ -97,25 +95,17 @@ export const ChatMessage = memo(function ChatMessage({ message }: ChatMessagePro
           </div>
         )}
 
+        {message.toolUses?.map((tu) => (
+          <ChatToolActivity key={tu.id} toolUse={tu} />
+        ))}
+
         {message.content && (
-          <div className="rounded-[5.5px] border border-border-subtle bg-surface px-3 py-2 text-[13px] leading-relaxed text-text dark:border-white/[0.06] dark:bg-white/[0.03]">
+          <div className="rounded-[5.5px] border border-border-subtle bg-surface-raised px-3 py-2 text-[13px] leading-relaxed text-text dark:border-white/[0.08]">
             <Suspense fallback={<span className="whitespace-pre-wrap">{message.content}</span>}>
               <AssistantMarkdown content={message.content} />
             </Suspense>
           </div>
         )}
-
-        {message.toolUses?.map((tu) => (
-          <ChatToolActivity key={tu.id} toolUse={tu} />
-        ))}
-      </div>
-
-      <div className="w-full min-w-0 max-w-[min(100%,52rem)] self-stretch">
-        <ChatReferencedArtifacts
-          content={message.content ?? ""}
-          toolUses={message.toolUses}
-          mentions={message.mentions}
-        />
       </div>
     </div>
   );
