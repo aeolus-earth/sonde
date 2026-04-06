@@ -14,9 +14,12 @@ let initPromise: Promise<SandboxHandle | null> | null = null;
 /**
  * Get or create the shared sandbox. First call triggers init (~15s),
  * subsequent calls return the cached instance immediately.
+ *
+ * The sondeToken is used for sonde CLI auth inside the sandbox.
+ * Pass any non-empty string for pre-warming (sonde CLI won't run yet).
  */
 export function getSharedSandbox(
-  sondeToken: string,
+  sondeToken?: string,
   supabaseUrl?: string,
   supabaseKey?: string
 ): Promise<SandboxHandle | null> {
@@ -27,7 +30,7 @@ export function getSharedSandbox(
       try {
         const { initSandbox } = await import("./sandbox-init.js");
         sharedSandbox = await initSandbox({
-          sondeToken,
+          sondeToken: sondeToken || "prewarm",
           supabaseUrl,
           supabaseKey,
         });

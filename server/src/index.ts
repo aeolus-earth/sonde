@@ -39,12 +39,26 @@ injectWebSocket(server);
 // Daytona sandbox lifecycle management
 import { isSandboxMode } from "./agent.js";
 if (isSandboxMode()) {
-  // Clean up orphaned sandboxes from previous server runs on startup
-  import("./sandbox/daytona-client.js").then(({ cleanupStaleSandboxes }) =>
-    cleanupStaleSandboxes().catch((err) =>
-      console.error("[sandbox] Startup cleanup failed:", err.message)
-    )
-  );
+  // Clean up orphaned sandboxes, then pre-warm the shared sandbox
+  // so it's ready before anyone connects (no blocking in onOpen)
+  import("./sandbox/daytona-client.js")
+    .then(({ cleanupStaleSandboxes }) => cleanupStaleSandboxes())
+    .then(() => import("./sandbox/shared-sandbox.js"))
+    .then(({ getSharedSandbox }) => {
+      const token = "startup-prewarm"; // Dummy — real token passed per-session
+      return getSharedSandbox(
+        token,
+        process.env.VITE_SUPABASE_URL,
+        process.env.VITE_SUPABASE_ANON_KEY
+      );
+    })
+    .then((sb) => {
+      if (sb) console.log("[sandbox] Pre-warmed and ready for connections");
+      else console.error("[sandbox] Pre-warm returned null");
+    })
+    .catch((err) =>
+      console.error("[sandbox] Startup failed:", err.message)
+    );
 
   // Clean up shared sandbox + stale sandboxes on graceful shutdown
   const shutdownCleanup = () => {
