@@ -37,8 +37,6 @@ export function handleWebSocket(
   let session: AgentSession | null = null;
   let approvalBridge: ReturnType<typeof createToolApprovalBridge> | null = null;
   let corpusPulled = false;
-  let sandboxReady = false;
-  let sessionJustSwapped = false;
 
   return {
     async onOpen(_evt, ws) {
@@ -57,26 +55,16 @@ export function handleWebSocket(
 
       approvalBridge = createToolApprovalBridge(ws);
 
-      // Create MCP session immediately so UI connects fast
-      session = createAgentSession(token, {
-        canUseTool: approvalBridge.canUseTool,
-      });
-      send(ws, { type: "session", sessionId: session.sessionId });
-    },
-
-    async onMessage(evt, ws) {
-      // On first message in sandbox mode: get the shared sandbox and swap session
-      if (isSandboxMode() && !sandboxReady && approvalBridge) {
-        send(ws, {
-          type: "text_delta",
-          content: "⏳ *Preparing sandbox environment...*\n\n",
-        });
+      // Sandbox mode: get the shared sandbox (first call ~15s, cached after).
+      // UI shows "connecting..." during init — honest and expected.
+      // No session swapping. One code path. First message always works.
+      if (isSandboxMode()) {
         try {
           const { getSharedSandbox } = await import(
             "./sandbox/shared-sandbox.js"
           );
           const sandbox = await getSharedSandbox(
-            token!,
+            token,
             process.env.VITE_SUPABASE_URL,
             process.env.VITE_SUPABASE_ANON_KEY
           );
@@ -85,20 +73,30 @@ export function handleWebSocket(
               canUseTool: approvalBridge.canUseTool,
               sandbox,
             });
-            sessionJustSwapped = true;
-            // Tell UI about the new session ID so future resumes work
-            send(ws, { type: "session", sessionId: session.sessionId });
+          } else {
+            console.error("[sandbox] getSharedSandbox returned null, using MCP");
+            session = createAgentSession(token, {
+              canUseTool: approvalBridge.canUseTool,
+            });
           }
         } catch (err) {
-          const msg = err instanceof Error ? err.message : "Sandbox failed";
-          console.error("[sandbox]", msg);
-          send(ws, {
-            type: "error",
-            message: `Sandbox unavailable: ${msg}. Using API tools.`,
+          const msg =
+            err instanceof Error ? err.message : "Sandbox init failed";
+          console.error("[sandbox] Init failed, using MCP:", msg);
+          session = createAgentSession(token, {
+            canUseTool: approvalBridge.canUseTool,
           });
         }
-        sandboxReady = true;
+      } else {
+        session = createAgentSession(token, {
+          canUseTool: approvalBridge.canUseTool,
+        });
       }
+
+      send(ws, { type: "session", sessionId: session.sessionId });
+    },
+
+    async onMessage(evt, ws) {
       if (!session) return;
 
       let raw: string;
@@ -120,7 +118,7 @@ export function handleWebSocket(
 
       switch (msg.type) {
         case "message":
-          // Lazy corpus pull on first message in sandbox mode
+          // Lazy corpus pull (fast — sandbox already cached)
           if (isSandboxMode() && !corpusPulled) {
             try {
               const { getSharedSandbox } = await import(
@@ -151,23 +149,17 @@ export function handleWebSocket(
             }
             corpusPulled = true;
           }
-          {
-            // Don't resume with old MCP session ID after sandbox swap
-            const resumeId = sessionJustSwapped ? undefined : msg.sessionId;
-            sessionJustSwapped = false;
-            await handleUserMessage(
-              session,
-              ws,
-              msg.content,
-              msg.mentions ?? [],
-              msg.pageContext,
-              msg.attachments,
-              resumeId
-            );
-          }
+          await handleUserMessage(
+            session,
+            ws,
+            msg.content,
+            msg.mentions ?? [],
+            msg.pageContext,
+            msg.attachments,
+            msg.sessionId
+          );
           break;
         case "approve_tasks":
-          // Legacy no-op: proposed tasks are preview-only; mutating tools use approve_tool.
           break;
         case "approve_tool":
           approvalBridge?.resolveApproval(msg.approvalId, true);
@@ -191,7 +183,6 @@ export function handleWebSocket(
         session.close();
         session = null;
       }
-      // Shared sandbox stays alive — cleaned up on server shutdown
     },
 
     onError(_evt) {
