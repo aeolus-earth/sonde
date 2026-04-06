@@ -26,6 +26,9 @@ export interface SandboxHandle {
   /** Search files by content pattern (grep-like). */
   findFiles(path: string, pattern: string): Promise<string[]>;
 
+  /** Set the SONDE_TOKEN for authenticated CLI commands. */
+  setToken(token: string): Promise<void>;
+
   /** Pull the sonde corpus for a program (text only, no artifacts). */
   pullCorpus(program: string): Promise<{ exitCode: number; stdout: string }>;
 
@@ -150,8 +153,17 @@ function wrapSandbox(sandbox: Sandbox): SandboxHandle {
       return results.map((f) => (f as { file: string }).file ?? String(f));
     },
 
+    async setToken(token) {
+      // Write token to a persistent env file so all commands pick it up
+      await sandbox.process.executeCommand(
+        `echo 'export SONDE_TOKEN="${token}"' > /home/daytona/.sonde_env`,
+      );
+      console.log("[sandbox] Auth token updated");
+    },
+
     async pullCorpus(program) {
       const cmd =
+        `source /home/daytona/.sonde_env 2>/dev/null; ` +
         `export PATH="$HOME/.local/bin:$PATH" && ` +
         `sonde pull -p ${program} --artifacts none 2>&1`;
       const result = await sandbox.process.executeCommand(

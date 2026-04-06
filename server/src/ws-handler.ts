@@ -74,6 +74,8 @@ export function handleWebSocket(
               process.env.VITE_SUPABASE_ANON_KEY
             );
             if (sandbox) {
+              // Set the real user token so sonde CLI works inside sandbox
+              await sandbox.setToken(token);
               session = createSandboxAgentSession({
                 canUseTool: approvalBridge.canUseTool,
                 sandbox,
