@@ -33,29 +33,6 @@ function parseRequestUrl(reqUrl: string): URL {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Per-user mutex: only one onOpen can run at a time for a given user.
-// Prevents two concurrent onOpen handlers from both creating sessions.
-// ---------------------------------------------------------------------------
-const userLocks = new Map<string, Promise<void>>();
-
-function withUserLock(userId: string, fn: () => Promise<void>): Promise<void> {
-  const prev = userLocks.get(userId) ?? Promise.resolve();
-  const next = prev.then(fn, fn); // Run fn after previous completes (even if it failed)
-  userLocks.set(userId, next);
-  // Clean up when done
-  next.finally(() => {
-    if (userLocks.get(userId) === next) userLocks.delete(userId);
-  });
-  return next;
-}
-
-// Active connection per user — only one at a time.
-const activeConnections = new Map<
-  string,
-  { ws: WSContext<WebSocket>; session: AgentSession }
->();
-
 export function handleWebSocket(
   c: Context
 ): WSEvents<WebSocket> | Promise<WSEvents<WebSocket>> {
@@ -63,80 +40,78 @@ export function handleWebSocket(
 
   let session: AgentSession | null = null;
   let approvalBridge: ReturnType<typeof createToolApprovalBridge> | null = null;
-  let userId: string | null = null;
 
+  // Ready gate: resolved when session is fully set up (including sandbox upgrade)
   let resolveReady: () => void;
   const readyPromise = new Promise<void>((r) => {
     resolveReady = r;
   });
 
   return {
+    // -----------------------------------------------------------------
+    // onOpen: MUST return fast. Send session message immediately.
+    // Sandbox upgrade happens async — onMessage waits for readyPromise.
+    // -----------------------------------------------------------------
     async onOpen(_evt, ws) {
-      try {
-        if (!token) {
-          send(ws, { type: "error", message: "Missing authentication token" });
-          ws.close(4001, "Unauthorized");
-          return;
-        }
+      if (!token) {
+        send(ws, { type: "error", message: "Missing authentication token" });
+        ws.close(4001, "Unauthorized");
+        resolveReady!();
+        return;
+      }
 
-        const user = await verifyToken(token);
-        if (!user) {
-          send(ws, { type: "error", message: "Invalid or expired token" });
-          ws.close(4001, "Unauthorized");
-          return;
-        }
-        userId = user.id;
+      const user = await verifyToken(token);
+      if (!user) {
+        send(ws, { type: "error", message: "Invalid or expired token" });
+        ws.close(4001, "Unauthorized");
+        resolveReady!();
+        return;
+      }
 
-        // Serialize per user — prevents two onOpen handlers racing
-        await withUserLock(userId, async () => {
-          // Close existing connection for this user
-          const existing = activeConnections.get(userId!);
-          if (existing) {
-            existing.session.close();
-            try {
-              existing.ws.close(4000, "Replaced");
-            } catch {}
-            activeConnections.delete(userId!);
+      approvalBridge = createToolApprovalBridge(ws);
+
+      // Create MCP session IMMEDIATELY — this is instant, no network calls.
+      // The UI gets the session message right away and stops reconnecting.
+      session = createAgentSession(token, {
+        canUseTool: approvalBridge.canUseTool,
+      });
+      send(ws, { type: "session", sessionId: session.sessionId });
+
+      // Sandbox upgrade happens async. The ready gate resolves when done.
+      // onMessage waits for this before processing the first message.
+      if (isSandboxMode()) {
+        (async () => {
+          try {
+            const { getSharedSandbox } = await import(
+              "./sandbox/shared-sandbox.js"
+            );
+            const sandbox = await getSharedSandbox(
+              token!,
+              process.env.VITE_SUPABASE_URL,
+              process.env.VITE_SUPABASE_ANON_KEY
+            );
+            if (sandbox) {
+              sandbox.setToken(token!).catch(() => {});
+              session = createSandboxAgentSession({
+                canUseTool: approvalBridge!.canUseTool,
+                sandbox,
+              });
+              // Send new session ID so the UI uses the sandbox session
+              send(ws, { type: "session", sessionId: session.sessionId });
+            }
+          } catch {
+            // Sandbox failed — keep MCP session (already working)
+          } finally {
+            resolveReady!();
           }
-
-          approvalBridge = createToolApprovalBridge(ws);
-
-          // Create session (sandbox or MCP)
-          if (isSandboxMode()) {
-            try {
-              const { getSharedSandbox } = await import(
-                "./sandbox/shared-sandbox.js"
-              );
-              const sandbox = await getSharedSandbox(
-                token!,
-                process.env.VITE_SUPABASE_URL,
-                process.env.VITE_SUPABASE_ANON_KEY
-              );
-              if (sandbox) {
-                // setToken deferred — runs in background, not blocking onOpen
-                sandbox.setToken(token!).catch(() => {});
-                session = createSandboxAgentSession({
-                  canUseTool: approvalBridge!.canUseTool,
-                  sandbox,
-                });
-              }
-            } catch {}
-          }
-          if (!session) {
-            session = createAgentSession(token!, {
-              canUseTool: approvalBridge!.canUseTool,
-            });
-          }
-
-          activeConnections.set(userId!, { ws, session });
-          send(ws, { type: "session", sessionId: session.sessionId });
-        });
-      } finally {
+        })();
+      } else {
         resolveReady!();
       }
     },
 
     async onMessage(evt, ws) {
+      // Wait for sandbox upgrade to complete (if in progress)
       await readyPromise;
       if (!session) return;
 
@@ -193,12 +168,6 @@ export function handleWebSocket(
         session.close();
         session = null;
       }
-      if (userId) {
-        const entry = activeConnections.get(userId);
-        if (entry && entry.session === session) {
-          activeConnections.delete(userId);
-        }
-      }
     },
 
     onError(_evt) {
@@ -207,12 +176,6 @@ export function handleWebSocket(
       if (session) {
         session.close();
         session = null;
-      }
-      if (userId) {
-        const entry = activeConnections.get(userId);
-        if (entry && entry.session === session) {
-          activeConnections.delete(userId);
-        }
       }
     },
   };
