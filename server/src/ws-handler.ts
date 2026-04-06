@@ -1,7 +1,7 @@
 import type { Context } from "hono";
 import type { WSEvents, WSContext } from "hono/ws";
 import type { WebSocket } from "ws";
-import { verifyToken } from "./auth.js";
+import { verifyToken, type VerifiedUser } from "./auth.js";
 import {
   createAgentSession,
   createSandboxAgentSession,
@@ -29,6 +29,17 @@ function parseRequestUrl(reqUrl: string): URL {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Connection dedup: only one active WS per user. When a new connection
+// arrives for the same user, the old one is closed. This prevents the
+// Agent SDK deadlock where two sessions compete for the same sandbox.
+// ---------------------------------------------------------------------------
+
+const activeConnections = new Map<
+  string,
+  { ws: WSContext<WebSocket>; session: AgentSession | null }
+>();
+
 export function handleWebSocket(
   c: Context
 ): WSEvents<WebSocket> | Promise<WSEvents<WebSocket>> {
@@ -36,10 +47,10 @@ export function handleWebSocket(
 
   let session: AgentSession | null = null;
   let approvalBridge: ReturnType<typeof createToolApprovalBridge> | null = null;
-  let corpusPulled = false;
+  let userId: string | null = null;
+  let myWs: WSContext<WebSocket> | null = null;
 
-  // Ready gate: onMessage waits for this before processing.
-  // Resolves when onOpen finishes setting up the session.
+  // Ready gate: onMessage waits for onOpen to finish.
   let resolveReady: () => void;
   const readyPromise = new Promise<void>((r) => {
     resolveReady = r;
@@ -47,6 +58,7 @@ export function handleWebSocket(
 
   return {
     async onOpen(_evt, ws) {
+      myWs = ws;
       try {
         if (!token) {
           send(ws, { type: "error", message: "Missing authentication token" });
@@ -60,9 +72,21 @@ export function handleWebSocket(
           ws.close(4001, "Unauthorized");
           return;
         }
+        userId = user.id;
+
+        // Close any existing connection for this user
+        const existing = activeConnections.get(userId);
+        if (existing) {
+          existing.session?.close();
+          try {
+            existing.ws.close(4000, "Replaced by new connection");
+          } catch {}
+          activeConnections.delete(userId);
+        }
 
         approvalBridge = createToolApprovalBridge(ws);
 
+        // Create session
         if (isSandboxMode()) {
           try {
             const { getSharedSandbox } = await import(
@@ -74,46 +98,60 @@ export function handleWebSocket(
               process.env.VITE_SUPABASE_ANON_KEY
             );
             if (sandbox) {
-              // Set the real user token so sonde CLI works inside sandbox
               await sandbox.setToken(token);
               session = createSandboxAgentSession({
                 canUseTool: approvalBridge.canUseTool,
                 sandbox,
               });
-            } else {
-              console.error(
-                "[sandbox] getSharedSandbox returned null, using MCP"
-              );
-              session = createAgentSession(token, {
-                canUseTool: approvalBridge.canUseTool,
-              });
             }
           } catch (err) {
             const msg =
               err instanceof Error ? err.message : "Sandbox init failed";
-            console.error("[sandbox] Init failed, using MCP:", msg);
-            session = createAgentSession(token, {
-              canUseTool: approvalBridge.canUseTool,
-            });
+            console.error("[ws] Sandbox failed, using MCP:", msg);
           }
-        } else {
+        }
+        // Fallback to MCP if sandbox didn't produce a session
+        if (!session) {
           session = createAgentSession(token, {
             canUseTool: approvalBridge.canUseTool,
           });
         }
 
+        // Register this connection
+        activeConnections.set(userId, { ws, session });
+
+        // Warm up: the Agent SDK's first query on a new session can hang.
+        // Drain it here so the user's first real message works.
+        try {
+          for await (const _event of session.query(".", {})) {
+            // Discard warm-up events
+          }
+        } catch {
+          // Warm-up failure is non-critical
+        }
+
         send(ws, { type: "session", sessionId: session.sessionId });
+
+        // Pull corpus in background (non-blocking)
+        if (isSandboxMode()) {
+          import("./sandbox/shared-sandbox.js")
+            .then(({ getSharedSandbox }) =>
+              getSharedSandbox(
+                token!,
+                process.env.VITE_SUPABASE_URL,
+                process.env.VITE_SUPABASE_ANON_KEY
+              )
+            )
+            .then((sb) => sb?.pullAllPrograms())
+            .catch(() => {});
+        }
       } finally {
-        // Always resolve — even on error — so onMessage doesn't hang forever
         resolveReady!();
       }
     },
 
     async onMessage(evt, ws) {
-      // Wait for onOpen to finish setting up the session
-      console.log("[ws] onMessage: waiting for ready...");
       await readyPromise;
-      console.log("[ws] onMessage: ready, session:", session ? "yes" : "null");
       if (!session) return;
 
       let raw: string;
@@ -135,22 +173,6 @@ export function handleWebSocket(
 
       switch (msg.type) {
         case "message":
-          console.log("[ws] Processing message:", msg.content?.slice(0, 50));
-          // Pull ALL programs into the corpus in background (non-blocking)
-          if (isSandboxMode() && !corpusPulled) {
-            corpusPulled = true; // Set immediately so we don't trigger twice
-            import("./sandbox/shared-sandbox.js")
-              .then(({ getSharedSandbox }) =>
-                getSharedSandbox(
-                  token!,
-                  process.env.VITE_SUPABASE_URL,
-                  process.env.VITE_SUPABASE_ANON_KEY
-                )
-              )
-              .then((sb) => sb?.pullAllPrograms())
-              .catch(() => {});
-          }
-          console.log("[ws] Calling handleUserMessage, sessionId:", msg.sessionId?.slice(0, 12));
           await handleUserMessage(
             session,
             ws,
@@ -185,6 +207,9 @@ export function handleWebSocket(
         session.close();
         session = null;
       }
+      if (userId && activeConnections.get(userId)?.ws === myWs) {
+        activeConnections.delete(userId);
+      }
     },
 
     onError(_evt) {
@@ -194,9 +219,16 @@ export function handleWebSocket(
         session.close();
         session = null;
       }
+      if (userId && activeConnections.get(userId)?.ws === myWs) {
+        activeConnections.delete(userId);
+      }
     },
   };
 }
+
+// ---------------------------------------------------------------------------
+// Message formatting + agent query
+// ---------------------------------------------------------------------------
 
 function formatPageContextLine(ctx: PageContext): string {
   if (ctx.type === "experiment") {
@@ -260,30 +292,9 @@ async function handleUserMessage(
   const prompt = chunks.join("\n\n");
 
   try {
-    // The Agent SDK's first query on a new session can hang indefinitely.
-    // Race it against a timeout — if no events in 10s, abort and retry.
-    for (let attempt = 0; attempt < 2; attempt++) {
-      const resume = attempt === 0 ? clientSessionId : undefined;
-      console.log("[ws] session.query() attempt", attempt + 1, "resume:", resume?.slice(0, 12) ?? "none");
-      let gotEvents = false;
-      let timedOut = false;
-
-      // Timeout: abort the session if no events within 10s
-      const timeoutId = setTimeout(() => {
-        if (!gotEvents) {
-          console.log("[ws] Timeout on attempt", attempt + 1, "— aborting");
-          timedOut = true;
-          session.abort();
-        }
-      }, 10_000);
-
-      try {
-      for await (const event of session.query(prompt, {
-        resumeSessionId: resume,
-      })) {
-        gotEvents = true;
-        clearTimeout(timeoutId);
-      console.log("[ws] event:", event.type);
+    for await (const event of session.query(prompt, {
+      resumeSessionId: clientSessionId,
+    })) {
       switch (event.type) {
         case "session":
           send(ws, { type: "session", sessionId: event.sessionId });
@@ -326,15 +337,6 @@ async function handleUserMessage(
           send(ws, { type: "error", message: event.message });
           break;
       }
-    }
-      } catch (queryErr) {
-        clearTimeout(timeoutId);
-        if (!timedOut) throw queryErr;
-        // Timed out — will retry on next iteration
-      }
-      // If we got events, we're done. If not, retry.
-      if (gotEvents) break;
-      console.log("[ws] No events on attempt", attempt + 1, "— retrying");
     }
     send(ws, { type: "done" });
   } catch (err) {
