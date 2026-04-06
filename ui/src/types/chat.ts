@@ -119,6 +119,11 @@ export interface ServerThinkingDelta {
   content: string;
 }
 
+export interface ServerThinkingRevoke {
+  type: "thinking_revoke";
+  suffix: string;
+}
+
 export interface ServerTextDone {
   type: "text_done";
   content: string;
@@ -166,6 +171,7 @@ export type ServerMessage =
   | ServerModelInfo
   | ServerTextDelta
   | ServerThinkingDelta
+  | ServerThinkingRevoke
   | ServerTextDone
   | ServerToolUseStart
   | ServerToolUseEnd

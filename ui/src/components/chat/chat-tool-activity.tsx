@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { recordIdToHref } from "@/lib/linkify-sonde-ids";
+import { SondeLinkifiedText } from "@/components/shared/sonde-linkified-text";
 import type { ToolUseData } from "@/types/chat";
 import {
   ChatArtifactPreviewStrip,
@@ -119,44 +120,6 @@ function extractRecordHref(toolUse: ToolUseData): string | null {
     }
   }
   return null;
-}
-
-// ── Linkified output — makes record IDs clickable ─────────────────
-
-const RECORD_ID_RE = /\b(EXP|FIND|DIR|Q|ART|PROJ)-[A-Z0-9]+\b/gi;
-
-function LinkifiedOutput({ text }: { text: string }) {
-  const parts: (string | JSX.Element)[] = [];
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-  const re = new RegExp(RECORD_ID_RE.source, "gi");
-
-  while ((match = re.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      parts.push(text.slice(lastIndex, match.index));
-    }
-    const id = match[0].toUpperCase();
-    const href = recordIdToHref(id);
-    if (href) {
-      parts.push(
-        <Link
-          key={`${match.index}-${id}`}
-          to={href}
-          className="text-accent hover:underline"
-        >
-          {id}
-        </Link>,
-      );
-    } else {
-      parts.push(<span key={`${match.index}-${id}`}>{id}</span>);
-    }
-    lastIndex = match.index + match[0].length;
-  }
-  if (lastIndex < text.length) {
-    parts.push(text.slice(lastIndex));
-  }
-
-  return <>{parts}</>;
 }
 
 // ── Main component ────────────────────────────────────────────────
@@ -282,7 +245,10 @@ export const ChatToolActivity = memo(function ChatToolActivity({
                   "font-mono text-[11px] text-text-secondary whitespace-pre-wrap",
                 )}
               >
-                <LinkifiedOutput text={JSON.stringify(toolUse.input, null, 2)} />
+                <SondeLinkifiedText
+                  text={JSON.stringify(toolUse.input, null, 2)}
+                  linkClassName="text-accent hover:underline decoration-transparent"
+                />
               </pre>
             </div>
           )}
@@ -297,7 +263,10 @@ export const ChatToolActivity = memo(function ChatToolActivity({
                   "font-mono text-[11px] text-text-secondary whitespace-pre-wrap",
                 )}
               >
-                <LinkifiedOutput text={toolUse.output} />
+                <SondeLinkifiedText
+                  text={toolUse.output}
+                  linkClassName="text-accent hover:underline decoration-transparent"
+                />
               </pre>
             </div>
           )}

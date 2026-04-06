@@ -91,6 +91,12 @@ export interface ServerThinkingDelta {
   content: string;
 }
 
+/** Retract streamed thinking that was actually the final answer (text-only assistant message). */
+export interface ServerThinkingRevoke {
+  type: "thinking_revoke";
+  suffix: string;
+}
+
 export interface ServerTextDone {
   type: "text_done";
   content: string;
@@ -138,6 +144,7 @@ export type ServerMessage =
   | ServerModelInfo
   | ServerTextDelta
   | ServerThinkingDelta
+  | ServerThinkingRevoke
   | ServerTextDone
   | ServerToolUseStart
   | ServerToolUseEnd
@@ -153,6 +160,7 @@ export type AgentEvent =
   | { type: "model_info"; model: string }
   | { type: "text_delta"; content: string }
   | { type: "thinking_delta"; content: string }
+  | { type: "thinking_revoke"; suffix: string }
   | { type: "text_done"; content: string; messageId: string }
   | { type: "tool_use_start"; id: string; tool: string; input: Record<string, unknown> }
   | { type: "tool_use_end"; id: string; output: string }

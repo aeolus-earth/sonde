@@ -308,6 +308,9 @@ async function handleUserMessage(
         case "thinking_delta":
           send(ws, { type: "thinking_delta", content: event.content });
           break;
+        case "thinking_revoke":
+          send(ws, { type: "thinking_revoke", suffix: event.suffix });
+          break;
         case "text_done":
           send(ws, {
             type: "text_done",

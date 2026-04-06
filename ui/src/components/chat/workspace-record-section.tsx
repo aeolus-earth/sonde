@@ -1,6 +1,7 @@
-import { memo } from "react";
+import { memo, useCallback } from "react";
 import { ChevronRight } from "lucide-react";
-import { Link } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
+import { SondeLinkifiedText } from "@/components/shared/sonde-linkified-text";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useArtifacts } from "@/hooks/use-artifacts";
 import { useDirection } from "@/hooks/use-directions";
@@ -81,6 +82,12 @@ export const WorkspaceRecordSection = memo(function WorkspaceRecordSection({
         ? find.data?.program
         : proj.data?.program;
 
+  const navigate = useNavigate();
+  const openRecord = useCallback(() => {
+    const r = routeForKind(kind, recordId);
+    navigate({ to: r.to, params: r.params });
+  }, [navigate, kind, recordId]);
+
   if (loading) {
     return (
       <section className="space-y-3 pb-5 last:pb-0">
@@ -104,15 +111,21 @@ export const WorkspaceRecordSection = memo(function WorkspaceRecordSection({
     );
   }
 
-  const route = routeForKind(kind, recordId);
   const ariaLabel = `Open ${recordLabel(kind).toLowerCase()} ${recordId}`;
 
   return (
     <section className="space-y-3 pb-5 last:pb-0">
-      <Link
-        to={route.to}
-        params={route.params}
-        className={workspaceRecordBarClassName()}
+      <div
+        role="link"
+        tabIndex={0}
+        onClick={openRecord}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            openRecord();
+          }
+        }}
+        className={cn(workspaceRecordBarClassName(), "cursor-pointer")}
         aria-label={ariaLabel}
       >
         <div className="flex items-start gap-2">
@@ -134,7 +147,7 @@ export const WorkspaceRecordSection = memo(function WorkspaceRecordSection({
             </div>
             {title?.trim() && (
               <p className="line-clamp-2 text-[12px] font-medium leading-snug text-text-secondary">
-                {title.trim()}
+                <SondeLinkifiedText text={title.trim()} />
               </p>
             )}
           </div>
@@ -147,7 +160,7 @@ export const WorkspaceRecordSection = memo(function WorkspaceRecordSection({
             aria-hidden
           />
         </div>
-      </Link>
+      </div>
 
       <div className="min-w-0 pl-0.5">
         {artLoading ? (

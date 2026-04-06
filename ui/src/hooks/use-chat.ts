@@ -82,6 +82,12 @@ function handleServerMessage(msg: ServerMessage, storeApi: ChatStoreApi) {
       break;
     }
 
+    case "thinking_revoke": {
+      const tabId = resolveTargetTabId(storeApi);
+      s.revokeThinkingSuffixFromLastMessage(tabId, msg.suffix);
+      break;
+    }
+
     case "text_done":
       break;
 

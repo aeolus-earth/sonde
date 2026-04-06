@@ -9,6 +9,7 @@ import {
 } from "react";
 import { Link } from "@tanstack/react-router";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import { SondeLinkifiedText } from "@/components/shared/sonde-linkified-text";
 import { useArtifactParentLookup } from "@/hooks/use-artifact-parents";
 import { cn } from "@/lib/utils";
 import type { Artifact } from "@/types/sonde";
@@ -86,7 +87,7 @@ function ParentContextBlock({
           <span className="text-[10px] text-text-quaternary">Loading context…</span>
         ) : exp?.hypothesis ? (
           <p className="line-clamp-2 text-[10px] leading-snug text-text-secondary">
-            {truncate(exp.hypothesis, 160)}
+            <SondeLinkifiedText text={truncate(exp.hypothesis, 160)} />
           </p>
         ) : null}
       </div>
@@ -116,7 +117,7 @@ function ParentContextBlock({
           <span className="text-[10px] text-text-quaternary">Loading context…</span>
         ) : f?.topic ? (
           <p className="line-clamp-2 text-[10px] leading-snug text-text-secondary">
-            {truncate(f.topic, 160)}
+            <SondeLinkifiedText text={truncate(f.topic, 160)} />
           </p>
         ) : null}
       </div>
@@ -146,7 +147,7 @@ function ParentContextBlock({
           <span className="text-[10px] text-text-quaternary">Loading context…</span>
         ) : d?.title ? (
           <p className="line-clamp-2 text-[10px] leading-snug text-text-secondary">
-            {truncate(d.title, 160)}
+            <SondeLinkifiedText text={truncate(d.title, 160)} />
           </p>
         ) : null}
       </div>

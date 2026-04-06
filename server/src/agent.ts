@@ -99,8 +99,10 @@ export function createAgentSession(
 
       let assistantText = "";
       let assistantMessageId = "";
-      /** Once true, streamed `text_delta` is treated as the final answer, not chain "thinking". */
-      let seenToolUseInQuery = false;
+      /** Once true within the current assistant message, streamed `text_delta` is final answer. */
+      let seenToolInCurrentMessage = false;
+      /** Text before the first `tool_use` in this assistant message; flushed as thinking or answer once we know. */
+      let pendingPreToolText = "";
 
       for await (const rawMsg of q) {
         const msg = rawMsg as Record<string, unknown>;
@@ -124,7 +126,8 @@ export function createAgentSession(
           if (eventType === "content_block_start") {
             const block = event.content_block as Record<string, unknown>;
             if (block?.type === "tool_use") {
-              seenToolUseInQuery = true;
+              pendingPreToolText = "";
+              seenToolInCurrentMessage = true;
               yield {
                 type: "tool_use_start",
                 id: block.id as string,
@@ -146,7 +149,8 @@ export function createAgentSession(
             }
             if (dtype === "text_delta") {
               const text = delta.text as string;
-              if (!seenToolUseInQuery) {
+              if (!seenToolInCurrentMessage) {
+                pendingPreToolText += text;
                 yield { type: "thinking_delta", content: text };
               } else {
                 assistantText += text;
@@ -170,6 +174,21 @@ export function createAgentSession(
           assistantMessageId = (msg as Record<string, unknown>).uuid as string ?? "";
           const message = (msg as Record<string, unknown>).message as Record<string, unknown>;
           const content = message?.content as Array<Record<string, unknown>> | undefined;
+
+          const hasToolUse =
+            Array.isArray(content) &&
+            content.some((b) => b.type === "tool_use");
+
+          if (!hasToolUse && pendingPreToolText.length > 0) {
+            yield { type: "thinking_revoke", suffix: pendingPreToolText };
+            assistantText += pendingPreToolText;
+            yield { type: "text_delta", content: pendingPreToolText };
+            pendingPreToolText = "";
+          } else if (hasToolUse) {
+            pendingPreToolText = "";
+          }
+
+          seenToolInCurrentMessage = false;
 
           if (content) {
             for (const block of content) {
@@ -205,6 +224,13 @@ export function createAgentSession(
           }
           break;
         }
+      }
+
+      if (pendingPreToolText.length > 0) {
+        yield { type: "thinking_revoke", suffix: pendingPreToolText };
+        assistantText += pendingPreToolText;
+        yield { type: "text_delta", content: pendingPreToolText };
+        pendingPreToolText = "";
       }
 
       // Emit any final text that wasn't flushed
@@ -415,7 +441,8 @@ export function createSandboxAgentSession(
 
       let assistantText = "";
       let assistantMessageId = "";
-      let seenToolUseInQuery = false;
+      let seenToolInCurrentMessage = false;
+      let pendingPreToolText = "";
 
       // Track tool input JSON as it streams in (input_json_delta)
       const toolInputBuffers = new Map<number, string>();
@@ -445,7 +472,8 @@ export function createSandboxAgentSession(
           if (eventType === "content_block_start") {
             const block = event.content_block as Record<string, unknown>;
             if (block?.type === "tool_use") {
-              seenToolUseInQuery = true;
+              pendingPreToolText = "";
+              seenToolInCurrentMessage = true;
               const id = block.id as string;
               const name = block.name as string;
               toolIdByIndex.set(index, id);
@@ -470,7 +498,8 @@ export function createSandboxAgentSession(
               }
             } else if (dtype === "text_delta") {
               const text = delta.text as string;
-              if (!seenToolUseInQuery) {
+              if (!seenToolInCurrentMessage) {
+                pendingPreToolText += text;
                 yield { type: "thinking_delta", content: text };
               } else {
                 assistantText += text;
@@ -505,6 +534,21 @@ export function createSandboxAgentSession(
           const content = message?.content as
             | Array<Record<string, unknown>>
             | undefined;
+
+          const hasToolUse =
+            Array.isArray(content) &&
+            content.some((b) => b.type === "tool_use");
+
+          if (!hasToolUse && pendingPreToolText.length > 0) {
+            yield { type: "thinking_revoke", suffix: pendingPreToolText };
+            assistantText += pendingPreToolText;
+            yield { type: "text_delta", content: pendingPreToolText };
+            pendingPreToolText = "";
+          } else if (hasToolUse) {
+            pendingPreToolText = "";
+          }
+
+          seenToolInCurrentMessage = false;
 
           if (content) {
             for (const block of content) {
@@ -556,6 +600,13 @@ export function createSandboxAgentSession(
           }
           break;
         }
+      }
+
+      if (pendingPreToolText.length > 0) {
+        yield { type: "thinking_revoke", suffix: pendingPreToolText };
+        assistantText += pendingPreToolText;
+        yield { type: "text_delta", content: pendingPreToolText };
+        pendingPreToolText = "";
       }
 
       if (assistantText) {

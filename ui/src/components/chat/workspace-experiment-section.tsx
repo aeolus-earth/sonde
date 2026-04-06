@@ -1,7 +1,8 @@
-import { memo } from "react";
+import { memo, useCallback } from "react";
 import { ChevronRight } from "lucide-react";
-import { Link } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { Badge } from "@/components/ui/badge";
+import { SondeLinkifiedText } from "@/components/shared/sonde-linkified-text";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useArtifacts } from "@/hooks/use-artifacts";
 import { useDirection } from "@/hooks/use-directions";
@@ -22,6 +23,11 @@ export const WorkspaceExperimentSection = memo(function WorkspaceExperimentSecti
     data: direction,
     isLoading: directionLoading,
   } = useDirection(directionId);
+
+  const navigate = useNavigate();
+  const openExperiment = useCallback(() => {
+    navigate({ to: "/experiments/$id", params: { id: experimentId } });
+  }, [navigate, experimentId]);
 
   if (expLoading) {
     return (
@@ -48,10 +54,17 @@ export const WorkspaceExperimentSection = memo(function WorkspaceExperimentSecti
 
   return (
     <section className="space-y-3 pb-5 last:pb-0">
-      <Link
-        to="/experiments/$id"
-        params={{ id: exp.id }}
-        className={workspaceRecordBarClassName()}
+      <div
+        role="link"
+        tabIndex={0}
+        onClick={openExperiment}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            openExperiment();
+          }
+        }}
+        className={cn(workspaceRecordBarClassName(), "cursor-pointer")}
         aria-label={`Open experiment ${exp.id}`}
       >
         <div className="flex items-start gap-2">
@@ -75,12 +88,16 @@ export const WorkspaceExperimentSection = memo(function WorkspaceExperimentSecti
             )}
             {direction?.title && (
               <p className="line-clamp-2 text-[12px] font-medium leading-snug text-text-secondary">
-                {direction.title}
+                <SondeLinkifiedText text={direction.title} />
               </p>
             )}
 
             <p className="line-clamp-2 text-[12px] leading-snug text-text-tertiary">
-              {exp.hypothesis?.trim() || "—"}
+              {exp.hypothesis?.trim() ? (
+                <SondeLinkifiedText text={exp.hypothesis.trim()} />
+              ) : (
+                "—"
+              )}
             </p>
           </div>
           <ChevronRight
@@ -92,7 +109,7 @@ export const WorkspaceExperimentSection = memo(function WorkspaceExperimentSecti
             aria-hidden
           />
         </div>
-      </Link>
+      </div>
 
       <div className="min-w-0 pl-0.5">
         {artLoading ? (

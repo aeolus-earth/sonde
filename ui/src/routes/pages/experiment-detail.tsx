@@ -18,6 +18,7 @@ import { ArtifactGallery } from "@/components/artifacts/artifact-gallery";
 import { cn, formatDateTime, formatDateTimeShort } from "@/lib/utils";
 import { Section, DetailRow } from "@/components/shared/detail-layout";
 import { RecordLink } from "@/components/shared/record-link";
+import { SondeLinkifiedText } from "@/components/shared/sonde-linkified-text";
 import { AuthGate } from "@/components/auth/auth-gate";
 import { NoteForm } from "@/components/experiments/note-form";
 import { StatusControls } from "@/components/experiments/status-controls";
@@ -128,7 +129,7 @@ export default function ExperimentDetailPage() {
                 <MarkdownView content={exp.hypothesis} />
               ) : (
                 <p className="text-[13px] leading-relaxed text-text">
-                  {exp.hypothesis}
+                  <SondeLinkifiedText text={exp.hypothesis} />
                 </p>
               )}
             </Section>
@@ -140,7 +141,7 @@ export default function ExperimentDetailPage() {
                 <MarkdownView content={exp.finding} />
               ) : (
                 <p className="text-[13px] leading-relaxed text-text">
-                  {exp.finding}
+                  <SondeLinkifiedText text={exp.finding} />
                 </p>
               )}
             </Section>
