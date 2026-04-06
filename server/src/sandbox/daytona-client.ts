@@ -32,6 +32,9 @@ export interface SandboxHandle {
   /** Pull the sonde corpus for a program (text only, no artifacts). */
   pullCorpus(program: string): Promise<{ exitCode: number; stdout: string }>;
 
+  /** Pull corpus for ALL programs. Returns number of programs pulled. */
+  pullAllPrograms(): Promise<number>;
+
   /** Clean up the sandbox. */
   dispose(): Promise<void>;
 
@@ -173,6 +176,51 @@ function wrapSandbox(sandbox: Sandbox): SandboxHandle {
         60
       );
       return { exitCode: result.exitCode, stdout: result.result ?? "" };
+    },
+
+    async pullAllPrograms() {
+      const env =
+        `source /home/daytona/.sonde_env 2>/dev/null; ` +
+        `export PATH="$HOME/.local/bin:$PATH"`;
+
+      // Discover all programs
+      const listResult = await sandbox.process.executeCommand(
+        `${env} && sonde program list --json 2>&1`,
+        undefined,
+        undefined,
+        30
+      );
+      let programs: string[] = [];
+      try {
+        const parsed = JSON.parse(listResult.result ?? "[]");
+        programs = (parsed as Array<{ id?: string }>).map(
+          (p) => p.id ?? ""
+        ).filter(Boolean);
+      } catch {
+        console.error("[sandbox] Could not parse program list");
+        return 0;
+      }
+
+      console.log(`[sandbox] Pulling ${programs.length} program(s):`, programs.join(", "));
+
+      // Pull each program
+      let pulled = 0;
+      for (const program of programs) {
+        const result = await sandbox.process.executeCommand(
+          `${env} && sonde pull -p ${program} --artifacts none 2>&1`,
+          undefined,
+          undefined,
+          60
+        );
+        if (result.exitCode === 0) {
+          pulled++;
+          console.log(`[sandbox] Pulled ${program}`);
+        } else {
+          console.error(`[sandbox] Pull failed for ${program}:`, result.result?.slice(0, 100));
+        }
+      }
+      console.log(`[sandbox] Corpus ready: ${pulled}/${programs.length} programs`);
+      return pulled;
     },
 
     async dispose() {

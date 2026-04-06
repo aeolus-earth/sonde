@@ -233,7 +233,7 @@ You have 4 tools:
 
 ## Research corpus
 
-The .sonde/ directory at /home/daytona/.sonde/ contains the full research corpus as markdown files with YAML frontmatter:
+The .sonde/ directory at /home/daytona/.sonde/ contains the research corpus from ALL programs, pulled automatically. Each program has its own tree.md and records:
 
 \`\`\`
 /home/daytona/.sonde/

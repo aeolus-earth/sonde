@@ -136,7 +136,7 @@ export function handleWebSocket(
       switch (msg.type) {
         case "message":
           console.log("[ws] Processing message:", msg.content?.slice(0, 50));
-          // Lazy corpus pull (fast — sandbox already cached)
+          // Pull ALL programs into the corpus on first message
           if (isSandboxMode() && !corpusPulled) {
             try {
               const { getSharedSandbox } = await import(
@@ -148,19 +148,7 @@ export function handleWebSocket(
                 process.env.VITE_SUPABASE_ANON_KEY
               );
               if (sb) {
-                const mentionProgram = msg.mentions?.find(
-                  (m) => m.program
-                )?.program;
-                const program =
-                  mentionProgram ??
-                  process.env.SONDE_SANDBOX_PROGRAM ??
-                  "weather-intervention";
-                const pullResult = await sb.pullCorpus(program);
-                if (pullResult.exitCode === 0) {
-                  console.log("[sandbox] Corpus ready for", program);
-                } else {
-                  console.error("[sandbox] Pull issues:", pullResult.stdout);
-                }
+                await sb.pullAllPrograms();
               }
             } catch {
               // Non-critical — agent can still use sonde CLI
