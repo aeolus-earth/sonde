@@ -38,6 +38,7 @@ export function handleWebSocket(
   let approvalBridge: ReturnType<typeof createToolApprovalBridge> | null = null;
   let corpusPulled = false;
   let sandboxReady = false;
+  let sessionJustSwapped = false;
 
   return {
     async onOpen(_evt, ws) {
@@ -84,6 +85,9 @@ export function handleWebSocket(
               canUseTool: approvalBridge.canUseTool,
               sandbox,
             });
+            sessionJustSwapped = true;
+            // Tell UI about the new session ID so future resumes work
+            send(ws, { type: "session", sessionId: session.sessionId });
           }
         } catch (err) {
           const msg = err instanceof Error ? err.message : "Sandbox failed";
@@ -147,15 +151,20 @@ export function handleWebSocket(
             }
             corpusPulled = true;
           }
-          await handleUserMessage(
-            session,
-            ws,
-            msg.content,
-            msg.mentions ?? [],
-            msg.pageContext,
-            msg.attachments,
-            msg.sessionId
-          );
+          {
+            // Don't resume with old MCP session ID after sandbox swap
+            const resumeId = sessionJustSwapped ? undefined : msg.sessionId;
+            sessionJustSwapped = false;
+            await handleUserMessage(
+              session,
+              ws,
+              msg.content,
+              msg.mentions ?? [],
+              msg.pageContext,
+              msg.attachments,
+              resumeId
+            );
+          }
           break;
         case "approve_tasks":
           // Legacy no-op: proposed tasks are preview-only; mutating tools use approve_tool.

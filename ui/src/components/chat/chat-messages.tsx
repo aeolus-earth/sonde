@@ -7,9 +7,9 @@ import {
   useState,
 } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Loader2 } from "lucide-react";
 import { ChatMessage } from "./chat-message";
 import { ChatEmptyState } from "./chat-empty-state";
+import { BrailleLive } from "./braille-activity";
 import { cn } from "@/lib/utils";
 import type { ChatMessageData } from "@/types/chat";
 
@@ -259,7 +259,7 @@ export const ChatMessages = memo(function ChatMessages({
         })}
       </div>
 
-      {isStreaming && !embedded && (
+      {isStreaming && (
         <div
           className={cn(
             "border-t px-4 py-3 md:px-6",
@@ -268,11 +268,13 @@ export const ChatMessages = memo(function ChatMessages({
               : "border-border-subtle/80",
           )}
         >
-          <div className="mx-auto flex max-w-[52rem] items-center gap-2 text-[12px] text-text-quaternary">
-            <Loader2
-              className="h-3.5 w-3.5 shrink-0 animate-spin text-text-tertiary"
-              aria-hidden
-            />
+          <div
+            className="mx-auto flex max-w-[52rem] items-center gap-2.5 text-[12px] text-text-quaternary"
+            role="status"
+            aria-live="polite"
+            aria-label="Assistant is thinking"
+          >
+            <BrailleLive className="shrink-0 text-text-tertiary" />
             <span className="text-[11px] text-text-quaternary">Thinking…</span>
           </div>
         </div>
