@@ -6,29 +6,47 @@ Handles concurrent inserts via retry on unique-constraint violation (23505).
 
 from __future__ import annotations
 
+import re
+
 from sonde.db import rows as to_rows
 from sonde.db.client import get_client
 
-_MAX_RETRIES = 3
+_MAX_RETRIES = 5
 
 
 def next_sequential_id(table: str, prefix: str, digits: int = 4) -> str:
     """Generate the next sequential ID for a table.
 
-    Looks at the most recently created row to determine the next number.
+    Fetches ALL IDs with the given prefix and finds the true numeric max,
+    avoiding lexicographic sort issues (e.g. PROJ-999 > PROJ-1000).
     """
     client = get_client()
-    result = client.table(table).select("id").order("id", desc=True).limit(1).execute()
+    result = (
+        client.table(table)
+        .select("id")
+        .like("id", f"{prefix}-%")
+        .execute()
+    )
     existing = to_rows(result.data)
     if existing:
-        last_num = int(existing[0]["id"].split("-")[1])
-        return f"{prefix}-{last_num + 1:0{digits}d}"
+        pattern = re.compile(rf"^{re.escape(prefix)}-(\d+)$")
+        nums = []
+        for row in existing:
+            m = pattern.match(row["id"])
+            if m:
+                nums.append(int(m.group(1)))
+        if nums:
+            next_num = max(nums) + 1
+            # Auto-expand digits if the number outgrows the padding
+            actual_digits = max(digits, len(str(next_num)))
+            return f"{prefix}-{next_num:0{actual_digits}d}"
     return f"{prefix}-{'1'.zfill(digits)}"
 
 
 def create_with_retry(table: str, prefix: str, digits: int, payload: dict) -> dict:
     """Insert a row with a sequential ID, retrying on unique-constraint violation.
 
+    Each retry re-queries the max ID so it advances past the collision.
     Returns the inserted row as a dict.
     """
     from postgrest.exceptions import APIError
