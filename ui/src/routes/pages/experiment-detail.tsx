@@ -298,7 +298,7 @@ export default function ExperimentDetailPage() {
           id="experiment-chat-rail"
           aria-hidden={!chatOpen}
           className={cn(
-            "flex min-w-0 shrink-0 flex-col overflow-hidden transition-[max-width,opacity] duration-300 ease-out motion-reduce:transition-none",
+            "flex min-w-0 shrink-0 flex-col overflow-hidden transition-[max-width,opacity] duration-300 ease-out motion-reduce:transition-none lg:self-start lg:sticky lg:top-0",
             !chatOpen && "max-lg:hidden",
             chatOpen
               ? "w-full opacity-100 lg:max-w-[min(440px,40vw)]"
