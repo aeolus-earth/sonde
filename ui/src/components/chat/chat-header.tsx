@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { RotateCcw } from "lucide-react";
+import { RotateCcw, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { PageContext } from "@/types/chat";
 
@@ -81,18 +81,32 @@ export const ChatHeader = memo(function ChatHeader({
         <p className="min-w-0 truncate text-[13px] font-medium text-text">
           Sonde Assistant
         </p>
-        <button
-          onClick={onClearConversation}
-          title="New conversation"
-          className={cn(
-            "shrink-0 rounded-[5.5px] p-1.5 text-text-tertiary transition-colors hover:text-text-secondary",
-            glass
-              ? "hover:bg-surface-hover dark:hover:bg-white/10"
-              : "hover:bg-surface-hover",
-          )}
-        >
-          <RotateCcw className="h-3.5 w-3.5" />
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={onClearConversation}
+            title="New conversation"
+            className={cn(
+              "shrink-0 rounded-[5.5px] p-1.5 text-text-tertiary transition-colors hover:text-text-secondary",
+              glass
+                ? "hover:bg-surface-hover dark:hover:bg-white/10"
+                : "hover:bg-surface-hover",
+            )}
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+          </button>
+          <button
+            onClick={onClearConversation}
+            title="Close chat"
+            className={cn(
+              "shrink-0 rounded-[5.5px] p-1.5 text-text-tertiary transition-colors hover:text-text-secondary",
+              glass
+                ? "hover:bg-surface-hover dark:hover:bg-white/10"
+                : "hover:bg-surface-hover",
+            )}
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
       </div>
     </div>
   );
