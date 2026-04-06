@@ -38,65 +38,78 @@ export function handleWebSocket(
   let approvalBridge: ReturnType<typeof createToolApprovalBridge> | null = null;
   let corpusPulled = false;
 
+  // Ready gate: onMessage waits for this before processing.
+  // Resolves when onOpen finishes setting up the session.
+  let resolveReady: () => void;
+  const readyPromise = new Promise<void>((r) => {
+    resolveReady = r;
+  });
+
   return {
     async onOpen(_evt, ws) {
-      if (!token) {
-        send(ws, { type: "error", message: "Missing authentication token" });
-        ws.close(4001, "Unauthorized");
-        return;
-      }
+      try {
+        if (!token) {
+          send(ws, { type: "error", message: "Missing authentication token" });
+          ws.close(4001, "Unauthorized");
+          return;
+        }
 
-      const user = await verifyToken(token);
-      if (!user) {
-        send(ws, { type: "error", message: "Invalid or expired token" });
-        ws.close(4001, "Unauthorized");
-        return;
-      }
+        const user = await verifyToken(token);
+        if (!user) {
+          send(ws, { type: "error", message: "Invalid or expired token" });
+          ws.close(4001, "Unauthorized");
+          return;
+        }
 
-      approvalBridge = createToolApprovalBridge(ws);
+        approvalBridge = createToolApprovalBridge(ws);
 
-      // Sandbox mode: get the shared sandbox (first call ~15s, cached after).
-      // UI shows "connecting..." during init — honest and expected.
-      // No session swapping. One code path. First message always works.
-      if (isSandboxMode()) {
-        try {
-          const { getSharedSandbox } = await import(
-            "./sandbox/shared-sandbox.js"
-          );
-          const sandbox = await getSharedSandbox(
-            token,
-            process.env.VITE_SUPABASE_URL,
-            process.env.VITE_SUPABASE_ANON_KEY
-          );
-          if (sandbox) {
-            session = createSandboxAgentSession({
-              canUseTool: approvalBridge.canUseTool,
-              sandbox,
-            });
-          } else {
-            console.error("[sandbox] getSharedSandbox returned null, using MCP");
+        if (isSandboxMode()) {
+          try {
+            const { getSharedSandbox } = await import(
+              "./sandbox/shared-sandbox.js"
+            );
+            const sandbox = await getSharedSandbox(
+              token,
+              process.env.VITE_SUPABASE_URL,
+              process.env.VITE_SUPABASE_ANON_KEY
+            );
+            if (sandbox) {
+              session = createSandboxAgentSession({
+                canUseTool: approvalBridge.canUseTool,
+                sandbox,
+              });
+            } else {
+              console.error(
+                "[sandbox] getSharedSandbox returned null, using MCP"
+              );
+              session = createAgentSession(token, {
+                canUseTool: approvalBridge.canUseTool,
+              });
+            }
+          } catch (err) {
+            const msg =
+              err instanceof Error ? err.message : "Sandbox init failed";
+            console.error("[sandbox] Init failed, using MCP:", msg);
             session = createAgentSession(token, {
               canUseTool: approvalBridge.canUseTool,
             });
           }
-        } catch (err) {
-          const msg =
-            err instanceof Error ? err.message : "Sandbox init failed";
-          console.error("[sandbox] Init failed, using MCP:", msg);
+        } else {
           session = createAgentSession(token, {
             canUseTool: approvalBridge.canUseTool,
           });
         }
-      } else {
-        session = createAgentSession(token, {
-          canUseTool: approvalBridge.canUseTool,
-        });
-      }
 
-      send(ws, { type: "session", sessionId: session.sessionId });
+        send(ws, { type: "session", sessionId: session.sessionId });
+      } finally {
+        // Always resolve — even on error — so onMessage doesn't hang forever
+        resolveReady!();
+      }
     },
 
     async onMessage(evt, ws) {
+      // Wait for onOpen to finish setting up the session
+      await readyPromise;
       if (!session) return;
 
       let raw: string;
