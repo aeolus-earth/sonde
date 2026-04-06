@@ -136,24 +136,19 @@ export function handleWebSocket(
       switch (msg.type) {
         case "message":
           console.log("[ws] Processing message:", msg.content?.slice(0, 50));
-          // Pull ALL programs into the corpus on first message
+          // Pull ALL programs into the corpus in background (non-blocking)
           if (isSandboxMode() && !corpusPulled) {
-            try {
-              const { getSharedSandbox } = await import(
-                "./sandbox/shared-sandbox.js"
-              );
-              const sb = await getSharedSandbox(
-                token!,
-                process.env.VITE_SUPABASE_URL,
-                process.env.VITE_SUPABASE_ANON_KEY
-              );
-              if (sb) {
-                await sb.pullAllPrograms();
-              }
-            } catch {
-              // Non-critical — agent can still use sonde CLI
-            }
-            corpusPulled = true;
+            corpusPulled = true; // Set immediately so we don't trigger twice
+            import("./sandbox/shared-sandbox.js")
+              .then(({ getSharedSandbox }) =>
+                getSharedSandbox(
+                  token!,
+                  process.env.VITE_SUPABASE_URL,
+                  process.env.VITE_SUPABASE_ANON_KEY
+                )
+              )
+              .then((sb) => sb?.pullAllPrograms())
+              .catch(() => {});
           }
           console.log("[ws] Calling handleUserMessage, sessionId:", msg.sessionId?.slice(0, 12));
           await handleUserMessage(
