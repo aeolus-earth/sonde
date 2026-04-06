@@ -1,7 +1,7 @@
 import type { Context } from "hono";
 import type { WSEvents, WSContext } from "hono/ws";
 import type { WebSocket } from "ws";
-import { verifyToken, type VerifiedUser } from "./auth.js";
+import { verifyToken } from "./auth.js";
 import {
   createAgentSession,
   createSandboxAgentSession,
@@ -18,7 +18,11 @@ import type {
 } from "./types.js";
 
 function send(ws: WSContext<WebSocket>, msg: ServerMessage) {
-  ws.send(JSON.stringify(msg));
+  try {
+    ws.send(JSON.stringify(msg));
+  } catch {
+    // WS may already be closed
+  }
 }
 
 function parseRequestUrl(reqUrl: string): URL {
@@ -30,14 +34,26 @@ function parseRequestUrl(reqUrl: string): URL {
 }
 
 // ---------------------------------------------------------------------------
-// Connection dedup: only one active WS per user. When a new connection
-// arrives for the same user, the old one is closed. This prevents the
-// Agent SDK deadlock where two sessions compete for the same sandbox.
+// Per-user mutex: only one onOpen can run at a time for a given user.
+// Prevents two concurrent onOpen handlers from both creating sessions.
 // ---------------------------------------------------------------------------
+const userLocks = new Map<string, Promise<void>>();
 
+function withUserLock(userId: string, fn: () => Promise<void>): Promise<void> {
+  const prev = userLocks.get(userId) ?? Promise.resolve();
+  const next = prev.then(fn, fn); // Run fn after previous completes (even if it failed)
+  userLocks.set(userId, next);
+  // Clean up when done
+  next.finally(() => {
+    if (userLocks.get(userId) === next) userLocks.delete(userId);
+  });
+  return next;
+}
+
+// Active connection per user — only one at a time.
 const activeConnections = new Map<
   string,
-  { ws: WSContext<WebSocket>; session: AgentSession | null }
+  { ws: WSContext<WebSocket>; session: AgentSession }
 >();
 
 export function handleWebSocket(
@@ -48,9 +64,7 @@ export function handleWebSocket(
   let session: AgentSession | null = null;
   let approvalBridge: ReturnType<typeof createToolApprovalBridge> | null = null;
   let userId: string | null = null;
-  let myWs: WSContext<WebSocket> | null = null;
 
-  // Ready gate: onMessage waits for onOpen to finish.
   let resolveReady: () => void;
   const readyPromise = new Promise<void>((r) => {
     resolveReady = r;
@@ -58,7 +72,6 @@ export function handleWebSocket(
 
   return {
     async onOpen(_evt, ws) {
-      myWs = ws;
       try {
         if (!token) {
           send(ws, { type: "error", message: "Missing authentication token" });
@@ -74,66 +87,49 @@ export function handleWebSocket(
         }
         userId = user.id;
 
-        // Close any existing connection for this user
-        const existing = activeConnections.get(userId);
-        if (existing) {
-          existing.session?.close();
-          try {
-            existing.ws.close(4000, "Replaced by new connection");
-          } catch {}
-          activeConnections.delete(userId);
-        }
-
-        approvalBridge = createToolApprovalBridge(ws);
-
-        // Create session
-        if (isSandboxMode()) {
-          try {
-            const { getSharedSandbox } = await import(
-              "./sandbox/shared-sandbox.js"
-            );
-            const sandbox = await getSharedSandbox(
-              token,
-              process.env.VITE_SUPABASE_URL,
-              process.env.VITE_SUPABASE_ANON_KEY
-            );
-            if (sandbox) {
-              await sandbox.setToken(token);
-              session = createSandboxAgentSession({
-                canUseTool: approvalBridge.canUseTool,
-                sandbox,
-              });
-            }
-          } catch (err) {
-            const msg =
-              err instanceof Error ? err.message : "Sandbox init failed";
-            console.error("[ws] Sandbox failed, using MCP:", msg);
+        // Serialize per user — prevents two onOpen handlers racing
+        await withUserLock(userId, async () => {
+          // Close existing connection for this user
+          const existing = activeConnections.get(userId!);
+          if (existing) {
+            existing.session.close();
+            try {
+              existing.ws.close(4000, "Replaced");
+            } catch {}
+            activeConnections.delete(userId!);
           }
-        }
-        // Fallback to MCP if sandbox didn't produce a session
-        if (!session) {
-          session = createAgentSession(token, {
-            canUseTool: approvalBridge.canUseTool,
-          });
-        }
 
-        // Register this connection
-        activeConnections.set(userId, { ws, session });
-        send(ws, { type: "session", sessionId: session.sessionId });
+          approvalBridge = createToolApprovalBridge(ws);
 
-        // Pull corpus in background (non-blocking)
-        if (isSandboxMode()) {
-          import("./sandbox/shared-sandbox.js")
-            .then(({ getSharedSandbox }) =>
-              getSharedSandbox(
+          // Create session (sandbox or MCP)
+          if (isSandboxMode()) {
+            try {
+              const { getSharedSandbox } = await import(
+                "./sandbox/shared-sandbox.js"
+              );
+              const sandbox = await getSharedSandbox(
                 token!,
                 process.env.VITE_SUPABASE_URL,
                 process.env.VITE_SUPABASE_ANON_KEY
-              )
-            )
-            .then((sb) => sb?.pullAllPrograms())
-            .catch(() => {});
-        }
+              );
+              if (sandbox) {
+                await sandbox.setToken(token!);
+                session = createSandboxAgentSession({
+                  canUseTool: approvalBridge!.canUseTool,
+                  sandbox,
+                });
+              }
+            } catch {}
+          }
+          if (!session) {
+            session = createAgentSession(token!, {
+              canUseTool: approvalBridge!.canUseTool,
+            });
+          }
+
+          activeConnections.set(userId!, { ws, session });
+          send(ws, { type: "session", sessionId: session.sessionId });
+        });
       } finally {
         resolveReady!();
       }
@@ -196,8 +192,11 @@ export function handleWebSocket(
         session.close();
         session = null;
       }
-      if (userId && activeConnections.get(userId)?.ws === myWs) {
-        activeConnections.delete(userId);
+      if (userId) {
+        const entry = activeConnections.get(userId);
+        if (entry && entry.session === session) {
+          activeConnections.delete(userId);
+        }
       }
     },
 
@@ -208,15 +207,18 @@ export function handleWebSocket(
         session.close();
         session = null;
       }
-      if (userId && activeConnections.get(userId)?.ws === myWs) {
-        activeConnections.delete(userId);
+      if (userId) {
+        const entry = activeConnections.get(userId);
+        if (entry && entry.session === session) {
+          activeConnections.delete(userId);
+        }
       }
     },
   };
 }
 
 // ---------------------------------------------------------------------------
-// Message formatting + agent query
+// Prompt formatting + agent query
 // ---------------------------------------------------------------------------
 
 function formatPageContextLine(ctx: PageContext): string {
@@ -296,9 +298,6 @@ async function handleUserMessage(
           break;
         case "thinking_delta":
           send(ws, { type: "thinking_delta", content: event.content });
-          break;
-        case "thinking_revoke":
-          send(ws, { type: "thinking_revoke", suffix: event.suffix });
           break;
         case "text_done":
           send(ws, {
