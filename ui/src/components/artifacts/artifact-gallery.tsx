@@ -12,6 +12,7 @@ import {
   File,
   Film,
 } from "lucide-react";
+import { CsvTable } from "@/components/artifacts/csv-table";
 import {
   useArtifacts,
   useArtifactUrl,
@@ -224,49 +225,6 @@ function countFiles(node: FileTreeNode): number {
   return node.children.reduce((sum, c) => sum + countFiles(c), 0);
 }
 
-// ── CSV table ────────────────────────────────────────────────────
-
-function CsvTable({ text }: { text: string }) {
-  const lines = text.trim().split("\n");
-  if (lines.length === 0) return null;
-
-  const separator = lines[0].includes("\t") ? "\t" : ",";
-  const headers = lines[0].split(separator);
-  const rows = lines.slice(1, 101);
-
-  return (
-    <div className="max-h-[500px] overflow-auto rounded-[5.5px] border border-border">
-      <table className="w-full text-left">
-        <thead className="sticky top-0 bg-surface">
-          <tr className="border-b border-border">
-            {headers.map((h, i) => (
-              <th key={i} className="whitespace-nowrap px-2 py-1.5 text-[10px] font-medium text-text-tertiary">
-                {h.trim()}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, ri) => (
-            <tr key={ri} className="border-b border-border-subtle last:border-0">
-              {row.split(separator).map((cell, ci) => (
-                <td key={ci} className="whitespace-nowrap px-2 py-1 text-[11px] text-text-secondary">
-                  {cell.trim()}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {lines.length > 101 && (
-        <p className="border-t border-border px-2 py-1.5 text-[10px] text-text-quaternary">
-          Showing first 100 of {lines.length - 1} rows
-        </p>
-      )}
-    </div>
-  );
-}
-
 // ── Download button ──────────────────────────────────────────────
 
 function DownloadButton({ url, filename }: { url: string; filename: string }) {
@@ -416,7 +374,7 @@ function ArtifactViewer({ artifact }: { artifact: Artifact }) {
     let content: React.ReactNode;
 
     if (isCsv(artifact)) {
-      content = <CsvTable text={text} />;
+      content = <CsvTable text={text} maxRows={100} scrollClassName="max-h-[500px]" />;
     } else if (isJson(artifact)) {
       try {
         content = <JsonView data={JSON.parse(text)} />;

@@ -8,14 +8,20 @@ import {
   Music,
   Presentation,
 } from "lucide-react";
-import { useArtifactBlob, useArtifactUrl, isBlobCacheable } from "@/hooks/use-artifacts";
+import {
+  useArtifactBlob,
+  useArtifactUrl,
+  useArtifactText,
+  isBlobCacheable,
+} from "@/hooks/use-artifacts";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import {
   EmbeddedDocumentPreview,
   officeOnlineEmbedUrl,
 } from "@/components/artifacts/embedded-document-preview";
-import { isAudio, isGif, isImage, isPdf, isPptx, isVideo } from "@/lib/artifact-kind";
+import { CsvTable } from "@/components/artifacts/csv-table";
+import { isAudio, isCsv, isGif, isImage, isPdf, isPptx, isVideo } from "@/lib/artifact-kind";
 import type { Artifact, ArtifactType } from "@/types/sonde";
 
 const typeIcon: Record<ArtifactType, typeof File> = {
@@ -78,17 +84,23 @@ export const ArtifactMediaPreview = memo(function ArtifactMediaPreview({
   artifact: Artifact;
   size: ArtifactMediaSize;
 }) {
+  const csvInline = isCsv(artifact) && size !== "thumb";
+  const { data: csvText, isLoading: csvLoading, isError: csvError } = useArtifactText(
+    artifact.storage_path,
+    csvInline,
+  );
+
   const useBlobForDisplay =
-    isBlobCacheable(artifact.size_bytes) && !isPptx(artifact);
+    isBlobCacheable(artifact.size_bytes) && !isPptx(artifact) && !csvInline;
   const { data: blobUrl, isLoading: blobLoading } = useArtifactBlob(
     artifact.storage_path,
     useBlobForDisplay ? artifact.size_bytes : null,
   );
   const { data: signedUrl, isLoading: signedLoading } = useArtifactUrl(
-    useBlobForDisplay ? null : artifact.storage_path,
+    useBlobForDisplay ? null : csvInline ? null : artifact.storage_path,
   );
   const url = useBlobForDisplay ? blobUrl : signedUrl;
-  const isLoading = useBlobForDisplay ? blobLoading : signedLoading;
+  const isLoading = csvInline ? csvLoading : useBlobForDisplay ? blobLoading : signedLoading;
   const [imgReady, setImgReady] = useState(false);
 
   const prominent = size === "inlineProminent";
@@ -109,6 +121,17 @@ export const ArtifactMediaPreview = memo(function ArtifactMediaPreview({
     if (size === "thumb") {
       return <ThumbSkeleton variant={variant} />;
     }
+    if (csvInline) {
+      return (
+        <Skeleton
+          className={
+            prominent
+              ? "h-[min(520px,65vh)] w-full max-w-full rounded-[6px]"
+              : "h-64 w-full max-w-full rounded-[6px]"
+          }
+        />
+      );
+    }
     if (isPdf(artifact) || isPptx(artifact)) {
       return (
         <Skeleton
@@ -121,6 +144,28 @@ export const ArtifactMediaPreview = memo(function ArtifactMediaPreview({
       );
     }
     return <InlineSkeleton variant={variant} prominent={prominent} />;
+  }
+
+  if (csvInline) {
+    if (csvError) {
+      return (
+        <div className="flex min-h-32 w-full items-center justify-center rounded-[6px] border border-border-subtle bg-surface-raised px-3 py-6">
+          <p className="text-center text-[12px] text-status-failed">Could not load CSV</p>
+        </div>
+      );
+    }
+    return (
+      <div className="w-full min-w-0">
+        <CsvTable
+          text={csvText ?? ""}
+          scrollClassName={
+            prominent
+              ? "max-h-[min(600px,70vh)]"
+              : "max-h-[min(480px,50vh)]"
+          }
+        />
+      </div>
+    );
   }
 
   if (isVideo(artifact) && url) {

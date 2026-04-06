@@ -9,6 +9,7 @@ import {
   X,
   Maximize2,
 } from "lucide-react";
+import { CsvTable } from "@/components/artifacts/csv-table";
 import { useArtifactUrl, useArtifactText } from "@/hooks/use-artifacts";
 import { Spinner } from "@/components/ui/spinner";
 import type { Artifact, ArtifactType } from "@/types/sonde";
@@ -250,65 +251,13 @@ function DataCard({ artifact }: { artifact: Artifact }) {
       {expanded && text && (
         <div className="border-t border-border px-3 py-2">
           {isCsv(artifact) ? (
-            <CsvTable text={text} />
+            <CsvTable text={text} maxRows={100} scrollClassName="max-h-[400px]" />
           ) : (
             <pre className="max-h-[400px] overflow-auto font-mono text-[11px] leading-relaxed text-text-secondary">
               {text}
             </pre>
           )}
         </div>
-      )}
-    </div>
-  );
-}
-
-// ── CSV table renderer ─────────────────────────────────────────
-
-function CsvTable({ text }: { text: string }) {
-  const lines = text.trim().split("\n");
-  if (lines.length === 0) return null;
-
-  const separator = lines[0].includes("\t") ? "\t" : ",";
-  const headers = lines[0].split(separator);
-  const rows = lines.slice(1, 101); // cap at 100 rows
-
-  return (
-    <div className="max-h-[400px] overflow-auto">
-      <table className="w-full text-left">
-        <thead>
-          <tr className="border-b border-border">
-            {headers.map((h, i) => (
-              <th
-                key={i}
-                className="whitespace-nowrap px-2 py-1 text-[10px] font-medium text-text-tertiary"
-              >
-                {h.trim()}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, ri) => (
-            <tr
-              key={ri}
-              className="border-b border-border-subtle last:border-0"
-            >
-              {row.split(separator).map((cell, ci) => (
-                <td
-                  key={ci}
-                  className="whitespace-nowrap px-2 py-1 text-[11px] text-text-secondary"
-                >
-                  {cell.trim()}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {lines.length > 101 && (
-        <p className="px-2 py-1.5 text-[10px] text-text-quaternary">
-          Showing first 100 of {lines.length - 1} rows
-        </p>
       )}
     </div>
   );
