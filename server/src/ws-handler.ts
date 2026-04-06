@@ -119,17 +119,6 @@ export function handleWebSocket(
 
         // Register this connection
         activeConnections.set(userId, { ws, session });
-
-        // Warm up: the Agent SDK's first query on a new session can hang.
-        // Drain it here so the user's first real message works.
-        try {
-          for await (const _event of session.query(".", {})) {
-            // Discard warm-up events
-          }
-        } catch {
-          // Warm-up failure is non-critical
-        }
-
         send(ws, { type: "session", sessionId: session.sessionId });
 
         // Pull corpus in background (non-blocking)
