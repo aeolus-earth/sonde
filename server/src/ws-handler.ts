@@ -9,7 +9,6 @@ import {
   type AgentSession,
 } from "./agent.js";
 import { createToolApprovalBridge } from "./tool-approval-bridge.js";
-import type { SandboxHandle } from "./sandbox/daytona-client.js";
 import type {
   ClientMessage,
   ServerMessage,
@@ -37,10 +36,8 @@ export function handleWebSocket(
 
   let session: AgentSession | null = null;
   let approvalBridge: ReturnType<typeof createToolApprovalBridge> | null = null;
-  let sandboxHandle: SandboxHandle | null = null;
-  let sandboxInitPromise: Promise<void> | null = null;
   let corpusPulled = false;
-  let closed = false;
+  let sandboxReady = false;
 
   return {
     async onOpen(_evt, ws) {
@@ -64,51 +61,39 @@ export function handleWebSocket(
         canUseTool: approvalBridge.canUseTool,
       });
       send(ws, { type: "session", sessionId: session.sessionId });
-
-      // Start sandbox init in background — session swaps before first query
-      if (isSandboxMode()) {
-        sandboxInitPromise = (async () => {
-          try {
-            console.log("[sandbox] Initializing (background)...");
-            const { initSandbox } = await import("./sandbox/sandbox-init.js");
-            sandboxHandle = await initSandbox({
-              sondeToken: token,
-              supabaseUrl: process.env.VITE_SUPABASE_URL,
-              supabaseKey: process.env.VITE_SUPABASE_ANON_KEY,
-            });
-            if (closed) {
-              console.log("[sandbox] Connection closed during init, cleaning up");
-              sandboxHandle.dispose().catch(() => {});
-              sandboxHandle = null;
-              return;
-            }
-            // Swap to sandbox session — next query will use sandbox tools
-            session = createSandboxAgentSession({
-              canUseTool: approvalBridge!.canUseTool,
-              sandbox: sandboxHandle,
-            });
-            console.log("[sandbox] Ready — session upgraded to sandbox tools");
-          } catch (err) {
-            const msg = err instanceof Error ? err.message : "Sandbox init failed";
-            console.error("[sandbox] Init failed, staying on MCP:", msg);
-            send(ws, {
-              type: "error",
-              message: `Sandbox unavailable: ${msg}. Using API tools instead.`,
-            });
-          }
-        })();
-      }
     },
 
     async onMessage(evt, ws) {
-      // Wait for sandbox init before processing first message
-      if (sandboxInitPromise) {
+      // On first message in sandbox mode: get the shared sandbox and swap session
+      if (isSandboxMode() && !sandboxReady && approvalBridge) {
         send(ws, {
           type: "text_delta",
           content: "⏳ *Preparing sandbox environment...*\n\n",
         });
-        await sandboxInitPromise;
-        sandboxInitPromise = null;
+        try {
+          const { getSharedSandbox } = await import(
+            "./sandbox/shared-sandbox.js"
+          );
+          const sandbox = await getSharedSandbox(
+            token!,
+            process.env.VITE_SUPABASE_URL,
+            process.env.VITE_SUPABASE_ANON_KEY
+          );
+          if (sandbox) {
+            session = createSandboxAgentSession({
+              canUseTool: approvalBridge.canUseTool,
+              sandbox,
+            });
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : "Sandbox failed";
+          console.error("[sandbox]", msg);
+          send(ws, {
+            type: "error",
+            message: `Sandbox unavailable: ${msg}. Using API tools.`,
+          });
+        }
+        sandboxReady = true;
       }
       if (!session) return;
 
@@ -132,23 +117,35 @@ export function handleWebSocket(
       switch (msg.type) {
         case "message":
           // Lazy corpus pull on first message in sandbox mode
-          if (sandboxHandle && !corpusPulled) {
-            const mentionProgram = msg.mentions?.find((m) => m.program)?.program;
-            const program =
-              mentionProgram ??
-              process.env.SONDE_SANDBOX_PROGRAM ??
-              "weather-intervention";
-            console.log(`[sandbox] Pulling corpus for ${program}...`);
-            send(ws, { type: "text_delta", content: `*Setting up research corpus for ${program}...*\n\n` });
-            const pullResult = await sandboxHandle.pullCorpus(program);
-            if (pullResult.exitCode === 0) {
-              console.log("[sandbox] Corpus ready");
-              corpusPulled = true;
-            } else {
-              console.error("[sandbox] Pull failed:", pullResult.stdout);
-              send(ws, { type: "text_delta", content: `*Warning: corpus pull had issues. Some data may be unavailable.*\n\n` });
-              corpusPulled = true; // Don't retry every message
+          if (isSandboxMode() && !corpusPulled) {
+            try {
+              const { getSharedSandbox } = await import(
+                "./sandbox/shared-sandbox.js"
+              );
+              const sb = await getSharedSandbox(
+                token!,
+                process.env.VITE_SUPABASE_URL,
+                process.env.VITE_SUPABASE_ANON_KEY
+              );
+              if (sb) {
+                const mentionProgram = msg.mentions?.find(
+                  (m) => m.program
+                )?.program;
+                const program =
+                  mentionProgram ??
+                  process.env.SONDE_SANDBOX_PROGRAM ??
+                  "weather-intervention";
+                const pullResult = await sb.pullCorpus(program);
+                if (pullResult.exitCode === 0) {
+                  console.log("[sandbox] Corpus ready for", program);
+                } else {
+                  console.error("[sandbox] Pull issues:", pullResult.stdout);
+                }
+              }
+            } catch {
+              // Non-critical — agent can still use sonde CLI
             }
+            corpusPulled = true;
           }
           await handleUserMessage(
             session,
@@ -179,32 +176,21 @@ export function handleWebSocket(
     },
 
     onClose() {
-      closed = true;
       approvalBridge?.dispose();
       approvalBridge = null;
       if (session) {
         session.close();
         session = null;
       }
-      if (sandboxHandle) {
-        console.log("[sandbox] Cleaning up on disconnect");
-        sandboxHandle.dispose().catch(() => {});
-        sandboxHandle = null;
-      }
+      // Shared sandbox stays alive — cleaned up on server shutdown
     },
 
     onError(_evt) {
-      closed = true;
       approvalBridge?.dispose();
       approvalBridge = null;
       if (session) {
         session.close();
         session = null;
-      }
-      if (sandboxHandle) {
-        console.log("[sandbox] Cleaning up on error");
-        sandboxHandle.dispose().catch(() => {});
-        sandboxHandle = null;
       }
     },
   };
