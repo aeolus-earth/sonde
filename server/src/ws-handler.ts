@@ -101,6 +101,19 @@ export function handleWebSocket(
         }
 
         send(ws, { type: "session", sessionId: session.sessionId });
+
+        // Warm up the Agent SDK session — the first query() on a new session
+        // initializes internal state and produces no events. Drain it here
+        // so the user's first real message gets a response.
+        console.log("[ws] Warming up agent session...");
+        try {
+          for await (const _event of session.query("ping", {})) {
+            // Drain events (if any) without forwarding to client
+          }
+        } catch {
+          // Warm-up failure is non-critical
+        }
+        console.log("[ws] Session warm-up complete");
       } finally {
         // Always resolve — even on error — so onMessage doesn't hang forever
         resolveReady!();
@@ -109,7 +122,9 @@ export function handleWebSocket(
 
     async onMessage(evt, ws) {
       // Wait for onOpen to finish setting up the session
+      console.log("[ws] onMessage: waiting for ready...");
       await readyPromise;
+      console.log("[ws] onMessage: ready, session:", session ? "yes" : "null");
       if (!session) return;
 
       let raw: string;
@@ -131,6 +146,7 @@ export function handleWebSocket(
 
       switch (msg.type) {
         case "message":
+          console.log("[ws] Processing message:", msg.content?.slice(0, 50));
           // Lazy corpus pull (fast — sandbox already cached)
           if (isSandboxMode() && !corpusPulled) {
             try {
@@ -162,6 +178,7 @@ export function handleWebSocket(
             }
             corpusPulled = true;
           }
+          console.log("[ws] Calling handleUserMessage, sessionId:", msg.sessionId?.slice(0, 12));
           await handleUserMessage(
             session,
             ws,
@@ -271,9 +288,11 @@ async function handleUserMessage(
   const prompt = chunks.join("\n\n");
 
   try {
+    console.log("[ws] session.query() starting, resume:", clientSessionId?.slice(0, 12) ?? "none");
     for await (const event of session.query(prompt, {
       resumeSessionId: clientSessionId,
     })) {
+      console.log("[ws] event:", event.type);
       switch (event.type) {
         case "session":
           send(ws, { type: "session", sessionId: event.sessionId });
