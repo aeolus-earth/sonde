@@ -21,12 +21,7 @@ def next_sequential_id(table: str, prefix: str, digits: int = 4) -> str:
     avoiding lexicographic sort issues (e.g. PROJ-999 > PROJ-1000).
     """
     client = get_client()
-    result = (
-        client.table(table)
-        .select("id")
-        .like("id", f"{prefix}-%")
-        .execute()
-    )
+    result = client.table(table).select("id").like("id", f"{prefix}-%").execute()
     existing = to_rows(result.data)
     if existing:
         pattern = re.compile(rf"^{re.escape(prefix)}-(\d+)$")

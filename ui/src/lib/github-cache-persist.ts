@@ -1,6 +1,6 @@
 import type { QueryClient } from "@tanstack/react-query";
 
-const STORAGE_KEY = "sonde-github-cache";
+const STORAGE_KEY = "sonde-github-cache-v2";
 const DEBOUNCE_MS = 2000;
 
 export function setupGitHubCachePersistence(queryClient: QueryClient) {

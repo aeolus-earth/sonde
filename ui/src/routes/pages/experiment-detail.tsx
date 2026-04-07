@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { getRouteApi, Link } from "@tanstack/react-router";
 import { ROUTE_API } from "../route-ids";
 import { useExperiment } from "@/hooks/use-experiments";
@@ -27,7 +27,8 @@ import { GitProvenance } from "@/components/experiments/git-provenance";
 import { CodeContext } from "@/components/experiments/code-context";
 import { ChatPanel } from "@/components/chat/chat-panel";
 import { ChatPageProvider } from "@/contexts/chat-page-context";
-import { ArrowLeft, ChevronRight, MessageSquare } from "lucide-react";
+import { ArrowLeft, ChevronRight, Copy, MessageSquare } from "lucide-react";
+import { experimentDetailShareUrl } from "@/lib/app-origin";
 
 const routeApi = getRouteApi(ROUTE_API.authExperimentDetail);
 
@@ -38,7 +39,9 @@ function looksLikeMarkdown(text: string): boolean {
 
 export default function ExperimentDetailPage() {
   const [chatOpen, setChatOpen] = useState(true);
+  const [linkCopied, setLinkCopied] = useState(false);
   const { id } = routeApi.useParams();
+  const shareUrl = useMemo(() => experimentDetailShareUrl(id), [id]);
   const nav = routeApi.useNavigate();
   const { data: exp, isLoading } = useExperiment(id);
   const { data: activity } = useRecordActivity(id);
@@ -46,6 +49,16 @@ export default function ExperimentDetailPage() {
   useRealtimeInvalidation("experiments", ["experiments"]);
   useRealtimeInvalidation("activity_log", ["activity"]);
   useHotkey("Escape", useCallback(() => nav({ to: "/experiments" }), [nav]));
+
+  const copyShareLink = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setLinkCopied(true);
+      window.setTimeout(() => setLinkCopied(false), 2000);
+    } catch {
+      setLinkCopied(false);
+    }
+  }, [shareUrl]);
 
   if (isLoading || !exp) {
     return (
@@ -98,6 +111,16 @@ export default function ExperimentDetailPage() {
         </div>
         <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2">
           <ExperimentLineage experiment={exp} />
+          <button
+            type="button"
+            onClick={() => void copyShareLink()}
+            title={shareUrl}
+            aria-label={linkCopied ? "Link copied" : `Copy link: ${shareUrl}`}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-[5.5px] border border-border-subtle bg-surface-raised px-2.5 py-1 text-[12px] font-medium text-text-secondary transition-colors hover:bg-surface-hover"
+          >
+            <Copy className="h-3.5 w-3.5 shrink-0 text-text-quaternary" aria-hidden />
+            {linkCopied ? "Copied" : "Copy link"}
+          </button>
           {!chatOpen && (
             <button
               type="button"

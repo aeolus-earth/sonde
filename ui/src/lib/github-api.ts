@@ -1,12 +1,35 @@
+import { getAgentHttpBase } from "@/lib/agent-http";
+import { supabase } from "@/lib/supabase";
 import { useGitHubRateLimitStore } from "@/stores/github-rate-limit";
-import type { GitHubCommit, TimelineCommit, CommitPage, GitHubRateLimit } from "@/types/github";
+import type { CommitPage } from "@/types/github";
+
+type GitHubErrorPayload =
+  | {
+      type: "rate_limit";
+      message: string;
+      reset: number;
+    }
+  | {
+      type: "repo_not_found";
+      message: string;
+    }
+  | {
+      type: "branch_not_found";
+      message: string;
+      branch: string;
+      defaultBranch: string;
+    }
+  | {
+      type: "github_token_invalid" | "github_error" | "unauthorized" | "bad_request";
+      message: string;
+    };
 
 export class RateLimitError extends Error {
-  reset: number;
-  constructor(reset: number) {
-    super(`GitHub API rate limit exceeded. Resets at ${new Date(reset * 1000).toLocaleTimeString()}`);
+  constructor(public readonly reset: number) {
+    super(
+      `GitHub API rate limit exceeded. Resets at ${new Date(reset * 1000).toLocaleTimeString()}`
+    );
     this.name = "RateLimitError";
-    this.reset = reset;
   }
 }
 
@@ -17,85 +40,100 @@ export class RepoNotFoundError extends Error {
   }
 }
 
-function parseRateLimit(headers: Headers): GitHubRateLimit {
-  return {
-    limit: parseInt(headers.get("x-ratelimit-limit") ?? "60", 10),
-    remaining: parseInt(headers.get("x-ratelimit-remaining") ?? "60", 10),
-    reset: parseInt(headers.get("x-ratelimit-reset") ?? "0", 10),
-    used: parseInt(headers.get("x-ratelimit-used") ?? "0", 10),
-  };
+export class BranchNotFoundError extends Error {
+  constructor(
+    public readonly owner: string,
+    public readonly repo: string,
+    public readonly branch: string,
+    public readonly defaultBranch: string
+  ) {
+    super(`Branch ${branch} not found in ${owner}/${repo}`);
+    this.name = "BranchNotFoundError";
+  }
 }
 
-function parseNextPage(headers: Headers): number | null {
-  const link = headers.get("link");
-  if (!link) return null;
-  const match = link.match(/<[^>]*[?&]page=(\d+)[^>]*>;\s*rel="next"/);
-  return match ? parseInt(match[1], 10) : null;
+export class GitHubProxyAuthError extends Error {
+  constructor(message = "Timeline request is unauthorized") {
+    super(message);
+    this.name = "GitHubProxyAuthError";
+  }
 }
 
-function normalizeCommit(c: GitHubCommit): TimelineCommit {
-  return {
-    sha: c.sha,
-    shortSha: c.sha.slice(0, 8),
-    message: c.commit.message,
-    firstLine: c.commit.message.split("\n")[0].slice(0, 120),
-    authorName: c.commit.author.name,
-    authorDate: c.commit.author.date,
-    htmlUrl: c.html_url,
-    authorLogin: c.author?.login ?? null,
-    authorAvatar: c.author?.avatar_url ?? null,
-  };
+export class GitHubProxyConfigError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "GitHubProxyConfigError";
+  }
+}
+
+async function getAccessToken(): Promise<string> {
+  const current = supabase.auth.getSession();
+  const {
+    data: { session },
+    error,
+  } = await current;
+  if (error || !session?.access_token) {
+    throw new GitHubProxyAuthError("Sign in again to load timeline commit history.");
+  }
+  return session.access_token;
+}
+
+async function parseError(response: Response): Promise<GitHubErrorPayload | null> {
+  try {
+    const body = (await response.json()) as { error?: GitHubErrorPayload };
+    return body.error ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export async function fetchCommits(
   owner: string,
   repo: string,
-  options: { branch?: string; page?: number; perPage?: number } = {}
+  options: { branch?: string | null; perPage?: number } = {}
 ): Promise<CommitPage> {
-  const { branch = "main", page = 1, perPage = 100 } = options;
+  const { branch = null, perPage = 100 } = options;
+  const accessToken = await getAccessToken();
 
-  // Pre-flight rate limit check
-  const store = useGitHubRateLimitStore.getState();
-  if (store.remaining === 0 && store.reset > 0 && Date.now() < store.reset * 1000) {
-    throw new RateLimitError(store.reset);
-  }
-
-  const url = new URL(`https://api.github.com/repos/${owner}/${repo}/commits`);
-  url.searchParams.set("sha", branch);
-  url.searchParams.set("page", String(page));
+  const url = new URL(`${getAgentHttpBase()}/github/repos/${owner}/${repo}/commits`);
   url.searchParams.set("per_page", String(perPage));
+  if (branch) url.searchParams.set("branch", branch);
 
-  const headers: Record<string, string> = {
-    Accept: "application/vnd.github+json",
-  };
+  const response = await fetch(url.toString(), {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
 
-  const token = import.meta.env.VITE_GITHUB_TOKEN;
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
+  const payload = response.ok ? ((await response.json()) as CommitPage) : null;
+  if (payload) {
+    useGitHubRateLimitStore
+      .getState()
+      .update(payload.rateLimit, payload.diagnostics.authMode);
+    return payload;
   }
 
-  const res = await fetch(url.toString(), { headers });
-
-  // Update rate limit from response
-  const rateLimit = parseRateLimit(res.headers);
-  useGitHubRateLimitStore.getState().update(rateLimit);
-
-  if (res.status === 403 || res.status === 429) {
-    throw new RateLimitError(rateLimit.reset);
+  const error = await parseError(response);
+  if (error?.type === "rate_limit") {
+    throw new RateLimitError(error.reset);
   }
-  if (res.status === 404) {
+  if (error?.type === "repo_not_found") {
     throw new RepoNotFoundError(owner, repo);
   }
-  if (!res.ok) {
-    throw new Error(`GitHub API error: ${res.status} ${res.statusText}`);
+  if (error?.type === "branch_not_found") {
+    throw new BranchNotFoundError(owner, repo, error.branch, error.defaultBranch);
+  }
+  if (response.status === 401 || error?.type === "unauthorized") {
+    throw new GitHubProxyAuthError(error?.message);
+  }
+  if (error?.type === "github_token_invalid") {
+    throw new GitHubProxyConfigError(
+      "Server GitHub token is invalid. Update GITHUB_TOKEN on the Sonde server."
+    );
+  }
+  if (error?.type === "github_error") {
+    throw new GitHubProxyConfigError("Sonde server could not load GitHub commit history.");
   }
 
-  const data: GitHubCommit[] = await res.json();
-  const nextPage = parseNextPage(res.headers);
-
-  return {
-    commits: data.map(normalizeCommit),
-    nextPage,
-    rateLimit,
-  };
+  throw new Error(`GitHub timeline request failed: ${response.status} ${response.statusText}`);
 }

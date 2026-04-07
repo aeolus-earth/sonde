@@ -938,7 +938,12 @@ def _build_direction_index_for_experiments(
     experiments: list[dict[str, Any]],
 ) -> dict[str, dict[str, Any]]:
     """Build a minimal direction_index by fetching directions referenced by experiments."""
-    dir_ids = {exp.get("direction_id") for exp in experiments if exp.get("direction_id")}
+    dir_ids = {
+        direction_id
+        for exp in experiments
+        for direction_id in [exp.get("direction_id")]
+        if isinstance(direction_id, str) and direction_id
+    }
     if not dir_ids:
         return {}
     index: dict[str, dict[str, Any]] = {}

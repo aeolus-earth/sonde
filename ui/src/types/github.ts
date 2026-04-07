@@ -40,11 +40,32 @@ export interface GitHubRateLimit {
   used: number;
 }
 
+export type GitHubAuthMode = "server_token" | "unauthenticated";
+
+export interface GitHubRepoSummary {
+  defaultBranch: string;
+  htmlUrl: string;
+  private: boolean;
+}
+
+export interface GitHubCommitDiagnostics {
+  authMode: GitHubAuthMode;
+  repoCache: "hit" | "miss";
+  commitCache: "hit" | "miss";
+  upstreamRequests: number;
+  requestedBranch: string | null;
+  resolvedBranch: string;
+  fetchedAt: string;
+  warnings: string[];
+}
+
 /** A page of commits for infinite query */
 export interface CommitPage {
   commits: TimelineCommit[];
   nextPage: number | null;
   rateLimit: GitHubRateLimit;
+  repo: GitHubRepoSummary;
+  diagnostics: GitHubCommitDiagnostics;
 }
 
 /** Experiment marker on the timeline */
@@ -64,6 +85,6 @@ export interface TimelineRepo {
   identity: RepoIdentity;
   key: string;
   branches: string[];
-  defaultBranch: string;
+  defaultBranch: string | null;
   experiments: ExperimentMarker[];
 }

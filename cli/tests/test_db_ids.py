@@ -16,9 +16,7 @@ def _make_client(existing_ids: list[str] | None = None) -> MagicMock:
 
     # Default: no existing rows
     if existing_ids:
-        table.execute.return_value = MagicMock(
-            data=[{"id": eid} for eid in existing_ids]
-        )
+        table.execute.return_value = MagicMock(data=[{"id": eid} for eid in existing_ids])
     else:
         table.execute.return_value = MagicMock(data=[])
     return client

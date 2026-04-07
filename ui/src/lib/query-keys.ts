@@ -59,6 +59,6 @@ export const queryKeys = {
   },
   github: {
     allCommits: (owner: string, repo: string, branch: string) =>
-      ["github", "commits", owner, repo, branch] as const,
+      ["github", "v2", "commits", owner, repo, branch] as const,
   },
 } as const;

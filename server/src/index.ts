@@ -5,19 +5,29 @@ import { cors } from "hono/cors";
 import { createNodeWebSocket } from "@hono/node-ws";
 import { handleWebSocket } from "./ws-handler.js";
 import { probeSondeCliEnvironment } from "./sonde-runner.js";
+import { registerGitHubRoutes } from "./github.js";
 
 const app = new Hono();
 const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
+const uiOrigins = [
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+  "http://localhost:4173",
+  "http://127.0.0.1:4173",
+];
 
 app.use(
   "/chat",
   cors({
-    origin: [
-      "http://localhost:5173",
-      "http://127.0.0.1:5173",
-      "http://localhost:4173",
-      "http://127.0.0.1:4173",
-    ],
+    origin: uiOrigins,
+    credentials: true,
+  })
+);
+
+app.use(
+  "/github/*",
+  cors({
+    origin: uiOrigins,
     credentials: true,
   })
 );
@@ -25,6 +35,7 @@ app.use(
 app.get("/health", (c) => c.json({ status: "ok" }));
 
 app.get("/chat", upgradeWebSocket((c) => handleWebSocket(c)));
+registerGitHubRoutes(app);
 
 const port = Number(process.env.SONDE_SERVER_PORT ?? 3001);
 

@@ -69,7 +69,7 @@ export function useTimelineRepos() {
           identity: entry.identity,
           key,
           branches: branchList,
-          defaultBranch: "main",
+          defaultBranch: null,
           experiments: entry.experiments,
         };
       }
