@@ -374,8 +374,10 @@ class TestBuildActiveContext:
     @patch("sonde.commands.brief.exp_db.get_tree_summary", return_value={})
     @patch("sonde.commands.next.build_suggestions")
     @patch("sonde.db.directions.list_directions", return_value=[])
+    @patch("sonde.commands.brief.artifact_count_map", return_value={})
     def test_next_actions_populated_from_build_suggestions(
         self,
+        _mock_artifact_counts: MagicMock,
         _mock_dir_list: MagicMock,
         mock_build: MagicMock,
         _mock_tree: MagicMock,

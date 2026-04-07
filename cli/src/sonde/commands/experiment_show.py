@@ -8,6 +8,7 @@ import click
 
 from sonde.cli_options import pass_output_options
 from sonde.db import experiments as db
+from sonde.experiment_hygiene import hygiene_summary, print_hygiene_block
 from sonde.models.experiment import Experiment
 from sonde.output import (
     err,
@@ -61,6 +62,7 @@ def show(ctx: click.Context, experiment_id: str, graph: bool) -> None:
     from sonde.commands.lifecycle import _suggest_next
 
     suggestions = _suggest_next(exp, children, siblings)
+    hygiene = hygiene_summary(exp, phase="show", artifact_count=len(artifacts))
 
     if ctx.obj.get("json"):
         data = exp.model_dump(mode="json")
@@ -71,6 +73,7 @@ def show(ctx: click.Context, experiment_id: str, graph: bool) -> None:
         data["_children"] = [c.model_dump(mode="json") for c in children]
         data["_siblings"] = [s.model_dump(mode="json") for s in siblings]
         data["_suggested_next"] = suggestions
+        data["_hygiene"] = hygiene
         if graph:
             graph_data = db.get_graph_neighborhood(exp)
             data["_graph"] = _serialize_graph(graph_data)
@@ -221,6 +224,8 @@ def show(ctx: click.Context, experiment_id: str, graph: bool) -> None:
                     f"  [sonde.brand]{aid}[/]  [sonde.muted]{a.get('type', 'file')}[/]"
                     f"  {a['filename']}{size_str}"
                 )
+
+        print_hygiene_block(hygiene)
 
         # Children
         if children:

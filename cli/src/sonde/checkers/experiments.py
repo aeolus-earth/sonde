@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 from sonde.coordination import STALE_CLAIM_HOURS, STALE_RUNNING_HOURS
+from sonde.experiment_hygiene import hygiene_summary
 from sonde.models.health import HealthData, HealthIssue
 
 
@@ -189,6 +190,106 @@ def check_dirty_provenance(data: HealthData) -> list[HealthIssue]:
                     ),
                     record_id=e["id"],
                     fix=f"sonde show {e['id']}",
+                    penalty=3,
+                )
+            )
+    return issues
+
+
+def check_missing_hypothesis(data: HealthData) -> list[HealthIssue]:
+    """Flag terminal experiments with no hypothesis."""
+    issues: list[HealthIssue] = []
+    for experiment in data.experiments:
+        review = hygiene_summary(
+            experiment,
+            phase="review",
+            artifact_count=experiment.get("artifact_count"),
+        )
+        for item in review["items"]:
+            if item["key"] != "hypothesis":
+                continue
+            issues.append(
+                HealthIssue(
+                    category="experiment",
+                    severity="warning",
+                    record_id=experiment["id"],
+                    message=item["message"],
+                    fix=item["fix"],
+                    penalty=3,
+                )
+            )
+    return issues
+
+
+def check_no_artifacts(data: HealthData) -> list[HealthIssue]:
+    """Flag terminal experiments with no artifacts."""
+    issues: list[HealthIssue] = []
+    for experiment in data.experiments:
+        review = hygiene_summary(
+            experiment,
+            phase="review",
+            artifact_count=experiment.get("artifact_count"),
+        )
+        for item in review["items"]:
+            if item["key"] != "artifacts":
+                continue
+            issues.append(
+                HealthIssue(
+                    category="experiment",
+                    severity="warning",
+                    record_id=experiment["id"],
+                    message=item["message"],
+                    fix=item["fix"],
+                    penalty=2,
+                )
+            )
+    return issues
+
+
+def check_missing_linkage(data: HealthData) -> list[HealthIssue]:
+    """Flag terminal experiments not linked to a direction or project."""
+    issues: list[HealthIssue] = []
+    for experiment in data.experiments:
+        review = hygiene_summary(
+            experiment,
+            phase="review",
+            artifact_count=experiment.get("artifact_count"),
+        )
+        for item in review["items"]:
+            if item["key"] != "linkage":
+                continue
+            issues.append(
+                HealthIssue(
+                    category="experiment",
+                    severity="info",
+                    record_id=experiment["id"],
+                    message=item["message"],
+                    fix=item["fix"],
+                    penalty=1,
+                )
+            )
+    return issues
+
+
+def check_missing_close_provenance(data: HealthData) -> list[HealthIssue]:
+    """Flag terminal experiments with no close commit/branch provenance."""
+    issues: list[HealthIssue] = []
+    for experiment in data.experiments:
+        review = hygiene_summary(
+            experiment,
+            phase="review",
+            artifact_count=experiment.get("artifact_count"),
+        )
+        for item in review["items"]:
+            if item["key"] != "close_provenance":
+                continue
+            issues.append(
+                HealthIssue(
+                    category="experiment",
+                    severity="warning",
+                    record_id=experiment["id"],
+                    message=item["message"],
+                    fix=item["fix"],
                     penalty=3,
                 )
             )

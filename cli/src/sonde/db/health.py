@@ -25,15 +25,31 @@ def fetch_health_data(*, program: str | None = None) -> dict[str, Any]:
     exp_query = (
         client.table("experiments")
         .select(
-            "id,status,content,finding,tags,parameters,metadata,"
+            "id,status,content,hypothesis,finding,tags,parameters,metadata,"
             "source,created_at,updated_at,direction_id,project_id,parent_id,program,"
-            "claimed_by,claimed_at,git_dirty"
+            "claimed_by,claimed_at,git_close_commit,git_close_branch,git_dirty"
         )
         .order("created_at", desc=True)
     )
     if program:
         exp_query = exp_query.eq("program", program)
     experiments = rows(exp_query.execute().data)
+    experiment_ids = [row["id"] for row in experiments]
+    artifact_counts = {experiment_id: 0 for experiment_id in experiment_ids}
+    if experiment_ids:
+        art_rows = rows(
+            client.table("artifacts")
+            .select("experiment_id")
+            .in_("experiment_id", experiment_ids)
+            .execute()
+            .data
+        )
+        for artifact in art_rows:
+            experiment_id = artifact.get("experiment_id")
+            if experiment_id:
+                artifact_counts[experiment_id] = artifact_counts.get(experiment_id, 0) + 1
+    for experiment in experiments:
+        experiment["artifact_count"] = artifact_counts.get(experiment["id"], 0)
 
     # 2. Active findings (valid_until IS NULL)
     find_query = (

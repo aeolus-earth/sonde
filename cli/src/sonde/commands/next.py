@@ -9,6 +9,7 @@ import click
 
 from sonde.cli_options import pass_output_options
 from sonde.config import get_settings
+from sonde.experiment_hygiene import artifact_count_map, hygiene_summary
 from sonde.output import err, print_error, print_json
 
 
@@ -48,8 +49,15 @@ def next_cmd(ctx: click.Context, program: str | None, limit: int) -> None:
     findings = find_db.list_active(program=program)
     questions = q_db.list_questions(program=program, include_all=False, limit=10000)
     directions = dir_db.list_directions(program=program, statuses=None, limit=10000)
+    artifact_counts = artifact_count_map([e.id for e in experiments])
 
-    suggestions = _build_suggestions(experiments, findings, questions, directions)
+    suggestions = _build_suggestions(
+        experiments,
+        findings,
+        questions,
+        directions,
+        artifact_counts=artifact_counts,
+    )
     suggestions = suggestions[:limit]
 
     if ctx.obj.get("json"):
@@ -80,10 +88,13 @@ def _build_suggestions(
     findings: list[Any],
     questions: list[Any],
     directions: list[Any],
+    *,
+    artifact_counts: dict[str, int] | None = None,
 ) -> list[dict[str, str]]:
     """Build a prioritized list of actionable suggestions."""
     suggestions: list[dict[str, str]] = []
     now = datetime.now(UTC)
+    artifact_counts = artifact_counts or {}
 
     # 1. Complete experiments with no finding — knowledge not captured
     complete_no_finding = [e for e in experiments if e.status == "complete" and not e.finding]
@@ -115,7 +126,32 @@ def _build_suggestions(
                 }
             )
 
-    # 3. Directions whose experiments are all terminal and need closure review
+    # 3. Terminal experiments with incomplete hygiene
+    terminal = [e for e in experiments if e.status in ("complete", "failed")]
+    for e in terminal[:5]:
+        review = hygiene_summary(
+            e,
+            phase="review",
+            artifact_count=artifact_counts.get(e.id),
+        )
+        warnings = [item for item in review["items"] if item["key"] != "finding"]
+        if not warnings:
+            continue
+        first = warnings[0]
+        priority = (
+            "high" if first["key"] in ("hypothesis", "artifacts", "close_provenance") else "medium"
+        )
+        suggestions.append(
+            {
+                "priority": priority,
+                "type": "experiment_cleanup",
+                "record": e.id,
+                "reason": first["message"],
+                "command": first["fix"] or f"sonde show {e.id}",
+            }
+        )
+
+    # 4. Directions whose experiments are all terminal and need closure review
     for review in build_directions_for_review(experiments, directions)[:3]:
         suggestions.append(
             {
@@ -127,7 +163,7 @@ def _build_suggestions(
             }
         )
 
-    # 4. Open questions with no evidence
+    # 5. Open questions with no evidence
     open_questions = [q for q in questions if q.status == "open"]
     for q in open_questions[:3]:
         suggestions.append(
@@ -140,7 +176,7 @@ def _build_suggestions(
             }
         )
 
-    # 5. Directions with no active experiments
+    # 6. Directions with no active experiments
     active_exp_directions = {
         e.direction_id for e in experiments if e.status in ("open", "running") and e.direction_id
     }
@@ -157,7 +193,7 @@ def _build_suggestions(
                 }
             )
 
-    # 6. Open experiments that could be started
+    # 7. Open experiments that could be started
     open_exps = [e for e in experiments if e.status == "open"]
     for e in open_exps[:2]:
         suggestions.append(

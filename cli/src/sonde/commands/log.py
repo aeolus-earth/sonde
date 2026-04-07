@@ -19,6 +19,7 @@ from sonde.config import get_settings
 from sonde.db import experiments as db
 from sonde.db import questions as q_db
 from sonde.db.activity import log_activity
+from sonde.experiment_hygiene import hygiene_summary, print_hygiene_block
 from sonde.git import detect_git_context, detect_multi_repo_context, snapshots_to_json
 from sonde.local import generate_body
 from sonde.models.experiment import ExperimentCreate
@@ -321,6 +322,11 @@ def log(
         err.print(f"  Attach:  sonde attach {exp.id} <file>")
         for question in created_questions:
             err.print(f"  Question: sonde show {question.id}")
+        print_hygiene_block(
+            hygiene_summary(exp, phase="start"),
+            title="Log checklist",
+            show_healthy=False,
+        )
 
         # Research hygiene nudges (max 1, only for non-JSON)
         if not exp.content and not exp.hypothesis:

@@ -19,6 +19,7 @@ from sonde.config import get_settings
 from sonde.db import experiments as exp_db
 from sonde.db import findings as find_db
 from sonde.db import questions as q_db
+from sonde.experiment_hygiene import artifact_count_map, hygiene_summary
 from sonde.finding_utils import partition_operational_findings
 from sonde.local import get_focused_experiment
 from sonde.models.experiment import Experiment
@@ -148,7 +149,17 @@ def _build_active_context(
             from sonde.db import directions as dir_db2
 
             directions = dir_db2.list_directions(program=program, statuses=None, limit=10000)
-            all_suggestions = build_suggestions(experiments, findings, questions, directions)
+            try:
+                artifact_counts = artifact_count_map([e.id for e in experiments])
+            except Exception:
+                artifact_counts = {}
+            all_suggestions = build_suggestions(
+                experiments,
+                findings,
+                questions,
+                directions,
+                artifact_counts=artifact_counts,
+            )
             next_actions = all_suggestions[:3]
         except (Exception, SystemExit):
             pass
@@ -374,6 +385,8 @@ def _build_brief_data(
     # Motivation: program description + active project objectives
     motivation = _build_motivation(program)
     directions_for_review: list[dict[str, str]] = []
+    needs_cleanup: list[dict[str, Any]] = []
+    artifact_counts = artifact_count_map([e.id for e in experiments]) if experiments else {}
     if program:
         try:
             from sonde.commands.next import build_directions_for_review
@@ -383,6 +396,30 @@ def _build_brief_data(
             directions_for_review = build_directions_for_review(experiments, directions)
         except Exception:
             pass
+
+    for experiment in sorted(
+        [e for e in experiments if e.status in ("complete", "failed")],
+        key=lambda e: e.updated_at or e.created_at,
+        reverse=True,
+    ):
+        review = hygiene_summary(
+            experiment,
+            phase="review",
+            artifact_count=artifact_counts.get(experiment.id),
+        )
+        if not review["warning_count"]:
+            continue
+        issues = review["items"][:2]
+        commands = [item["fix"] for item in issues if item.get("fix")][:2]
+        needs_cleanup.append(
+            {
+                "id": experiment.id,
+                "status": experiment.status,
+                "summary": record_summary(experiment, 90),
+                "issues": [item["message"] for item in issues],
+                "commands": commands,
+            }
+        )
 
     data: dict[str, Any] = {
         "title": title,
@@ -426,6 +463,7 @@ def _build_brief_data(
             {"id": q.id, "question": q.question, "status": q.status} for q in questions
         ],
         "directions_for_review": directions_for_review,
+        "needs_cleanup": needs_cleanup[:5],
         # Section 3: What we've explored
         "open_experiments": [
             {

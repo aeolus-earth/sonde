@@ -130,6 +130,24 @@ def render_needs_review(data: dict) -> None:
         err.print(f"    [sonde.brand]{item['command']}[/]")
 
 
+def render_needs_cleanup(data: dict) -> None:
+    """Render recently finished experiments that still need cleanup."""
+    cleanup = data.get("needs_cleanup") or []
+    if not cleanup:
+        return
+
+    err.print("\n[sonde.heading]Needs Cleanup[/]")
+    for item in cleanup[:5]:
+        err.print(
+            f"  [sonde.warning]●[/] {item['id']} [{item['status']}] "
+            f"{truncate_text(item['summary'], 70)}"
+        )
+        for issue in item.get("issues", [])[:2]:
+            err.print(f"    [sonde.muted]{issue}[/]")
+        for command in item.get("commands", [])[:2]:
+            err.print(f"    [sonde.brand]{command}[/]")
+
+
 def render_operational_findings(data: dict) -> None:
     """Render always-check-first findings separately from the archive."""
     operational = data.get("operational_findings") or []
@@ -168,6 +186,7 @@ def render_active_only(data: dict, *, program: str | None = None) -> None:
     render_motivation(data)
     render_active_context(data)
     render_needs_review(data)
+    render_needs_cleanup(data)
     render_operational_findings(data)
 
     if data.get("takeaways"):
@@ -238,6 +257,7 @@ def render_human(
     # Active context — what's happening now
     render_active_context(data)
     render_needs_review(data)
+    render_needs_cleanup(data)
 
     # Takeaways — synthesized status
     if data.get("takeaways"):
@@ -533,6 +553,16 @@ def render_markdown(data: dict) -> str:
         lines.append("## Needs review\n")
         for item in data["directions_for_review"]:
             lines.append(f"- {item['reason']}: `{item['command']}`")
+        lines.append("")
+
+    if data.get("needs_cleanup"):
+        lines.append("## Needs cleanup\n")
+        for item in data["needs_cleanup"]:
+            lines.append(f"- **{item['id']}** [{item['status']}] {item['summary']}")
+            for issue in item.get("issues", [])[:2]:
+                lines.append(f"  - {issue}")
+            for command in item.get("commands", [])[:2]:
+                lines.append(f"  - `{command}`")
         lines.append("")
 
     if data.get("takeaways"):

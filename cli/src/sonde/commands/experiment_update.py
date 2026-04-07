@@ -67,6 +67,8 @@ from sonde.output import (
 @click.option("--direction", help="Set or change the parent research direction")
 @click.option("--project", help="Set or change the parent project")
 @click.option("--linear", help="Link to a Linear issue ID (e.g. AEO-123)")
+@click.option("--close-commit", help="Repair or override the closing git commit")
+@click.option("--close-branch", help="Repair or override the closing git branch")
 @click.option(
     "--tag",
     multiple=True,
@@ -93,6 +95,8 @@ def update(
     direction: str | None,
     project: str | None,
     linear: str | None,
+    close_commit: str | None,
+    close_branch: str | None,
     tag: tuple[str, ...],
     repro: str | None,
     evidence: tuple[str, ...],
@@ -139,6 +143,10 @@ def update(
         updates["project_id"] = project
     if linear is not None:
         updates["linear_id"] = linear
+    if close_commit is not None:
+        updates["git_close_commit"] = close_commit
+    if close_branch is not None:
+        updates["git_close_branch"] = close_branch
 
     # Content
     if content_file:
