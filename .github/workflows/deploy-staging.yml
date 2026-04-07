@@ -106,23 +106,23 @@ jobs:
       - name: Install Railway CLI
         run: npm install -g @railway/cli
 
-      - name: Link Railway staging project
+      - name: Verify Railway staging token
         env:
-          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_STAGING_PROJECT_TOKEN }}
         run: |
-          if [ -z "$RAILWAY_API_TOKEN" ]; then
-            echo "::error::Missing RAILWAY_API_TOKEN secret"
+          if [ -z "$RAILWAY_TOKEN" ]; then
+            echo "::error::Missing RAILWAY_STAGING_PROJECT_TOKEN secret"
             exit 1
           fi
-          railway link \
-            -w "${{ vars.RAILWAY_WORKSPACE_ID }}" \
+          railway run \
             -p "${{ vars.RAILWAY_STAGING_PROJECT_ID }}" \
             -e "${{ vars.RAILWAY_STAGING_ENVIRONMENT_ID }}" \
-            --json >/tmp/railway-link.json
+            -s "${{ vars.RAILWAY_STAGING_SERVICE_NAME }}" \
+            env >/tmp/railway-staging-env.txt
 
       - name: Pin deployed commit metadata
         env:
-          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_STAGING_PROJECT_TOKEN }}
         run: |
           railway variable set \
             -s "${{ vars.RAILWAY_STAGING_SERVICE_NAME }}" \
@@ -133,5 +133,11 @@ jobs:
 
       - name: Deploy staging agent
         env:
-          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
-        run: railway up --service "${{ vars.RAILWAY_STAGING_SERVICE_NAME }}" --detach --ci
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_STAGING_PROJECT_TOKEN }}
+        run: |
+          railway up \
+            -p "${{ vars.RAILWAY_STAGING_PROJECT_ID }}" \
+            -e "${{ vars.RAILWAY_STAGING_ENVIRONMENT_ID }}" \
+            -s "${{ vars.RAILWAY_STAGING_SERVICE_NAME }}" \
+            --detach \
+            --ci
