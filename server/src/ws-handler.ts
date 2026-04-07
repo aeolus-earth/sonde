@@ -92,9 +92,10 @@ export function handleWebSocket(
   }
 
   return {
-    // onOpen: ZERO async work. Just accept the connection.
-    onOpen(_evt, _ws) {
-      // Nothing — all init happens on first message via ensureInitialized()
+    // onOpen: Send a placeholder session ID immediately so the UI
+    // knows the connection is alive. Real session created on first message.
+    onOpen(_evt, ws) {
+      send(ws, { type: "session", sessionId: crypto.randomUUID() });
     },
 
     async onMessage(evt, ws) {
@@ -234,9 +235,13 @@ async function handleUserMessage(
   const prompt = chunks.join("\n\n");
 
   try {
+    console.log("[ws] query() starting, resume:", clientSessionId?.slice(0, 8) ?? "none");
+    let eventCount = 0;
     for await (const event of session.query(prompt, {
       resumeSessionId: clientSessionId,
     })) {
+      eventCount++;
+      if (eventCount === 1) console.log("[ws] first event:", event.type);
       switch (event.type) {
         case "session":
           send(ws, { type: "session", sessionId: event.sessionId });
@@ -280,9 +285,11 @@ async function handleUserMessage(
           break;
       }
     }
+    console.log("[ws] query() done,", eventCount, "events");
     send(ws, { type: "done" });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Agent query failed";
+    console.log("[ws] query() error:", message);
     send(ws, { type: "error", message });
     send(ws, { type: "done" });
   }
