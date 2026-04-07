@@ -186,6 +186,26 @@ const CanvasArtifactCard = memo(function CanvasArtifactCard({
             draggable={false}
           />
         )}
+        {!loading && !url && (
+          <div className="flex h-full w-full flex-col items-center justify-center gap-1.5 px-3">
+            <span className={cn(
+              "text-[24px]",
+              dark ? "opacity-30" : "opacity-20",
+            )}>
+              {artifact.filename?.endsWith(".csv") ? "📊"
+                : artifact.filename?.endsWith(".pdf") ? "📄"
+                : artifact.filename?.endsWith(".py") ? "🐍"
+                : artifact.filename?.endsWith(".jl") ? "📐"
+                : "📎"}
+            </span>
+            <span className={cn(
+              "line-clamp-2 text-center text-[10px] leading-tight",
+              dark ? "text-white/40" : "text-text-quaternary",
+            )}>
+              {artifact.filename}
+            </span>
+          </div>
+        )}
       </div>
     </Link>
   );

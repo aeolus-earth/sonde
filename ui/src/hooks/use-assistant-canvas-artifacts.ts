@@ -206,8 +206,16 @@ export function useAssistantCanvasArtifacts() {
         });
       }
 
+      // Prefer visual artifacts (images/videos) but include others (CSV, PDF)
+      // if we don't have enough visuals to fill the canvas
       const visual = merged.filter(isVisualArtifact);
-      return selectDiverse(visual, ASSISTANT_CANVAS_CARD_COUNT);
+      if (visual.length >= ASSISTANT_CANVAS_CARD_COUNT) {
+        return selectDiverse(visual, ASSISTANT_CANVAS_CARD_COUNT);
+      }
+      // Fill remaining slots with non-visual artifacts
+      const nonVisual = merged.filter((a) => !isVisualArtifact(a));
+      const combined = [...visual, ...nonVisual];
+      return selectDiverse(combined, ASSISTANT_CANVAS_CARD_COUNT);
     },
     enabled: isSuccess && programIds.length > 0,
     staleTime: STALE_MS,
