@@ -11,6 +11,7 @@ __pycache__/
 # Upstream mirrors under repos/ and vendor/ keep their own clones locally; do not track nested .git
 repos/**/.git/
 vendor/**/.git/
+vendor/codedb/
 cli/.coverage
 .sonde/
 repos/claude-code/

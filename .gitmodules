@@ -1,3 +1,0 @@
-[submodule "vendor/codedb"]
-	path = vendor/codedb
-	url = https://github.com/justrach/codedb.git
