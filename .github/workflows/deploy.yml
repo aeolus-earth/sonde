@@ -86,19 +86,14 @@ jobs:
       - name: Install Railway CLI
         run: npm install -g @railway/cli
 
-      - name: Restore Railway CLI auth
+      - name: Link Railway production project
         env:
-          RAILWAY_CONFIG_JSON: ${{ secrets.RAILWAY_CLI_CONFIG_JSON }}
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
         run: |
-          if [ -z "$RAILWAY_CONFIG_JSON" ]; then
-            echo "::error::Missing RAILWAY_CLI_CONFIG_JSON secret"
+          if [ -z "$RAILWAY_API_TOKEN" ]; then
+            echo "::error::Missing RAILWAY_API_TOKEN secret"
             exit 1
           fi
-          mkdir -p "$HOME/.railway"
-          printf '%s' "$RAILWAY_CONFIG_JSON" > "$HOME/.railway/config.json"
-
-      - name: Link Railway production project
-        run: |
           railway link \
             -w "${{ vars.RAILWAY_WORKSPACE_ID }}" \
             -p "${{ vars.RAILWAY_PRODUCTION_PROJECT_ID }}" \
@@ -106,6 +101,8 @@ jobs:
             --json >/tmp/railway-link.json
 
       - name: Pin deployed commit metadata
+        env:
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
         run: |
           railway variable set \
             -s "${{ vars.RAILWAY_PRODUCTION_SERVICE_NAME }}" \
@@ -115,4 +112,6 @@ jobs:
             SONDE_CLI_GIT_REF="${GITHUB_SHA}"
 
       - name: Deploy production agent
+        env:
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
         run: railway up --service "${{ vars.RAILWAY_PRODUCTION_SERVICE_NAME }}" --detach --ci
