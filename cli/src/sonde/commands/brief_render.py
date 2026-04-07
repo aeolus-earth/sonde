@@ -264,7 +264,10 @@ def render_human(
             title="Open Questions",
         )
     else:
-        err.print("\n[sonde.muted]No open questions. Use [dim]sonde question create[/] to capture unknowns.[/]")
+        err.print(
+            "\n[sonde.muted]No open questions. "
+            "Use [dim]sonde question create[/] to capture unknowns.[/]"
+        )
 
     # Coverage — active branch first if available
     if data.get("coverage_active"):

@@ -136,7 +136,8 @@ def log(
       sonde log --open -p weather-intervention "Test combined BL heating + seeding"
 
       # Raise a question alongside the experiment
-      sonde log -p weather-intervention "Ran CCN sweep" --question "Does saturation shift with humidity?"
+      sonde log -p weather-intervention "Ran CCN sweep" \
+        --question "Does saturation shift with humidity?"
     """
     settings = get_settings()
 
