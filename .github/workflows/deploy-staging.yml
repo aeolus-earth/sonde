@@ -24,6 +24,7 @@ jobs:
     outputs:
       agent: ${{ steps.filter.outputs.agent }}
       database: ${{ steps.filter.outputs.database }}
+      ui: ${{ steps.filter.outputs.ui }}
     steps:
       - uses: actions/checkout@v6
 
@@ -38,6 +39,27 @@ jobs:
               - '.dockerignore'
               - 'cli/**'
               - 'server/**'
+            ui:
+              - 'ui/**'
+              - 'vercel.json'
+              - 'ui/vercel.json'
+
+  trigger-staging-ui:
+    runs-on: ubuntu-latest
+    needs: changes
+    if: >-
+      ${{
+        secrets.VERCEL_STAGING_DEPLOY_HOOK_URL != '' &&
+        (
+          needs.changes.outputs.ui == 'true' ||
+          github.event_name == 'workflow_dispatch'
+        )
+      }}
+
+    steps:
+      - name: Trigger staging UI deploy
+        run: |
+          curl -sf -X POST "${{ secrets.VERCEL_STAGING_DEPLOY_HOOK_URL }}"
 
   push-staging-database:
     runs-on: ubuntu-latest
