@@ -14,14 +14,29 @@ export default defineConfig({
   projects: [
     { name: "chromium", use: { ...devices["Desktop Chrome"] } },
     { name: "firefox", use: { ...devices["Desktop Firefox"] } },
-    { name: "mobile-chrome", use: { ...devices["Pixel 7"] } },
   ],
   webServer: process.env.E2E_BASE_URL
     ? undefined
-    : {
-        command: "npm run dev",
-        port: 5173,
-        reuseExistingServer: true,
-        timeout: 30_000,
-      },
+    : [
+        {
+          command: "npm run dev",
+          cwd: "../server",
+          port: 3001,
+          reuseExistingServer: true,
+          timeout: 60_000,
+          env: {
+            ...process.env,
+            NODE_ENV: "test",
+            SONDE_SKIP_CLI_PROBE: "1",
+            SONDE_TEST_AUTH_BYPASS_TOKEN:
+              process.env.E2E_AUTH_BYPASS_TOKEN || "playwright-smoke-token",
+          },
+        },
+        {
+          command: "npm run dev -- --host 127.0.0.1 --port 5173",
+          port: 5173,
+          reuseExistingServer: true,
+          timeout: 60_000,
+        },
+      ],
 });

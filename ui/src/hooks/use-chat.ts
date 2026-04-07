@@ -20,7 +20,7 @@ function getAgentWsBase(): string {
   if (typeof explicit === "string" && explicit.trim() !== "") {
     return explicit.trim().replace(/\/$/, "");
   }
-  if (import.meta.env.DEV && typeof window !== "undefined") {
+  if (typeof window !== "undefined") {
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
     return `${proto}//${window.location.host}/agent`;
   }

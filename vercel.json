@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "installCommand": "npm install --prefix ui",
+  "installCommand": "npm ci --prefix ui",
   "buildCommand": "npm run build --prefix ui",
   "outputDirectory": "ui/dist",
   "headers": [
@@ -29,7 +29,7 @@
         },
         {
           "key": "Content-Security-Policy",
-          "value": "default-src 'self'; script-src 'self' 'sha256-R/guIIIfwBNMKTuvNTrvVOAlszaDjyjpfpXQXmnPS/I='; style-src 'self' 'unsafe-inline' https://rsms.me https://fonts.googleapis.com; font-src 'self' https://rsms.me https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://utvmqjssbkzpumsdpgdy.supabase.co https://api.github.com wss://*.supabase.co; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+          "value": "default-src 'self'; script-src 'self' 'sha256-R/guIIIfwBNMKTuvNTrvVOAlszaDjyjpfpXQXmnPS/I='; style-src 'self' 'unsafe-inline' https://rsms.me https://fonts.googleapis.com; font-src 'self' https://rsms.me https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://*.supabase.co https://api.github.com https://*.railway.app wss://*.supabase.co wss://*.railway.app; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
         }
       ]
     }

@@ -158,6 +158,11 @@ function execFileAsync(
  * Log resolved CLI dir and verify `uv run sonde --help` works (no auth required).
  */
 export async function probeSondeCliEnvironment(): Promise<void> {
+  if (process.env.SONDE_SKIP_CLI_PROBE === "1") {
+    console.log("[sonde-server] Skipping Sonde CLI probe");
+    return;
+  }
+
   const cwd = getResolvedSondeCliDir();
   if (!cwd) {
     const env = process.env.SONDE_CLI_DIR?.trim();

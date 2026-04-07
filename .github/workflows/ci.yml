@@ -3,185 +3,316 @@ name: CI
 on:
   pull_request:
     branches: [main]
-    paths:
-      - "cli/**"
-      - "ui/**"
-      - "server/**"
-      - "supabase/migrations/**"
-      - ".github/workflows/ci.yml"
   push:
     branches: [main]
-    paths:
-      - "cli/**"
-      - "ui/**"
-      - "server/**"
-      - "supabase/migrations/**"
-      - ".github/workflows/ci.yml"
 
-# ── CLI ────────────────────────────────────────────────────────────
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  cli-lint-and-test:
+  changes:
     runs-on: ubuntu-latest
+    outputs:
+      cli: ${{ steps.filter.outputs.cli }}
+      ui: ${{ steps.filter.outputs.ui }}
+      server: ${{ steps.filter.outputs.server }}
+      data: ${{ steps.filter.outputs.data }}
+      infra: ${{ steps.filter.outputs.infra }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            cli:
+              - "cli/**"
+            ui:
+              - "ui/**"
+            server:
+              - "server/**"
+            data:
+              - "supabase/**"
+            infra:
+              - ".github/workflows/**"
+              - "vercel.json"
+              - "ui/vercel.json"
+
+  cli-core:
+    name: cli-core
+    runs-on: ubuntu-latest
+    needs: changes
     defaults:
       run:
         working-directory: cli
 
     steps:
-      - uses: actions/checkout@v6
+      - id: gate
+        run: |
+          if [[ "${{ needs.changes.outputs.cli }}" == "true" || "${{ needs.changes.outputs.infra }}" == "true" ]]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
 
-      - uses: astral-sh/setup-uv@v7
+      - if: steps.gate.outputs.run != 'true'
+        run: echo "No CLI or CI changes; skipping CLI core checks."
+
+      - if: steps.gate.outputs.run == 'true'
+        uses: actions/checkout@v6
+
+      - if: steps.gate.outputs.run == 'true'
+        uses: astral-sh/setup-uv@v7
         with:
           version: "latest"
+          enable-cache: true
+          cache-dependency-glob: "cli/uv.lock"
 
-      - uses: actions/setup-python@v6
+      - if: steps.gate.outputs.run == 'true'
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
-      - name: Install dependencies
+      - if: steps.gate.outputs.run == 'true'
+        name: Install dependencies
         run: uv sync
 
-      - name: Verify lockfile is up to date
+      - if: steps.gate.outputs.run == 'true'
+        name: Verify lockfile is up to date
         run: uv lock --check
 
-      - name: Lint
+      - if: steps.gate.outputs.run == 'true'
+        name: Lint
         run: uv run ruff check src/ tests/
 
-      - name: Format check
+      - if: steps.gate.outputs.run == 'true'
+        name: Format check
         run: uv run ruff format --check src/ tests/
 
-      - name: Unit tests
+      - if: steps.gate.outputs.run == 'true'
+        name: Type check
+        run: uv run ty check src/
+
+      - if: steps.gate.outputs.run == 'true'
+        name: Unit tests
         run: uv run pytest -m "not integration" --tb=short
 
-# ── UI ─────────────────────────────────────────────────────────────
-
-  ui-checks:
+  ui-core:
+    name: ui-core
     runs-on: ubuntu-latest
+    needs: changes
     defaults:
       run:
         working-directory: ui
 
     steps:
-      - uses: actions/checkout@v6
+      - id: gate
+        run: |
+          if [[ "${{ needs.changes.outputs.ui }}" == "true" || "${{ needs.changes.outputs.infra }}" == "true" ]]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
 
-      - uses: actions/setup-node@v6
+      - if: steps.gate.outputs.run != 'true'
+        run: echo "No UI or CI changes; skipping UI core checks."
+
+      - if: steps.gate.outputs.run == 'true'
+        uses: actions/checkout@v6
+
+      - if: steps.gate.outputs.run == 'true'
+        uses: actions/setup-node@v6
         with:
           node-version: "22"
+          cache: "npm"
+          cache-dependency-path: "ui/package-lock.json"
 
-      - name: Install dependencies
+      - if: steps.gate.outputs.run == 'true'
+        name: Install dependencies
         run: npm ci
 
-      - name: Verify lockfile is up to date
+      - if: steps.gate.outputs.run == 'true'
+        name: Verify lockfile is up to date
         run: |
           git diff --exit-code package-lock.json || {
             echo "::error::package-lock.json is out of sync. Run 'npm install' and commit the lockfile."
             exit 1
           }
 
-      - name: Lint
+      - if: steps.gate.outputs.run == 'true'
+        name: Lint
         run: npm run lint
 
-      - name: Type check & build
+      - if: steps.gate.outputs.run == 'true'
+        name: Build
         run: npm run build
 
-      - name: Unit tests
+      - if: steps.gate.outputs.run == 'true'
+        name: Unit tests
         run: npm run test
-        continue-on-error: true
 
-# ── Server ─────────────────────────────────────────────────────────
-
-  server-checks:
+  server-core:
+    name: server-core
     runs-on: ubuntu-latest
+    needs: changes
     defaults:
       run:
         working-directory: server
 
     steps:
-      - uses: actions/checkout@v6
+      - id: gate
+        run: |
+          if [[ "${{ needs.changes.outputs.server }}" == "true" || "${{ needs.changes.outputs.infra }}" == "true" ]]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
 
-      - uses: actions/setup-node@v6
+      - if: steps.gate.outputs.run != 'true'
+        run: echo "No server or CI changes; skipping server core checks."
+
+      - if: steps.gate.outputs.run == 'true'
+        uses: actions/checkout@v6
+
+      - if: steps.gate.outputs.run == 'true'
+        uses: actions/setup-node@v6
         with:
           node-version: "22"
+          cache: "npm"
+          cache-dependency-path: "server/package-lock.json"
 
-      - name: Install dependencies
+      - if: steps.gate.outputs.run == 'true'
+        name: Install dependencies
         run: npm ci
 
-      - name: Verify lockfile is up to date
+      - if: steps.gate.outputs.run == 'true'
+        name: Verify lockfile is up to date
         run: |
           git diff --exit-code package-lock.json || {
             echo "::error::package-lock.json is out of sync. Run 'npm install' and commit the lockfile."
             exit 1
           }
 
-      - name: Type check
+      - if: steps.gate.outputs.run == 'true'
+        name: Type check
         run: npm run lint
 
-      - name: Build
+      - if: steps.gate.outputs.run == 'true'
+        name: Tests
+        run: npm test
+
+      - if: steps.gate.outputs.run == 'true'
+        name: Build
         run: npm run build
 
-# ── E2E (Playwright against local dev server) ─────────────────────
-
-  e2e-tests:
+  browser-smoke:
+    name: browser-smoke
     runs-on: ubuntu-latest
-    needs: ui-checks
+    needs: [changes, ui-core, server-core]
     defaults:
       run:
         working-directory: ui
     env:
-      # Public/anon keys — safe to expose, required for Supabase client init
       VITE_SUPABASE_URL: https://utvmqjssbkzpumsdpgdy.supabase.co
       VITE_SUPABASE_ANON_KEY: sb_publishable_tWTyul-LMC9QDFYID8pOZA_wKM2e2AL
+      E2E_AUTH_BYPASS_TOKEN: playwright-smoke-token
 
     steps:
-      - uses: actions/checkout@v6
+      - id: gate
+        run: |
+          if [[ "${{ needs.changes.outputs.ui }}" == "true" || "${{ needs.changes.outputs.server }}" == "true" || "${{ needs.changes.outputs.infra }}" == "true" ]]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
 
-      - uses: actions/setup-node@v6
+      - if: steps.gate.outputs.run != 'true'
+        run: echo "No UI, server, or CI changes; skipping browser smoke."
+
+      - if: steps.gate.outputs.run == 'true'
+        uses: actions/checkout@v6
+
+      - if: steps.gate.outputs.run == 'true'
+        uses: actions/setup-node@v6
         with:
           node-version: "22"
+          cache: "npm"
+          cache-dependency-path: |
+            ui/package-lock.json
+            server/package-lock.json
 
-      - name: Install dependencies
+      - if: steps.gate.outputs.run == 'true'
+        name: Install UI dependencies
         run: npm ci
 
-      - name: Install Playwright browsers
+      - if: steps.gate.outputs.run == 'true'
+        name: Install server dependencies
+        working-directory: server
+        run: npm ci
+
+      - if: steps.gate.outputs.run == 'true'
+        name: Install Playwright browsers
         run: npx playwright install chromium firefox --with-deps
 
-      - name: Run e2e tests
-        run: npx playwright test
+      - if: steps.gate.outputs.run == 'true'
+        name: Run browser smoke
+        run: npx playwright test e2e/ci-smoke.spec.ts --project=chromium --project=firefox
 
-      - name: Upload report on failure
+      - if: failure() && steps.gate.outputs.run == 'true'
+        name: Upload report on failure
         uses: actions/upload-artifact@v7
-        if: failure()
         with:
           name: playwright-report
           path: ui/playwright-report/
 
-# ── Schema integration (CLI + local Supabase) ─────────────────────
-
-  schema-integration:
+  data-integration:
+    name: data-integration
     runs-on: ubuntu-latest
-    needs: cli-lint-and-test
+    needs: [changes, cli-core]
 
     steps:
-      - uses: actions/checkout@v6
+      - id: gate
+        run: |
+          if [[ "${{ needs.changes.outputs.cli }}" == "true" || "${{ needs.changes.outputs.data }}" == "true" || "${{ needs.changes.outputs.infra }}" == "true" ]]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
 
-      - uses: supabase/setup-cli@v1
+      - if: steps.gate.outputs.run != 'true'
+        run: echo "No CLI, data, or CI changes; skipping data integration."
+
+      - if: steps.gate.outputs.run == 'true'
+        uses: actions/checkout@v6
+
+      - if: steps.gate.outputs.run == 'true'
+        uses: supabase/setup-cli@v1
         with:
           version: latest
 
-      - name: Start local Supabase
+      - if: steps.gate.outputs.run == 'true'
+        name: Start local Supabase
         run: supabase start
 
-      - name: Apply all migrations from scratch
+      - if: steps.gate.outputs.run == 'true'
+        name: Apply all migrations from scratch
         run: supabase db reset --local --yes
 
-      - name: Capture local credentials
+      - if: steps.gate.outputs.run == 'true'
+        name: Capture local credentials
         id: sb
         run: |
           echo "url=$(supabase status --output json | jq -r '.API_URL')" >> "$GITHUB_OUTPUT"
           echo "anon_key=$(supabase status --output json | jq -r '.ANON_KEY')" >> "$GITHUB_OUTPUT"
           echo "service_role_key=$(supabase status --output json | jq -r '.SERVICE_ROLE_KEY')" >> "$GITHUB_OUTPUT"
 
-      - name: Smoke test — schema version RPC exists
+      - if: steps.gate.outputs.run == 'true'
+        name: Smoke test — schema version RPC exists
         env:
           SB_URL: ${{ steps.sb.outputs.url }}
           SB_KEY: ${{ steps.sb.outputs.anon_key }}
@@ -193,19 +324,25 @@ jobs:
           echo "Schema version: $VERSION"
           test "$VERSION" -ge 1
 
-      - uses: astral-sh/setup-uv@v7
+      - if: steps.gate.outputs.run == 'true'
+        uses: astral-sh/setup-uv@v7
         with:
           version: "latest"
+          enable-cache: true
+          cache-dependency-glob: "cli/uv.lock"
 
-      - uses: actions/setup-python@v6
+      - if: steps.gate.outputs.run == 'true'
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
-      - name: Install CLI
+      - if: steps.gate.outputs.run == 'true'
+        name: Install CLI
         working-directory: cli
         run: uv sync
 
-      - name: Verify migration count matches applied
+      - if: steps.gate.outputs.run == 'true'
+        name: Verify migration count matches applied
         run: |
           FILE_COUNT=$(ls -1 supabase/migrations/*.sql | wc -l | tr -d ' ')
           APPLIED_COUNT=$(PGPASSWORD=postgres psql -h 127.0.0.1 -p 54322 -U postgres -d postgres -tAc \
@@ -216,7 +353,8 @@ jobs:
             exit 1
           fi
 
-      - name: Integration tests against local Supabase
+      - if: steps.gate.outputs.run == 'true'
+        name: Integration tests against local Supabase
         working-directory: cli
         env:
           AEOLUS_SUPABASE_URL: ${{ steps.sb.outputs.url }}
@@ -224,6 +362,6 @@ jobs:
           AEOLUS_SUPABASE_SERVICE_ROLE_KEY: ${{ steps.sb.outputs.service_role_key }}
         run: uv run pytest -m integration --tb=short
 
-      - name: Stop Supabase
-        if: always()
+      - if: always() && steps.gate.outputs.run == 'true'
+        name: Stop Supabase
         run: supabase stop

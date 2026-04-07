@@ -1,17 +1,16 @@
-name: Production Smoke
+name: Staging Smoke
 
 on:
   push:
-    branches: [main]
-  # Manual trigger for on-demand verification
+    branches: [staging]
   workflow_dispatch:
     inputs:
       url:
-        description: "URL to test (leave blank for production default)"
+        description: "URL to test (leave blank for staging default)"
         required: false
         type: string
       agent_url:
-        description: "Agent base URL to smoke (leave blank for URL/agent)"
+        description: "Agent base URL to smoke (leave blank for staging default)"
         required: false
         type: string
 
@@ -37,56 +36,56 @@ jobs:
       - name: Install Playwright
         run: npx playwright install chromium firefox --with-deps
 
-      - name: Resolve target URL
+      - name: Resolve target URLs
         id: url
         run: |
-          URL="${{ inputs.url || vars.SONDE_UI_URL }}"
+          URL="${{ inputs.url || vars.SONDE_STAGING_UI_URL }}"
           if [ -z "$URL" ]; then
-            echo "::error::No URL to test. Set SONDE_UI_URL in repo variables or pass a URL via workflow dispatch."
+            echo "::error::No URL to test. Set SONDE_STAGING_UI_URL in repo variables or pass a URL via workflow dispatch."
             exit 1
           fi
           echo "target=$URL" >> "$GITHUB_OUTPUT"
           echo "Smoke testing: $URL"
 
-      - name: Wait for production UI
+      - name: Wait for staging UI
         run: |
           URL="${{ steps.url.outputs.target }}"
           for attempt in $(seq 1 60); do
             STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$URL/login")
             if [ "$STATUS" -ge 200 ] && [ "$STATUS" -lt 500 ]; then
-              echo "Production UI is reachable ($STATUS)"
+              echo "Staging UI is reachable ($STATUS)"
               exit 0
             fi
-            echo "Waiting for production UI ($attempt/60)..."
+            echo "Waiting for staging UI ($attempt/60)..."
             sleep 10
           done
-          echo "::error::Production UI did not become reachable in time"
+          echo "::error::Staging UI did not become reachable in time"
           exit 1
 
-      - name: Wait for production agent
-        if: ${{ inputs.agent_url != '' || vars.SONDE_AGENT_HTTP_BASE != '' }}
+      - name: Wait for staging agent
+        if: ${{ inputs.agent_url != '' || vars.SONDE_STAGING_AGENT_HTTP_BASE != '' }}
         run: |
-          AGENT="${{ inputs.agent_url || vars.SONDE_AGENT_HTTP_BASE }}"
+          AGENT="${{ inputs.agent_url || vars.SONDE_STAGING_AGENT_HTTP_BASE }}"
           for attempt in $(seq 1 60); do
             if curl -fsS "$AGENT/health" >/dev/null; then
-              echo "Production agent is reachable"
+              echo "Staging agent is reachable"
               exit 0
             fi
-            echo "Waiting for production agent ($attempt/60)..."
+            echo "Waiting for staging agent ($attempt/60)..."
             sleep 10
           done
-          echo "::error::Production agent did not become reachable in time"
+          echo "::error::Staging agent did not become reachable in time"
           exit 1
 
-      - name: Run production smoke tests
+      - name: Run staging smoke tests
         env:
           E2E_BASE_URL: ${{ steps.url.outputs.target }}
-          E2E_AGENT_HTTP_BASE: ${{ inputs.agent_url || vars.SONDE_AGENT_HTTP_BASE }}
+          E2E_AGENT_HTTP_BASE: ${{ inputs.agent_url || vars.SONDE_STAGING_AGENT_HTTP_BASE }}
         run: npx playwright test e2e/deployed.spec.ts --project=chromium --project=firefox --reporter=github
 
       - name: Upload report on failure
         uses: actions/upload-artifact@v7
         if: failure()
         with:
-          name: production-smoke-report
+          name: staging-smoke-report
           path: ui/playwright-report/

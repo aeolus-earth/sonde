@@ -120,6 +120,13 @@ const repoInFlight = new Map<string, Promise<GitHubRepoSummary>>();
 const commitCache = new Map<string, CacheEntry<GitHubCommitPageData>>();
 const commitInFlight = new Map<string, Promise<GitHubCommitPageData>>();
 
+export function resetGitHubCachesForTests(): void {
+  repoCache.clear();
+  repoInFlight.clear();
+  commitCache.clear();
+  commitInFlight.clear();
+}
+
 function getGitHubToken(): string | null {
   const raw =
     process.env.GITHUB_TOKEN ??

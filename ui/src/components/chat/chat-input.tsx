@@ -497,17 +497,9 @@ export const ChatInput = memo(function ChatInput({
         </div>
       )}
 
-      <div
-        className={cn(
-          "flex w-full",
-          embedded || bubbleShell ? "justify-stretch" : "justify-center",
-        )}
-      >
+      <div className="flex w-full min-w-0 justify-stretch">
         <div
-          className={cn(
-            "relative",
-            (embedded || bubbleShell) && "min-w-0 w-full",
-          )}
+          className={cn("relative min-w-0 w-full")}
           onDragEnter={handleComposerDragEnter}
           onDragLeave={handleComposerDragLeave}
           onDragOver={handleComposerDragOver}
@@ -547,7 +539,7 @@ export const ChatInput = memo(function ChatInput({
                     : "border-border-subtle bg-bg focus-within:border-border",
                   embedded
                     ? "w-full max-w-full"
-                    : "inline-flex w-max min-w-0 max-w-[min(100%,calc(28ch*1.4+6rem))]",
+                    : "flex w-full min-w-0 max-w-full",
                   showFileDropChrome && "border-accent/45 ring-2 ring-accent/35",
                 ],
           )}
@@ -629,12 +621,7 @@ export const ChatInput = memo(function ChatInput({
             <Plus className="h-5 w-5 stroke-[2]" />
           </button>
 
-          <div
-            className={cn(
-              "relative min-w-0 shrink",
-              embedded || bubbleShell ? "w-full flex-1" : "w-[calc(28ch*1.4)]",
-            )}
-          >
+          <div className="relative min-w-0 w-full flex-1 shrink">
             {showRotatingPlaceholder && (
               <div
                 className={cn(

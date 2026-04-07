@@ -8,6 +8,7 @@
 import { test, expect } from "@playwright/test";
 
 const BASE_URL = process.env.E2E_BASE_URL;
+const AGENT_HTTP_BASE = process.env.E2E_AGENT_HTTP_BASE ?? null;
 
 test.describe("Production deployment", () => {
   test.skip(!BASE_URL, "Skipped: E2E_BASE_URL not set (local dev)");
@@ -17,6 +18,7 @@ test.describe("Production deployment", () => {
   }) => {
     const response = await page.goto("/login");
     expect(response?.status()).toBe(200);
+    await page.waitForLoadState("networkidle");
 
     const body = await page.textContent("body");
     // Must NOT contain Vercel's auth gate
@@ -87,5 +89,22 @@ test.describe("Production deployment", () => {
     // The React app should have rendered something inside #root
     const rootChildren = await page.locator("#root > *").count();
     expect(rootChildren).toBeGreaterThan(0);
+  });
+
+  test("agent health responds when an agent host is configured", async ({ request }) => {
+    test.skip(!AGENT_HTTP_BASE, "Skipped: no agent host configured");
+
+    const response = await request.get(`${AGENT_HTTP_BASE}/health`);
+    expect(response.ok()).toBeTruthy();
+
+    const body = (await response.json()) as {
+      status: string;
+      environment: string;
+      commitSha: string | null;
+    };
+
+    expect(body.status).toBe("ok");
+    expect(body.environment).toBeTruthy();
+    expect(body.commitSha ?? null).not.toBeUndefined();
   });
 });
