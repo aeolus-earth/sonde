@@ -68,6 +68,6 @@ def ensure_runtime_asset_ignore(project_root: Path) -> bool:
             ".claude/skills/",
             ".claude/agents/",
             ".cursor/rules/",
-            ".codex/skills/",
+            ".agents/skills/",
         ],
     )
