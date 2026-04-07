@@ -113,7 +113,7 @@ export function WorkspaceChatSplit({
 
   if (!expanded) {
     return (
-      <div className="pointer-events-auto flex min-h-0 w-full flex-1 flex-col">
+      <div className="pointer-events-none flex min-h-0 w-full flex-1 flex-col">
         {chat}
       </div>
     );

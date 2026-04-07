@@ -69,17 +69,23 @@ const CanvasArtifactCard = memo(function CanvasArtifactCard({
   const recordLabel = artifact.linkTo.id;
   const { data: url, isLoading: loading } = useArtifactUrl(artifact.storage_path);
   const video = isVideo(artifact);
+  const [interactiveHover, setInteractiveHover] = useState(false);
 
   const labelClass = dark
     ? "text-[10px] font-medium uppercase tracking-[0.14em] text-white/45"
     : "text-[10px] font-medium uppercase tracking-[0.14em] text-text-tertiary";
+  const hovered = !reduceMotion && interactiveHover;
+  const transform = `translate3d(0,${hovered ? -6 : 0}px,0) rotate(${slot.rotate}deg) scale(${hovered ? 1.025 : 1})`;
 
   return (
     <Link
       to={link.to}
       params={link.params}
       className={cn(
-        "pointer-events-auto absolute overflow-hidden rounded-[10px] shadow-lg transition-opacity duration-300 hover:opacity-100 focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2",
+        "pointer-events-auto absolute cursor-pointer touch-manipulation select-none overflow-hidden rounded-[10px] shadow-lg",
+        "will-change-[transform,opacity] transition-[transform,opacity,border-color] duration-200 ease-out",
+        "motion-reduce:transition-opacity",
+        "hover:opacity-100 focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2",
         dark
           ? "border border-white/[0.12] bg-black/40 opacity-[0.42] outline-white/30 hover:border-white/25"
           : "border border-border bg-surface-raised/90 opacity-[0.55] outline-accent hover:border-border",
@@ -88,9 +94,13 @@ const CanvasArtifactCard = memo(function CanvasArtifactCard({
         top: `${slot.top}px`,
         left: `${slot.left}px`,
         width: `${slot.width}px`,
-        transform: `rotate(${slot.rotate}deg)`,
+        transform,
         zIndex: 8 + slot.z,
       }}
+      onPointerEnter={() => setInteractiveHover(true)}
+      onPointerLeave={() => setInteractiveHover(false)}
+      onFocus={() => setInteractiveHover(true)}
+      onBlur={() => setInteractiveHover(false)}
       aria-label={`Open ${artifact.linkTo.kind} ${recordLabel}, ${artifact.filename}`}
       draggable={false}
     >
