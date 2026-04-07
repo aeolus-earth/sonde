@@ -82,12 +82,6 @@ function handleServerMessage(msg: ServerMessage, storeApi: ChatStoreApi) {
       break;
     }
 
-    case "thinking_revoke": {
-      const tabId = resolveTargetTabId(storeApi);
-      s.revokeThinkingSuffixFromLastMessage(tabId, msg.suffix);
-      break;
-    }
-
     case "text_done":
       break;
 
@@ -333,8 +327,9 @@ export function useChat() {
 
     return () => {
       clearReconnectTimer();
-      wsRef.current?.close();
-      wsRef.current = null;
+      // Keep the WS alive across React unmount/remount cycles.
+      // The canvas→chat transition remounts this hook — closing the WS
+      // here would kill in-flight queries. Connection persists via wsRef.
     };
   }, [accessToken, authLoading, connect, clearReconnectTimer]);
 
