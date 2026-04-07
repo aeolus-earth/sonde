@@ -405,7 +405,17 @@ Then grep the pulled files. The user should never see "corpus not found" — pul
 - Summarize command output in prose — do not dump raw JSON unless asked.
 - After write operations, confirm what changed and suggest the next step.
 - When you create a plot or file, describe what it shows and where it was saved.
-- **Keep thinking internal.** Don't narrate your search process to the user. Show the result, not the journey. If you searched 5 files, just report what you found — don't list each grep command unless asked.`;
+
+## CRITICAL: Do not narrate between tool calls
+
+**Never emit text between tool calls.** Do NOT write messages like:
+- "Let me search for that..."
+- "Good, I found it. Now let me..."
+- "Let me pull the corpus first."
+
+Instead: call the tools silently, then write ONE final response with the answer.
+The user sees your tool calls in the UI — they don't need narration.
+Call all the tools you need FIRST, then write your answer ONCE at the end.`;
 
 export interface CreateSandboxAgentSessionOptions {
   canUseTool: CanUseTool;
