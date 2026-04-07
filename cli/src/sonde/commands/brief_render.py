@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 
 from sonde.coordination import STALE_CLAIM_HOURS
 from sonde.local import find_sonde_dir
+from sonde.note_utils import format_checkpoint_summary
 from sonde.output import err, print_breadcrumbs, print_table, truncate_text
 
 # ---------------------------------------------------------------------------
@@ -76,6 +77,19 @@ def render_active_context(data: dict) -> None:
             f"{truncate_text(f['finding'], 70)} [{f['confidence']}]"
         )
 
+    if ac.get("latest_checkpoint"):
+        checkpoint = ac["latest_checkpoint"]
+        summary = format_checkpoint_summary(checkpoint, include_note=True)
+        err.print(f"\n  Latest checkpoint: [sonde.brand]{summary}[/]")
+        if checkpoint.get("created_at") or checkpoint.get("source"):
+            details = []
+            if checkpoint.get("created_at"):
+                details.append(str(checkpoint["created_at"])[:16].replace("T", " "))
+            if checkpoint.get("source"):
+                details.append(_short_source(checkpoint["source"]))
+            if details:
+                err.print(f"    [sonde.muted]{'  '.join(details)}[/]")
+
     # Next actions
     if ac.get("next_actions"):
         err.print("\n  [sonde.heading]Next[/]")
@@ -104,6 +118,39 @@ def render_motivation(data: dict) -> None:
             err.print(f"  [sonde.brand]{p['id']}[/] {p['name']} \u2014 {p['objective']}")
 
 
+def render_needs_review(data: dict) -> None:
+    """Render directions that are ready for closure review."""
+    review = data.get("directions_for_review") or []
+    if not review:
+        return
+
+    err.print("\n[sonde.heading]Needs Review[/]")
+    for item in review[:5]:
+        err.print(f"  [sonde.warning]\u25cf[/] {item['reason']}")
+        err.print(f"    [sonde.brand]{item['command']}[/]")
+
+
+def render_operational_findings(data: dict) -> None:
+    """Render always-check-first findings separately from the archive."""
+    operational = data.get("operational_findings") or []
+    if not operational:
+        return
+
+    print_table(
+        ["id", "topic", "finding", "confidence"],
+        [
+            {
+                "id": f["id"],
+                "topic": truncate_text(f["topic"], 26),
+                "finding": truncate_text(f["finding"], 55),
+                "confidence": f["confidence"],
+            }
+            for f in operational
+        ],
+        title="Operational Findings",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Full renderers
 # ---------------------------------------------------------------------------
@@ -120,6 +167,8 @@ def render_active_only(data: dict, *, program: str | None = None) -> None:
     )
     render_motivation(data)
     render_active_context(data)
+    render_needs_review(data)
+    render_operational_findings(data)
 
     if data.get("takeaways"):
         err.print("\n[sonde.heading]Takeaways[/]")
@@ -188,6 +237,7 @@ def render_human(
 
     # Active context — what's happening now
     render_active_context(data)
+    render_needs_review(data)
 
     # Takeaways — synthesized status
     if data.get("takeaways"):
@@ -195,6 +245,8 @@ def render_human(
         err.print(data["takeaways"])
 
     err.print()
+
+    render_operational_findings(data)
 
     if data["findings"]:
         print_table(
@@ -262,6 +314,10 @@ def render_human(
                 for q in data["open_questions"]
             ],
             title="Open Questions",
+        )
+    else:
+        err.print(
+            "\n[sonde.muted]No open questions. Use `sonde question create` to capture unknowns.[/]"
         )
 
     # Coverage — active branch first if available
@@ -386,7 +442,9 @@ def _save_provenance(data: dict, sonde_dir) -> None:
             experiment_count=data["stats"]["total"],
             last_experiment_updated=_max_ts(all_records, "created_at"),
             finding_count=data["stats"]["findings"],
-            last_finding_updated=_max_ts(data.get("findings", [])),
+            last_finding_updated=_max_ts(
+                data.get("operational_findings", []) + data.get("findings", [])
+            ),
             question_count=data["stats"]["open_questions"],
             last_question_updated=_max_ts(data.get("open_questions", [])),
         ),
@@ -461,6 +519,9 @@ def render_markdown(data: dict) -> str:
             lines.append(
                 f"Latest finding: **{f['id']}** \u2014 {f['finding']} [{f['confidence']}]\n"
             )
+        if ac.get("latest_checkpoint"):
+            summary = format_checkpoint_summary(ac["latest_checkpoint"], include_note=True)
+            lines.append(f"Latest checkpoint: **{summary}**\n")
         if ac.get("next_actions"):
             lines.append("\nNext actions:\n")
             for s in ac["next_actions"][:3]:
@@ -468,9 +529,21 @@ def render_markdown(data: dict) -> str:
             lines.append("")
         lines.append("")
 
+    if data.get("directions_for_review"):
+        lines.append("## Needs review\n")
+        for item in data["directions_for_review"]:
+            lines.append(f"- {item['reason']}: `{item['command']}`")
+        lines.append("")
+
     if data.get("takeaways"):
         lines.append("## Takeaways\n")
         lines.append(data["takeaways"])
+        lines.append("")
+
+    if data.get("operational_findings"):
+        lines.append("## Operational findings\n")
+        for f in data["operational_findings"]:
+            lines.append(f"- **{f['id']}** {f['topic']} — {f['finding']} [{f['confidence']}]")
         lines.append("")
 
     if data["findings"]:
@@ -498,11 +571,13 @@ def render_markdown(data: dict) -> str:
             lines.append(f"- **{e['id']}** {e['summary']}")
         lines.append("")
 
+    lines.append("## Open questions\n")
     if data["open_questions"]:
-        lines.append("## Open questions\n")
         for q in data["open_questions"]:
             lines.append(f"- **{q['id']}** {q['question']}")
-        lines.append("")
+    else:
+        lines.append("No open questions. Use `sonde question create` to capture unknowns.")
+    lines.append("")
 
     if data.get("coverage_active"):
         lines.append("## Coverage (active branch)\n")

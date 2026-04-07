@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
+import { normalizeExperimentHypothesis } from "@/lib/experiment-hypothesis";
 import { queryKeys } from "@/lib/query-keys";
 import { useActiveProgram } from "@/stores/program";
 import type { ExperimentSummary } from "@/types/sonde";
@@ -24,7 +25,7 @@ export function useExperiments() {
         .order("created_at", { ascending: false });
 
       if (error) throw error;
-      return data;
+      return data.map(normalizeExperimentHypothesis);
     },
     enabled: !!program,
   });
@@ -42,7 +43,7 @@ export function useExperiment(id: string) {
         .single();
 
       if (error) throw error;
-      return data;
+      return normalizeExperimentHypothesis(data);
     },
     enabled: !!id,
   });
@@ -61,7 +62,7 @@ export function useAllExperimentsForTree() {
         .order("created_at", { ascending: true });
 
       if (error) throw error;
-      return data;
+      return data.map(normalizeExperimentHypothesis);
     },
     enabled: !!program,
   });
@@ -78,7 +79,7 @@ export function useExperimentsByDirection(directionId: string) {
         .order("created_at", { ascending: false });
 
       if (error) throw error;
-      return data;
+      return data.map(normalizeExperimentHypothesis);
     },
     enabled: !!directionId,
   });

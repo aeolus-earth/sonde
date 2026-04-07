@@ -476,6 +476,14 @@ def _change_status(
                 "Document your approach — hypothesis and method:",
                 f'sonde update {experiment_id} --method "<your procedure, tools, parameters>"',
             )
+    if new_status == "running" and not ctx.obj.get("json"):
+        from sonde.output import print_nudge
+
+        print_nudge(
+            "For long-running work, leave checkpoint notes as the run evolves:",
+            f'sonde note {experiment_id} --phase "compile" --status running '
+            '--elapsed "..." "what changed"',
+        )
 
     # Nudge: missing results section at close
     if (
@@ -518,6 +526,19 @@ def _change_status(
         print_nudge(
             "Promote this to a curated Finding record with evidence link:",
             f'sonde finding extract {experiment_id} --topic "..."',
+        )
+        print_nudge(
+            "If this is a recurring pitfall or startup rule, encode that in the topic so "
+            "future briefs surface it first:",
+            f'sonde finding extract {experiment_id} --topic "Gotcha: ..."',
+        )
+
+    if new_status in ("complete", "failed") and not ctx.obj.get("json"):
+        from sonde.output import print_nudge
+
+        print_nudge(
+            "If this result raised a follow-up unknown, capture it as a question:",
+            f'sonde question create -p {exp.program} "..."',
         )
 
     # Show suggestions after close/fail for tree nodes

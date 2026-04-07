@@ -132,6 +132,11 @@ def show(ctx: click.Context, experiment_id: str, graph: bool) -> None:
             sib_parts = [f"{s.id} [{s.status}]" for s in siblings[:5]]
             header.append(f"[sonde.muted]Siblings: {', '.join(sib_parts)}[/]")
 
+        from sonde.local import effective_hypothesis, remove_section
+
+        hypothesis_text = effective_hypothesis(exp.content, exp.hypothesis)
+        content_body = remove_section(exp.content, "Hypothesis") if exp.content else ""
+
         if exp.content:
             header.append("")
             out.print(
@@ -141,10 +146,13 @@ def show(ctx: click.Context, experiment_id: str, graph: bool) -> None:
                     border_style="sonde.brand.dim",
                 )
             )
-            out.print(Markdown(exp.content))
+            if hypothesis_text:
+                out.print(Markdown(f"## Hypothesis\n\n{hypothesis_text}"))
+            if content_body.strip():
+                out.print(Markdown(content_body))
         else:
-            if exp.hypothesis:
-                header.append(f"\n[sonde.heading]Hypothesis:[/sonde.heading]\n  {exp.hypothesis}")
+            if hypothesis_text:
+                header.append(f"\n[sonde.heading]Hypothesis:[/sonde.heading]\n  {hypothesis_text}")
             if exp.all_params:
                 param_str = "\n".join(f"  {k}: {v}" for k, v in exp.all_params.items())
                 header.append(f"\n[sonde.heading]Parameters:[/sonde.heading]\n{param_str}")
@@ -264,7 +272,12 @@ def show(ctx: click.Context, experiment_id: str, graph: bool) -> None:
         breadcrumbs.extend(
             [
                 f"History: sonde history {exp.id}",
-                f'Note:    sonde note {exp.id} "observation"',
+                (
+                    f'Checkpoint: sonde note {exp.id} --phase "compile" --status running '
+                    '--elapsed "..." "what changed"'
+                    if exp.status == "running"
+                    else f'Note:    sonde note {exp.id} "observation"'
+                ),
             ]
         )
         if children or parent:
@@ -283,6 +296,13 @@ def show(ctx: click.Context, experiment_id: str, graph: bool) -> None:
                 f"Put files anywhere under .sonde/experiments/{exp.id}/, then sync them.",
                 f"sonde push experiment {exp.id}",
             )
+            if exp.status == "running":
+                print_nudge(
+                    "For long-running work, leave a checkpoint note instead of "
+                    "waiting for closeout:",
+                    f'sonde note {exp.id} --phase "compile" --status running '
+                    '--elapsed "..." "what changed"',
+                )
         elif exp.status in ("open", "running") and not exp.direction_id:
             print_nudge(
                 "This experiment isn't linked to a research direction.",

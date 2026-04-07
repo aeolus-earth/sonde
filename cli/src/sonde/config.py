@@ -1,10 +1,10 @@
 """Configuration management.
 
 Supabase credentials default to the hosted project's public values (the anon key
-is designed for client-side use).  Override via AEOLUS_SUPABASE_URL and
+is designed for client-side use). Override via AEOLUS_SUPABASE_URL and
 AEOLUS_SUPABASE_ANON_KEY for CI or local-Supabase workflows.
 
-Priority: explicit flag > env var > project config (.aeolus.yaml) > default.
+Priority: explicit flag > env var > user config > project config > default.
 """
 
 from __future__ import annotations
@@ -36,6 +36,15 @@ CONFIG_DIR = (
 )
 SESSION_FILE = CONFIG_DIR / "session.json"
 _ENV_ONLY_FIELDS = {"supabase_service_role_key"}
+_PROJECT_EXCLUDED_FIELDS = {"source"}
+
+
+def _read_yaml_config(path: Path) -> dict[str, Any]:
+    """Read a YAML config file, returning an empty dict on absence."""
+    if not path.exists():
+        return {}
+    with path.open(encoding="utf-8") as fh:
+        return yaml.safe_load(fh) or {}
 
 
 def _find_project_config() -> dict[str, Any]:
@@ -44,9 +53,13 @@ def _find_project_config() -> dict[str, Any]:
     for parent in [current, *current.parents]:
         config_path = parent / ".aeolus.yaml"
         if config_path.exists():
-            with open(config_path) as f:
-                return yaml.safe_load(f) or {}
+            return _read_yaml_config(config_path)
     return {}
+
+
+def _find_user_config() -> dict[str, Any]:
+    """Read ~/.config/sonde/config.yaml if it exists."""
+    return _read_yaml_config(CONFIG_DIR / "config.yaml")
 
 
 class Settings(BaseSettings):
@@ -82,26 +95,46 @@ class Settings(BaseSettings):
     icechunk_repo: str = Field(default="", description="Icechunk repository URI")
     stac_catalog_url: str = Field(default="", description="STAC catalog endpoint URL")
 
+    def with_user_config(self) -> Settings:
+        """Overlay ~/.config/sonde/config.yaml where env/flags haven't set values."""
+        return self._with_config_values(_find_user_config())
+
     def with_project_config(self) -> Settings:
         """Overlay .aeolus.yaml values where env/flags haven't set them.
 
         Supports both flat keys (program: foo) and nested keys
         (s3: {bucket: bar} → s3_bucket: bar).
         """
-        project = _find_project_config()
+        return self._with_config_values(
+            _find_project_config(),
+            excluded_fields=_PROJECT_EXCLUDED_FIELDS,
+        )
+
+    def _with_config_values(
+        self,
+        data: dict[str, Any],
+        *,
+        excluded_fields: set[str] | None = None,
+    ) -> Settings:
+        """Overlay config values onto unset settings fields."""
         updates = {}
-        for key, value in project.items():
+        excluded = excluded_fields or set()
+        for key, value in data.items():
             if isinstance(value, dict):
                 # Flatten nested: s3: {bucket: bar} → s3_bucket: bar
                 for sub_key, sub_value in value.items():
                     field_name = f"{key}_{sub_key}".replace("-", "_")
                     if field_name in _ENV_ONLY_FIELDS:
                         continue
+                    if field_name in excluded:
+                        continue
                     if field_name in self.__class__.model_fields and not getattr(self, field_name):
                         updates[field_name] = sub_value
             else:
                 field_name = key.replace("-", "_")
                 if field_name in _ENV_ONLY_FIELDS:
+                    continue
+                if field_name in excluded:
                     continue
                 if field_name in self.__class__.model_fields and not getattr(self, field_name):
                     updates[field_name] = value
@@ -112,4 +145,4 @@ class Settings(BaseSettings):
 
 def get_settings() -> Settings:
     """Load settings with full precedence chain."""
-    return Settings().with_project_config()
+    return Settings().with_user_config().with_project_config()

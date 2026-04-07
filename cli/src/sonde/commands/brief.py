@@ -19,10 +19,12 @@ from sonde.config import get_settings
 from sonde.db import experiments as exp_db
 from sonde.db import findings as find_db
 from sonde.db import questions as q_db
+from sonde.finding_utils import partition_operational_findings
 from sonde.local import get_focused_experiment
 from sonde.models.experiment import Experiment
 from sonde.models.finding import Finding
 from sonde.models.question import Question
+from sonde.note_utils import latest_checkpoint_note
 from sonde.output import (
     err,
     print_breadcrumbs,
@@ -148,7 +150,23 @@ def _build_active_context(
             directions = dir_db2.list_directions(program=program, statuses=None, limit=10000)
             all_suggestions = build_suggestions(experiments, findings, questions, directions)
             next_actions = all_suggestions[:3]
-        except Exception:
+        except (Exception, SystemExit):
+            pass
+
+    latest_checkpoint = None
+    if active.status == "running":
+        try:
+            from sonde.db import notes as notes_db
+
+            checkpoint_note = latest_checkpoint_note(notes_db.list_by_experiment(active.id))
+            if checkpoint_note:
+                latest_checkpoint = {
+                    "id": checkpoint_note.get("id"),
+                    "source": checkpoint_note.get("source"),
+                    "created_at": checkpoint_note.get("created_at"),
+                    **checkpoint_note["checkpoint"],
+                }
+        except (Exception, SystemExit):
             pass
 
     return {
@@ -170,6 +188,7 @@ def _build_active_context(
         "direction": direction_data,
         "linked_questions": linked_questions,
         "latest_finding": latest_finding,
+        "latest_checkpoint": latest_checkpoint,
         "next_actions": next_actions,
     }
 
@@ -324,6 +343,7 @@ def _build_brief_data(
     open_exps = [e for e in experiments if e.status == "open"]
     running = [e for e in experiments if e.status == "running"]
     failed = [e for e in experiments if e.status == "failed"]
+    operational_findings, standard_findings = partition_operational_findings(findings)
 
     # Coverage and gaps (all complete experiments)
     coverage: dict[str, list[str]] = {}
@@ -353,6 +373,16 @@ def _build_brief_data(
 
     # Motivation: program description + active project objectives
     motivation = _build_motivation(program)
+    directions_for_review: list[dict[str, str]] = []
+    if program:
+        try:
+            from sonde.commands.next import build_directions_for_review
+            from sonde.db import directions as dir_db
+
+            directions = dir_db.list_directions(program=program, statuses=None, limit=10000)
+            directions_for_review = build_directions_for_review(experiments, directions)
+        except Exception:
+            pass
 
     data: dict[str, Any] = {
         "title": title,
@@ -380,11 +410,22 @@ def _build_brief_data(
                 "evidence": f.evidence,
                 "topic": f.topic,
             }
-            for f in findings
+            for f in standard_findings
+        ],
+        "operational_findings": [
+            {
+                "id": f.id,
+                "finding": f.finding,
+                "confidence": f.confidence,
+                "evidence": f.evidence,
+                "topic": f.topic,
+            }
+            for f in operational_findings
         ],
         "open_questions": [
             {"id": q.id, "question": q.question, "status": q.status} for q in questions
         ],
+        "directions_for_review": directions_for_review,
         # Section 3: What we've explored
         "open_experiments": [
             {
@@ -623,6 +664,8 @@ def brief(
                 {
                     "active": data.get("active"),
                     "stats": data["stats"],
+                    "operational_findings": data.get("operational_findings", []),
+                    "directions_for_review": data.get("directions_for_review", []),
                     "generated_at": data["generated_at"],
                 }
             )

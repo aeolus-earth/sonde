@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
 
 from sonde.cli import cli
+from sonde.models.experiment import Experiment
 
 # A realistic experiment row as Supabase would return it.
 _EXPERIMENT_ROW: dict[str, Any] = {
@@ -69,6 +70,10 @@ _CONTENT_ONLY_ROW: dict[str, Any] = {
 }
 
 
+def _experiment_model(**overrides: Any) -> Experiment:
+    return Experiment(**{**_EXPERIMENT_ROW, **overrides})
+
+
 class TestLog:
     def test_log_quick(self, runner: CliRunner, patched_db: MagicMock):
         # Mock the ID generation query
@@ -124,6 +129,177 @@ class TestLog:
         )
         assert result.exit_code == 0
         assert '"EXP-0001"' in result.output
+
+    def test_log_creates_follow_up_questions(self, runner: CliRunner, patched_db: MagicMock):
+        exp_row = {**_EXPERIMENT_ROW, "tags": ["cloud-seeding"]}
+        patched_db.table("experiments").select("id").order("created_at", desc=True).limit(
+            1
+        ).execute.return_value = MagicMock(data=[])
+        patched_db.table("experiments").insert.return_value.execute.return_value = MagicMock(
+            data=[exp_row]
+        )
+
+        with (
+            patch(
+                "sonde.commands.log.q_db.create",
+                return_value=MagicMock(id="Q-0001"),
+            ) as mock_create_question,
+            patch("sonde.commands.log.log_activity"),
+        ):
+            result = runner.invoke(
+                cli,
+                [
+                    "log",
+                    "-p",
+                    "weather-intervention",
+                    "Observed unstable variance in the sweep",
+                    "--tag",
+                    "cloud-seeding",
+                    "--question",
+                    "Does the grid spacing explain the variance?",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert "Q-0001" in result.output
+
+        payload = mock_create_question.call_args.args[0]
+        assert payload.program == "weather-intervention"
+        assert payload.question == "Does the grid spacing explain the variance?"
+        assert payload.tags == ["cloud-seeding"]
+        assert "EXP-0001" in payload.context
+
+    def test_log_json_includes_question_ids(self, runner: CliRunner, patched_db: MagicMock):
+        exp_row = {**_EXPERIMENT_ROW, "tags": ["cloud-seeding"]}
+        patched_db.table("experiments").select("id").order("created_at", desc=True).limit(
+            1
+        ).execute.return_value = MagicMock(data=[])
+        patched_db.table("experiments").insert.return_value.execute.return_value = MagicMock(
+            data=[exp_row]
+        )
+
+        with (
+            patch(
+                "sonde.commands.log.q_db.create",
+                return_value=MagicMock(id="Q-0001"),
+            ),
+            patch("sonde.commands.log.log_activity"),
+        ):
+            result = runner.invoke(
+                cli,
+                [
+                    "--json",
+                    "log",
+                    "-p",
+                    "weather-intervention",
+                    "Observed unstable variance in the sweep",
+                    "--question",
+                    "Does the grid spacing explain the variance?",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert '"question_ids": [' in result.output
+        assert '"Q-0001"' in result.output
+
+    def test_log_extracts_hypothesis_from_content(
+        self,
+        runner: CliRunner,
+        authenticated: None,
+    ):
+        created_exp = _experiment_model(
+            content=(
+                "## Hypothesis\n"
+                "- Warm cache path reduces compile time\n"
+                "- Reuse keeps gradients stable\n\n"
+                "## Method\n"
+                "Run the backward pass."
+            ),
+            hypothesis="- Warm cache path reduces compile time\n- Reuse keeps gradients stable",
+        )
+
+        with (
+            patch(
+                "sonde.commands.log.get_settings",
+                return_value=MagicMock(program=None, source=None, default_direction=None),
+            ),
+            patch("sonde.commands.log.resolve_source", return_value="human/test"),
+            patch("sonde.commands.log.detect_git_context", return_value=None),
+            patch("sonde.commands.log.detect_multi_repo_context", return_value=None),
+            patch("sonde.commands.log.db.create", return_value=created_exp) as mock_create,
+            patch("sonde.commands.log.log_activity"),
+        ):
+            result = runner.invoke(
+                cli,
+                [
+                    "--json",
+                    "log",
+                    "-p",
+                    "weather-intervention",
+                    "## Hypothesis\n"
+                    "- Warm cache path reduces compile time\n"
+                    "- Reuse keeps gradients stable\n\n"
+                    "## Method\n"
+                    "Run the backward pass.",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        payload = mock_create.call_args.args[0]
+        assert payload.hypothesis == (
+            "- Warm cache path reduces compile time\n- Reuse keeps gradients stable"
+        )
+
+    def test_log_reads_hypothesis_file(
+        self,
+        runner: CliRunner,
+        tmp_path,
+        authenticated: None,
+    ):
+        hypothesis_file = tmp_path / "hypothesis.md"
+        hypothesis_file.write_text(
+            "- Warm cache path reduces compile time\n- Reuse keeps gradients stable\n",
+            encoding="utf-8",
+        )
+        created_exp = _experiment_model(
+            content=(
+                "## Hypothesis\n"
+                "- Warm cache path reduces compile time\n"
+                "- Reuse keeps gradients stable"
+            ),
+            hypothesis="- Warm cache path reduces compile time\n- Reuse keeps gradients stable",
+        )
+
+        with (
+            patch(
+                "sonde.commands.log.get_settings",
+                return_value=MagicMock(program=None, source=None, default_direction=None),
+            ),
+            patch("sonde.commands.log.resolve_source", return_value="human/test"),
+            patch("sonde.commands.log.detect_git_context", return_value=None),
+            patch("sonde.commands.log.detect_multi_repo_context", return_value=None),
+            patch("sonde.commands.log.db.create", return_value=created_exp) as mock_create,
+            patch("sonde.commands.log.log_activity"),
+        ):
+            result = runner.invoke(
+                cli,
+                [
+                    "--json",
+                    "log",
+                    "-p",
+                    "weather-intervention",
+                    "--hypothesis-file",
+                    str(hypothesis_file),
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        payload = mock_create.call_args.args[0]
+        assert payload.hypothesis == (
+            "- Warm cache path reduces compile time\n- Reuse keeps gradients stable"
+        )
+        assert payload.content is not None
+        assert "Warm cache path reduces compile time" in payload.content
 
 
 class TestList:
@@ -389,6 +565,74 @@ class TestUpdate:
         assert result.exit_code == 0
         assert "Nothing to update" in result.output
 
+    def test_update_extracts_hypothesis_from_content(
+        self,
+        runner: CliRunner,
+        authenticated: None,
+    ):
+        exp = _experiment_model(content=None, hypothesis=None)
+        updated = _experiment_model(
+            content="## Hypothesis\nMultiple alternatives:\n- warm cache\n- fused backward",
+            hypothesis="Multiple alternatives:\n- warm cache\n- fused backward",
+        )
+
+        with (
+            patch("sonde.commands.experiment_update.db.get", return_value=exp),
+            patch(
+                "sonde.commands.experiment_update.db.update", return_value=updated
+            ) as mock_update,
+            patch("sonde.db.activity.log_activity"),
+        ):
+            result = runner.invoke(
+                cli,
+                [
+                    "--json",
+                    "update",
+                    "EXP-0001",
+                    "--content",
+                    "## Hypothesis\nMultiple alternatives:\n- warm cache\n- fused backward",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        updates = mock_update.call_args.args[1]
+        assert updates["hypothesis"] == "Multiple alternatives:\n- warm cache\n- fused backward"
+
+    def test_update_explicit_hypothesis_wins_over_content_section(
+        self,
+        runner: CliRunner,
+        authenticated: None,
+    ):
+        exp = _experiment_model(content=None, hypothesis=None)
+        updated = _experiment_model(
+            content="## Hypothesis\nContent hypothesis\n\n## Method\nRun the backward pass.",
+            hypothesis="Explicit hypothesis",
+        )
+
+        with (
+            patch("sonde.commands.experiment_update.db.get", return_value=exp),
+            patch(
+                "sonde.commands.experiment_update.db.update", return_value=updated
+            ) as mock_update,
+            patch("sonde.db.activity.log_activity"),
+        ):
+            result = runner.invoke(
+                cli,
+                [
+                    "update",
+                    "EXP-0001",
+                    "--hypothesis",
+                    "Explicit hypothesis",
+                    "--content",
+                    "## Hypothesis\nContent hypothesis\n\n## Method\nRun the backward pass.",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert "Both --hypothesis and ## Hypothesis were provided" in result.output
+        updates = mock_update.call_args.args[1]
+        assert updates["hypothesis"] == "Explicit hypothesis"
+
 
 class TestParamsFile:
     def test_log_with_params_file(self, runner: CliRunner, patched_db: MagicMock, tmp_path):
@@ -643,6 +887,90 @@ class TestForkTree:
         data = json.loads(result.output)
         assert data["created"]["status"] == "running"
         assert data["created"]["claimed_by"] is not None
+
+
+class TestForkHypothesis:
+    def test_fork_extracts_hypothesis_from_intent(
+        self,
+        runner: CliRunner,
+        authenticated: None,
+    ):
+        source_exp = _experiment_model()
+        created_exp = _experiment_model(
+            id="EXP-0003",
+            parent_id="EXP-0001",
+            content="## Hypothesis\n- Warm cache path\n- Fused backward path",
+            hypothesis="- Warm cache path\n- Fused backward path",
+            related=["EXP-0001"],
+        )
+
+        with (
+            patch("sonde.commands.fork.get_settings", return_value=MagicMock(source=None)),
+            patch("sonde.commands.fork.resolve_source", return_value="human/test"),
+            patch("sonde.commands.fork.detect_git_context", return_value=None),
+            patch("sonde.commands.fork.detect_multi_repo_context", return_value=None),
+            patch("sonde.commands.fork.db.get", return_value=source_exp),
+            patch("sonde.commands.fork.db.get_children", return_value=[]),
+            patch("sonde.commands.fork.db.create", return_value=created_exp) as mock_create,
+            patch("sonde.db.activity.log_activity"),
+        ):
+            result = runner.invoke(
+                cli,
+                [
+                    "--json",
+                    "fork",
+                    "EXP-0001",
+                    "## Hypothesis\n- Warm cache path\n- Fused backward path",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        payload = mock_create.call_args.args[0]
+        assert payload.hypothesis == "- Warm cache path\n- Fused backward path"
+
+    def test_fork_hypothesis_file_sets_canonical_field(
+        self,
+        runner: CliRunner,
+        tmp_path,
+        authenticated: None,
+    ):
+        hypothesis_file = tmp_path / "fork-hypothesis.md"
+        hypothesis_file.write_text(
+            "Multiple alternatives:\n- warm cache\n- fused backward\n",
+            encoding="utf-8",
+        )
+        source_exp = _experiment_model()
+        created_exp = _experiment_model(
+            id="EXP-0004",
+            parent_id="EXP-0001",
+            hypothesis="Multiple alternatives:\n- warm cache\n- fused backward",
+            related=["EXP-0001"],
+        )
+
+        with (
+            patch("sonde.commands.fork.get_settings", return_value=MagicMock(source=None)),
+            patch("sonde.commands.fork.resolve_source", return_value="human/test"),
+            patch("sonde.commands.fork.detect_git_context", return_value=None),
+            patch("sonde.commands.fork.detect_multi_repo_context", return_value=None),
+            patch("sonde.commands.fork.db.get", return_value=source_exp),
+            patch("sonde.commands.fork.db.get_children", return_value=[]),
+            patch("sonde.commands.fork.db.create", return_value=created_exp) as mock_create,
+            patch("sonde.db.activity.log_activity"),
+        ):
+            result = runner.invoke(
+                cli,
+                [
+                    "--json",
+                    "fork",
+                    "EXP-0001",
+                    "--hypothesis-file",
+                    str(hypothesis_file),
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        payload = mock_create.call_args.args[0]
+        assert payload.hypothesis == "Multiple alternatives:\n- warm cache\n- fused backward"
 
 
 class TestShowTree:

@@ -139,7 +139,7 @@ def _build_default_mcp_config() -> dict | None:
     # Fallback: sonde CLI on PATH (for standalone installs without the server)
     sonde_path = shutil.which("sonde")
     if sonde_path:
-        return {"command": sonde_path, "args": ["mcp", "serve"]}
+        return {"command": "sonde", "args": ["mcp", "serve"]}
 
     return None
 

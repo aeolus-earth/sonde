@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from unittest.mock import patch
 
@@ -276,7 +277,7 @@ class TestBuildDefaultMcpConfig:
         monkeypatch.setattr("sonde.runtimes.shutil.which", lambda _: "/usr/bin/sonde")
         config = _build_default_mcp_config()
         assert config is not None
-        assert config["command"] == "/usr/bin/sonde"
+        assert config["command"] == "sonde"
         assert config["args"] == ["mcp", "serve"]
 
     def test_returns_none_when_nothing_available(
@@ -381,3 +382,42 @@ class TestSetupCommand:
         assert codex_dir.exists()
         skill_files = list(codex_dir.glob("*.md"))
         assert len(skill_files) >= 1
+        assert ".codex/skills/" in (tmp_path / ".gitignore").read_text(encoding="utf-8")
+        workspace_ignore = (tmp_path / ".sonde" / ".gitignore").read_text(encoding="utf-8")
+        assert "skills.json" in workspace_ignore
+        assert "brief.meta.json" in workspace_ignore
+
+    def test_setup_registers_stac_with_portable_command(self, tmp_path: Path):
+        runner = CliRunner()
+        with (
+            patch("sonde.commands.setup._find_project_root", return_value=tmp_path),
+            patch("sonde.auth.is_authenticated", return_value=True),
+            patch("sonde.auth.get_token", return_value="fake-token"),
+            patch(
+                "sonde.auth.get_current_user",
+                return_value=type("U", (), {"email": "test@aeolus.earth"})(),
+            ),
+            patch("sonde.db.client.get_client") as mock_client,
+            patch("sonde.db.programs.get_client") as mock_prog_client,
+            patch("shutil.which", return_value="/usr/bin/stac-mcp"),
+            patch("httpx.get") as mock_httpx_get,
+            patch("sonde.runtimes._find_server_dir", return_value=None),
+            patch("sonde.runtimes.shutil.which", return_value="/usr/bin/sonde"),
+        ):
+            for mc in (mock_client, mock_prog_client):
+                tbl = mc.return_value.table.return_value
+                tbl.select.return_value.order.return_value.execute.return_value.data = [
+                    {"id": "shared"}
+                ]
+            mock_httpx_get.return_value.status_code = 200
+            mock_httpx_get.return_value.json.return_value = {"collections": []}
+
+            result = runner.invoke(
+                cli,
+                ["-q", "setup", "--runtime", "claude-code", "--skip-skills"],
+            )
+
+        assert result.exit_code == 0, result.output
+        settings = json.loads((tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8"))
+        assert settings["mcpServers"]["stac"]["command"] == "stac-mcp"
+        assert settings["mcpServers"]["sonde"]["command"] == "sonde"

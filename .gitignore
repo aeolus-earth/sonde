@@ -15,3 +15,4 @@ cli/.coverage
 .sonde/
 repos/claude-code/
 vendor/stac-db/
+.vercel

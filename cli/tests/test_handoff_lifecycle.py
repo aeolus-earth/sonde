@@ -70,6 +70,14 @@ _BASE_ROW: dict[str, Any] = {
     "updated_at": _NOW.isoformat(),
 }
 
+_CHECKPOINT_NOTE = (
+    "## Checkpoint\n"
+    "- Phase: compile\n"
+    "- Status: running\n"
+    "- Elapsed: 22m\n\n"
+    "Simulation converged after 200 iterations"
+)
+
 
 def _make_experiment(**overrides: Any) -> Experiment:
     """Build an Experiment model from _BASE_ROW with overrides."""
@@ -895,8 +903,10 @@ class TestHandoffEdgeCases:
         assert data["children"] == []
         assert data["siblings"] == []
         assert data["notes"] == []
+        assert data["latest_checkpoint"] is None
         assert data["artifacts"] == []
         assert data["findings"] == []
+        assert data["operational_findings"] == []
         assert data["own_finding"] is None
 
     def test_handoff_truncates_long_content(self):
@@ -1069,6 +1079,7 @@ class TestHandoffEdgeCases:
         # Nullable fields
         assert data["direction"] is None or isinstance(data["direction"], dict)
         assert data["parent"] is None or isinstance(data["parent"], dict)
+        assert data["latest_checkpoint"] is None or isinstance(data["latest_checkpoint"], dict)
         assert data["own_finding"] is None or isinstance(data["own_finding"], str)
 
         # List fields
@@ -1077,6 +1088,7 @@ class TestHandoffEdgeCases:
         assert isinstance(data["notes"], list)
         assert isinstance(data["artifacts"], list)
         assert isinstance(data["findings"], list)
+        assert isinstance(data["operational_findings"], list)
         assert isinstance(data["suggested_next"], list)
 
     def test_handoff_output_is_useful_for_agent(self):
@@ -1104,10 +1116,15 @@ class TestHandoffEdgeCases:
         child = _make_experiment(id="EXP-0002", parent_id="EXP-0001", branch_type="refinement")
         finding = _make_finding(evidence=["EXP-0001"])
         note = {
-            "content": "Simulation converged after 200 iterations",
+            "content": _CHECKPOINT_NOTE,
             "source": "human/test",
             "created_at": _NOW.isoformat(),
         }
+        gotcha = _make_finding(
+            id="FIN-0012",
+            topic="Gotcha: compile must run inside function",
+            evidence=["EXP-9999"],
+        )
 
         exp_db = MagicMock()
         dir_db = MagicMock()
@@ -1120,7 +1137,7 @@ class TestHandoffEdgeCases:
         exp_db.get_children.return_value = [child]
         exp_db.get_siblings.return_value = []
         dir_db.get.return_value = direction
-        find_db.list_active.return_value = [finding]
+        find_db.list_active.return_value = [gotcha, finding]
         notes_db.list_by_experiment.return_value = [note]
         art_db.list_artifacts.return_value = []
 
@@ -1145,6 +1162,8 @@ class TestHandoffEdgeCases:
 
         # Agent can see notes
         assert len(data["notes"]) == 1
+        assert data["latest_checkpoint"]["phase"] == "compile"
+        assert data["operational_findings"][0]["id"] == "FIN-0012"
 
         # Agent gets suggestions for what to do
         assert len(data["suggested_next"]) > 0

@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { normalizeExperimentHypothesis } from "@/lib/experiment-hypothesis";
 import { supabase } from "@/lib/supabase";
 import { queryKeys } from "@/lib/query-keys";
 import type { ExperimentSummary, Program } from "@/types/sonde";
@@ -30,7 +31,7 @@ export function useExperimentsForProgram(programId: string | null) {
         .limit(150);
 
       if (error) throw error;
-      return data;
+      return data.map(normalizeExperimentHypothesis);
     },
     enabled: !!programId,
   });

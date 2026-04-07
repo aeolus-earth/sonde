@@ -14,6 +14,7 @@ from sonde.config import get_settings
 from sonde.db import directions as dir_db
 from sonde.db import programs as prog_db
 from sonde.db.activity import log_activity
+from sonde.ignore import ensure_sonde_workspace_ignore
 from sonde.local import find_sonde_dir
 from sonde.models.direction import DirectionCreate
 from sonde.output import err, print_error, print_json, print_success
@@ -86,7 +87,7 @@ def init_cmd(
     config_path = Path.cwd() / ".aeolus.yaml"
     config = _load_existing_config(config_path)
     config["program"] = resolved_program
-    config["source"] = resolved_source
+    config.pop("source", None)
     if default_direction or created_direction_id:
         config["default_direction"] = default_direction or created_direction_id
 
@@ -94,13 +95,13 @@ def init_cmd(
         yaml.safe_dump(config, fh, sort_keys=False)
 
     sonde_dir = find_sonde_dir()
-    (sonde_dir / "brief.md").touch(exist_ok=True)
+    ensure_sonde_workspace_ignore(sonde_dir.parent)
 
     payload = {
         "program": resolved_program,
-        "source": resolved_source,
         "default_direction": config.get("default_direction"),
         "config_path": str(config_path),
+        "workspace_path": str(sonde_dir),
     }
     if ctx.obj.get("json"):
         print_json(payload)

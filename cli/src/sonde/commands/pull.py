@@ -40,6 +40,7 @@ from sonde.local import (
     write_nested_record,
     write_record,
 )
+from sonde.note_utils import extract_checkpoint, render_note_markdown
 from sonde.output import err, print_error, print_json, print_success
 
 ARTIFACT_CHOICES = ("none", "text", "media", "all")
@@ -976,9 +977,13 @@ def _write_notes(exp_base_dir: Path, notes: list[dict[str, Any]]) -> None:
     for note in notes:
         timestamp = note.get("created_at", "")[:19].replace(":", "-")
         filename = f"{timestamp}.md"
-        content = (
-            f"---\nauthor: {note.get('source', 'unknown')}\n"
-            f"timestamp: {note.get('created_at', '')}\n---\n\n"
-            f"{note.get('content', '')}\n"
+        body = str(note.get("content", "") or "")
+        checkpoint = extract_checkpoint(None, body)
+        content = render_note_markdown(
+            source=str(note.get("source", "unknown")),
+            timestamp=str(note.get("created_at", "") or ""),
+            body=body,
+            note_id=str(note.get("id") or "") or None,
+            checkpoint=checkpoint,
         )
         (notes_dir / filename).write_text(content, encoding="utf-8")

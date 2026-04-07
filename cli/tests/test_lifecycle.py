@@ -310,6 +310,23 @@ class TestCloseHints:
         assert "Suggested next" in result.output or "fork" in result.output
 
     @patch("sonde.commands.lifecycle.detect_git_context", return_value=_CLEAN_GIT)
+    def test_close_shows_question_capture_nudge(
+        self, _mock_git: MagicMock, runner: CliRunner, patched_db: MagicMock
+    ):
+        running_exp = {
+            **_BASE_ROW,
+            "status": "running",
+            "claimed_by": "human/test",
+            "claimed_at": _NOW.isoformat(),
+        }
+        closed_exp = {**running_exp, "status": "complete", "claimed_by": None, "claimed_at": None}
+        patched_db.table.side_effect = _lifecycle_table_factory(running_exp, closed_exp)
+
+        result = runner.invoke(cli, ["close", "EXP-0001"])
+        assert result.exit_code == 0, result.output
+        assert 'sonde question create -p weather-intervention "..."' in result.output
+
+    @patch("sonde.commands.lifecycle.detect_git_context", return_value=_CLEAN_GIT)
     def test_close_json_includes_suggested_next(
         self, _mock_git: MagicMock, runner: CliRunner, patched_db: MagicMock
     ):

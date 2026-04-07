@@ -27,11 +27,18 @@ from sonde.db import program_takeaways as takeaways_db
 from sonde.db import questions as q_db
 from sonde.db.activity import log_activity
 from sonde.git import detect_git_context, detect_multi_repo_context, snapshots_to_json
-from sonde.local import extract_finding_text, find_sonde_dir, parse_markdown, resolve_record_path
+from sonde.local import (
+    effective_hypothesis,
+    extract_finding_text,
+    find_sonde_dir,
+    parse_markdown,
+    resolve_record_path,
+)
 from sonde.models.direction import DirectionCreate
 from sonde.models.experiment import ExperimentCreate
 from sonde.models.finding import FindingCreate
 from sonde.models.question import QuestionCreate
+from sonde.note_utils import checkpoint_activity_details, extract_checkpoint, render_note_markdown
 from sonde.output import err, print_error, print_json, print_nudge, print_success
 
 _SKIP = {".DS_Store", "__pycache__"}
@@ -548,7 +555,7 @@ def _upsert_experiment(
         "status": frontmatter.get("status", "open"),
         "source": source,
         "content": body or None,
-        "hypothesis": frontmatter.get("hypothesis"),
+        "hypothesis": effective_hypothesis(body or None, frontmatter.get("hypothesis")),
         "parameters": frontmatter.get("parameters") or {},
         "results": frontmatter.get("results"),
         "finding": frontmatter.get("finding"),
@@ -959,11 +966,28 @@ def _sync_record_notes(record_type: str, record_id: str, notes_dir: Path) -> int
     for note_file in sorted(notes_dir.glob("*.md")):
         frontmatter, body = parse_markdown(note_file.read_text(encoding="utf-8"))
         note_source = frontmatter.get("author") or frontmatter.get("source") or _resolve_source({})
+        checkpoint = extract_checkpoint(frontmatter, body)
         key = (body.strip(), str(note_source))
         if not body.strip() or key in existing_keys:
             continue
         note = notes_db.create(record_type, record_id, body.strip(), str(note_source))
         existing_keys.add(key)
         created += 1
-        log_activity(record_id, record_type, "note_added", {"note_id": note["id"]})
+        log_activity(
+            record_id,
+            record_type,
+            "note_added",
+            checkpoint_activity_details(note_id=note["id"], checkpoint=checkpoint),
+        )
+        timestamp = str(note.get("created_at") or frontmatter.get("timestamp") or "")
+        note_file.write_text(
+            render_note_markdown(
+                source=str(note_source),
+                timestamp=timestamp,
+                body=body.strip(),
+                note_id=str(note["id"]),
+                checkpoint=checkpoint,
+            ),
+            encoding="utf-8",
+        )
     return created

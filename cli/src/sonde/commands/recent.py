@@ -7,6 +7,7 @@ import click
 from sonde.cli_options import pass_output_options
 from sonde.config import get_settings
 from sonde.db.activity import get_recent
+from sonde.note_utils import CHECKPOINT_KIND, format_checkpoint_summary
 from sonde.output import err, print_json, print_table
 
 
@@ -105,7 +106,10 @@ def recent(
             elif e["action"] == "tag_removed":
                 detail = f"-{details.get('tag', '')}"
             elif e["action"] == "note_added":
-                detail = details.get("note_id", "")
+                if details.get("kind") == CHECKPOINT_KIND:
+                    detail = format_checkpoint_summary(details, include_note=True)
+                else:
+                    detail = details.get("note_id", "")
             elif e["action"] == "artifact_attached":
                 count = details.get("count", 0)
                 detail = f"{count} file(s)"

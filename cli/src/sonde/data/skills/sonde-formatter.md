@@ -11,7 +11,10 @@ Typical triggers:
 
 ## Core principle: content first
 
-The `content` field (markdown body) is the primary vehicle for experiment records. It is what humans and agents read, what full-text search indexes, and what `sonde show` displays. Legacy structured fields (`hypothesis`, `parameters`, `results`, `finding`) still work and power specific search/filter axes, but the content body is where the real record lives.
+The `hypothesis` field is a first-class freeform field for what the experiment
+expects to happen. The `content` field (markdown body) is the primary vehicle
+for method, results, findings, and narrative analysis. Together they give Sonde
+both structured previews and a readable research record.
 
 Write content as if a colleague — or an agent six months from now — needs to reproduce or build on this work without asking you any questions.
 

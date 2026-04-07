@@ -31,7 +31,12 @@ from sonde.output import (
 @click.option(
     "--status", type=click.Choice(["open", "running", "complete", "failed", "superseded"])
 )
-@click.option("--hypothesis", help="Update hypothesis")
+@click.option("--hypothesis", help="Update hypothesis text")
+@click.option(
+    "--hypothesis-file",
+    type=click.Path(exists=True),
+    help="Read multiline hypothesis text from file",
+)
 @click.option("--params", help="Parameters as JSON (merges with existing)")
 @click.option(
     "--params-file", "params_file", type=click.Path(exists=True), help="Params from YAML/JSON file"
@@ -75,6 +80,7 @@ def update(
     experiment_id: str | None,
     status: str | None,
     hypothesis: str | None,
+    hypothesis_file: str | None,
     params: str | None,
     params_file: str | None,
     result: str | None,
@@ -117,11 +123,14 @@ def update(
         raise SystemExit(1)
 
     updates: dict[str, Any] = {}
+    resolved_hypothesis = hypothesis
+    if resolved_hypothesis is None and hypothesis_file:
+        resolved_hypothesis = Path(hypothesis_file).read_text(encoding="utf-8").strip()
 
     if status is not None:
         updates["status"] = status
-    if hypothesis is not None:
-        updates["hypothesis"] = hypothesis
+    if resolved_hypothesis is not None:
+        updates["hypothesis"] = resolved_hypothesis
     if finding is not None:
         updates["finding"] = finding
     if direction is not None:
@@ -147,6 +156,22 @@ def update(
         if results_text is not None:
             existing_content = update_section(existing_content, "results", results_text)
         updates["content"] = existing_content
+
+    if "content" in updates:
+        from sonde.local import extract_section_text
+
+        extracted_hypothesis = extract_section_text(str(updates["content"] or ""), "Hypothesis")
+        if (
+            resolved_hypothesis is not None
+            and extracted_hypothesis
+            and extracted_hypothesis.strip() != resolved_hypothesis.strip()
+        ):
+            err.print(
+                "  [sonde.warning]Both --hypothesis and ## Hypothesis were provided; "
+                "using the explicit field.[/]"
+            )
+        elif resolved_hypothesis is None and extracted_hypothesis:
+            updates["hypothesis"] = extracted_hypothesis
 
     # Params: merge file + inline with existing
     try:

@@ -15,6 +15,8 @@ from rich.console import Console
 from rich.table import Table
 from rich.theme import Theme
 
+from sonde.local import effective_hypothesis
+
 # -- Sonde color palette --
 # Warm orange inspired by atmospheric sounding profiles.
 # All CLI color decisions reference these names, not hex codes.
@@ -216,22 +218,26 @@ def print_breadcrumbs(hints: list[str]) -> None:
 def record_summary(record: dict | object, length: int = 60) -> str:
     """Extract a one-line summary from a record (dict or model).
 
-    Tries content first line, then finding, then hypothesis.
+    For experiment-like records, prefers finding then effective hypothesis,
+    falling back to the first non-empty content line.
     Works with both dicts (from DB rows) and Pydantic models.
     """
     row = cast(dict[str, Any], record) if isinstance(record, dict) else None
     content = row.get("content") if row is not None else getattr(record, "content", None)
+    finding = row.get("finding") if row is not None else getattr(record, "finding", None)
+    if finding:
+        return truncate_text(finding, length)
+    hypothesis = effective_hypothesis(
+        content,
+        row.get("hypothesis") if row is not None else getattr(record, "hypothesis", None),
+    )
+    if hypothesis:
+        return truncate_text(hypothesis, length)
     if content:
         for line in content.splitlines():
             stripped = line.strip().lstrip("# ").strip()
             if stripped:
                 return truncate_text(stripped, length)
-    finding = row.get("finding") if row is not None else getattr(record, "finding", None)
-    if finding:
-        return truncate_text(finding, length)
-    hypothesis = row.get("hypothesis") if row is not None else getattr(record, "hypothesis", None)
-    if hypothesis:
-        return truncate_text(hypothesis, length)
     return "—"
 
 

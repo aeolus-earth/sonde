@@ -176,7 +176,7 @@ def render_record(record: dict[str, Any]) -> str:
     If the record has a `content` field, that becomes the body.
     Otherwise, the body is generated from structured fields.
     """
-    # Legacy structured fields: only include in frontmatter if non-empty
+    # Structured compatibility fields: only include in frontmatter if non-empty
     legacy_fields = {"hypothesis", "parameters", "results", "finding"}
 
     fm_data = {}
@@ -591,6 +591,46 @@ def extract_finding_text(content: str) -> str | None:
         if paragraph and not paragraph.startswith("#"):
             return paragraph
     return None
+
+
+def extract_section_text(content: str, section: str) -> str | None:
+    """Extract a top-level ``## Section`` body from markdown content."""
+    body = content.strip()
+    if not body:
+        return None
+    text = parse_sections(body).get(section.strip().lower())
+    if text and text.strip():
+        return text.strip()
+    return None
+
+
+def effective_hypothesis(content: str | None, hypothesis: str | None) -> str | None:
+    """Return the canonical hypothesis, falling back to content extraction."""
+    if hypothesis and hypothesis.strip():
+        return hypothesis.strip()
+    if content:
+        return extract_section_text(content, "Hypothesis")
+    return None
+
+
+def remove_section(content: str, section: str) -> str:
+    """Remove a top-level ``## Section`` block from markdown content."""
+    import re
+
+    if not content.strip():
+        return content
+
+    display_name = section.strip().title()
+    pattern = rf"(^## {re.escape(display_name)}\s*(?:\n|$))(.*?)(?=^## \S|\Z)"
+    match = re.search(pattern, content, re.IGNORECASE | re.MULTILINE | re.DOTALL)
+    if not match:
+        return content
+
+    before = content[: match.start()].rstrip("\n")
+    after = content[match.end() :].lstrip("\n")
+    if before and after:
+        return f"{before}\n\n{after}"
+    return before or after
 
 
 # ---------------------------------------------------------------------------
