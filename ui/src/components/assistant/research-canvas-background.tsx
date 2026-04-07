@@ -315,7 +315,12 @@ export const ResearchCanvasBackground = memo(function ResearchCanvasBackground()
   }, []);
 
   const placed = useMemo(() => {
-    if (!artifacts?.length) return [];
+    if (!artifacts?.length) {
+      console.log("[canvas] No artifacts to render");
+      return [];
+    }
+    console.log(`[canvas] Rendering ${artifacts.length} artifact cards:`,
+      artifacts.map(a => `${a.linkTo.kind}:${a.linkTo.id} ${a.filename}`).join(", "));
     return artifacts.map((a, i) => ({
       artifact: a,
       slot: CARD_SLOTS[i % CARD_SLOTS.length],
