@@ -263,6 +263,8 @@ def render_human(
             ],
             title="Open Questions",
         )
+    else:
+        err.print("\n[sonde.muted]No open questions. Use [dim]sonde question create[/] to capture unknowns.[/]")
 
     # Coverage — active branch first if available
     if data.get("coverage_active"):
@@ -502,6 +504,10 @@ def render_markdown(data: dict) -> str:
         lines.append("## Open questions\n")
         for q in data["open_questions"]:
             lines.append(f"- **{q['id']}** {q['question']}")
+        lines.append("")
+    else:
+        lines.append("## Open questions\n")
+        lines.append("No open questions. Use `sonde question create` to capture unknowns.")
         lines.append("")
 
     if data.get("coverage_active"):

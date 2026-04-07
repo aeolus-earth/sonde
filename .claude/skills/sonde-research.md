@@ -146,6 +146,24 @@ sonde fork EXP-0001 --env CUDA_VERSION=12.0
 - When the user says "log this", "record this", "save this experiment"
 - When you've helped design and run an experiment to completion
 
+### Raising questions while logging
+
+If results are **inconclusive**, **surprising**, or suggest a follow-up investigation,
+raise a question at the same time you log the experiment:
+
+```bash
+# Raise a question as a side-effect of logging
+sonde log -p <program> "Ran CCN sweep ..." --question "Does saturation shift with humidity?"
+
+# Or raise separately after logging
+sonde question create -p <program> "What explains the anomalous LWC spike at CCN=800?"
+```
+
+Use `--question` whenever:
+- Results don't match the hypothesis
+- You see an unexpected pattern that warrants follow-up
+- You closed an experiment and immediately thought "but what about...?"
+
 ---
 
 ## What makes a good experiment

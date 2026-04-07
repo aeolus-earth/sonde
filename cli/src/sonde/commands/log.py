@@ -75,6 +75,7 @@ def _inherit_project(direction_id: str | None) -> str | None:
 @click.option("--status", default="complete", type=click.Choice(["open", "running", "complete"]))
 @click.option("--quick", is_flag=True, help="Minimal record — just params + result")
 @click.option("--open", "open_exp", is_flag=True, help="Log as open/backlog (not yet run)")
+@click.option("--question", "question_text", help="Raise a question linked to this experiment")
 @structured_metadata_options
 @pass_output_options
 @click.pass_context
@@ -99,6 +100,7 @@ def log(
     status: str,
     quick: bool,
     open_exp: bool,
+    question_text: str | None,
     repro: str | None,
     evidence: tuple[str, ...],
     env_vars: tuple[str, ...],
@@ -132,6 +134,9 @@ def log(
 
       # Open an experiment (backlog item)
       sonde log --open -p weather-intervention "Test combined BL heating + seeding"
+
+      # Raise a question alongside the experiment
+      sonde log -p weather-intervention "Ran CCN sweep" --question "Does saturation shift with humidity?"
     """
     settings = get_settings()
 
@@ -274,3 +279,22 @@ def log(
                 "Attach to a research direction:",
                 f"sonde update {exp.id} --direction DIR-XXX",
             )
+
+    # Create linked question if --question was provided
+    if question_text:
+        from sonde.db import questions as q_db
+        from sonde.models.question import QuestionCreate
+
+        q_data = QuestionCreate(
+            program=resolved_program,
+            question=question_text,
+            context=f"Raised while logging {exp.id}",
+            source=resolved_source,
+        )
+        q_record = q_db.create(q_data)
+        from sonde.db.activity import log_activity as _log_q_activity
+
+        _log_q_activity(q_record.id, "question", "created")
+        if not ctx.obj.get("json"):
+            err.print(f"\n  Question logged: {q_record.id}")
+            err.print(f"  View: sonde question show {q_record.id}")
