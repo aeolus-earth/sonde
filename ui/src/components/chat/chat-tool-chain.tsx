@@ -1,8 +1,40 @@
-import { memo, useEffect, useRef, useState } from "react";
-import { CheckCircle2, ChevronDown, ChevronRight, Loader2, XCircle } from "lucide-react";
+import { lazy, memo, Suspense, useEffect, useRef, useState } from "react";
+import { Brain, CheckCircle2, ChevronDown, ChevronRight, Loader2, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ToolUseData } from "@/types/chat";
 import { ChatToolActivity, toolDisplayName, toolSummary } from "@/components/chat/chat-tool-activity";
+
+const AssistantMarkdown = lazy(() =>
+  import("./assistant-markdown").then((m) => ({ default: m.AssistantMarkdown }))
+);
+
+function TerminalStepIcon() {
+  return (
+    <div
+      className={cn(
+        "flex h-8 w-8 shrink-0 items-center justify-center rounded border border-border-subtle bg-surface-raised font-mono text-[10px] leading-none text-text-tertiary",
+        "shadow-[0_1px_0_rgba(0,0,0,0.04)] dark:border-white/[0.12] dark:bg-surface/90 dark:shadow-none",
+      )}
+      aria-hidden
+    >
+      <span className="select-none tracking-tight">{`>_`}</span>
+    </div>
+  );
+}
+
+function ReasoningStepIcon() {
+  return (
+    <div
+      className={cn(
+        "flex h-8 w-8 shrink-0 items-center justify-center rounded border border-border-subtle/80 bg-surface-raised text-text-quaternary",
+        "dark:border-white/[0.1] dark:bg-surface/80",
+      )}
+      aria-hidden
+    >
+      <Brain className="h-3.5 w-3.5 opacity-80" strokeWidth={1.75} />
+    </div>
+  );
+}
 
 function firstLine(text: string, max = 72): string {
   const line = text.trim().split(/\r?\n/)[0] ?? "";
@@ -57,7 +89,7 @@ function chainStatusIcon(
 
 interface ChatToolChainProps {
   toolUses: ToolUseData[];
-  /** Streamed reasoning / pre-tool text (not the final answer bubble). */
+  /** Native extended thinking (`thinking_delta` only), not assistant `text` blocks. */
   thinkingContent?: string;
   /** True while this is the last assistant message and the reply is still streaming. */
   isStreamingLast?: boolean;
@@ -144,42 +176,46 @@ export const ChatToolChain = memo(function ChatToolChain({
             </span>
           </button>
 
-          <div className="relative px-2 pb-1 pt-0.5">
+          <div className="relative px-2 pb-1.5 pt-1">
             <div
               aria-hidden
               className={cn(
-                "pointer-events-none absolute bottom-3 left-[18px] top-3 w-px",
+                "pointer-events-none absolute left-6 top-3 bottom-3 w-px",
                 "bg-gradient-to-b from-border-subtle via-border-subtle to-transparent",
-                "dark:from-white/15 dark:via-white/10",
+                "dark:from-white/[0.14] dark:via-white/[0.1]",
               )}
             />
-            <div className="relative m-0 space-y-0 p-0">
+            <div className="relative z-[1] m-0 space-y-0 p-0">
               {hasThinking && (
                 <div
                   className={cn(
-                    "relative border-b border-dashed border-border-subtle/70 pl-9 pb-2 pt-1 dark:border-white/[0.1]",
-                    toolUses.length > 0 && "pb-2",
+                    "relative flex gap-3 border-b border-dashed border-border-subtle/70 pb-3 pt-0.5 dark:border-white/[0.1]",
+                    toolUses.length > 0 && "mb-0",
                   )}
                 >
-                  <span
-                    aria-hidden
-                    className={cn(
-                      "absolute left-[14px] top-[1.1rem] z-[1] h-2 w-2 rounded-full border shadow-sm",
-                      "border-border-subtle bg-surface-raised dark:border-white/15 dark:bg-surface",
-                    )}
-                  />
-                  <p className="text-[10px] font-medium uppercase tracking-[0.08em] text-text-quaternary">
-                    Reasoning
-                  </p>
-                  <pre
-                    className={cn(
-                      "mt-1 max-h-[min(40vh,16rem)] overflow-y-auto whitespace-pre-wrap font-mono",
-                      "text-[11px] leading-relaxed text-text-tertiary",
-                      "[scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden",
-                    )}
-                  >
-                    {thinkingContent?.trim()}
-                  </pre>
+                  <div className="relative z-[2] shrink-0 pt-0.5">
+                    <ReasoningStepIcon />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[10px] font-medium uppercase tracking-[0.08em] text-text-quaternary">
+                      Reasoning
+                    </p>
+                    <div
+                      className={cn(
+                        "mt-1 max-h-[min(40vh,16rem)] overflow-y-auto",
+                        "text-[11px] leading-relaxed text-text-tertiary",
+                        "[scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden",
+                      )}
+                    >
+                      <Suspense
+                        fallback={
+                          <pre className="whitespace-pre-wrap font-mono">{thinkingContent?.trim()}</pre>
+                        }
+                      >
+                        <AssistantMarkdown content={thinkingContent?.trim() ?? ""} />
+                      </Suspense>
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -188,19 +224,17 @@ export const ChatToolChain = memo(function ChatToolChain({
                   <li
                     key={tu.id}
                     className={cn(
-                      "relative pl-9",
+                      "relative flex gap-3 py-2.5 pl-0",
                       i < toolUses.length - 1 &&
-                        "border-b border-dashed border-border-subtle/70 pb-1 dark:border-white/[0.1]",
+                        "border-b border-dashed border-border-subtle/70 dark:border-white/[0.1]",
                     )}
                   >
-                    <span
-                      aria-hidden
-                      className={cn(
-                        "absolute left-[14px] top-[1.15rem] z-[1] h-2 w-2 rounded-full border shadow-sm",
-                        "border-border-subtle bg-surface-raised dark:border-white/15 dark:bg-surface",
-                      )}
-                    />
-                    <ChatToolActivity toolUse={tu} chainMode />
+                    <div className="relative z-[2] shrink-0 pt-0.5">
+                      <TerminalStepIcon />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <ChatToolActivity toolUse={tu} chainMode />
+                    </div>
                   </li>
                 ))}
               </ul>

@@ -12,8 +12,14 @@ import { Link } from "@tanstack/react-router";
 import { Film } from "lucide-react";
 import { useArtifactUrl, useBatchArtifactUrls } from "@/hooks/use-artifacts";
 import { useAssistantCanvasArtifacts } from "@/hooks/use-assistant-canvas-artifacts";
+import {
+  ASSISTANT_CANVAS_LAYER_SCALE,
+  computeAssistantCanvasCardPlacements,
+  type AssistantCanvasCardPlacement,
+} from "@/lib/assistant-canvas-layout";
 import { useTheme } from "@/stores/ui";
 import { useActiveProgram } from "@/stores/program";
+import { useCanvasBubbleRect } from "@/stores/assistant-canvas-layout";
 import { useChatStore } from "@/stores/chat";
 import { cn } from "@/lib/utils";
 import { isVideo } from "@/lib/artifact-kind";
@@ -21,37 +27,7 @@ import { CanvasHierarchyFlow } from "./canvas-hierarchy-flow";
 import type { AssistantCanvasArtifactRow } from "@/hooks/use-assistant-canvas-artifacts";
 
 /** Layer is 155% × viewport; centering leaves ~27.5% overhang each side — pan must stay within that. */
-const LAYER_SCALE = 1.55;
-const MAX_PAN_FRACTION = (LAYER_SCALE - 1) / 2;
-
-/**
- * Card positions — orbit the center chat box within the visible viewport.
- *
- * The inner layer is 155%, so the viewport maps to roughly 18–82% of the layer.
- * Chat box sits at ~50% center. Cards scatter around it like papers on a desk —
- * close enough to see, far enough to not overlap the chat input.
- *
- * Layout: 2 above-left, 2 above-right, 2 left-of-center, 2 right-of-center,
- * 1 below-left, 1 below-right.
- */
-const CARD_SLOTS = [
-  /* ── above-left ── */
-  { top: "20%", left: "14%", w: "clamp(130px, 16vw, 220px)", rotate: -3.2, z: 2 },
-  { top: "24%", left: "30%", w: "clamp(110px, 12vw, 175px)", rotate: 1.8, z: 1 },
-  /* ── above-right ── */
-  { top: "19%", left: "56%", w: "clamp(115px, 13vw, 185px)", rotate: -1.4, z: 1 },
-  { top: "22%", left: "72%", w: "clamp(135px, 17vw, 230px)", rotate: 2.4, z: 2 },
-  /* ── left of center (beside chat) ── */
-  { top: "40%", left: "10%", w: "clamp(125px, 15vw, 210px)", rotate: 2.1, z: 3 },
-  { top: "52%", left: "8%", w: "clamp(120px, 14vw, 195px)", rotate: -1.5, z: 1 },
-  /* ── right of center (beside chat) ── */
-  { top: "38%", left: "76%", w: "clamp(140px, 18vw, 245px)", rotate: -2.8, z: 2 },
-  { top: "53%", left: "74%", w: "clamp(118px, 13vw, 190px)", rotate: 3, z: 4 },
-  /* ── below-left ── */
-  { top: "66%", left: "16%", w: "clamp(128px, 15vw, 215px)", rotate: 2.6, z: 2 },
-  /* ── below-right ── */
-  { top: "67%", left: "62%", w: "clamp(122px, 14vw, 200px)", rotate: -2.2, z: 1 },
-] as const;
+const MAX_PAN_FRACTION = (ASSISTANT_CANVAS_LAYER_SCALE - 1) / 2;
 
 function clampAxis(n: number, maxAbs: number): number {
   if (maxAbs <= 0.5) return 0;
@@ -85,7 +61,7 @@ const CanvasArtifactCard = memo(function CanvasArtifactCard({
   reduceMotion,
 }: {
   artifact: AssistantCanvasArtifactRow;
-  slot: (typeof CARD_SLOTS)[number];
+  slot: AssistantCanvasCardPlacement;
   dark: boolean;
   reduceMotion: boolean;
 }) {
@@ -109,11 +85,11 @@ const CanvasArtifactCard = memo(function CanvasArtifactCard({
           : "border border-border bg-surface-raised/90 opacity-[0.55] outline-accent hover:border-border",
       )}
       style={{
-        top: slot.top,
-        left: slot.left,
-        width: slot.w,
+        top: `${slot.top}px`,
+        left: `${slot.left}px`,
+        width: `${slot.width}px`,
         transform: `rotate(${slot.rotate}deg)`,
-        zIndex: 3 + slot.z,
+        zIndex: 8 + slot.z,
       }}
       aria-label={`Open ${artifact.linkTo.kind} ${recordLabel}, ${artifact.filename}`}
       draggable={false}
@@ -217,6 +193,7 @@ export const ResearchCanvasBackground = memo(function ResearchCanvasBackground()
   const program = useActiveProgram();
   const reduceMotion = useSyncExternalStore(subscribeReducedMotion, getReducedMotion, () => false);
   const { data: artifacts } = useAssistantCanvasArtifacts();
+  const bubbleRect = useCanvasBubbleRect();
 
   const hasConversation = useChatStore((s) =>
     s.tabs.some((t) => t.messages.length > 0),
@@ -314,6 +291,15 @@ export const ResearchCanvasBackground = memo(function ResearchCanvasBackground()
     }
   }, []);
 
+  const cardSlots = useMemo(
+    () =>
+      computeAssistantCanvasCardPlacements({
+        viewport: viewportPx,
+        bubbleRect,
+      }),
+    [bubbleRect, viewportPx],
+  );
+
   const placed = useMemo(() => {
     if (!artifacts?.length) {
       console.log("[canvas] No artifacts to render");
@@ -321,11 +307,11 @@ export const ResearchCanvasBackground = memo(function ResearchCanvasBackground()
     }
     console.log(`[canvas] Rendering ${artifacts.length} artifact cards:`,
       artifacts.map(a => `${a.linkTo.kind}:${a.linkTo.id} ${a.filename}`).join(", "));
-    return artifacts.map((a, i) => ({
-      artifact: a,
-      slot: CARD_SLOTS[i % CARD_SLOTS.length],
+    return artifacts.slice(0, cardSlots.length).map((artifact, i) => ({
+      artifact,
+      slot: cardSlots[i],
     }));
-  }, [artifacts]);
+  }, [artifacts, cardSlots]);
 
   const batchPaths = useMemo(
     () => placed.map((p) => p.artifact.storage_path),
@@ -363,9 +349,7 @@ export const ResearchCanvasBackground = memo(function ResearchCanvasBackground()
           style={{
             left: "50%",
             top: "50%",
-            marginLeft: "-77.5%",
-            marginTop: "-77.5%",
-            transform: `translate(${pan.x}px, ${pan.y}px)`,
+            transform: `translate(-50%, -50%) translate(${pan.x}px, ${pan.y}px)`,
           }}
         >
           <div

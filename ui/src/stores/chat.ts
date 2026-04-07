@@ -59,8 +59,6 @@ export interface ChatState {
   addMessage: (tabId: string, msg: ChatMessageData) => void;
   appendToLastMessage: (tabId: string, text: string) => void;
   appendThinkingToLastMessage: (tabId: string, text: string) => void;
-  /** Remove pre-tool text that was streamed as thinking but is actually the final answer. */
-  revokeThinkingSuffixFromLastMessage: (tabId: string, suffix: string) => void;
   /** If the assistant has only thinking text and no answer (no-tool turn), merge into content. */
   promoteThinkingToContentIfNeeded: (tabId: string) => void;
   addToolUseToLastMessage: (tabId: string, toolUse: ToolUseData) => void;
@@ -175,30 +173,6 @@ const chatStateCreator: StateCreator<ChatState, [], [], ChatState> = (set) => ({
             return copy;
           }),
         })),
-
-      revokeThinkingSuffixFromLastMessage: (tabId, suffix) => {
-        if (suffix.length === 0) return;
-        set((s) => ({
-          tabs: mapTabsMessages(s.tabs, tabId, (msgs) => {
-            const copy = [...msgs];
-            const last = copy[copy.length - 1];
-            if (last?.role !== "assistant") return msgs;
-            const think = last.thinkingContent ?? "";
-            if (think.length === 0) return msgs;
-            let next = think;
-            if (think.endsWith(suffix)) {
-              next = think.slice(0, -suffix.length);
-            } else if (think === suffix) {
-              next = "";
-            }
-            copy[copy.length - 1] = {
-              ...last,
-              thinkingContent: next.length > 0 ? next : undefined,
-            };
-            return copy;
-          }),
-        }));
-      },
 
       promoteThinkingToContentIfNeeded: (tabId) =>
         set((s) => ({

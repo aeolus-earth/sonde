@@ -36,6 +36,29 @@ function normalizedToolName(tool: string): string {
   return tool.replace(/^mcp__sonde__/, "");
 }
 
+/** Short category for wireframe-style pills (Script / Sonde / File / …). */
+export function toolCategoryBadge(tool: string): string {
+  const n = normalizedToolName(tool);
+  if (n === "sandbox_exec") return "Script";
+  if (n === "sandbox_read" || n === "sandbox_write" || n === "sandbox_glob") {
+    return "File";
+  }
+  if (n.startsWith("sonde_") || tool.includes("sonde")) return "Sonde";
+  return "Tool";
+}
+
+function chainModeTitle(toolUse: ToolUseData): string {
+  if (toolUse.status === "error") return toolSummary(toolUse);
+  const active =
+    toolUse.status === "running" || toolUse.status === "awaiting_approval";
+  if (active) {
+    if (toolUse.tool === "sandbox_exec") return "Running command";
+    if (toolUse.status === "awaiting_approval") return "Awaiting approval";
+    return "Running";
+  }
+  return toolSummary(toolUse);
+}
+
 /** Extract the command string from sandbox_exec input for display. */
 function sandboxCommandLabel(toolUse: ToolUseData): string | null {
   if (
@@ -165,13 +188,123 @@ export const ChatToolActivity = memo(function ChatToolActivity({
   const cmdLabel = sandboxCommandLabel(toolUse);
   const isActive = toolUse.status === "running" || toolUse.status === "awaiting_approval";
 
+  if (chainMode) {
+    const title = chainModeTitle(toolUse);
+    const category = toolCategoryBadge(toolUse.tool);
+    return (
+      <div className="my-0 rounded-none border-0 bg-transparent py-0 text-[12px] dark:bg-transparent">
+        <div className="flex w-full min-w-0 items-stretch gap-0.5">
+          <button
+            type="button"
+            onClick={() => setExpanded((e) => !e)}
+            aria-expanded={expanded}
+            className={cn(
+              "flex min-w-0 flex-1 flex-col gap-1 px-0 py-0.5 text-left transition-colors",
+              "rounded-[6px] hover:bg-surface-hover/80 dark:hover:bg-white/[0.04]",
+            )}
+          >
+            <span
+              className={cn(
+                "min-w-0 text-[12px] leading-snug",
+                isActive && "font-medium text-text",
+                !isActive && toolUse.status === "error" && "text-status-failed",
+                !isActive && toolUse.status !== "error" && "text-text-tertiary",
+              )}
+            >
+              {title}
+            </span>
+            {isActive && cmdLabel && (
+              <span className="truncate font-mono text-[10px] text-text-quaternary">{cmdLabel}</span>
+            )}
+            <span className="inline-flex w-fit items-center rounded-full border border-border-subtle/90 bg-surface-raised/90 px-2 py-0.5 text-[10px] font-medium text-text-tertiary dark:border-white/[0.08] dark:bg-surface/80">
+              {category}
+            </span>
+          </button>
+
+          <div className="flex shrink-0 items-start gap-0.5 pt-0.5">
+            <button
+              type="button"
+              onClick={() => setExpanded((e) => !e)}
+              className="rounded-[4px] p-1 text-text-quaternary hover:bg-surface-hover hover:text-text-secondary"
+              aria-label={expanded ? "Collapse details" : "Expand details"}
+            >
+              {expanded ? (
+                <ChevronDown className="h-3 w-3" />
+              ) : (
+                <ChevronRight className="h-3 w-3" />
+              )}
+            </button>
+            <span className="pt-0.5">{statusIcon[toolUse.status]}</span>
+            {recordHref && (
+              <Link
+                to={recordHref}
+                className="rounded-[4px] p-1 text-text-secondary transition-colors hover:bg-surface-hover hover:text-accent"
+                aria-label="Open linked record"
+                title="Open record"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <ExternalLink className="h-3 w-3 opacity-70" />
+              </Link>
+            )}
+          </div>
+        </div>
+
+      {artifactParentId && toolUse.status === "done" && (
+        <ChatArtifactPreviewStrip
+          parentId={artifactParentId}
+          outputCountHint={artifactCountHint}
+        />
+      )}
+
+      {expanded && (
+        <div className="space-y-1 border-t border-border-subtle px-2 py-1.5">
+          {Object.keys(toolUse.input).length > 0 && (
+            <div>
+              <span className="text-[10px] font-medium uppercase tracking-wider text-text-quaternary">
+                Request
+              </span>
+              <pre
+                className={cn(
+                  "mt-0.5 overflow-x-auto rounded-[3px] bg-surface-raised p-1.5",
+                  "font-mono text-[11px] text-text-secondary whitespace-pre-wrap",
+                )}
+              >
+                <SondeLinkifiedText
+                  text={JSON.stringify(toolUse.input, null, 2)}
+                  linkClassName="text-accent hover:underline decoration-transparent"
+                />
+              </pre>
+            </div>
+          )}
+          {toolUse.output && (
+            <div>
+              <span className="text-[10px] font-medium uppercase tracking-wider text-text-quaternary">
+                Response
+              </span>
+              <pre
+                className={cn(
+                  "mt-0.5 max-h-[200px] overflow-auto rounded-[3px] bg-surface-raised p-1.5",
+                  "font-mono text-[11px] text-text-secondary whitespace-pre-wrap",
+                )}
+              >
+                <SondeLinkifiedText
+                  text={toolUse.output}
+                  linkClassName="text-accent hover:underline decoration-transparent"
+                />
+              </pre>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+    );
+  }
+
   return (
     <div
       className={cn(
         "text-[12px]",
-        chainMode
-          ? "my-0 rounded-none border-0 bg-transparent py-1.5 dark:bg-transparent"
-          : "my-1 rounded-[5.5px] border border-border-subtle bg-surface",
+        "my-1 rounded-[5.5px] border border-border-subtle bg-surface",
       )}
     >
       <div className="flex w-full items-stretch gap-0.5">

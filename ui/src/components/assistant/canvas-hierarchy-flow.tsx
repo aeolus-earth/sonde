@@ -1,7 +1,9 @@
 import { memo, useMemo } from "react";
 import { Link } from "@tanstack/react-router";
+import { computeAssistantCanvasHierarchyLevels } from "@/lib/assistant-canvas-layout";
 import { cn } from "@/lib/utils";
 import { useActiveProgram } from "@/stores/program";
+import { useCanvasBubbleRect } from "@/stores/assistant-canvas-layout";
 import { usePrograms } from "@/hooks/use-programs";
 import { useProjects } from "@/hooks/use-projects";
 import { useDirections } from "@/hooks/use-directions";
@@ -34,7 +36,7 @@ interface FlowEdge {
 
 /* ── Layout ────────────────────────────────────────────────── */
 
-const LEVEL_Y: Record<NodeKind, number> = {
+const DEFAULT_LEVEL_Y: Record<NodeKind, number> = {
   program: 52,
   project: 57,
   direction: 62,
@@ -109,6 +111,7 @@ function buildFlow(
   projects: ProjectSummary[],
   directions: DirectionSummary[],
   experiments: ExperimentSummary[],
+  levelY: Record<NodeKind, number>,
 ): { nodes: FlowNode[]; edges: FlowEdge[] } | null {
   const prog = programs.find((p) => p.id === programId);
   if (!prog) return null;
@@ -123,7 +126,7 @@ function buildFlow(
     kind: "program",
     label: prog.name,
     x: 50,
-    y: LEVEL_Y.program,
+    y: levelY.program,
     rotate: 0,
   });
 
@@ -140,7 +143,7 @@ function buildFlow(
         kind: "project",
         label: p.name,
         x: xs[i],
-        y: LEVEL_Y.project + j.dy,
+        y: levelY.project + j.dy,
         rotate: j.rot,
       });
       edges.push({ from: pgmNodeId, to: p.id });
@@ -151,7 +154,7 @@ function buildFlow(
       kind: "project",
       label: "Projects",
       x: 50,
-      y: LEVEL_Y.project,
+      y: levelY.project,
       rotate: 0,
       ghost: true,
     });
@@ -179,7 +182,7 @@ function buildFlow(
         kind: "direction",
         label: d.title,
         x: xs[i],
-        y: LEVEL_Y.direction + j.dy,
+        y: levelY.direction + j.dy,
         rotate: j.rot,
       });
       edges.push({
@@ -197,7 +200,7 @@ function buildFlow(
       kind: "direction",
       label: "Directions",
       x: 50,
-      y: LEVEL_Y.direction,
+      y: levelY.direction,
       rotate: 0,
       ghost: true,
     });
@@ -237,7 +240,7 @@ function buildFlow(
         kind: "experiment",
         label: e.content ?? e.hypothesis ?? e.id,
         x: xs[i],
-        y: LEVEL_Y.experiment + j.dy,
+        y: levelY.experiment + j.dy,
         rotate: j.rot,
       });
       edges.push({ from: parentDir ?? parentProj ?? fallback, to: e.id });
@@ -250,7 +253,7 @@ function buildFlow(
       kind: "experiment",
       label: "Experiments",
       x: 50,
-      y: LEVEL_Y.experiment,
+      y: levelY.experiment,
       rotate: 0,
       ghost: true,
     });
@@ -339,7 +342,7 @@ const FlowNodeCard = memo(function FlowNodeCard({
     top: `${node.y}%`,
     left: `${node.x}%`,
     transform: `translate(-50%, -50%) rotate(${node.rotate}deg)`,
-    zIndex: 5,
+    zIndex: 4,
   };
 
   const inner = (
@@ -444,10 +447,19 @@ export const CanvasHierarchyFlow = memo(function CanvasHierarchyFlow({
   dark: boolean;
 }) {
   const programId = useActiveProgram();
+  const bubbleRect = useCanvasBubbleRect();
   const { data: programs } = usePrograms();
   const { data: projects } = useProjects();
   const { data: directions } = useDirections();
   const { data: experiments } = useExperiments();
+
+  const levelY = useMemo(() => {
+    if (typeof window === "undefined") return DEFAULT_LEVEL_Y;
+    return computeAssistantCanvasHierarchyLevels({
+      viewport: { w: window.innerWidth, h: window.innerHeight },
+      bubbleRect,
+    });
+  }, [bubbleRect]);
 
   const flow = useMemo(
     () =>
@@ -458,9 +470,10 @@ export const CanvasHierarchyFlow = memo(function CanvasHierarchyFlow({
             projects ?? [],
             directions ?? [],
             experiments ?? [],
+            levelY,
           )
         : null,
-    [programId, programs, projects, directions, experiments],
+    [programId, programs, projects, directions, experiments, levelY],
   );
 
   if (!flow) return null;

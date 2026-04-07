@@ -1,7 +1,9 @@
-import { memo, useCallback } from "react";
+import { memo, useCallback, useLayoutEffect, useRef } from "react";
 import { FlaskConical, BookOpen, HelpCircle } from "lucide-react";
 import type { ConnectionStatus, MentionRef, PageContext } from "@/types/chat";
 import { cn } from "@/lib/utils";
+import { toCanvasRect } from "@/lib/assistant-canvas-layout";
+import { useSetCanvasBubbleRect } from "@/stores/assistant-canvas-layout";
 import { ChatInput } from "./chat-input";
 
 const SUGGESTIONS = [
@@ -41,6 +43,8 @@ export const CanvasBubble = memo(function CanvasBubble({
   agentModel,
   connectionStatus,
 }: CanvasBubbleProps) {
+  const bubbleFrameRef = useRef<HTMLDivElement>(null);
+  const setBubbleRect = useSetCanvasBubbleRect();
   const modelLabel =
     agentModel ??
     (typeof import.meta.env.VITE_AGENT_MODEL_LABEL === "string"
@@ -54,9 +58,40 @@ export const CanvasBubble = memo(function CanvasBubble({
     [onSend],
   );
 
+  useLayoutEffect(() => {
+    const el = bubbleFrameRef.current;
+    if (!el) return;
+
+    const update = () => {
+      const rect = el.getBoundingClientRect();
+      setBubbleRect(
+        toCanvasRect({
+          left: rect.left,
+          top: rect.top,
+          width: rect.width,
+          height: rect.height,
+        }),
+      );
+    };
+
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    window.addEventListener("resize", update, { passive: true });
+
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", update);
+      setBubbleRect(null);
+    };
+  }, [setBubbleRect]);
+
   return (
     <div className="pointer-events-none relative flex h-full w-full min-h-0 flex-col items-center justify-center pb-[18vh] px-3 py-6 sm:px-4">
-      <div className="pointer-events-auto relative flex w-full max-w-[min(42rem,70vw)] flex-col items-center gap-4">
+      <div
+        ref={bubbleFrameRef}
+        className="pointer-events-auto relative flex w-full max-w-[min(42rem,70vw)] flex-col items-center gap-4"
+      >
 
         <h1 className="mb-1 w-full text-center font-display text-[clamp(1.65rem,3.8vw,2.25rem)] font-normal leading-[1.12] tracking-[0.03em] text-text">
           What should we{" "}

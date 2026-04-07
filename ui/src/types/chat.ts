@@ -34,7 +34,7 @@ export interface ChatMessageData {
   id: string;
   role: "user" | "assistant" | "system";
   content: string;
-  /** Model reasoning / exploration shown in the tool chain, not the answer bubble. */
+  /** Native extended thinking (`thinking_delta` only), shown in the tool chain, not the answer bubble. */
   thinkingContent?: string;
   mentions?: MentionRef[];
   attachments?: ChatAttachmentMeta[];
@@ -119,11 +119,6 @@ export interface ServerThinkingDelta {
   content: string;
 }
 
-export interface ServerThinkingRevoke {
-  type: "thinking_revoke";
-  suffix: string;
-}
-
 export interface ServerTextDone {
   type: "text_done";
   content: string;
@@ -171,7 +166,6 @@ export type ServerMessage =
   | ServerModelInfo
   | ServerTextDelta
   | ServerThinkingDelta
-  | ServerThinkingRevoke
   | ServerTextDone
   | ServerToolUseStart
   | ServerToolUseEnd

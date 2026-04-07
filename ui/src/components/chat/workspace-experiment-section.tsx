@@ -32,12 +32,12 @@ export const WorkspaceExperimentSection = memo(function WorkspaceExperimentSecti
   if (expLoading) {
     return (
       <section className="space-y-3 pb-5 last:pb-0">
-        <div className="rounded-2xl border border-white/20 bg-white/[0.2] p-3 backdrop-blur-md dark:border-white/[0.08] dark:bg-white/[0.03]">
+        <div className="rounded-2xl border border-white/20 bg-white/[0.2] p-4 backdrop-blur-md dark:border-white/[0.08] dark:bg-white/[0.03]">
           <div className="flex justify-between gap-3">
             <Skeleton className="h-4 w-28 rounded-lg" />
             <Skeleton className="h-3 w-24 rounded-md" />
           </div>
-          <Skeleton className="mt-2 h-3 w-full max-w-md rounded-md" />
+          <Skeleton className="mt-3 h-3 w-full max-w-md rounded-md" />
         </div>
         <Skeleton className="h-36 w-full rounded-[10px]" />
       </section>
@@ -67,8 +67,8 @@ export const WorkspaceExperimentSection = memo(function WorkspaceExperimentSecti
         className={cn(workspaceRecordBarClassName(), "cursor-pointer")}
         aria-label={`Open experiment ${exp.id}`}
       >
-        <div className="flex items-start gap-2">
-          <div className="min-w-0 flex-1 space-y-1">
+        <div className="flex items-start gap-3">
+          <div className="min-w-0 flex-1 space-y-2.5">
             <div className="flex items-start justify-between gap-3">
               <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
                 <span className="truncate font-mono text-[13px] font-semibold tracking-tight text-text">
@@ -77,7 +77,7 @@ export const WorkspaceExperimentSection = memo(function WorkspaceExperimentSecti
                 <Badge variant={exp.status}>{exp.status}</Badge>
               </div>
               {exp.program && (
-                <span className="max-w-[min(50%,12rem)] shrink-0 text-right text-[10px] font-semibold uppercase leading-tight tracking-[0.12em] text-text-quaternary">
+                <span className="max-w-[min(50%,12rem)] shrink-0 text-right text-[10px] font-semibold uppercase leading-normal tracking-[0.12em] text-text-quaternary">
                   {exp.program}
                 </span>
               )}
@@ -87,12 +87,12 @@ export const WorkspaceExperimentSection = memo(function WorkspaceExperimentSecti
               <div className="h-3 w-48 max-w-full animate-pulse rounded-md bg-white/40 dark:bg-white/[0.08]" />
             )}
             {direction?.title && (
-              <p className="line-clamp-2 text-[12px] font-medium leading-snug text-text-secondary">
+              <p className="line-clamp-2 text-[12px] font-medium leading-relaxed text-text-secondary">
                 <SondeLinkifiedText text={direction.title} />
               </p>
             )}
 
-            <p className="line-clamp-2 text-[12px] leading-snug text-text-tertiary">
+            <p className="line-clamp-2 text-[12px] leading-relaxed text-text-tertiary">
               {exp.hypothesis?.trim() ? (
                 <SondeLinkifiedText text={exp.hypothesis.trim()} />
               ) : (
@@ -102,7 +102,7 @@ export const WorkspaceExperimentSection = memo(function WorkspaceExperimentSecti
           </div>
           <ChevronRight
             className={cn(
-              "mt-1 h-4 w-4 shrink-0 text-text-quaternary/70",
+              "mt-0.5 h-4 w-4 shrink-0 text-text-quaternary/70",
               "transition-all duration-300 ease-out",
               "opacity-40 group-hover:translate-x-0.5 group-hover:opacity-100",
             )}
