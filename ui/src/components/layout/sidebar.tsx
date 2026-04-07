@@ -35,6 +35,7 @@ const navPrimitives = [
   { to: "/directions", label: "Directions", icon: Compass },
   { to: "/experiments", label: "Experiments", icon: FlaskConical },
   { to: "/findings", label: "Findings", icon: Lightbulb },
+  { to: "/questions", label: "Questions", icon: MessageCircleQuestion },
 ] as const;
 
 /** Graph / structure views */
@@ -44,7 +45,6 @@ const navGraph = [
 ] as const;
 
 const navInboxActivity = [
-  { to: "/questions", label: "Inbox", icon: MessageCircleQuestion },
   { to: "/activity", label: "Activity", icon: Activity },
 ] as const;
 
