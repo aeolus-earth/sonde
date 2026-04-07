@@ -71,6 +71,8 @@ export function handleWebSocket(
         );
         if (sandbox) {
           sandbox.setToken(token).catch(() => {});
+          // Pull corpus in background — non-blocking, uses real auth token
+          sandbox.pullAllPrograms().catch(() => {});
           session = createSandboxAgentSession({
             canUseTool: approvalBridge.canUseTool,
             sandbox,
