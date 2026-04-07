@@ -70,44 +70,39 @@ export function handleWebSocket(
 
       approvalBridge = createToolApprovalBridge(ws);
 
-      // Create MCP session IMMEDIATELY — this is instant, no network calls.
-      // The UI gets the session message right away and stops reconnecting.
-      session = createAgentSession(token, {
-        canUseTool: approvalBridge.canUseTool,
-      });
-      send(ws, { type: "session", sessionId: session.sessionId });
-
-      // Sandbox upgrade happens async. The ready gate resolves when done.
-      // onMessage waits for this before processing the first message.
       if (isSandboxMode()) {
-        (async () => {
-          try {
-            const { getSharedSandbox } = await import(
-              "./sandbox/shared-sandbox.js"
-            );
-            const sandbox = await getSharedSandbox(
-              token!,
-              process.env.VITE_SUPABASE_URL,
-              process.env.VITE_SUPABASE_ANON_KEY
-            );
-            if (sandbox) {
-              sandbox.setToken(token!).catch(() => {});
-              session = createSandboxAgentSession({
-                canUseTool: approvalBridge!.canUseTool,
-                sandbox,
-              });
-              // Send new session ID so the UI uses the sandbox session
-              send(ws, { type: "session", sessionId: session.sessionId });
-            }
-          } catch {
-            // Sandbox failed — keep MCP session (already working)
-          } finally {
-            resolveReady!();
+        // Sandbox mode: get pre-warmed sandbox (instant after first boot),
+        // create sandbox session directly. No MCP intermediary.
+        try {
+          const { getSharedSandbox } = await import(
+            "./sandbox/shared-sandbox.js"
+          );
+          const sandbox = await getSharedSandbox(
+            token,
+            process.env.VITE_SUPABASE_URL,
+            process.env.VITE_SUPABASE_ANON_KEY
+          );
+          if (sandbox) {
+            sandbox.setToken(token).catch(() => {});
+            session = createSandboxAgentSession({
+              canUseTool: approvalBridge.canUseTool,
+              sandbox,
+            });
           }
-        })();
-      } else {
-        resolveReady!();
+        } catch {
+          // Fall through to MCP
+        }
       }
+
+      // MCP fallback (or non-sandbox mode)
+      if (!session) {
+        session = createAgentSession(token, {
+          canUseTool: approvalBridge.canUseTool,
+        });
+      }
+
+      send(ws, { type: "session", sessionId: session.sessionId });
+      resolveReady!();
     },
 
     async onMessage(evt, ws) {
