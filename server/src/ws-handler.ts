@@ -20,9 +20,7 @@ import type {
 function send(ws: WSContext<WebSocket>, msg: ServerMessage) {
   try {
     ws.send(JSON.stringify(msg));
-  } catch {
-    // WS may already be closed
-  }
+  } catch {}
 }
 
 function parseRequestUrl(reqUrl: string): URL {
@@ -40,74 +38,71 @@ export function handleWebSocket(
 
   let session: AgentSession | null = null;
   let approvalBridge: ReturnType<typeof createToolApprovalBridge> | null = null;
+  let initialized = false;
 
-  // Ready gate: resolved when session is fully set up (including sandbox upgrade)
-  let resolveReady: () => void;
-  const readyPromise = new Promise<void>((r) => {
-    resolveReady = r;
-  });
+  // Init runs ONCE on first message. Not in onOpen (which must be sync-fast).
+  async function ensureInitialized(ws: WSContext<WebSocket>): Promise<boolean> {
+    if (initialized) return !!session;
+
+    if (!token) {
+      send(ws, { type: "error", message: "Missing authentication token" });
+      ws.close(4001, "Unauthorized");
+      return false;
+    }
+
+    const user = await verifyToken(token);
+    if (!user) {
+      send(ws, { type: "error", message: "Invalid or expired token" });
+      ws.close(4001, "Unauthorized");
+      return false;
+    }
+
+    approvalBridge = createToolApprovalBridge(ws);
+
+    if (isSandboxMode()) {
+      try {
+        const { getSharedSandbox } = await import(
+          "./sandbox/shared-sandbox.js"
+        );
+        const sandbox = await getSharedSandbox(
+          token,
+          process.env.VITE_SUPABASE_URL,
+          process.env.VITE_SUPABASE_ANON_KEY
+        );
+        if (sandbox) {
+          sandbox.setToken(token).catch(() => {});
+          session = createSandboxAgentSession({
+            canUseTool: approvalBridge.canUseTool,
+            sandbox,
+          });
+        }
+      } catch {}
+    }
+
+    if (!session) {
+      session = createAgentSession(token, {
+        canUseTool: approvalBridge.canUseTool,
+      });
+    }
+
+    send(ws, { type: "session", sessionId: session.sessionId });
+    initialized = true;
+    console.log("[ws] Session initialized");
+    return true;
+  }
 
   return {
-    // -----------------------------------------------------------------
-    // onOpen: MUST return fast. Send session message immediately.
-    // Sandbox upgrade happens async — onMessage waits for readyPromise.
-    // -----------------------------------------------------------------
-    async onOpen(_evt, ws) {
-      if (!token) {
-        send(ws, { type: "error", message: "Missing authentication token" });
-        ws.close(4001, "Unauthorized");
-        resolveReady!();
-        return;
-      }
-
-      const user = await verifyToken(token);
-      if (!user) {
-        send(ws, { type: "error", message: "Invalid or expired token" });
-        ws.close(4001, "Unauthorized");
-        resolveReady!();
-        return;
-      }
-
-      approvalBridge = createToolApprovalBridge(ws);
-
-      if (isSandboxMode()) {
-        // Sandbox mode: get pre-warmed sandbox (instant after first boot),
-        // create sandbox session directly. No MCP intermediary.
-        try {
-          const { getSharedSandbox } = await import(
-            "./sandbox/shared-sandbox.js"
-          );
-          const sandbox = await getSharedSandbox(
-            token,
-            process.env.VITE_SUPABASE_URL,
-            process.env.VITE_SUPABASE_ANON_KEY
-          );
-          if (sandbox) {
-            sandbox.setToken(token).catch(() => {});
-            session = createSandboxAgentSession({
-              canUseTool: approvalBridge.canUseTool,
-              sandbox,
-            });
-          }
-        } catch {
-          // Fall through to MCP
-        }
-      }
-
-      // MCP fallback (or non-sandbox mode)
-      if (!session) {
-        session = createAgentSession(token, {
-          canUseTool: approvalBridge.canUseTool,
-        });
-      }
-
-      send(ws, { type: "session", sessionId: session.sessionId });
-      resolveReady!();
+    // onOpen: ZERO async work. Just accept the connection.
+    onOpen(_evt, _ws) {
+      // Nothing — all init happens on first message via ensureInitialized()
     },
 
     async onMessage(evt, ws) {
-      // Wait for sandbox upgrade to complete (if in progress)
-      await readyPromise;
+      // Lazy init on first message
+      if (!initialized) {
+        const ok = await ensureInitialized(ws);
+        if (!ok) return;
+      }
       if (!session) return;
 
       let raw: string;
@@ -129,6 +124,7 @@ export function handleWebSocket(
 
       switch (msg.type) {
         case "message":
+          console.log("[ws] handleUserMessage:", msg.content?.slice(0, 40));
           await handleUserMessage(
             session,
             ws,
@@ -175,10 +171,6 @@ export function handleWebSocket(
     },
   };
 }
-
-// ---------------------------------------------------------------------------
-// Prompt formatting + agent query
-// ---------------------------------------------------------------------------
 
 function formatPageContextLine(ctx: PageContext): string {
   if (ctx.type === "experiment") {
