@@ -66,6 +66,22 @@ function handleServerMessage(msg: ServerMessage, storeApi: ChatStoreApi) {
       break;
     }
 
+    case "thinking_delta": {
+      const tabId = resolveTargetTabId(storeApi);
+      if (!s.isStreaming) {
+        s.addMessage(tabId, {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: "",
+          timestamp: Date.now(),
+          toolUses: [],
+        });
+        s.setStreaming(true);
+      }
+      s.appendThinkingToLastMessage(tabId, msg.content);
+      break;
+    }
+
     case "text_done":
       break;
 
@@ -144,6 +160,7 @@ function handleServerMessage(msg: ServerMessage, storeApi: ChatStoreApi) {
 
     case "done": {
       const tabId = resolveTargetTabId(storeApi);
+      s.promoteThinkingToContentIfNeeded(tabId);
       s.setStreaming(false);
       s.setStreamingTabId(null);
       s.clearPendingToolApprovals(tabId);
@@ -310,8 +327,9 @@ export function useChat() {
 
     return () => {
       clearReconnectTimer();
-      wsRef.current?.close();
-      wsRef.current = null;
+      // Keep the WS alive across React unmount/remount cycles.
+      // The canvas→chat transition remounts this hook — closing the WS
+      // here would kill in-flight queries. Connection persists via wsRef.
     };
   }, [accessToken, authLoading, connect, clearReconnectTimer]);
 

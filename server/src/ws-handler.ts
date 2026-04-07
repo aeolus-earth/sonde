@@ -2,7 +2,12 @@ import type { Context } from "hono";
 import type { WSEvents, WSContext } from "hono/ws";
 import type { WebSocket } from "ws";
 import { verifyToken } from "./auth.js";
-import { createAgentSession, type AgentSession } from "./agent.js";
+import {
+  createAgentSession,
+  createSandboxAgentSession,
+  isSandboxMode,
+  type AgentSession,
+} from "./agent.js";
 import { createToolApprovalBridge } from "./tool-approval-bridge.js";
 import type {
   ClientMessage,
@@ -13,7 +18,9 @@ import type {
 } from "./types.js";
 
 function send(ws: WSContext<WebSocket>, msg: ServerMessage) {
-  ws.send(JSON.stringify(msg));
+  try {
+    ws.send(JSON.stringify(msg));
+  } catch {}
 }
 
 function parseRequestUrl(reqUrl: string): URL {
@@ -31,30 +38,74 @@ export function handleWebSocket(
 
   let session: AgentSession | null = null;
   let approvalBridge: ReturnType<typeof createToolApprovalBridge> | null = null;
+  let initialized = false;
 
-  return {
-    async onOpen(_evt, ws) {
-      if (!token) {
-        send(ws, { type: "error", message: "Missing authentication token" });
-        ws.close(4001, "Unauthorized");
-        return;
-      }
+  // Init runs ONCE on first message. Not in onOpen (which must be sync-fast).
+  async function ensureInitialized(ws: WSContext<WebSocket>): Promise<boolean> {
+    if (initialized) return !!session;
 
-      const user = await verifyToken(token);
-      if (!user) {
-        send(ws, { type: "error", message: "Invalid or expired token" });
-        ws.close(4001, "Unauthorized");
-        return;
-      }
+    if (!token) {
+      send(ws, { type: "error", message: "Missing authentication token" });
+      ws.close(4001, "Unauthorized");
+      return false;
+    }
 
-      approvalBridge = createToolApprovalBridge(ws);
+    const user = await verifyToken(token);
+    if (!user) {
+      send(ws, { type: "error", message: "Invalid or expired token" });
+      ws.close(4001, "Unauthorized");
+      return false;
+    }
+
+    approvalBridge = createToolApprovalBridge(ws);
+
+    if (isSandboxMode()) {
+      try {
+        const { getSharedSandbox } = await import(
+          "./sandbox/shared-sandbox.js"
+        );
+        const sandbox = await getSharedSandbox(
+          token,
+          process.env.VITE_SUPABASE_URL,
+          process.env.VITE_SUPABASE_ANON_KEY
+        );
+        if (sandbox) {
+          sandbox.setToken(token).catch(() => {});
+          // Pull corpus in background — non-blocking, uses real auth token
+          sandbox.pullAllPrograms().catch(() => {});
+          session = createSandboxAgentSession({
+            canUseTool: approvalBridge.canUseTool,
+            sandbox,
+          });
+        }
+      } catch {}
+    }
+
+    if (!session) {
       session = createAgentSession(token, {
         canUseTool: approvalBridge.canUseTool,
       });
-      send(ws, { type: "session", sessionId: session.sessionId });
+    }
+
+    send(ws, { type: "session", sessionId: session.sessionId });
+    initialized = true;
+    console.log("[ws] Session initialized");
+    return true;
+  }
+
+  return {
+    // onOpen: Send a placeholder session ID immediately so the UI
+    // knows the connection is alive. Real session created on first message.
+    onOpen(_evt, ws) {
+      send(ws, { type: "session", sessionId: crypto.randomUUID() });
     },
 
     async onMessage(evt, ws) {
+      // Lazy init on first message
+      if (!initialized) {
+        const ok = await ensureInitialized(ws);
+        if (!ok) return;
+      }
       if (!session) return;
 
       let raw: string;
@@ -76,6 +127,7 @@ export function handleWebSocket(
 
       switch (msg.type) {
         case "message":
+          console.log("[ws] handleUserMessage:", msg.content?.slice(0, 40));
           await handleUserMessage(
             session,
             ws,
@@ -87,7 +139,6 @@ export function handleWebSocket(
           );
           break;
         case "approve_tasks":
-          // Legacy no-op: proposed tasks are preview-only; mutating tools use approve_tool.
           break;
         case "approve_tool":
           approvalBridge?.resolveApproval(msg.approvalId, true);
@@ -186,9 +237,13 @@ async function handleUserMessage(
   const prompt = chunks.join("\n\n");
 
   try {
+    console.log("[ws] query() starting, resume:", clientSessionId?.slice(0, 8) ?? "none");
+    let eventCount = 0;
     for await (const event of session.query(prompt, {
       resumeSessionId: clientSessionId,
     })) {
+      eventCount++;
+      if (eventCount === 1) console.log("[ws] first event:", event.type);
       switch (event.type) {
         case "session":
           send(ws, { type: "session", sessionId: event.sessionId });
@@ -198,6 +253,9 @@ async function handleUserMessage(
           break;
         case "text_delta":
           send(ws, { type: "text_delta", content: event.content });
+          break;
+        case "thinking_delta":
+          send(ws, { type: "thinking_delta", content: event.content });
           break;
         case "text_done":
           send(ws, {
@@ -229,9 +287,11 @@ async function handleUserMessage(
           break;
       }
     }
+    console.log("[ws] query() done,", eventCount, "events");
     send(ws, { type: "done" });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Agent query failed";
+    console.log("[ws] query() error:", message);
     send(ws, { type: "error", message });
     send(ws, { type: "done" });
   }

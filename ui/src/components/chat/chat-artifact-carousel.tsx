@@ -9,6 +9,7 @@ import {
 } from "react";
 import { Link } from "@tanstack/react-router";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import { SondeLinkifiedText } from "@/components/shared/sonde-linkified-text";
 import { useArtifactParentLookup } from "@/hooks/use-artifact-parents";
 import { cn } from "@/lib/utils";
 import type { Artifact } from "@/types/sonde";
@@ -31,9 +32,9 @@ function clampWidth(width: number, maxForContainer: number): number {
   return Math.min(Math.max(width, MIN_SLIDE_WIDTH_PX), cap);
 }
 
-function readStoredSlideWidth(): number | null {
+function readStoredSlideWidth(storageKey: string): number | null {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(storageKey);
     if (raw == null) return null;
     const n = Number.parseInt(raw, 10);
     if (!Number.isFinite(n)) return null;
@@ -77,11 +78,16 @@ function ParentContextBlock({
             {artifact.experiment_id}
           </Link>
         </div>
+        {exp?.program ? (
+          <span className="inline-block text-[9px] font-semibold uppercase tracking-wide text-text-quaternary">
+            {exp.program}
+          </span>
+        ) : null}
         {parentsLoading && !exp ? (
           <span className="text-[10px] text-text-quaternary">Loading context…</span>
         ) : exp?.hypothesis ? (
           <p className="line-clamp-2 text-[10px] leading-snug text-text-secondary">
-            {truncate(exp.hypothesis, 160)}
+            <SondeLinkifiedText text={truncate(exp.hypothesis, 160)} />
           </p>
         ) : null}
       </div>
@@ -102,11 +108,16 @@ function ParentContextBlock({
             {artifact.finding_id}
           </Link>
         </div>
+        {f?.program ? (
+          <span className="inline-block text-[9px] font-semibold uppercase tracking-wide text-text-quaternary">
+            {f.program}
+          </span>
+        ) : null}
         {parentsLoading && !f ? (
           <span className="text-[10px] text-text-quaternary">Loading context…</span>
         ) : f?.topic ? (
           <p className="line-clamp-2 text-[10px] leading-snug text-text-secondary">
-            {truncate(f.topic, 160)}
+            <SondeLinkifiedText text={truncate(f.topic, 160)} />
           </p>
         ) : null}
       </div>
@@ -127,11 +138,16 @@ function ParentContextBlock({
             {artifact.direction_id}
           </Link>
         </div>
+        {d?.program ? (
+          <span className="inline-block text-[9px] font-semibold uppercase tracking-wide text-text-quaternary">
+            {d.program}
+          </span>
+        ) : null}
         {parentsLoading && !d ? (
           <span className="text-[10px] text-text-quaternary">Loading context…</span>
         ) : d?.title ? (
           <p className="line-clamp-2 text-[10px] leading-snug text-text-secondary">
-            {truncate(d.title, 160)}
+            <SondeLinkifiedText text={truncate(d.title, 160)} />
           </p>
         ) : null}
       </div>
@@ -160,6 +176,8 @@ export const ChatArtifactCarousel = memo(function ChatArtifactCarousel({
   footerHint,
   slides,
   artifactMetaExtra,
+  workspaceEmphasis,
+  storageKey,
 }: {
   variant: "referenced" | "strip";
   headerTitle?: string;
@@ -168,14 +186,19 @@ export const ChatArtifactCarousel = memo(function ChatArtifactCarousel({
   slides: ChatArtifactSlide[];
   /** Extra line under media (e.g. size · filename) for strip mode */
   artifactMetaExtra?: (artifact: Artifact) => string;
+  /** Larger headline from description when set; parent tags unchanged. */
+  workspaceEmphasis?: boolean;
+  /** Override localStorage key for slide width (e.g. workspace vs inline chat). */
+  storageKey?: string;
 }) {
+  const slideStorageKey = storageKey ?? STORAGE_KEY;
   const scrollRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<DragSession | null>(null);
   const widthRef = useRef(DEFAULT_SLIDE_WIDTH_PX);
 
   const [slideWidthPx, setSlideWidthPx] = useState(() => {
-    const stored = readStoredSlideWidth();
+    const stored = readStoredSlideWidth(slideStorageKey);
     if (stored == null) return DEFAULT_SLIDE_WIDTH_PX;
     return clampWidth(stored, ABS_MAX_SLIDE_WIDTH_PX);
   });
@@ -223,11 +246,11 @@ export const ChatArtifactCarousel = memo(function ChatArtifactCarousel({
     dragRef.current = null;
     if (!wasDragging) return;
     try {
-      localStorage.setItem(STORAGE_KEY, String(widthRef.current));
+      localStorage.setItem(slideStorageKey, String(widthRef.current));
     } catch {
       /* ignore quota / private mode */
     }
-  }, []);
+  }, [slideStorageKey]);
 
   const onResizePointerDown = useCallback(
     (side: "left" | "right") => (e: React.PointerEvent<HTMLDivElement>) => {
@@ -367,6 +390,7 @@ export const ChatArtifactCarousel = memo(function ChatArtifactCarousel({
                     parentsLoading={parentsLoading}
                     artifactMetaExtra={artifactMetaExtra}
                     mediaSize={variant === "referenced" ? "inlineProminent" : "inline"}
+                    workspaceEmphasis={workspaceEmphasis}
                   />
                 )}
               </article>
@@ -406,6 +430,7 @@ const ArtifactSlideBody = memo(function ArtifactSlideBody({
   parentsLoading,
   artifactMetaExtra,
   mediaSize,
+  workspaceEmphasis,
 }: {
   artifact: Artifact;
   experimentById: ReturnType<typeof useArtifactParentLookup>["experimentById"];
@@ -414,7 +439,12 @@ const ArtifactSlideBody = memo(function ArtifactSlideBody({
   parentsLoading: boolean;
   artifactMetaExtra?: (artifact: Artifact) => string;
   mediaSize: "inline" | "inlineProminent";
+  /** Workspace: prefer description as headline when set; always show parent record tags above. */
+  workspaceEmphasis?: boolean;
 }) {
+  const desc = artifact.description?.trim();
+  const useDescAsTitle = Boolean(workspaceEmphasis && desc);
+
   return (
     <div className="flex flex-col gap-2">
       <ParentContextBlock
@@ -424,9 +454,14 @@ const ArtifactSlideBody = memo(function ArtifactSlideBody({
         directionById={directionById}
         parentsLoading={parentsLoading}
       />
-      <h3 className="text-[13px] font-semibold leading-tight text-text">{artifact.filename}</h3>
-      {artifact.description ? (
-        <p className="line-clamp-4 text-[11px] leading-relaxed text-text-secondary whitespace-pre-wrap">
+      <h3 className="line-clamp-3 text-[13px] font-semibold leading-tight text-text">
+        {useDescAsTitle ? desc : artifact.filename}
+      </h3>
+      {useDescAsTitle ? (
+        <p className="font-mono text-[10px] leading-tight text-text-tertiary">{artifact.filename}</p>
+      ) : null}
+      {!workspaceEmphasis && artifact.description ? (
+        <p className="line-clamp-4 text-[11px] leading-relaxed whitespace-pre-wrap text-text-secondary">
           {artifact.description}
         </p>
       ) : null}

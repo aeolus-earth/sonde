@@ -38,6 +38,12 @@ export function mentionChipClasses(
         "border-amber-950/40 bg-amber-900 dark:border-amber-300/30 dark:bg-amber-700",
         interactive && "hover:brightness-110 dark:hover:bg-amber-600"
       );
+    case "project":
+      return cn(
+        base,
+        "border-teal-950/40 bg-teal-800 dark:border-teal-300/30 dark:bg-teal-700",
+        interactive && "hover:brightness-110 dark:hover:bg-teal-600"
+      );
     default:
       return cn(
         base,

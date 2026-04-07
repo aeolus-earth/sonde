@@ -3,13 +3,14 @@ import { useChat } from "@/hooks/use-chat";
 import { useChatPageContext } from "@/contexts/chat-page-context";
 import { ChatStoreApiContext, useScopedChatStore } from "@/contexts/chat-store-context";
 import { useEmbeddedChatStore } from "@/stores/chat";
+import { cn } from "@/lib/utils";
 import { ChatHeader } from "./chat-header";
-import { ChatConnectionDot } from "./chat-connection-dot";
 import { ChatMessages } from "./chat-messages";
 import { ChatInput } from "./chat-input";
 import { ChatTaskList } from "./chat-task-list";
 import { ChatToolApproval } from "./chat-tool-approval";
 import { ChatSessionTabs } from "./chat-session-tabs";
+import { CanvasBubble } from "./canvas-bubble";
 
 class ChatErrorBoundary extends Component<
   { children: ReactNode },
@@ -43,7 +44,7 @@ class ChatErrorBoundary extends Component<
   }
 }
 
-function ChatPanelInner() {
+function ChatPanelInner({ glass }: { glass: boolean }) {
   const pageContext = useChatPageContext();
   const embedded = pageContext != null;
   const {
@@ -78,8 +79,19 @@ function ChatPanelInner() {
     return t?.pendingToolApprovals ?? [];
   });
 
-  return (
-    <div className="relative flex h-full w-full min-h-0 flex-col overflow-hidden rounded-[10px] border border-border-subtle bg-surface shadow-sm">
+  const expanded = useScopedChatStore((s) =>
+    s.tabs.some((t) => t.messages.length > 0),
+  );
+  const canvasAssistant = glass && !embedded;
+
+  const fullPanel = (
+    <div
+      className={
+        glass
+          ? "relative flex h-full w-full min-h-0 flex-col overflow-hidden rounded-[14px] border border-border bg-surface-raised shadow-sm dark:border-white/[0.08] dark:bg-surface dark:shadow-none dark:backdrop-blur-[28px]"
+          : "relative flex h-full w-full min-h-0 flex-col overflow-hidden rounded-[10px] border border-border-subtle bg-surface-raised shadow-sm"
+      }
+    >
       <ChatSessionTabs
         tabs={tabs}
         activeTabId={activeTabId}
@@ -87,72 +99,106 @@ function ChatPanelInner() {
         onSelect={setActiveTab}
         onAdd={addTab}
         onClose={closeTab}
+        glass={glass}
       />
       <ChatHeader
         hasMessages={messages.length > 0}
         onClearConversation={clearConversation}
         pageContext={pageContext}
+        glass={glass}
       />
 
       <ChatMessages
         messages={messages}
         isStreaming={isStreaming}
         embedded={embedded}
+        glass={glass}
       />
 
       <ChatToolApproval
         pending={pendingToolApprovals}
         onApprove={approveTool}
         onDeny={denyTool}
+        glass={glass}
       />
 
       <ChatTaskList
         tasks={tasks}
         onDismiss={() => setTasks(activeTabId, [])}
+        glass={glass}
       />
 
       <ChatInput
         pageContext={pageContext}
         embedded={embedded}
+        glass={glass}
         onSend={send}
         onCancel={cancel}
         isStreaming={isStreaming}
         disabled={!isConnected}
+        connectionStatus={connectionStatus}
+        agentModel={modelLabel}
       />
+    </div>
+  );
 
-      <div className="pointer-events-none absolute bottom-3 right-3 z-20 flex max-w-[min(100%,22rem)] flex-row items-center justify-end gap-2">
-        {modelLabel && (
-          <div
-            className="min-w-0 max-w-[min(100%,18rem)] select-none text-right"
-            title={modelLabel}
-          >
-            <span className="block truncate text-[10px] font-mono text-text-quaternary/90">
-              {modelLabel}
-            </span>
-          </div>
+  if (!canvasAssistant) {
+    return fullPanel;
+  }
+
+  return (
+    <div className="relative flex h-full w-full min-h-0 flex-col pointer-events-none">
+      <div
+        className={cn(
+          "absolute inset-0 overflow-hidden transition-opacity duration-500 ease-out motion-reduce:transition-none",
+          expanded
+            ? "pointer-events-none z-0 opacity-0"
+            : "pointer-events-none z-10 opacity-100",
         )}
-        <div className="pointer-events-auto shrink-0">
-          <ChatConnectionDot connectionStatus={connectionStatus} />
-        </div>
+      >
+        <CanvasBubble
+          pageContext={pageContext}
+          onSend={send}
+          onCancel={cancel}
+          isStreaming={isStreaming}
+          disabled={!isConnected}
+          agentModel={agentModel}
+          connectionStatus={connectionStatus}
+        />
+      </div>
+      <div
+        className={cn(
+          "absolute inset-0 overflow-hidden transition-opacity duration-500 ease-out motion-reduce:transition-none",
+          expanded
+            ? "pointer-events-auto z-10 opacity-100"
+            : "pointer-events-none z-0 opacity-0",
+        )}
+      >
+        {fullPanel}
       </div>
     </div>
   );
 }
 
-function ChatPanelWithStore() {
+function ChatPanelWithStore({ glass }: { glass: boolean }) {
   const pageContext = useChatPageContext();
   const embedded = pageContext != null;
   return (
     <ChatStoreApiContext.Provider value={embedded ? useEmbeddedChatStore : null}>
-      <ChatPanelInner />
+      <ChatPanelInner glass={glass} />
     </ChatStoreApiContext.Provider>
   );
 }
 
-export const ChatPanel = memo(function ChatPanel() {
+export const ChatPanel = memo(function ChatPanel({
+  variant = "default",
+}: {
+  variant?: "default" | "canvas";
+}) {
+  const glass = variant === "canvas";
   return (
     <ChatErrorBoundary>
-      <ChatPanelWithStore />
+      <ChatPanelWithStore glass={glass} />
     </ChatErrorBoundary>
   );
 });

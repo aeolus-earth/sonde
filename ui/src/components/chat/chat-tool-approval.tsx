@@ -25,12 +25,14 @@ interface ChatToolApprovalProps {
   pending: PendingToolApproval[];
   onApprove: (approvalId: string) => void;
   onDeny: (approvalId: string) => void;
+  glass?: boolean;
 }
 
 export const ChatToolApproval = memo(function ChatToolApproval({
   pending,
   onApprove,
   onDeny,
+  glass = false,
 }: ChatToolApprovalProps) {
   if (pending.length === 0) return null;
 
@@ -42,8 +44,10 @@ export const ChatToolApproval = memo(function ChatToolApproval({
           <div
             key={p.approvalId}
             className={cn(
-              "rounded-[8px] border border-dashed border-border bg-surface-raised/80 px-3 py-2",
-              "shadow-sm"
+              "rounded-[8px] border border-dashed px-3 py-2 shadow-sm backdrop-blur-md",
+              glass
+                ? "border-border bg-surface dark:border-white/15 dark:bg-black/35 dark:backdrop-blur-md"
+                : "border-border bg-surface-raised/80",
             )}
           >
             <div className="flex items-start gap-2">

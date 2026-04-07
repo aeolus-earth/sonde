@@ -97,13 +97,22 @@ html.dark {
 }
 
 /* ── Base ────────────────────────────────────────────────────────── */
+html {
+  min-height: 100dvh;
+}
+
 body {
+  min-height: 100dvh;
   background-color: var(--color-bg);
   color: var(--color-text);
   font-family: var(--font-sans);
   font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  min-height: 100dvh;
 }
 
 /* ── Scrollbar ───────────────────────────────────────────────────── */

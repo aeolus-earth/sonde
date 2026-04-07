@@ -1,9 +1,10 @@
 import { create } from "zustand";
-import type { GitHubRateLimit } from "@/types/github";
+import type { GitHubAuthMode, GitHubRateLimit } from "@/types/github";
 
 interface GitHubRateLimitState extends GitHubRateLimit {
+  authMode: GitHubAuthMode | "unknown";
   lastUpdated: number;
-  update: (rl: GitHubRateLimit) => void;
+  update: (rl: GitHubRateLimit, authMode?: GitHubAuthMode) => void;
 }
 
 export const useGitHubRateLimitStore = create<GitHubRateLimitState>((set) => ({
@@ -11,8 +12,14 @@ export const useGitHubRateLimitStore = create<GitHubRateLimitState>((set) => ({
   remaining: 60,
   reset: 0,
   used: 0,
+  authMode: "unknown",
   lastUpdated: 0,
-  update: (rl) => set({ ...rl, lastUpdated: Date.now() }),
+  update: (rl, authMode) =>
+    set((state) => ({
+      ...rl,
+      authMode: authMode ?? state.authMode,
+      lastUpdated: Date.now(),
+    })),
 }));
 
 export const useGitHubRateRemaining = () =>
@@ -21,3 +28,5 @@ export const useGitHubRateReset = () =>
   useGitHubRateLimitStore((s) => s.reset);
 export const useGitHubRateLimitValue = () =>
   useGitHubRateLimitStore((s) => s.limit);
+export const useGitHubAuthMode = () =>
+  useGitHubRateLimitStore((s) => s.authMode);

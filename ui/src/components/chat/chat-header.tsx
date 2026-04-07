@@ -1,17 +1,20 @@
 import { memo } from "react";
-import { RotateCcw } from "lucide-react";
+import { RotateCcw, X } from "lucide-react";
+import { cn } from "@/lib/utils";
 import type { PageContext } from "@/types/chat";
 
 interface ChatHeaderProps {
   hasMessages: boolean;
   onClearConversation: () => void;
   pageContext: PageContext | null;
+  glass?: boolean;
 }
 
 export const ChatHeader = memo(function ChatHeader({
   hasMessages,
   onClearConversation,
   pageContext,
+  glass = false,
 }: ChatHeaderProps) {
   const experimentContext =
     pageContext?.type === "experiment" ? pageContext : null;
@@ -19,11 +22,23 @@ export const ChatHeader = memo(function ChatHeader({
     ? `${experimentContext.id}${experimentContext.label ? ` · ${experimentContext.label}` : ""}`
     : "";
 
+  const chipClass = glass
+    ? "border-border-subtle bg-surface-raised dark:border-white/[0.1] dark:bg-white/[0.05] dark:backdrop-blur-md"
+    : "border-border-subtle bg-surface-raised";
+
   if (!hasMessages && experimentContext) {
     return (
-      <div className="border-b border-border px-3 py-2.5">
+      <div
+        className={cn(
+          "border-b px-3 py-2.5",
+          glass ? "border-border-subtle dark:border-white/[0.1]" : "border-border",
+        )}
+      >
         <p
-          className="truncate rounded-[5.5px] border border-border-subtle bg-surface-raised px-2 py-1 text-[11px] text-text-secondary"
+          className={cn(
+            "truncate rounded-[5.5px] border px-2 py-1 text-[11px] text-text-secondary",
+            chipClass,
+          )}
           title={contextTitle}
         >
           <span className="text-text-quaternary">Context:</span>{" "}
@@ -41,10 +56,18 @@ export const ChatHeader = memo(function ChatHeader({
   }
 
   return (
-    <div className="flex flex-col gap-2 border-b border-border px-3 py-3">
+    <div
+      className={cn(
+        "flex flex-col gap-2 border-b px-3 py-3",
+        glass ? "border-border-subtle dark:border-white/[0.1]" : "border-border",
+      )}
+    >
       {experimentContext && (
         <p
-          className="truncate rounded-[5.5px] border border-border-subtle bg-surface-raised px-2 py-1 text-[11px] text-text-secondary"
+          className={cn(
+            "truncate rounded-[5.5px] border px-2 py-1 text-[11px] text-text-secondary",
+            chipClass,
+          )}
           title={contextTitle}
         >
           <span className="text-text-quaternary">Context:</span>{" "}
@@ -58,13 +81,32 @@ export const ChatHeader = memo(function ChatHeader({
         <p className="min-w-0 truncate text-[13px] font-medium text-text">
           Sonde Assistant
         </p>
-        <button
-          onClick={onClearConversation}
-          title="New conversation"
-          className="shrink-0 rounded-[5.5px] p-1.5 text-text-tertiary transition-colors hover:bg-surface-hover hover:text-text-secondary"
-        >
-          <RotateCcw className="h-3.5 w-3.5" />
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={onClearConversation}
+            title="New conversation"
+            className={cn(
+              "shrink-0 rounded-[5.5px] p-1.5 text-text-tertiary transition-colors hover:text-text-secondary",
+              glass
+                ? "hover:bg-surface-hover dark:hover:bg-white/10"
+                : "hover:bg-surface-hover",
+            )}
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+          </button>
+          <button
+            onClick={onClearConversation}
+            title="Close chat"
+            className={cn(
+              "shrink-0 rounded-[5.5px] p-1.5 text-text-tertiary transition-colors hover:text-text-secondary",
+              glass
+                ? "hover:bg-surface-hover dark:hover:bg-white/10"
+                : "hover:bg-surface-hover",
+            )}
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -8,8 +8,8 @@ import {
 } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChatMessage } from "./chat-message";
-import { BrailleLive } from "./braille-activity";
 import { ChatEmptyState } from "./chat-empty-state";
+import { BrailleLive } from "./braille-activity";
 import { cn } from "@/lib/utils";
 import type { ChatMessageData } from "@/types/chat";
 
@@ -18,12 +18,15 @@ interface ChatMessagesProps {
   isStreaming: boolean;
   /** True when chat is embedded (e.g. experiment page); hides Assistant-only chrome. */
   embedded?: boolean;
+  /** Frosted / translucent shell (Assistant canvas layout). */
+  glass?: boolean;
 }
 
 export const ChatMessages = memo(function ChatMessages({
   messages,
   isStreaming,
   embedded = false,
+  glass = false,
 }: ChatMessagesProps) {
   const parentRef = useRef<HTMLDivElement>(null);
   const ignoreScrollRef = useRef(false);
@@ -57,7 +60,7 @@ export const ChatMessages = memo(function ChatMessages({
 
   const last = messages[messages.length - 1];
   const lastMessageScrollKey = last
-    ? `${last.content}\0${JSON.stringify(last.toolUses ?? [])}`
+    ? `${last.content}\0${last.thinkingContent ?? ""}\0${JSON.stringify(last.toolUses ?? [])}`
     : "";
 
   // One rAF per frame max while streaming — avoids fighting the user's wheel/trackpad.
@@ -249,17 +252,34 @@ export const ChatMessages = memo(function ChatMessages({
               className="px-4 py-3 md:px-6"
             >
               <div className="mx-auto max-w-[52rem]">
-                <ChatMessage message={msg} />
+                <ChatMessage
+                  message={msg}
+                  isStreamingLast={
+                    isStreaming && virtualItem.index === messages.length - 1
+                  }
+                />
               </div>
             </div>
           );
         })}
       </div>
 
-      {isStreaming && !embedded && (
-        <div className="border-t border-border-subtle/80 px-4 py-3 md:px-6">
-          <div className="mx-auto flex max-w-[52rem] items-center gap-2 text-[12px] text-text-quaternary">
-            <BrailleLive className="text-text-tertiary" />
+      {isStreaming && (
+        <div
+          className={cn(
+            "border-t px-4 py-3 md:px-6",
+            glass
+              ? "border-border dark:border-white/[0.08]"
+              : "border-border-subtle/80",
+          )}
+        >
+          <div
+            className="mx-auto flex max-w-[52rem] items-center gap-2.5 text-[12px] text-text-quaternary"
+            role="status"
+            aria-live="polite"
+            aria-label="Assistant is thinking"
+          >
+            <BrailleLive className="shrink-0 text-text-tertiary" />
             <span className="text-[11px] text-text-quaternary">Thinking…</span>
           </div>
         </div>
@@ -274,7 +294,12 @@ export const ChatMessages = memo(function ChatMessages({
             setUserScrolledUp(false);
             scrollToBottom();
           }}
-          className="sticky bottom-2 left-1/2 -translate-x-1/2 rounded-full bg-surface-raised border border-border px-3 py-1 text-[11px] text-text-secondary shadow-sm hover:bg-surface-hover"
+          className={cn(
+            "sticky bottom-2 left-1/2 -translate-x-1/2 rounded-full border px-3 py-1 text-[11px] text-text-secondary shadow-sm",
+            glass
+              ? "border-border bg-surface-raised shadow-sm hover:bg-surface-hover dark:border-white/15 dark:bg-black/35 dark:hover:bg-black/45 dark:backdrop-blur-md"
+              : "border-border bg-surface-raised hover:bg-surface-hover",
+          )}
         >
           Scroll to bottom
         </button>

@@ -20,11 +20,13 @@ const statusIcon = {
 interface ChatTaskListProps {
   tasks: AgentTask[];
   onDismiss: () => void;
+  glass?: boolean;
 }
 
 export const ChatTaskList = memo(function ChatTaskList({
   tasks,
   onDismiss,
+  glass = false,
 }: ChatTaskListProps) {
   if (tasks.length === 0) return null;
 
@@ -34,8 +36,10 @@ export const ChatTaskList = memo(function ChatTaskList({
   return (
     <div
       className={cn(
-        "mx-3 my-2 rounded-[8px] border border-dashed border-border-subtle",
-        "bg-surface-raised/50"
+        "mx-3 my-2 rounded-[8px] border border-dashed backdrop-blur-md",
+        glass
+          ? "border-border bg-surface dark:border-white/15 dark:bg-black/30 dark:backdrop-blur-md"
+          : "border-border-subtle bg-surface-raised/50",
       )}
     >
       <div className="flex items-center justify-between border-b border-dashed border-border-subtle px-3 py-1.5">

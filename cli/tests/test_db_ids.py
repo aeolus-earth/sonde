@@ -11,12 +11,12 @@ def _make_client(existing_ids: list[str] | None = None) -> MagicMock:
     """Build a mock Supabase client for ID generation tests."""
     client = MagicMock()
     table = client.table.return_value
-    for method in ("select", "order", "limit", "insert"):
+    for method in ("select", "order", "limit", "like", "insert"):
         getattr(table, method).return_value = table
 
     # Default: no existing rows
     if existing_ids:
-        table.execute.return_value = MagicMock(data=[{"id": existing_ids[-1]}])
+        table.execute.return_value = MagicMock(data=[{"id": eid} for eid in existing_ids])
     else:
         table.execute.return_value = MagicMock(data=[])
     return client
@@ -47,17 +47,16 @@ class TestNextSequentialId:
             result = next_sequential_id("findings", "FIND", 3)
         assert result == "FIND-006"
 
-    def test_orders_by_id(self):
-        """Ensure we order by id (not created_at) to get the true max."""
+    def test_filters_by_prefix(self):
+        """Ensure we filter IDs by prefix to avoid cross-type collisions."""
         client = _make_client(["EXP-0001"])
         with patch("sonde.db.ids.get_client", return_value=client):
             from sonde.db.ids import next_sequential_id
 
             next_sequential_id("experiments", "EXP", 4)
 
-        # Verify the query used order("id", desc=True)
         table = client.table.return_value
-        table.order.assert_called_with("id", desc=True)
+        table.like.assert_called_with("id", "EXP-%")
 
 
 class TestCreateWithRetry:

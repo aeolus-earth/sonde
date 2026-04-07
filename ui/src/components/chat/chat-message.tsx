@@ -1,6 +1,5 @@
 import { memo, lazy, Suspense } from "react";
-import { ChatReferencedArtifacts } from "./chat-referenced-artifacts";
-import { ChatToolActivity } from "./chat-tool-activity";
+import { ChatToolChain } from "./chat-tool-chain";
 import {
   MentionChipLabel,
   MentionLink,
@@ -16,9 +15,14 @@ const AssistantMarkdown = lazy(() =>
 
 interface ChatMessageProps {
   message: ChatMessageData;
+  /** True when this is the last message and the assistant reply is still streaming. */
+  isStreamingLast?: boolean;
 }
 
-export const ChatMessage = memo(function ChatMessage({ message }: ChatMessageProps) {
+export const ChatMessage = memo(function ChatMessage({
+  message,
+  isStreamingLast = false,
+}: ChatMessageProps) {
   if (message.role === "system") {
     return (
       <div className="flex justify-center px-1">
@@ -58,7 +62,7 @@ export const ChatMessage = memo(function ChatMessage({ message }: ChatMessagePro
               </span>
             </div>
           )}
-          <div className="rounded-[22px] bg-surface-raised px-4 py-2.5 text-[13px] leading-relaxed text-text shadow-sm">
+          <div className="rounded-[22px] border border-border-subtle bg-surface-raised px-4 py-2.5 text-[13px] leading-relaxed text-text dark:border-white/[0.08]">
             <UserMessageInlineContent
               content={message.content}
               mentions={message.mentions}
@@ -71,7 +75,6 @@ export const ChatMessage = memo(function ChatMessage({ message }: ChatMessagePro
 
   return (
     <div className="flex w-full flex-col items-start gap-2 px-1">
-      {/* Prose column uses 90% max when the chat shell is narrow so artifacts below can span full column width */}
       <div className="w-full max-w-[min(100%,42rem,90%)] space-y-2">
         <div className="flex items-baseline gap-2">
           <span className="text-[11px] font-medium text-text-tertiary">Sonde</span>
@@ -97,25 +100,22 @@ export const ChatMessage = memo(function ChatMessage({ message }: ChatMessagePro
           </div>
         )}
 
+        {((message.toolUses && message.toolUses.length > 0) ||
+          (message.thinkingContent && message.thinkingContent.trim().length > 0)) && (
+          <ChatToolChain
+            toolUses={message.toolUses ?? []}
+            thinkingContent={message.thinkingContent}
+            isStreamingLast={isStreamingLast}
+          />
+        )}
+
         {message.content && (
-          <div className="rounded-[5.5px] bg-surface px-3 py-2 text-[13px] leading-relaxed text-text">
+          <div className="rounded-[5.5px] border border-border-subtle bg-surface-raised px-3 py-2 text-[13px] leading-relaxed text-text dark:border-white/[0.08]">
             <Suspense fallback={<span className="whitespace-pre-wrap">{message.content}</span>}>
               <AssistantMarkdown content={message.content} />
             </Suspense>
           </div>
         )}
-
-        {message.toolUses?.map((tu) => (
-          <ChatToolActivity key={tu.id} toolUse={tu} />
-        ))}
-      </div>
-
-      <div className="w-full min-w-0 max-w-[min(100%,52rem)] self-stretch">
-        <ChatReferencedArtifacts
-          content={message.content ?? ""}
-          toolUses={message.toolUses}
-          mentions={message.mentions}
-        />
       </div>
     </div>
   );

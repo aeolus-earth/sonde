@@ -1,9 +1,10 @@
 import { memo, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { linkifySondeRecordIds } from "@/lib/linkify-sonde-ids";
 import {
   createSondeMarkdownComponents,
-  ExternalMarkdownAnchor,
+  SondeInternalMarkdownAnchor,
 } from "./sonde-markdown-components";
 
 interface MarkdownViewProps {
@@ -16,14 +17,16 @@ export const MarkdownView = memo(function MarkdownView({
   className,
 }: MarkdownViewProps) {
   const components = useMemo(
-    () => createSondeMarkdownComponents(ExternalMarkdownAnchor),
+    () => createSondeMarkdownComponents(SondeInternalMarkdownAnchor),
     []
   );
+
+  const prepared = useMemo(() => linkifySondeRecordIds(content), [content]);
 
   return (
     <div className={className}>
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
-        {content}
+        {prepared}
       </ReactMarkdown>
     </div>
   );

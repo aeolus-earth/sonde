@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { useQuery, useQueries } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { artifactContentCache } from "@/lib/artifact-content-cache";
@@ -23,13 +24,15 @@ async function fetchArtifactBlobObjectUrl(storagePath: string): Promise<string> 
 
 /** Shared fetch for `useArtifacts` and chat inline parent-based previews. */
 export async function fetchArtifactsByParentId(parentId: string): Promise<Artifact[]> {
-  const prefix = parentId.split("-")[0];
+  const prefix = parentId.split("-")[0]?.toUpperCase();
   const column =
     prefix === "EXP"
       ? "experiment_id"
       : prefix === "FIND"
         ? "finding_id"
-        : "direction_id";
+        : prefix === "PROJ"
+          ? "project_id"
+          : "direction_id";
 
   const { data, error } = await supabase
     .from("artifacts")
@@ -134,6 +137,37 @@ export function useArtifactUrl(storagePath: string | null) {
     },
     enabled: !!storagePath,
     staleTime: 50 * 60_000, // cache 50 min (URL good for 60)
+    gcTime: 55 * 60_000,
+  });
+}
+
+/**
+ * One storage round-trip for many paths; seeds {@link useArtifactUrl} cache entries.
+ */
+export function useBatchArtifactUrls(storagePaths: string[]) {
+  const { paths, pathsKey } = useMemo(() => {
+    const u = [...new Set(storagePaths.filter(Boolean))];
+    u.sort((a, b) => a.localeCompare(b));
+    return { paths: u, pathsKey: JSON.stringify(u) };
+  }, [storagePaths]);
+
+  return useQuery({
+    queryKey: queryKeys.artifacts.urlBatch(pathsKey),
+    queryFn: async (): Promise<void> => {
+      if (paths.length === 0) return;
+      const { data, error } = await supabase.storage
+        .from("artifacts")
+        .createSignedUrls(paths, 3600);
+
+      if (error) throw error;
+      for (const row of data ?? []) {
+        if (!row.error && row.signedUrl && row.path) {
+          queryClient.setQueryData(["artifact-url", row.path], row.signedUrl);
+        }
+      }
+    },
+    enabled: paths.length > 0,
+    staleTime: 50 * 60_000,
     gcTime: 55 * 60_000,
   });
 }

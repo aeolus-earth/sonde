@@ -85,6 +85,12 @@ export interface ServerTextDelta {
   content: string;
 }
 
+/** Extended thinking stream (`thinking` content blocks), not user-visible `text` blocks. */
+export interface ServerThinkingDelta {
+  type: "thinking_delta";
+  content: string;
+}
+
 export interface ServerTextDone {
   type: "text_done";
   content: string;
@@ -131,6 +137,7 @@ export type ServerMessage =
   | ServerSession
   | ServerModelInfo
   | ServerTextDelta
+  | ServerThinkingDelta
   | ServerTextDone
   | ServerToolUseStart
   | ServerToolUseEnd
@@ -145,6 +152,7 @@ export type AgentEvent =
   | { type: "session"; sessionId: string }
   | { type: "model_info"; model: string }
   | { type: "text_delta"; content: string }
+  | { type: "thinking_delta"; content: string }
   | { type: "text_done"; content: string; messageId: string }
   | { type: "tool_use_start"; id: string; tool: string; input: Record<string, unknown> }
   | { type: "tool_use_end"; id: string; output: string }

@@ -24,6 +24,12 @@ export type ParsedInternalHref =
     }
   | {
       kind: "route";
+      to: "/projects/$id";
+      params: { id: string };
+      hash?: string;
+    }
+  | {
+      kind: "route";
       to: "/questions";
       hash?: string;
     }
@@ -72,6 +78,16 @@ export function parseInternalHref(href: string | undefined): ParsedInternalHref 
       kind: "route",
       to: "/directions/$id",
       params: { id: dir[1] },
+      hash,
+    };
+  }
+
+  const proj = /^\/projects\/([^/]+)$/.exec(path);
+  if (proj) {
+    return {
+      kind: "route",
+      to: "/projects/$id",
+      params: { id: proj[1] },
       hash,
     };
   }

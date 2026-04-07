@@ -654,9 +654,9 @@ def update_section(content: str, section: str, body: str) -> str:
         return content[: match.start()] + replacement + content[match.end() :].lstrip("\n")
 
     # Section doesn't exist — insert at canonical position
-    canonical = [s.lower() for s in STANDARD_SECTIONS]
+    canonical_order = {name.lower(): idx for idx, name in enumerate(STANDARD_SECTIONS)}
     sec_lower = section.lower()
-    target_idx = canonical.index(sec_lower) if sec_lower in canonical else len(canonical)
+    target_idx = canonical_order.get(sec_lower, len(canonical_order))
     new_block = f"## {display_name}\n{body.strip()}\n\n"
 
     # Find the first existing section that comes after our target in canonical order
@@ -665,7 +665,8 @@ def update_section(content: str, section: str, body: str) -> str:
     for i, line in enumerate(lines):
         if re.match(r"^## \S", line):
             sec_name = line[3:].strip().lower()
-            if sec_name in canonical and canonical.index(sec_name) > target_idx:
+            sec_idx = canonical_order.get(sec_name)
+            if sec_idx is not None and sec_idx > target_idx:
                 insert_before = i
                 break
 

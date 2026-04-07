@@ -2,10 +2,9 @@ import { memo } from "react";
 import { getWelcomeGreeting } from "@/lib/welcome-name";
 import { useAuthStore } from "@/stores/auth";
 import { cn } from "@/lib/utils";
-import { BrailleAtmosphere } from "./braille-activity";
 
 interface ChatEmptyStateProps {
-  /** Embedded column: skip animated atmosphere (Assistant page only). */
+  /** Embedded column: tighter vertical rhythm (experiment page, etc.). */
   embedded?: boolean;
 }
 
@@ -25,17 +24,12 @@ export const ChatEmptyState = memo(function ChatEmptyState({
       <div
         className={cn(
           "flex w-full max-w-[52rem] flex-col items-center text-center",
-          embedded ? "gap-4" : "gap-6 sm:gap-7"
+          embedded ? "gap-4" : "gap-5 sm:gap-6",
         )}
       >
         <p className="font-display text-[1.5rem] font-normal leading-snug tracking-[0.06em] text-text sm:text-[1.75rem]">
           {headline}
         </p>
-        {!embedded && (
-          <div className="w-full min-w-0 overflow-x-auto overflow-y-visible px-0 sm:px-1">
-            <BrailleAtmosphere />
-          </div>
-        )}
         <div className="flex max-w-md flex-col gap-2.5">
           <p className="text-[13px] leading-relaxed text-text-secondary">
             Ask about experiments, findings, or research directions.
