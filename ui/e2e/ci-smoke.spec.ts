@@ -40,14 +40,8 @@ test.describe("CI smoke", () => {
     const response = await request.get(new URL("/agent/health", baseURL).toString());
     expect(response.ok()).toBeTruthy();
 
-    const body = (await response.json()) as {
-      status: string;
-      environment: string;
-      commitSha: string | null;
-    };
-    expect(body.status).toBe("ok");
-    expect(body.environment).toBeTruthy();
-    expect(body.commitSha ?? null).not.toBeUndefined();
+    const body = (await response.json()) as { status: string };
+    expect(body).toEqual({ status: "ok" });
   });
 
   test("authenticated routes render behind the auth gate", async ({ page }) => {

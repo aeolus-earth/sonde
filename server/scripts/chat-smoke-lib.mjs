@@ -35,6 +35,33 @@ export function resolveWsUrl({
   return url.toString();
 }
 
+function resolveHttpBaseFromWsUrl(wsUrl) {
+  const url = new URL(wsUrl);
+  url.protocol = url.protocol === "wss:" ? "https:" : "http:";
+  return `${url.origin}${url.pathname.replace(/\/chat$/, "")}`;
+}
+
+export async function fetchChatSessionToken(httpBase, token) {
+  const response = await fetch(`${httpBase.replace(/\/$/, "")}/chat/session-token`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+  const bodyText = await response.text();
+  if (!response.ok) {
+    throw new Error(
+      `Session token request failed (${response.status}): ${bodyText.slice(0, 160)}`
+    );
+  }
+  const payload = bodyText ? JSON.parse(bodyText) : {};
+  const wsToken = payload?.token?.trim?.() ?? "";
+  if (!wsToken) {
+    throw new Error("Session token response did not include a token.");
+  }
+  return wsToken;
+}
+
 function summarizeText(text) {
   if (!text) {
     return "(empty)";
@@ -56,9 +83,14 @@ export async function runChatConversation({
   expectedSubstring = null,
   requireToolUse = false,
 }) {
+  const httpBase = resolveHttpBaseFromWsUrl(wsUrl);
+  const wsToken = await fetchChatSessionToken(httpBase, token);
+  const url = new URL(wsUrl);
+  url.searchParams.set("ws_token", wsToken);
+
   return new Promise((resolve, reject) => {
     const startedAt = Date.now();
-    const ws = new WebSocket(wsUrl);
+    const ws = new WebSocket(url);
     const eventStats = {};
     let sawVisibleOutput = false;
     let receivedDone = false;
@@ -87,9 +119,7 @@ export async function runChatConversation({
       });
     }
 
-    ws.on("open", () => {
-      ws.send(JSON.stringify({ type: "auth", token }));
-    });
+    ws.on("open", () => {});
 
     ws.on("message", (data) => {
       const message = JSON.parse(String(data));

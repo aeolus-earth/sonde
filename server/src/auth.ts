@@ -9,6 +9,9 @@ export interface VerifiedUser {
 let supabaseClient: ReturnType<typeof createClient> | null = null;
 
 function getBypassToken(): string | null {
+  if (process.env.NODE_ENV !== "test") {
+    return null;
+  }
   const token = process.env.SONDE_TEST_AUTH_BYPASS_TOKEN?.trim();
   return token ? token : null;
 }

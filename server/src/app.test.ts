@@ -10,6 +10,8 @@ const authToken = "playwright-smoke-token";
 beforeEach(() => {
   process.env.SONDE_TEST_AUTH_BYPASS_TOKEN = authToken;
   process.env.NODE_ENV = "test";
+  process.env.SONDE_WS_TOKEN_SECRET = "test-ws-secret";
+  process.env.SONDE_RUNTIME_AUDIT_TOKEN = "test-runtime-token";
   delete process.env.SONDE_COMMIT_SHA;
   resetGitHubCachesForTests();
   globalThis.fetch = originalFetch;
@@ -33,12 +35,14 @@ describe("createApp", () => {
       "http://127.0.0.1:5173",
       "http://localhost:4173",
       "http://127.0.0.1:4173",
+      "http://localhost:4174",
+      "http://127.0.0.1:4174",
       "https://sonde-staging.vercel.app",
       "https://sonde-neon.vercel.app",
     ]);
   });
 
-  it("returns health metadata for smoke checks", async () => {
+  it("returns a minimal public health response", async () => {
     process.env.SONDE_COMMIT_SHA = "abc123";
     process.env.SONDE_SCHEMA_VERSION = "20260407000123";
     process.env.SONDE_CLI_GIT_REF = "refs/heads/staging";
@@ -49,6 +53,28 @@ describe("createApp", () => {
     const response = await app.request("http://localhost/health");
     assert.equal(response.status, 200);
 
+    const body = (await response.json()) as { status: string };
+    assert.deepEqual(body, { status: "ok" });
+  });
+
+  it("returns runtime metadata only with the audit bearer token", async () => {
+    process.env.SONDE_COMMIT_SHA = "abc123";
+    process.env.SONDE_SCHEMA_VERSION = "20260407000123";
+    process.env.SONDE_CLI_GIT_REF = "refs/heads/staging";
+    process.env.ANTHROPIC_API_KEY = "test-key";
+    process.env.VITE_SUPABASE_URL = "https://oxajsxoedrmvrcatqser.supabase.co";
+    const app = createApp();
+
+    const unauthorized = await app.request("http://localhost/health/runtime");
+    assert.equal(unauthorized.status, 401);
+
+    const response = await app.request("http://localhost/health/runtime", {
+      headers: {
+        Authorization: "Bearer test-runtime-token",
+      },
+    });
+    assert.equal(response.status, 200);
+
     const body = (await response.json()) as {
       status: string;
       environment: string;
@@ -57,7 +83,6 @@ describe("createApp", () => {
       agentBackend: string;
       daytonaConfigured: boolean;
       anthropicConfigured: boolean;
-      bypassAuthEnabled: boolean;
       cliGitRef: string | null;
       supabaseProjectRef: string | null;
     };
@@ -70,10 +95,26 @@ describe("createApp", () => {
       agentBackend: "direct",
       daytonaConfigured: false,
       anthropicConfigured: true,
-      bypassAuthEnabled: true,
       cliGitRef: "refs/heads/staging",
       supabaseProjectRef: "oxajsxoedrmvrcatqser",
     });
+  });
+
+  it("mints a chat session token from an authenticated request", async () => {
+    const app = createApp();
+    const response = await app.request("http://localhost/chat/session-token", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${authToken}`,
+      },
+    });
+    assert.equal(response.status, 200);
+    const body = (await response.json()) as {
+      token: string;
+      expires_at: string;
+    };
+    assert.ok(body.token.length > 20);
+    assert.ok(body.expires_at.length > 0);
   });
 
   it("rejects unauthenticated GitHub proxy requests", async () => {
@@ -202,5 +243,27 @@ describe("createApp", () => {
     assert.equal(body.diagnostics.resolvedBranch, "feature/test");
     assert.equal(body.diagnostics.upstreamRequests, 2);
     assert.equal(body.repo.defaultBranch, "main");
+  });
+
+  it("rejects non-allowlisted repos when a server GitHub token is configured", async () => {
+    process.env.GITHUB_TOKEN = "server-token";
+    process.env.SONDE_GITHUB_ALLOWED_REPOS = "aeolus-earth/sonde";
+
+    const app = createApp();
+    const response = await app.request(
+      "http://localhost/github/repos/private-org/private-repo/commits",
+      {
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+        },
+      }
+    );
+
+    assert.equal(response.status, 403);
+    const body = (await response.json()) as {
+      error: { type: string; message: string };
+    };
+    assert.equal(body.error.type, "repo_not_allowed");
+    assert.match(body.error.message, /private-org\/private-repo/);
   });
 });

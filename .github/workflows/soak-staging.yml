@@ -25,6 +25,8 @@ jobs:
     env:
       SOAK_CONCURRENCY: ${{ inputs.concurrency || '10' }}
       SOAK_ROUNDS: ${{ inputs.rounds || '2' }}
+      SOAK_SESSION_FILE: ${{ runner.temp }}/sonde-soak-sessions.json
+      SOAK_USERS_FILE: ${{ runner.temp }}/sonde-soak-users.json
 
     steps:
       - uses: actions/checkout@v6
@@ -58,7 +60,6 @@ jobs:
           exit 1
 
       - name: Provision staging soak sessions
-        id: sessions
         working-directory: server
         env:
           SUPABASE_URL: https://${{ vars.SUPABASE_STAGING_PROJECT_REF }}.supabase.co
@@ -68,6 +69,8 @@ jobs:
           SMOKE_USER_PREFIX: sonde-staging-soak
           SMOKE_USER_PROGRAMS: shared,weather-intervention,cc,dir
           SMOKE_USER_ROLE: member
+          SMOKE_SESSION_FILE: ${{ env.SOAK_SESSION_FILE }}
+          SMOKE_USERS_FILE: ${{ env.SOAK_USERS_FILE }}
         run: |
           if [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
             echo "::error::SUPABASE_STAGING_SERVICE_ROLE_KEY is required for staging soak sessions"
@@ -78,9 +81,13 @@ jobs:
       - name: Timeline concurrency smoke
         env:
           AGENT_BASE: ${{ vars.SONDE_STAGING_AGENT_HTTP_BASE }}
-          ACCESS_TOKEN: ${{ steps.sessions.outputs.access_tokens }}
+          SOAK_SESSION_FILE: ${{ env.SOAK_SESSION_FILE }}
         run: |
-          ACCESS_TOKEN="${ACCESS_TOKEN%%,*}"
+          ACCESS_TOKEN="$(node -e 'const fs=require(\"node:fs\"); const file=process.env.SOAK_SESSION_FILE; const data=JSON.parse(fs.readFileSync(file,\"utf8\")); process.stdout.write((data.access_tokens?.[0] ?? \"\").trim());')"
+          if [ -z "$ACCESS_TOKEN" ]; then
+            echo "::error::No soak access token available"
+            exit 1
+          fi
           for idx in $(seq 1 5); do
             curl -fsS \
               -H "Authorization: Bearer $ACCESS_TOKEN" \
@@ -92,9 +99,29 @@ jobs:
         working-directory: server
         env:
           SOAK_CHAT_HTTP_BASE: ${{ vars.SONDE_STAGING_AGENT_HTTP_BASE }}
-          SOAK_CHAT_TOKENS: ${{ steps.sessions.outputs.access_tokens }}
+          SOAK_SESSION_FILE: ${{ env.SOAK_SESSION_FILE }}
           SOAK_CHAT_CONCURRENCY: ${{ env.SOAK_CONCURRENCY }}
           SOAK_CHAT_ROUNDS: ${{ env.SOAK_ROUNDS }}
           SOAK_CHAT_PROMPT: "Use Sonde tools to list one accessible program id and briefly explain what you found."
           SOAK_CHAT_REQUIRE_TOOL_USE: "1"
-        run: node scripts/soak-chat.mjs
+        run: |
+          export SOAK_CHAT_TOKENS="$(node -e 'const fs=require(\"node:fs\"); const file=process.env.SOAK_SESSION_FILE; const data=JSON.parse(fs.readFileSync(file,\"utf8\")); process.stdout.write((data.access_tokens ?? []).join(\",\"));')"
+          if [ -z "$SOAK_CHAT_TOKENS" ]; then
+            echo "::error::No soak chat tokens available"
+            exit 1
+          fi
+          node scripts/soak-chat.mjs
+
+      - name: Cleanup staging soak users
+        if: always()
+        working-directory: server
+        env:
+          SUPABASE_URL: https://${{ vars.SUPABASE_STAGING_PROJECT_REF }}.supabase.co
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_STAGING_SERVICE_ROLE_KEY }}
+          SMOKE_USERS_FILE: ${{ env.SOAK_USERS_FILE }}
+        run: |
+          if [ ! -f "$SMOKE_USERS_FILE" ]; then
+            echo "::notice::No soak user file found; skipping cleanup"
+            exit 0
+          fi
+          node scripts/cleanup-smoke-users.mjs

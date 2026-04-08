@@ -11,9 +11,9 @@ describe("sandbox-tool-policy", () => {
       assert.equal(classifyCommand('grep -rl "^status: complete" .sonde/ --include="*.md"'), "read");
     });
 
-    it("classifies find/cat/head/tail as read", () => {
+    it("classifies find/head/tail as read and cat as mutate", () => {
       assert.equal(classifyCommand("find .sonde/ -name '*.md' -type f"), "read");
-      assert.equal(classifyCommand("cat .sonde/tree.md"), "read");
+      assert.equal(classifyCommand("cat .sonde/tree.md"), "mutate");
       assert.equal(classifyCommand("head -20 .sonde/experiments/EXP-001.md"), "read");
       assert.equal(classifyCommand("tail -5 .sonde/tree.md"), "read");
       assert.equal(classifyCommand("wc -l .sonde/experiments/*.md"), "read");
@@ -56,10 +56,10 @@ describe("sandbox-tool-policy", () => {
       assert.equal(classifySandboxTool("sandbox_write", { path: "test.py", content: "x=1" }), "mutate");
     });
 
-    it("classifies sandbox_exec by command content", () => {
+    it("always requires approval for sandbox_exec", () => {
       assert.equal(
         classifySandboxTool("sandbox_exec", { command: 'grep -rl "CCN" .sonde/' }),
-        "read"
+        "mutate"
       );
       assert.equal(
         classifySandboxTool("sandbox_exec", { command: "sonde experiment log -p weather" }),

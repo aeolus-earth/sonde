@@ -12,6 +12,13 @@ import {
 import { CsvTable } from "@/components/artifacts/csv-table";
 import { useArtifactUrl, useArtifactText } from "@/hooks/use-artifacts";
 import { Spinner } from "@/components/ui/spinner";
+import {
+  isCsv,
+  isGif,
+  isMarkdown,
+  isPdf,
+  isTextRenderable,
+} from "@/lib/artifact-kind";
 import type { Artifact, ArtifactType } from "@/types/sonde";
 
 const typeIcon: Record<ArtifactType, typeof File> = {
@@ -30,32 +37,6 @@ function formatBytes(bytes: number | null): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function ext(filename: string): string {
-  return filename.split(".").pop()?.toLowerCase() ?? "";
-}
-
-function isGif(a: Artifact): boolean {
-  return ext(a.filename) === "gif" || a.mime_type === "image/gif";
-}
-
-function isPdf(a: Artifact): boolean {
-  return ext(a.filename) === "pdf" || a.mime_type === "application/pdf";
-}
-
-function isTextRenderable(a: Artifact): boolean {
-  const e = ext(a.filename);
-  return ["md", "csv", "tsv", "json", "yaml", "yml", "toml", "txt", "log"].includes(e);
-}
-
-function isCsv(a: Artifact): boolean {
-  const e = ext(a.filename);
-  return ["csv", "tsv"].includes(e);
-}
-
-function isMarkdown(a: Artifact): boolean {
-  return ext(a.filename) === "md";
 }
 
 // ── Visual card (images, gifs) ─────────────────────────────────

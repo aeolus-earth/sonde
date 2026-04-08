@@ -278,6 +278,8 @@ jobs:
           SONDE_TEST_AGENT_MOCK: "1"
           SONDE_TEST_AUTH_DELAY_MS: "100"
           SONDE_TEST_AUTH_BYPASS_TOKEN: ${{ env.E2E_AUTH_BYPASS_TOKEN }}
+          SONDE_WS_TOKEN_SECRET: ci-browser-smoke-ws-secret
+          SONDE_RUNTIME_AUDIT_TOKEN: ci-browser-smoke-runtime-audit-token
         run: |
           npx tsx src/index.ts >/tmp/sonde-agent-smoke.log 2>&1 &
           echo $! >/tmp/sonde-agent-smoke.pid

@@ -3,6 +3,7 @@ import { serve } from "@hono/node-server";
 import { createNodeWebSocket } from "@hono/node-ws";
 import { createApp, handleWebSocket } from "./app.js";
 import { probeSondeCliEnvironment } from "./sonde-runner.js";
+import { assertSecurityConfig } from "./security-config.js";
 
 const app = createApp();
 const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
@@ -16,6 +17,7 @@ if (!Number.isFinite(port) || port <= 0) {
   throw new Error(`Invalid server port: ${configuredPort}`);
 }
 
+assertSecurityConfig();
 await probeSondeCliEnvironment();
 
 const server = serve({ fetch: app.fetch, port }, (info) => {

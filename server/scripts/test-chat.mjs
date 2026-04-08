@@ -13,10 +13,12 @@
 import "dotenv/config";
 import { createClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
+import { fetchChatSessionToken } from "./chat-smoke-lib.mjs";
 
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = process.env.VITE_SUPABASE_ANON_KEY;
 const SERVER_URL = "ws://localhost:3001/chat";
+const HTTP_BASE = "http://localhost:3001";
 const TIMEOUT_MS = 90_000; // 90s — sandbox init can take 15s + corpus pull
 
 async function getToken() {
@@ -39,10 +41,10 @@ async function getToken() {
   return data.session.access_token;
 }
 
-async function testChat(token) {
+async function testChat(wsUrl) {
   return new Promise((resolve, reject) => {
     const messages = [];
-    let gotSession = false;
+    let authReady = false;
     let gotResponse = false;
     let messageSent = false;
 
@@ -55,9 +57,8 @@ async function testChat(token) {
       }
     }, TIMEOUT_MS);
 
-    const url = `${SERVER_URL}?token=${encodeURIComponent(token)}`;
-    console.log("Connecting to", SERVER_URL, "...");
-    const ws = new WebSocket(url);
+    console.log("Connecting to", wsUrl, "...");
+    const ws = new WebSocket(wsUrl);
 
     ws.on("open", () => {
       console.log("✓ WebSocket connected");
@@ -68,10 +69,8 @@ async function testChat(token) {
       messages.push(msg);
 
       switch (msg.type) {
-        case "session":
-          console.log("✓ Session:", msg.sessionId.slice(0, 12) + "...");
-          gotSession = true;
-          // Send first message
+        case "auth_ok":
+          authReady = true;
           if (!messageSent) {
             messageSent = true;
             console.log("→ Sending: 'hello, confirm you have sandbox tools'");
@@ -83,6 +82,10 @@ async function testChat(token) {
               })
             );
           }
+          break;
+
+        case "session":
+          console.log("✓ Session:", msg.sessionId.slice(0, 12) + "...");
           break;
 
         case "text_delta":
@@ -117,11 +120,11 @@ async function testChat(token) {
           console.log("\n✓ Done — agent finished");
           clearTimeout(timer);
           ws.close();
-          if (gotResponse) {
+          if (authReady && gotResponse) {
             console.log("\n✅ TEST PASSED — first message got a response");
             resolve(true);
           } else {
-            console.error("\n❌ TEST FAILED — done received but no text_delta");
+            console.error("\n❌ TEST FAILED — chat completed before auth or response");
             reject(new Error("no response"));
           }
           break;
@@ -146,8 +149,11 @@ async function testChat(token) {
 
 try {
   const token = await getToken();
+  const wsToken = await fetchChatSessionToken(HTTP_BASE, token);
+  const url = new URL(SERVER_URL);
+  url.searchParams.set("ws_token", wsToken);
   console.log("Token:", token.slice(0, 30) + "...\n");
-  await testChat(token);
+  await testChat(url.toString());
   process.exit(0);
 } catch (err) {
   process.exit(1);
