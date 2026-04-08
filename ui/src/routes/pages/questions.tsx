@@ -34,7 +34,7 @@ export default function QuestionsPage() {
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <h1 className="text-[15px] font-semibold tracking-[-0.015em] text-text">
-            Research Inbox
+            Questions
           </h1>
         </div>
         <div className="rounded-[8px] border border-border bg-surface">
@@ -50,7 +50,7 @@ export default function QuestionsPage() {
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <h1 className="text-[15px] font-semibold tracking-[-0.015em] text-text">
-          Research Inbox
+          Questions
         </h1>
         <span className="text-[12px] text-text-quaternary">
           {questions?.length ?? 0} open
@@ -97,7 +97,7 @@ export default function QuestionsPage() {
         ))}
         {items.length === 0 && (
           <div className="py-10 text-center text-[13px] text-text-quaternary">
-            Research inbox is empty.
+            No open questions.
           </div>
         )}
       </div>

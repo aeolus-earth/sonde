@@ -145,6 +145,9 @@ sonde fork EXP-0001 --env CUDA_VERSION=12.0
 - After an analysis that yields a finding or insight
 - When the user says "log this", "record this", "save this experiment"
 - When you've helped design and run an experiment to completion
+- When results are inconclusive, surprising, or suggest follow-up work, log the
+  experiment and raise the open question in the same step:
+  `sonde log -p <program> "..." --question "..."`
 
 ---
 
@@ -430,7 +433,12 @@ agent or human reads.
 
 Track what the team doesn't know yet. Promote to experiments or directions.
 
+When you are already logging the experiment, prefer `sonde log --question` so
+the follow-up stays linked to the experiment from the start.
+
 ```bash
+sonde log -p weather-intervention "CCN sweep was inconclusive" \
+  --question "Does spectral bin change the CCN curve?"
 sonde questions -p <program>
 sonde question list -p <program> --json
 sonde show Q-001

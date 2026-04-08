@@ -207,8 +207,9 @@ sonde experiment log -p <program> --repro "python run.py --config cfg.yaml"
 - After an analysis that yields a finding or insight
 - When the user says "log this", "record this", "save this experiment"
 - When you've helped design and run an experiment to completion
-- When results are inconclusive, surprising, or suggest follow-up work, also raise a question:
-  `sonde question create -p <program> "..."`
+- When results are inconclusive, surprising, or suggest follow-up work, log the
+  experiment and raise the open question in the same step:
+  `sonde log -p <program> "..." --question "..."`
 
 ---
 
@@ -367,15 +368,18 @@ sonde brief -p <program> --since 2026-03-15
 ### Questions — track what we don't know
 
 ```bash
+sonde log -p weather-intervention "CCN sweep was inconclusive" \
+  --question "Does BL heating interact with CCN seeding?"
 sonde question create -p weather-intervention "Does BL heating interact with CCN seeding?"
 sonde question list -p <program>
 sonde question promote Q-001              # promote to experiment
 sonde question promote Q-001 --to direction -t "BL Heating"  # to direction
 ```
 
-Raise a question whenever an experiment leaves a real unknown behind. Use the
-research inbox for inconclusive results, surprising outcomes, and follow-up
-work that should persist beyond the current run.
+Raise a question whenever an experiment leaves a real unknown behind. Use
+Questions for inconclusive results, surprising outcomes, and follow-up work
+that should persist beyond the current run. When you are already logging the
+experiment, prefer `sonde log --question` so the two stay linked from the start.
 
 ### Directions — group experiments into research threads
 
