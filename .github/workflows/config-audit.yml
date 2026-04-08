@@ -47,15 +47,24 @@ jobs:
           RUNTIME_AUDIT_TOKEN: ${{ secrets.SONDE_STAGING_AGENT_RUNTIME_AUDIT_TOKEN }}
           REDIS_URL: ${{ vars.SONDE_STAGING_UPSTASH_REDIS_REST_URL }}
           REDIS_TOKEN: ${{ secrets.SONDE_STAGING_UPSTASH_REDIS_REST_TOKEN }}
+          REQUIRE_SHARED_RATE_LIMIT: ${{ vars.SONDE_REQUIRE_SHARED_RATE_LIMIT || '' }}
           GOOGLE_CLIENT_ID: ${{ secrets.SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET }}
         run: |
-          for name in UI_URL AGENT_URL SUPABASE_PROJECT_REF SUPABASE_ANON_KEY SMOKE_USER_EMAIL SMOKE_USER_PASSWORD CLI_AUDIT_TOKEN RUNTIME_AUDIT_TOKEN REDIS_URL REDIS_TOKEN GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET; do
+          for name in UI_URL AGENT_URL SUPABASE_PROJECT_REF SUPABASE_ANON_KEY SMOKE_USER_EMAIL SMOKE_USER_PASSWORD CLI_AUDIT_TOKEN RUNTIME_AUDIT_TOKEN GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET; do
             if [ -z "${!name}" ]; then
               echo "::error::Missing required staging config: $name"
               exit 1
             fi
           done
+          if [ "$REQUIRE_SHARED_RATE_LIMIT" = "1" ] || [ "$REQUIRE_SHARED_RATE_LIMIT" = "true" ]; then
+            for name in REDIS_URL REDIS_TOKEN; do
+              if [ -z "${!name}" ]; then
+                echo "::error::Missing required staging config for shared rate limiting: $name"
+                exit 1
+              fi
+            done
+          fi
           case "$SUPABASE_ANON_KEY" in
             sb_publishable_*) ;;
             *)
@@ -134,15 +143,24 @@ jobs:
           RUNTIME_AUDIT_TOKEN: ${{ secrets.SONDE_PRODUCTION_AGENT_RUNTIME_AUDIT_TOKEN }}
           REDIS_URL: ${{ vars.SONDE_PRODUCTION_UPSTASH_REDIS_REST_URL }}
           REDIS_TOKEN: ${{ secrets.SONDE_PRODUCTION_UPSTASH_REDIS_REST_TOKEN }}
+          REQUIRE_SHARED_RATE_LIMIT: ${{ vars.SONDE_REQUIRE_SHARED_RATE_LIMIT || '' }}
           GOOGLE_CLIENT_ID: ${{ secrets.SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET }}
         run: |
-          for name in UI_URL AGENT_URL SUPABASE_PROJECT_REF SUPABASE_ANON_KEY SMOKE_USER_EMAIL SMOKE_USER_PASSWORD CLI_AUDIT_TOKEN RUNTIME_AUDIT_TOKEN REDIS_URL REDIS_TOKEN GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET; do
+          for name in UI_URL AGENT_URL SUPABASE_PROJECT_REF SUPABASE_ANON_KEY SMOKE_USER_EMAIL SMOKE_USER_PASSWORD CLI_AUDIT_TOKEN RUNTIME_AUDIT_TOKEN GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET; do
             if [ -z "${!name}" ]; then
               echo "::error::Missing required production config: $name"
               exit 1
             fi
           done
+          if [ "$REQUIRE_SHARED_RATE_LIMIT" = "1" ] || [ "$REQUIRE_SHARED_RATE_LIMIT" = "true" ]; then
+            for name in REDIS_URL REDIS_TOKEN; do
+              if [ -z "${!name}" ]; then
+                echo "::error::Missing required production config for shared rate limiting: $name"
+                exit 1
+              fi
+            done
+          fi
           case "$SUPABASE_ANON_KEY" in
             sb_publishable_*) ;;
             *)

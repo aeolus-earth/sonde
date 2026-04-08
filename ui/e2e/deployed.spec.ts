@@ -138,6 +138,8 @@ test.describe("Production deployment", () => {
       anthropicConfigured: boolean;
       cliGitRef: string | null;
       supabaseProjectRef: string | null;
+      sharedRateLimitConfigured: boolean;
+      sharedRateLimitRequired: boolean;
     };
 
     expect(body.status).toBe("ok");
@@ -148,6 +150,8 @@ test.describe("Production deployment", () => {
     expect(body.anthropicConfigured).toBeTruthy();
     expect(body.cliGitRef ?? null).not.toBeUndefined();
     expect(body.supabaseProjectRef ?? null).not.toBeUndefined();
+    expect(body.sharedRateLimitConfigured ?? false).not.toBeUndefined();
+    expect(body.sharedRateLimitRequired ?? false).not.toBeUndefined();
   });
 });
 

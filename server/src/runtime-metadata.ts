@@ -1,4 +1,8 @@
 import { isSandboxMode } from "./agent.js";
+import {
+  hasSharedRateLimitConfig,
+  isSharedRateLimitRequired,
+} from "./security-config.js";
 
 export interface RuntimeMetadata {
   status: "ok";
@@ -10,6 +14,8 @@ export interface RuntimeMetadata {
   anthropicConfigured: boolean;
   cliGitRef: string | null;
   supabaseProjectRef: string | null;
+  sharedRateLimitConfigured: boolean;
+  sharedRateLimitRequired: boolean;
 }
 
 export function getRuntimeEnvironment(
@@ -50,5 +56,7 @@ export function getRuntimeMetadata(
     anthropicConfigured: Boolean(env.ANTHROPIC_API_KEY?.trim()),
     cliGitRef: env.SONDE_CLI_GIT_REF?.trim() || null,
     supabaseProjectRef: getSupabaseProjectRef(env),
+    sharedRateLimitConfigured: hasSharedRateLimitConfig(env),
+    sharedRateLimitRequired: isSharedRateLimitRequired(env),
   };
 }

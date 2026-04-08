@@ -85,6 +85,8 @@ describe("createApp", () => {
       anthropicConfigured: boolean;
       cliGitRef: string | null;
       supabaseProjectRef: string | null;
+      sharedRateLimitConfigured: boolean;
+      sharedRateLimitRequired: boolean;
     };
 
     assert.deepEqual(body, {
@@ -97,6 +99,8 @@ describe("createApp", () => {
       anthropicConfigured: true,
       cliGitRef: "refs/heads/staging",
       supabaseProjectRef: "oxajsxoedrmvrcatqser",
+      sharedRateLimitConfigured: false,
+      sharedRateLimitRequired: false,
     });
   });
 

@@ -85,6 +85,9 @@ async function main() {
   const requireFirstPartyAgent = parseBooleanFlag(
     (process.env.AUDIT_REQUIRE_FIRST_PARTY_AGENT ?? "").trim().toLowerCase()
   );
+  const requireSharedRateLimit = parseBooleanFlag(
+    (process.env.AUDIT_REQUIRE_SHARED_RATE_LIMIT ?? "").trim().toLowerCase()
+  );
 
   const [uiVersion, agentHealth, agentRuntime] = await Promise.all([
     fetchJson(`${uiBase}/version.json`),
@@ -124,6 +127,14 @@ async function main() {
   ensure(
     Object.prototype.hasOwnProperty.call(agentRuntime ?? {}, "supabaseProjectRef"),
     "Agent runtime metadata is missing supabaseProjectRef"
+  );
+  ensure(
+    Object.prototype.hasOwnProperty.call(agentRuntime ?? {}, "sharedRateLimitConfigured"),
+    "Agent runtime metadata is missing sharedRateLimitConfigured"
+  );
+  ensure(
+    Object.prototype.hasOwnProperty.call(agentRuntime ?? {}, "sharedRateLimitRequired"),
+    "Agent runtime metadata is missing sharedRateLimitRequired"
   );
 
   if (expectedEnvironment) {
@@ -180,6 +191,13 @@ async function main() {
 
   if (requireAnthropic) {
     ensure(agentRuntime.anthropicConfigured, "Agent is missing Anthropic configuration");
+  }
+
+  if (requireSharedRateLimit) {
+    ensure(
+      agentRuntime.sharedRateLimitConfigured,
+      "Agent is missing shared rate limiting configuration",
+    );
   }
 
   if (requireFirstPartyAgent) {

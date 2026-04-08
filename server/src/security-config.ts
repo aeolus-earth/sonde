@@ -69,6 +69,22 @@ function hasSharedRedisRateLimitConfig(
   return Boolean(url && token);
 }
 
+export function isSharedRateLimitRequired(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  const raw =
+    env.SONDE_REQUIRE_SHARED_RATE_LIMIT?.trim().toLowerCase() ||
+    env.SONDE_REQUIRE_SHARED_REDIS?.trim().toLowerCase() ||
+    "";
+  return raw === "1" || raw === "true";
+}
+
+export function hasSharedRateLimitConfig(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return hasSharedRedisRateLimitConfig(env);
+}
+
 export function assertSecurityConfig(
   env: NodeJS.ProcessEnv = process.env,
 ): void {
@@ -93,9 +109,12 @@ export function assertSecurityConfig(
     );
   }
 
-  if (!hasSharedRedisRateLimitConfig(env)) {
+  if (
+    isSharedRateLimitRequired(env) &&
+    !hasSharedRedisRateLimitConfig(env)
+  ) {
     throw new Error(
-      "Shared Redis rate limiting is required in staging and production. Set UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN.",
+      "Shared Redis rate limiting is required when SONDE_REQUIRE_SHARED_RATE_LIMIT is enabled. Set UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN.",
     );
   }
 

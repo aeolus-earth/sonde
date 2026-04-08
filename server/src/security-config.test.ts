@@ -20,20 +20,30 @@ describe("assertSecurityConfig", () => {
           SONDE_TEST_AUTH_BYPASS_TOKEN: "test-bypass",
           SONDE_WS_TOKEN_SECRET: "ws",
           SONDE_RUNTIME_AUDIT_TOKEN: "audit",
-          UPSTASH_REDIS_REST_URL: "https://upstash.example.com",
-          UPSTASH_REDIS_REST_TOKEN: "redis",
         }),
       /NODE_ENV=test/,
     );
   });
 
-  it("requires runtime audit, websocket, and redis config in strict environments", () => {
+  it("requires runtime audit and websocket config in strict environments", () => {
+    assert.throws(
+      () =>
+        assertSecurityConfig({
+          NODE_ENV: "staging",
+          SONDE_RUNTIME_AUDIT_TOKEN: "audit",
+        }),
+      /SONDE_WS_TOKEN_SECRET is required/,
+    );
+  });
+
+  it("requires shared redis config only when explicitly enabled", () => {
     assert.throws(
       () =>
         assertSecurityConfig({
           NODE_ENV: "staging",
           SONDE_WS_TOKEN_SECRET: "ws",
           SONDE_RUNTIME_AUDIT_TOKEN: "audit",
+          SONDE_REQUIRE_SHARED_RATE_LIMIT: "true",
         }),
       /Shared Redis rate limiting is required/,
     );
