@@ -4,7 +4,9 @@ Use the `sonde` CLI to log experiments, query research history, and find gaps in
 the knowledge base. Every experiment you help run should be logged so the team's
 institutional memory grows.
 
-Pattern: `sonde <noun> <verb>`. Shortcuts exist: `sonde log` = `sonde experiment log`.
+Pattern: `sonde <noun> <verb>`. Use the canonical noun-verb form in scripts,
+skills, and agent prompts. Shortcuts exist for interactive use, but the
+canonical form is easier to teach, grep, and reuse correctly.
 
 All commands support `--json` for machine-readable output. Always use `--json`
 when you need to parse the response programmatically.
@@ -17,30 +19,31 @@ Start broad, then drill down.
 
 ```bash
 # Big picture
-sonde status                          # cross-program overview
-sonde brief -p <program>              # stats, findings, open work, gaps
-sonde brief -p <program> --json       # structured for programmatic use
-sonde brief -p <program> --active     # just live context (running, recent)
-sonde brief -p <program> --active --json  # slim JSON for agent onboarding
-sonde brief --all                     # all programs at once
+sonde status                                  # cross-program overview
+sonde brief -p <program>                      # stats, findings, open work, gaps
+sonde brief -p <program> --json               # structured for programmatic use
+sonde brief -p <program> --active             # live context only
+sonde brief -p <program> --active --json      # slim JSON for onboarding
+sonde brief --all                             # all programs at once
 
 # What's active
-sonde list --open -p <program>        # queued
-sonde list --running                  # in progress
-sonde list --complete                 # done (shows findings)
-sonde tree -p <program>               # visualize experiment trees
+sonde experiment list --open -p <program>     # queued
+sonde experiment list --running               # in progress
+sonde experiment list --complete              # done (shows findings)
+sonde tree -p <program>                       # visualize experiment trees
 
 # Explore knowledge
-sonde findings -p <program>           # current findings
-sonde questions -p <program>          # open questions
-sonde search --text "spectral bin"    # full-text search
-sonde search --tag cloud-seeding      # filter by tag
-sonde search --param ccn>1000         # parameter filter
+sonde finding list -p <program>               # current findings
+sonde finding list -p <program> --operational # Gotcha:/Checklist: startup guidance
+sonde question list -p <program>              # open questions
+sonde search --text "spectral bin"            # full-text search
+sonde search --tag cloud-seeding              # filter by tag
+sonde search --param ccn>1000                 # parameter filter
 
 # Go deep
-sonde show EXP-0001                   # full detail + findings + artifacts
-sonde show EXP-0001 --json            # enriched context (see below)
-sonde show EXP-0001 --graph           # all connected entities
+sonde show EXP-0001                           # full detail + findings + artifacts
+sonde show EXP-0001 --json                    # enriched context (see below)
+sonde show EXP-0001 --graph                   # all connected entities
 sonde show FIND-001 / Q-001 / DIR-001 / PROJ-001  # any entity
 ```
 
@@ -53,17 +56,17 @@ sonde show FIND-001 / Q-001 / DIR-001 / PROJ-001  # any entity
 ### Filtering experiments
 
 ```bash
-sonde list --me                       # my experiments
-sonde list --source human             # prefix match on source
-sonde list --tag cloud-seeding        # by tag
-sonde list --direction DIR-001        # by direction
-sonde list --since 2026-03-01         # created after date
-sonde list --before 2026-03-15        # created before date
-sonde list --sort updated             # sort by last modified
-sonde list --roots                    # only root experiments (no parent)
-sonde list --children-of EXP-0001     # direct children
-sonde list --count --open             # just the count
-sonde list -n 100 --page 2           # pagination
+sonde experiment list --me                       # my experiments
+sonde experiment list --source human             # prefix match on source
+sonde experiment list --tag cloud-seeding        # by tag
+sonde experiment list --direction DIR-001        # by direction
+sonde experiment list --since 2026-03-01         # created after date
+sonde experiment list --before 2026-03-15        # created before date
+sonde experiment list --sort updated             # sort by last modified
+sonde experiment list --roots                    # only root experiments (no parent)
+sonde experiment list --children-of EXP-0001     # direct children
+sonde experiment list --count --open             # just the count
+sonde experiment list -n 100 --page 2            # pagination
 ```
 
 Default: open + running + failed. Use `--all` for completed/superseded too.
@@ -99,12 +102,14 @@ Each entity has a *headline* (one-liner, shown in list views) and optionally a
 
 ## How to log
 
-The markdown body is the primary vehicle. Legacy fields (`--hypothesis`,
-`--params`, `--result`) still work but are secondary.
+The hypothesis field is first-class freeform text. The markdown body remains the
+primary vehicle for method, results, findings, and analysis. You can set the
+hypothesis with `--hypothesis`, `--hypothesis-file`, or a `## Hypothesis`
+section in content.
 
 ```bash
 # Content-first (preferred) — use standard sections
-sonde log -p <program> "## Hypothesis
+sonde experiment log -p <program> "## Hypothesis
 Doubling CCN to 1500 should drop enhancement below 10%.
 
 ## Method
@@ -118,24 +123,45 @@ Enhancement: 5.8% (down from 13.6% at CCN=1200).
 CCN=1500 shows 8% less enhancement, consistent with saturation."
 
 # Open for later (scaffolds section headers automatically)
-sonde log --open -p <program> "Test combined BL heating + seeding"
+sonde experiment log --open -p <program> "Test combined BL heating + seeding"
 
 # Update individual sections as work progresses
 sonde update EXP-0001 --method "Changed scheme to spectral_bin, ccn=1500"
 sonde update EXP-0001 --results "Enhancement: 5.8%, LWC: 1.03 g/m3"
 
 # From file or stdin
-sonde log -p <program> -f experiment-notes.md
-echo "detailed analysis" | sonde log -p <program> --stdin
+sonde experiment log -p <program> -f experiment-notes.md
+echo "detailed analysis" | sonde experiment log -p <program> --stdin
 
 # With params from YAML/JSON
-sonde log -p <program> --params-file run_config.yaml
-sonde log -p <program> --params-file config.yaml --result '{"rmse": 2.3}'
+sonde experiment log -p <program> --params-file run_config.yaml
+sonde experiment log -p <program> --params-file config.yaml --result '{"rmse": 2.3}'
 
 # Structured metadata: reproducibility, environment
-sonde log -p <program> --repro "python run.py --config cfg.yaml"
+sonde experiment log -p <program> --repro "python run.py --config cfg.yaml"
 sonde fork EXP-0001 --env CUDA_VERSION=12.0
 ```
+
+### Agent hygiene loop
+
+Use this loop when you are picking up existing work or running a long
+experiment:
+
+1. Orient with `sonde brief -p <program> --active`, `sonde handoff EXP-XXXX`,
+   and `sonde finding list -p <program> --operational`.
+2. Log the experiment with `sonde experiment log` before or immediately after
+   the work starts.
+3. During long runs, add checkpoint notes when the phase or status changes, or
+   whenever another agent would otherwise need to reconstruct what happened.
+4. Promote stable lessons into findings. Use `Gotcha:` for recurring pitfalls
+   and `Checklist:` for startup rules you want surfaced in future sessions.
+5. When uncertainty remains, create or update a question instead of burying the
+   unknown in a note.
+6. End with `sonde handoff EXP-XXXX` if someone else may continue.
+
+For long-running jobs, prefer several short checkpoint notes over one long
+retrospective note. The useful details are the command, phase, elapsed time,
+why the run changed course, and what the next agent should watch for.
 
 `--source` is set automatically. Git commit, repo, and branch are auto-detected.
 
@@ -145,6 +171,8 @@ sonde fork EXP-0001 --env CUDA_VERSION=12.0
 - After an analysis that yields a finding or insight
 - When the user says "log this", "record this", "save this experiment"
 - When you've helped design and run an experiment to completion
+- When results are inconclusive, surprising, or suggest follow-up work, also raise a question:
+  `sonde question create -p <program> "..."`
 
 ---
 
@@ -266,13 +294,13 @@ Use `--results` (plural) for observations. Use `--result` (singular) for structu
 ## Lifecycle
 
 ```bash
-sonde start EXP-0001                  # mark running + claim ownership
-sonde close EXP-0001                  # mark complete
-sonde close EXP-0001 --finding "..."  # complete with finding
-sonde close EXP-0001 --finding "ADA dispatch is 60% host compile" \
+sonde experiment start EXP-0001                # mark running + claim ownership
+sonde experiment close EXP-0001                # mark complete
+sonde experiment close EXP-0001 --finding "..."  # complete with finding
+sonde experiment close EXP-0001 --finding "ADA dispatch is 60% host compile" \
   --takeaway "Host compile dominates. Next: test warm cache path."
-sonde open EXP-0001                   # reopen
-sonde release EXP-0001                # release a stale claim
+sonde experiment open EXP-0001                 # reopen
+sonde experiment release EXP-0001              # release a stale claim
 ```
 
 ### Close with finding + takeaway
@@ -280,7 +308,7 @@ sonde release EXP-0001                # release a stale claim
 The fast path. One command: finding goes to DB, takeaway goes to brief.
 
 ```bash
-sonde close EXP-0164 --finding "ADA dispatch is 60% host compile" \
+sonde experiment close EXP-0164 --finding "ADA dispatch is 60% host compile" \
   --takeaway "Host compile dominates. Next: test warm cache path."
 ```
 
@@ -289,14 +317,14 @@ the finding changes program-level understanding.
 
 ### Git provenance
 
-`sonde close` enforces a clean working tree by default. Commit first:
+`sonde experiment close` enforces a clean working tree by default. Commit first:
 
 ```bash
 git add -A && git commit -m "EXP-0009: CFL fix with 2x timestep"
-sonde close EXP-0009 --finding "Domain doubling causes CFL violation"
+sonde experiment close EXP-0009 --finding "Domain doubling causes CFL violation"
 
 # Or force-close with dirty state
-sonde close EXP-0009 --force --finding "..."
+sonde experiment close EXP-0009 --force --finding "..."
 ```
 
 The experiment records start and close commits. `git diff <start>..<end>` shows
@@ -305,9 +333,9 @@ exactly what changed.
 ### Claim conflicts
 
 ```bash
-sonde start EXP-0001 --json
+sonde experiment start EXP-0001 --json
 # Returns: {"started": null, "conflict": {"claimed_by": "codex/task-42", "age_minutes": 15}}
-sonde start EXP-0001 --force          # take over
+sonde experiment start EXP-0001 --force          # take over
 ```
 
 ---
@@ -318,9 +346,9 @@ Trees track how experiments branch and evolve. The standard loop:
 
 1. `sonde brief -p <program> --json` -- find work via `tree_summary`
 2. `sonde show EXP-0009 --json` -- check `_parent`, `_children`, `_siblings`
-3. `sonde start EXP-0009 --json` -- claim (back off if `conflict` is non-null)
+3. `sonde experiment start EXP-0009 --json` -- claim (back off if `conflict` is non-null)
 4. `git commit` -- commit code before closing
-5. `sonde close EXP-0009 --finding "..." --json` -- `suggested_next` tells you what's next
+5. `sonde experiment close EXP-0009 --finding "..." --json` -- `suggested_next` tells you what's next
 6. `sonde fork EXP-0009 --type refinement "Apply fix" --json` -- continue the thread
 
 ### Branch types
@@ -360,7 +388,7 @@ sonde delete EXP-0042 --confirm       # permanently delete (children re-parented
 Curated insights from experiments. Searchable, linkable, versioned.
 
 ```bash
-sonde findings -p <program>
+sonde finding list -p <program>
 sonde finding list -p <program> --json
 sonde show FIND-001
 sonde finding show FIND-001 --json
@@ -375,6 +403,7 @@ sonde finding create -p weather-intervention \
 # Extract from experiment
 sonde finding extract EXP-0001 --topic "CCN saturation"
 sonde finding extract EXP-0001 -t "CCN saturation" --confidence high
+sonde finding extract EXP-0001 --topic "Gotcha: @compile must run inside function"
 
 # Supersede
 sonde finding create -p weather-intervention \
@@ -420,7 +449,7 @@ agent or human reads.
 | Scope | Single fact | Program-level synthesis |
 | Example | "CCN=1500 shows 8% less enhancement" | "Confirmed CCN saturation. Threshold ~1500. Next: BL heating." |
 | Storage | Database (syncs everywhere) | Local `.sonde/takeaways.md` |
-| Appears in | `sonde findings` | `sonde brief` |
+| Appears in | `sonde finding list` | `sonde brief` |
 
 ---
 
@@ -430,8 +459,12 @@ agent or human reads.
 
 Track what the team doesn't know yet. Promote to experiments or directions.
 
+Raise a question whenever an experiment leaves a real unknown behind. Use this
+for inconclusive results, surprising outcomes, or obvious follow-up work that
+should land in the research inbox instead of living only in chat.
+
 ```bash
-sonde questions -p <program>
+sonde question list -p <program>
 sonde question list -p <program> --json
 sonde show Q-001
 sonde question create -p weather-intervention "Does spectral bin change the CCN curve?"
@@ -518,35 +551,56 @@ notes accumulate without a finding, you'll be nudged to distill the key result.
 
 ```bash
 # Experiment notes (most common)
-sonde note EXP-0001 "Retried with higher CCN, same saturation pattern"
-sonde note EXP-0001 --file observations.md
+sonde experiment note EXP-0001 "Retried with higher CCN, same saturation pattern"
+sonde experiment note EXP-0001 --file observations.md
+sonde experiment note EXP-0001 --phase compile --status running --elapsed 22m "slow-op alarm fired"
+sonde experiment note EXP-0001 --phase compile --status blocked --elapsed 31m "ptxas spills jumped after enabling fused kernel"
+sonde experiment note EXP-0001 --phase validation --status complete --elapsed 49m "gradients now finite on rung=coarse"
 
 # Direction notes (method rationale, scope changes)
-sonde note DIR-001 "Narrowing scope to mid-latitude storms only"
+sonde experiment note DIR-001 "Narrowing scope to mid-latitude storms only"
 
 # Project notes (strategic decisions, stakeholder context)
-sonde note PROJ-001 "Stakeholder feedback: focus on 48h forecast horizon"
+sonde experiment note PROJ-001 "Stakeholder feedback: focus on 48h forecast horizon"
 
 # Focused experiment: omit ID to use focused experiment
-sonde note "Observation about CCN response"
+sonde experiment note "Observation about CCN response"
+```
+
+Use plain notes for interpretation, rationale, and decisions. Use checkpoint
+notes for long-running or multi-phase work. Good checkpoint notes are short and
+operational: what phase is running, whether it is blocked or healthy, how long
+it has taken, and the one fact the next agent must know.
+
+For recurring startup rules or pitfalls, encode them as findings with topics
+prefixed `Gotcha:` or `Checklist:` so `sonde brief` and
+`sonde finding list --operational` surface them before the general archive.
+
+When a note captures an unresolved unknown, also create a question:
+
+```bash
+sonde question create -p <program> \
+  "Why does fused backward spill registers after Reactant init?" \
+  --context "Observed during EXP-0001 compile checkpoints on A100 runners."
 ```
 
 ### Attachments
 
-**Always describe what you attach.** Descriptions appear as captions in the UI.
+**Always describe what you attach.** Descriptions appear as captions in the UI
+and are part of the handoff context agents read later.
 Accepts EXP-*, DIR-*, or PROJ-* IDs.
 
 ```bash
 # Experiment attachments
-sonde attach EXP-0001 figures/plot.png -d "Precip anomaly, CCN=1200"
-sonde attach EXP-0001 report.pdf --type paper -d "Final analysis report"
-sonde attach EXP-0001 profiling_artifacts/        # entire directory
+sonde experiment attach EXP-0001 figures/plot.png -d "Precip anomaly, CCN=1200"
+sonde experiment attach EXP-0001 report.pdf --type paper -d "Final analysis report"
+sonde experiment attach EXP-0001 profiling_artifacts/        # entire directory
 
 # Direction attachments (literature, method docs)
-sonde attach DIR-001 literature_review.pdf --type paper -d "Prior work survey"
+sonde experiment attach DIR-001 literature_review.pdf --type paper -d "Prior work survey"
 
 # Project attachments (architecture, stakeholder decks)
-sonde attach PROJ-001 architecture.pdf --type report -d "System design overview"
+sonde experiment attach PROJ-001 architecture.pdf --type report -d "System design overview"
 
 # Describe after attaching
 sonde artifact list EXP-0001 --json
@@ -571,12 +625,13 @@ sonde unfocus                     # clear
 ```
 
 When focused, commands that take an experiment ID use the focused one if you
-don't specify. E.g., `sonde note "observation"` instead of `sonde note EXP-0164 "observation"`.
+don't specify. E.g., `sonde experiment note "observation"` instead of
+`sonde experiment note EXP-0164 "observation"`.
 
 ### Handoff
 
-Generate everything the next agent needs: state, direction, notes, artifacts,
-next actions.
+Generate everything the next agent needs: state, direction, latest checkpoint,
+operational findings, artifacts, and next actions.
 
 ```bash
 sonde handoff EXP-0164            # human-readable handoff summary
@@ -667,7 +722,7 @@ sonde brief -p <program> --gaps --param ccn --param scheme
 **Geospatial output** (NetCDF, Zarr, GeoTIFF): upload to S3, register in STAC,
 link to experiment. See `stac-data-workflow` skill.
 
-**Non-geospatial files** (figures, CSVs, PDFs, notebooks): `sonde attach EXP-XXXX file.png`
+**Non-geospatial files** (figures, CSVs, PDFs, notebooks): `sonde experiment attach EXP-XXXX file.png`
 
 See `aeolus-conventions` for S3 paths, STAC collections, naming patterns.
 

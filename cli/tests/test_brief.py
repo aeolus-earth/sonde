@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -93,6 +94,10 @@ _QUESTION_ROW: dict[str, Any] = {
     "created_at": _NOW.isoformat(),
     "updated_at": _NOW.isoformat(),
 }
+
+_CHECKPOINT_NOTE = (
+    "## Checkpoint\n- Phase: compile\n- Status: running\n- Elapsed: 22m\n\nslow-op alarm fired"
+)
 
 
 def _make_exp(**overrides: Any) -> Experiment:
@@ -369,8 +374,10 @@ class TestBuildActiveContext:
     @patch("sonde.commands.brief.exp_db.get_tree_summary", return_value={})
     @patch("sonde.commands.next.build_suggestions")
     @patch("sonde.db.directions.list_directions", return_value=[])
+    @patch("sonde.commands.brief.artifact_count_map", return_value={})
     def test_next_actions_populated_from_build_suggestions(
         self,
+        _mock_artifact_counts: MagicMock,
         _mock_dir_list: MagicMock,
         mock_build: MagicMock,
         _mock_tree: MagicMock,
@@ -395,6 +402,38 @@ class TestBuildActiveContext:
         assert result is not None
         assert len(result["next_actions"]) == 3
         assert result["next_actions"][0]["reason"] == "Try higher CCN"
+
+    @patch("sonde.commands.brief.get_focused_experiment", return_value=None)
+    @patch("sonde.db.questions.find_by_promoted_to", return_value=[])
+    @patch("sonde.commands.brief.exp_db.get_tree_summary", return_value={})
+    @patch("sonde.db.directions.list_directions", return_value=[])
+    @patch(
+        "sonde.db.notes.list_by_experiment",
+        return_value=[
+            {
+                "id": "NOTE-001",
+                "source": "agent/codex",
+                "created_at": _NOW.isoformat(),
+                "content": _CHECKPOINT_NOTE,
+            }
+        ],
+    )
+    def test_latest_checkpoint_populated_for_running_experiment(
+        self,
+        _mock_notes: MagicMock,
+        _mock_dir_list: MagicMock,
+        _mock_tree: MagicMock,
+        _mock_promoted: MagicMock,
+        _mock_focus: MagicMock,
+    ):
+        running = _make_exp(id="EXP-0010", status="running")
+        result = _build_active_context([running], [], [], "test-program")
+        assert result is not None
+        checkpoint = result["latest_checkpoint"]
+        assert checkpoint is not None
+        assert checkpoint["phase"] == "compile"
+        assert checkpoint["status"] == "running"
+        assert checkpoint["elapsed"] == "22m"
 
     @patch("sonde.commands.brief.get_focused_experiment", return_value=None)
     @patch("sonde.db.questions.find_by_promoted_to", return_value=[])
@@ -791,7 +830,9 @@ class TestBriefJsonFull:
             "takeaways",
             "stats",
             "findings",
+            "operational_findings",
             "open_questions",
+            "directions_for_review",
             "open_experiments",
             "running_experiments",
             "recent_completions",
@@ -867,6 +908,87 @@ class TestBriefJsonFull:
         assert active["experiment"]["status"] == "running"
         assert active["latest_finding"] is not None
         assert active["latest_finding"]["id"] == "FIND-001"
+
+    @patch("sonde.commands.brief.get_focused_experiment", return_value=None)
+    @patch("sonde.commands.brief._active_branch_ids", return_value=None)
+    @patch("sonde.commands.brief._build_motivation", return_value=None)
+    @patch("sonde.commands.brief._read_takeaways", return_value=None)
+    @patch("sonde.db.questions.find_by_promoted_to", return_value=[])
+    @patch(
+        "sonde.db.notes.list_by_experiment",
+        return_value=[
+            {
+                "id": "NOTE-001",
+                "source": "agent/codex",
+                "created_at": _NOW.isoformat(),
+                "content": _CHECKPOINT_NOTE,
+            }
+        ],
+    )
+    def test_active_context_json_includes_latest_checkpoint(
+        self,
+        _mock_notes: MagicMock,
+        _mock_promoted: MagicMock,
+        _mock_takeaways: MagicMock,
+        _mock_motivation: MagicMock,
+        _mock_branch: MagicMock,
+        _mock_focus: MagicMock,
+        runner: CliRunner,
+        patched_db: MagicMock,
+    ):
+        patched_db.table.side_effect = _brief_table_factory(
+            experiments=_base_experiments(),
+            findings=_base_findings(),
+            questions=_base_questions(),
+        )
+
+        result = runner.invoke(cli, ["--json", "brief", "-p", "test-program"])
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        checkpoint = data["active"]["latest_checkpoint"]
+        assert checkpoint["phase"] == "compile"
+        assert checkpoint["status"] == "running"
+
+    @patch("sonde.commands.brief.get_focused_experiment", return_value=None)
+    @patch("sonde.commands.brief._active_branch_ids", return_value=None)
+    @patch("sonde.commands.brief._build_motivation", return_value=None)
+    @patch("sonde.commands.brief._read_takeaways", return_value=None)
+    @patch("sonde.db.questions.find_by_promoted_to", return_value=[])
+    @patch("sonde.db.directions.list_directions")
+    def test_operational_findings_and_direction_review_are_split(
+        self,
+        mock_direction_list: MagicMock,
+        _mock_promoted: MagicMock,
+        _mock_takeaways: MagicMock,
+        _mock_motivation: MagicMock,
+        _mock_branch: MagicMock,
+        _mock_focus: MagicMock,
+        runner: CliRunner,
+        patched_db: MagicMock,
+    ):
+        findings = [
+            {**_FINDING_ROW, "id": "FIND-010", "topic": "Gotcha: compile after init"},
+            {**_FINDING_ROW, "id": "FIND-011", "topic": "CCN saturation"},
+        ]
+        exps = [
+            {**_BASE_ROW, "id": "EXP-0001", "status": "complete", "direction_id": "DIR-001"},
+            {**_BASE_ROW, "id": "EXP-0002", "status": "failed", "direction_id": "DIR-001"},
+        ]
+        patched_db.table.side_effect = _brief_table_factory(
+            experiments=exps,
+            findings=findings,
+            questions=[],
+        )
+        mock_direction = MagicMock(id="DIR-001", title="Compile fixes", status="active")
+        mock_direction_list.return_value = [mock_direction]
+
+        result = runner.invoke(cli, ["--json", "brief", "-p", "test-program"])
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+
+        assert [f["id"] for f in data["operational_findings"]] == ["FIND-010"]
+        assert [f["id"] for f in data["findings"]] == ["FIND-011"]
+        assert data["directions_for_review"][0]["id"] == "DIR-001"
 
     @patch("sonde.commands.brief.get_focused_experiment", return_value=None)
     @patch("sonde.commands.brief._active_branch_ids", return_value=None)
@@ -1015,7 +1137,7 @@ class TestBriefActiveJson:
         runner: CliRunner,
         patched_db: MagicMock,
     ):
-        """--active --json should emit only active, stats, generated_at."""
+        """--active --json should emit the slim session-open fields."""
         patched_db.table.side_effect = _brief_table_factory(
             experiments=_base_experiments(),
             findings=_base_findings(),
@@ -1026,8 +1148,13 @@ class TestBriefActiveJson:
         assert result.exit_code == 0, result.output
         data = json.loads(result.output)
 
-        # Only three keys in slim output
-        assert set(data.keys()) == {"active", "stats", "generated_at"}
+        assert set(data.keys()) == {
+            "active",
+            "stats",
+            "operational_findings",
+            "directions_for_review",
+            "generated_at",
+        }
 
         # No coverage, no findings table, no completions
         assert "coverage" not in data
@@ -1120,6 +1247,64 @@ class TestBriefActiveHuman:
         # Breadcrumb for full brief
         assert "Full brief" in result.output
         assert "test-program" in result.output
+
+
+class TestBriefQuestionHints:
+    @patch("sonde.commands.brief.get_focused_experiment", return_value=None)
+    @patch("sonde.commands.brief._active_branch_ids", return_value=None)
+    @patch("sonde.commands.brief._build_motivation", return_value=None)
+    @patch("sonde.commands.brief._read_takeaways", return_value=None)
+    @patch("sonde.db.questions.find_by_promoted_to", return_value=[])
+    def test_human_brief_shows_empty_question_hint(
+        self,
+        _mock_promoted: MagicMock,
+        _mock_takeaways: MagicMock,
+        _mock_motivation: MagicMock,
+        _mock_branch: MagicMock,
+        _mock_focus: MagicMock,
+        runner: CliRunner,
+        patched_db: MagicMock,
+    ):
+        patched_db.table.side_effect = _brief_table_factory(
+            experiments=_base_experiments(),
+            findings=_base_findings(),
+            questions=[],
+        )
+
+        result = runner.invoke(cli, ["brief", "-p", "test-program"])
+        assert result.exit_code == 0, result.output
+        assert (
+            "No open questions. Use `sonde question create` to capture unknowns." in result.output
+        )
+
+    @patch("sonde.commands.brief.get_focused_experiment", return_value=None)
+    @patch("sonde.commands.brief._active_branch_ids", return_value=None)
+    @patch("sonde.commands.brief._build_motivation", return_value=None)
+    @patch("sonde.commands.brief._read_takeaways", return_value=None)
+    @patch("sonde.db.questions.find_by_promoted_to", return_value=[])
+    def test_saved_markdown_shows_empty_question_hint(
+        self,
+        _mock_promoted: MagicMock,
+        _mock_takeaways: MagicMock,
+        _mock_motivation: MagicMock,
+        _mock_branch: MagicMock,
+        _mock_focus: MagicMock,
+        runner: CliRunner,
+        patched_db: MagicMock,
+    ):
+        patched_db.table.side_effect = _brief_table_factory(
+            experiments=_base_experiments(),
+            findings=_base_findings(),
+            questions=[],
+        )
+
+        with runner.isolated_filesystem():
+            result = runner.invoke(cli, ["brief", "-p", "test-program", "--save"])
+            assert result.exit_code == 0, result.output
+            brief_md = Path(".sonde/brief.md").read_text(encoding="utf-8")
+
+        assert "## Open questions" in brief_md
+        assert "No open questions. Use `sonde question create` to capture unknowns." in brief_md
 
 
 class TestBriefAll:

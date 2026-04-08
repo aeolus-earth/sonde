@@ -1,0 +1,103 @@
+name: CLI Hosted Audit
+
+on:
+  push:
+    branches: [staging, main]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Environment to audit"
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+          - both
+        default: both
+
+permissions:
+  contents: read
+
+jobs:
+  staging-cli-audit:
+    if: >-
+      ${{
+        github.ref_name == 'staging' ||
+        github.event.inputs.target == 'staging' ||
+        github.event.inputs.target == 'both'
+      }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: latest
+          enable-cache: true
+          cache-dependency-glob: cli/uv.lock
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Install Sonde CLI
+        run: |
+          uv tool install --force ./cli
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Run staging CLI audit
+        working-directory: server
+        env:
+          SUPABASE_URL: https://${{ vars.SUPABASE_STAGING_PROJECT_REF }}.supabase.co
+          SUPABASE_ANON_KEY: ${{ vars.SUPABASE_STAGING_ANON_KEY }}
+          CLI_AUDIT_SONDE_TOKEN: ${{ secrets.SONDE_STAGING_CLI_AUDIT_TOKEN }}
+          CLI_AUDIT_ENV: staging
+          CLI_AUDIT_ALLOW_WRITE: "1"
+          CLI_AUDIT_PROGRAM: shared
+          CLI_AUDIT_EXPECT_EXPERIMENT_ID: EXP-9001
+        run: node scripts/run-cli-hosted-audit.mjs
+
+  production-cli-audit:
+    if: >-
+      ${{
+        github.ref_name == 'main' ||
+        github.event.inputs.target == 'production' ||
+        github.event.inputs.target == 'both'
+      }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: latest
+          enable-cache: true
+          cache-dependency-glob: cli/uv.lock
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Install Sonde CLI
+        run: |
+          uv tool install --force ./cli
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Run production CLI audit
+        working-directory: server
+        env:
+          SUPABASE_URL: https://${{ secrets.SUPABASE_PROJECT_REF }}.supabase.co
+          SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
+          CLI_AUDIT_SONDE_TOKEN: ${{ secrets.SONDE_PRODUCTION_CLI_AUDIT_TOKEN }}
+          CLI_AUDIT_ENV: production
+          CLI_AUDIT_PROGRAM: shared
+          CLI_AUDIT_EXPECT_EXPERIMENT_ID: EXP-0128
+        run: node scripts/run-cli-hosted-audit.mjs

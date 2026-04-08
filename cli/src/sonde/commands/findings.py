@@ -7,6 +7,7 @@ import click
 from sonde.cli_options import pass_output_options
 from sonde.config import get_settings
 from sonde.db import findings as db
+from sonde.finding_utils import is_operational_finding, sort_operational_first
 from sonde.output import (
     err,
     print_breadcrumbs,
@@ -24,6 +25,7 @@ from sonde.output import (
     help="Filter by confidence",
 )
 @click.option("--topic", help="Filter by topic (case-insensitive substring match)")
+@click.option("--operational", is_flag=True, help="Only show Gotcha:/Checklist: findings")
 @click.option("--all", "show_all", is_flag=True, help="Include superseded findings")
 @click.option("--chain", is_flag=True, help="Show supersession chain for findings")
 @click.option("--count", "show_count", is_flag=True, help="Show only the count")
@@ -36,6 +38,7 @@ def findings_cmd(
     program: str | None,
     confidence: str | None,
     topic: str | None,
+    operational: bool,
     show_all: bool,
     chain: bool,
     show_count: bool,
@@ -61,12 +64,27 @@ def findings_cmd(
     fetch_all = show_all or chain
 
     if show_count:
-        total = db.count_findings(
-            program=resolved,
-            confidence=confidence,
-            topic=topic,
-            include_superseded=fetch_all,
-        )
+        if operational:
+            total = len(
+                [
+                    f
+                    for f in db.list_findings(
+                        program=resolved,
+                        confidence=confidence,
+                        topic=topic,
+                        include_superseded=fetch_all,
+                        limit=10000,
+                    )
+                    if is_operational_finding(f)
+                ]
+            )
+        else:
+            total = db.count_findings(
+                program=resolved,
+                confidence=confidence,
+                topic=topic,
+                include_superseded=fetch_all,
+            )
         if ctx.obj.get("json"):
             print_json({"count": total})
         else:
@@ -81,6 +99,9 @@ def findings_cmd(
         limit=limit,
         offset=offset,
     )
+    findings_list = sort_operational_first(findings_list)
+    if operational:
+        findings_list = [f for f in findings_list if is_operational_finding(f)]
 
     if chain and findings_list:
         _render_chain(ctx, findings_list)

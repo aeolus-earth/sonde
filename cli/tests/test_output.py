@@ -6,7 +6,7 @@ from io import StringIO
 
 from rich.console import Console
 
-from sonde.output import print_json, print_table, styled_status
+from sonde.output import print_json, print_table, record_summary, styled_status
 
 
 def test_print_table(console: Console, capsys):
@@ -71,3 +71,16 @@ def test_print_table_missing_column(capsys):
     captured = capsys.readouterr()
     assert "EXP-0001" in captured.out
     assert "\u2014" in captured.out
+
+
+def test_record_summary_uses_extracted_hypothesis_when_field_missing():
+    summary = record_summary(
+        {
+            "content": "## Hypothesis\nMultiple alternatives:\n- warm cache\n- fused backward",
+            "hypothesis": None,
+            "finding": None,
+        },
+        length=80,
+    )
+
+    assert summary == "Multiple alternatives:\n- warm cache\n- fused backward"

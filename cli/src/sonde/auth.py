@@ -26,7 +26,13 @@ from supabase import Client, create_client
 from supabase_auth.errors import AuthApiError
 from supabase_auth.types import CodeExchangeParams
 
-from sonde.config import CONFIG_DIR, SESSION_FILE, SUPABASE_ANON_KEY, SUPABASE_URL
+from sonde.config import (
+    CONFIG_DIR,
+    SESSION_FILE,
+    SUPABASE_ANON_KEY,
+    SUPABASE_URL,
+    get_settings,
+)
 from sonde.output import err
 
 logger = logging.getLogger(__name__)
@@ -256,9 +262,17 @@ def get_current_user() -> UserInfo | None:
 def resolve_source(user: UserInfo | None = None) -> str:
     """Derive the source attribution string for the current actor.
 
-    Returns 'agent' for agent tokens, 'human/<email_prefix>' for humans,
-    or 'unknown' if no user context is available.
+    Returns the configured source override when present. Otherwise returns
+    'agent' for agent tokens, 'human/<email_prefix>' for humans, or 'unknown'
+    if no user context is available.
     """
+    try:
+        configured = get_settings().source
+    except Exception:
+        configured = ""
+    if configured:
+        return configured
+
     if user is None:
         user = get_current_user()
     if user is None:

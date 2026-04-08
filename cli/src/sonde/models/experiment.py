@@ -1,14 +1,8 @@
 """Experiment model — the atomic unit of research.
 
-An experiment is a markdown document with minimal metadata for discovery.
-The content field IS the experiment — hypothesis, method, parameters,
-results, findings, analysis, whatever the author writes. Structured
-fields exist only for filtering (program, status, tags) and backwards
-compatibility (hypothesis, parameters, results, finding).
-
-Agents and humans write freeform markdown in content. The CLI helps
-you find experiments via full-text search, tags, and program/status
-filters. Once found, you read the markdown.
+An experiment combines a first-class hypothesis field with a markdown body for
+method, results, findings, and analysis. The CLI helps you find experiments via
+structured metadata plus full-text search across the narrative content.
 """
 
 from __future__ import annotations
@@ -36,11 +30,10 @@ class ExperimentCreate(BaseModel):
     source: str
     tags: list[str] = Field(default_factory=list)
 
-    # The experiment itself (freeform markdown)
+    # Narrative experiment body (method, results, findings, analysis)
     content: str | None = None
 
-    # Legacy structured fields (backwards compatible, not required).
-    # Prefer writing this information in the content body instead.
+    # First-class hypothesis plus structured compatibility fields.
     hypothesis: str | None = None
     parameters: dict[str, Any] = Field(default_factory=dict)
     results: dict[str, Any] | None = None

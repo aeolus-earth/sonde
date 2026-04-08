@@ -10,9 +10,10 @@ from sonde.auth import resolve_source
 from sonde.cli_options import pass_output_options
 from sonde.db import experiments as db
 from sonde.db.activity import log_activity
+from sonde.experiment_hygiene import hygiene_summary, print_hygiene_block
 from sonde.git import detect_git_context, detect_multi_repo_context, snapshots_to_json
 from sonde.models.experiment import Experiment
-from sonde.output import err, print_error, print_json, print_success
+from sonde.output import err, print_error, print_json, print_nudge, print_success
 
 # ---------------------------------------------------------------------------
 # Pure helper — no DB calls, trivially testable
@@ -181,6 +182,8 @@ def _suggest_next(
 @click.argument("experiment_id", required=False, default=None)
 @click.option("--finding", "-f", help="Final finding to record")
 @click.option("--takeaway", "-t", help="Program-level synthesis (appended to takeaways)")
+@click.option("--close-commit", help="Override the closing git commit")
+@click.option("--close-branch", help="Override the closing git branch")
 @click.option("--force", is_flag=True, help="Close even with uncommitted changes")
 @pass_output_options
 @click.pass_context
@@ -189,6 +192,8 @@ def close_experiment(
     experiment_id: str | None,
     finding: str | None,
     takeaway: str | None,
+    close_commit: str | None,
+    close_branch: str | None,
     force: bool = False,
 ) -> None:
     """Mark an experiment as complete.
@@ -209,6 +214,8 @@ def close_experiment(
         "complete",
         finding=finding,
         takeaway=takeaway,
+        close_commit=close_commit,
+        close_branch=close_branch,
         ctx=ctx,
         force=force,
     )
@@ -295,6 +302,8 @@ def _change_status(
     *,
     finding: str | None = None,
     takeaway: str | None = None,
+    close_commit: str | None = None,
+    close_branch: str | None = None,
     ctx: click.Context,
     force: bool = False,
 ) -> None:
@@ -370,10 +379,16 @@ def _change_status(
                     "experiment_id": experiment_id,
                     "modified_files": git_ctx.modified_files[:20],
                     "file_count": len(git_ctx.modified_files),
-                    "suggested_commit": suggested,
+                    "suggested_commit_message": suggested,
                     "hint": (
                         "Commit your changes, then retry. Use --force to close with dirty state."
                     ),
+                    "recommended_steps": [
+                        "git status --short",
+                        "git add <relevant files>",
+                        f'git commit -m "{suggested}"',
+                        f"sonde close {experiment_id}",
+                    ],
                 }
             )
             return
@@ -383,15 +398,28 @@ def _change_status(
             err.print(f"  {f}")
         if len(git_ctx.modified_files) > 10:
             err.print(f"  ... and {len(git_ctx.modified_files) - 10} more")
-        err.print(f'\n  Suggested: git commit -am "{suggested}"')
+        err.print("\n  Suggested workflow:")
+        err.print("    git status --short")
+        err.print("    git add <relevant files>")
+        err.print(f'    git commit -m "{suggested}"')
+        err.print(f"    sonde close {experiment_id}")
         err.print("  Use --force to close anyway (provenance marked as dirty).")
         raise SystemExit(1)
 
     # Close: record git provenance on the experiment
-    if new_status in ("complete", "failed") and git_ctx:
-        updates["git_close_commit"] = git_ctx.commit
-        updates["git_close_branch"] = git_ctx.branch
-        updates["git_dirty"] = git_ctx.dirty
+    if new_status in ("complete", "failed"):
+        if close_commit is not None:
+            updates["git_close_commit"] = close_commit
+        elif git_ctx:
+            updates["git_close_commit"] = git_ctx.commit
+
+        if close_branch is not None:
+            updates["git_close_branch"] = close_branch
+        elif git_ctx:
+            updates["git_close_branch"] = git_ctx.branch
+
+        if git_ctx:
+            updates["git_dirty"] = git_ctx.dirty
 
     # Multi-repo code context: capture at every transition
     if code_ctx:
@@ -427,24 +455,37 @@ def _change_status(
     # JSON output for close
     if new_status == "complete" and ctx.obj.get("json"):
         suggested: list[dict[str, str]] = []
+        from sonde.db.artifacts import list_artifacts
+
+        artifact_count = len(list_artifacts(experiment_id))
+        hygiene = hygiene_summary(exp_after, phase="close", artifact_count=artifact_count)
         if exp_after:
             children = db.get_children(experiment_id)
             siblings = db.get_siblings(experiment_id) if exp_after.parent_id else []
             suggested = _suggest_next(exp_after, children, siblings)
             if takeaway:
                 suggested = [s for s in suggested if "sonde takeaway" not in s.get("command", "")]
+        close_commit_value = updates.get("git_close_commit") or exp_after.git_close_commit
+        close_branch_value = updates.get("git_close_branch") or exp_after.git_close_branch
+        dirty_value = updates.get("git_dirty")
+        if dirty_value is None:
+            dirty_value = exp_after.git_dirty
         git_info = None
-        if git_ctx:
+        if git_ctx or close_commit_value or close_branch_value:
             git_info = {
-                "close_commit": git_ctx.commit,
-                "close_branch": git_ctx.branch,
-                "dirty": git_ctx.dirty,
+                "close_commit": close_commit_value,
+                "close_branch": close_branch_value,
+                "dirty": dirty_value,
                 "start_commit": exp.git_commit,
+                "source": (
+                    "explicit" if close_commit is not None or close_branch is not None else "auto"
+                ),
             }
         result: dict[str, object] = {
             "closed": {"id": experiment_id, "status": new_status},
             "suggested_next": suggested,
             "git": git_info,
+            "hygiene": hygiene,
         }
         if takeaway:
             result["takeaway_recorded"] = takeaway
@@ -454,10 +495,41 @@ def _change_status(
     # Human output
     print_success(f"{experiment_id}: {old_status} \u2192 {new_status}", record_id=experiment_id)
 
+    if new_status in ("complete", "failed"):
+        close_commit_value = updates.get("git_close_commit") or exp_after.git_close_commit
+        close_branch_value = updates.get("git_close_branch") or exp_after.git_close_branch
+        dirty_value = updates.get("git_dirty")
+        if dirty_value is None:
+            dirty_value = exp_after.git_dirty
+        start_commit = exp.git_commit[:12] if exp.git_commit else "—"
+        close_commit_label = str(close_commit_value)[:12] if close_commit_value else "—"
+        branch_label = str(close_branch_value) if close_branch_value else "—"
+        dirty_label = "dirty" if dirty_value is True else "clean" if dirty_value is False else "—"
+        err.print("\n[sonde.heading]Close provenance[/]")
+        err.print(f"  Start commit: {start_commit}")
+        err.print(
+            f"  Close commit: {close_commit_label}  [sonde.muted]({branch_label}, {dirty_label})[/]"
+        )
+
+        from sonde.db.artifacts import list_artifacts
+
+        artifact_count = len(list_artifacts(experiment_id))
+        print_hygiene_block(
+            hygiene_summary(exp_after, phase="close", artifact_count=artifact_count),
+            title="Close checklist",
+        )
+        if dirty_value is True:
+            print_nudge(
+                "After you make a clean commit, repair the close provenance so the record points "
+                "at the final commit:",
+                (
+                    f"sonde experiment update {experiment_id} --close-commit <sha> "
+                    f"--close-branch {branch_label if branch_label != '—' else '<branch>'}"
+                ),
+            )
+
     # Nudge: missing content after start (branch-type-aware)
     if new_status == "running" and not ctx.obj.get("json") and exp_after and not exp_after.content:
-        from sonde.output import print_nudge
-
         bt = exp_after.branch_type
         if bt == "debug":
             print_nudge(
@@ -476,6 +548,17 @@ def _change_status(
                 "Document your approach — hypothesis and method:",
                 f'sonde update {experiment_id} --method "<your procedure, tools, parameters>"',
             )
+    if new_status == "running" and not ctx.obj.get("json"):
+        print_hygiene_block(
+            hygiene_summary(exp_after, phase="start"),
+            title="Start checklist",
+            show_healthy=False,
+        )
+        print_nudge(
+            "For long-running work, leave checkpoint notes as the run evolves:",
+            f'sonde note {experiment_id} --phase "compile" --status running '
+            '--elapsed "..." "what changed"',
+        )
 
     # Nudge: missing results section at close
     if (
@@ -487,8 +570,6 @@ def _change_status(
         from sonde.local import has_section
 
         if not has_section(exp_after.content, "Results"):
-            from sonde.output import print_nudge
-
             print_nudge(
                 "Document raw results before writing the finding:",
                 f'sonde update {experiment_id} --results "<observations, measurements>"',
@@ -502,8 +583,6 @@ def _change_status(
         and exp_after
         and not exp_after.finding
     ):
-        from sonde.output import print_nudge
-
         print_nudge(
             "Record what you learned — be quantitative and specific.\n"
             '     Bad:  "CCN affects precipitation"\n'
@@ -513,11 +592,20 @@ def _change_status(
 
     # Nudge: finding was recorded inline — suggest promoting to curated Finding
     if new_status == "complete" and finding and not ctx.obj.get("json"):
-        from sonde.output import print_nudge
-
         print_nudge(
             "Promote this to a curated Finding record with evidence link:",
             f'sonde finding extract {experiment_id} --topic "..."',
+        )
+        print_nudge(
+            "If this is a recurring pitfall or startup rule, encode that in the topic so "
+            "future briefs surface it first:",
+            f'sonde finding extract {experiment_id} --topic "Gotcha: ..."',
+        )
+
+    if new_status in ("complete", "failed") and not ctx.obj.get("json"):
+        print_nudge(
+            "If this result raised a follow-up unknown, capture it as a question:",
+            f'sonde question create -p {exp.program} "..."',
         )
 
     # Show suggestions after close/fail for tree nodes

@@ -53,6 +53,9 @@ def _make_experiment(
     project_id: str | None = None,
     parent_id: str | None = None,
     updated_at: str | None = None,
+    artifact_count: int = 1,
+    git_close_commit: str | None = "abc123def456",
+    git_close_branch: str | None = "feature/test",
 ) -> dict:
     return {
         "id": exp_id,
@@ -67,6 +70,9 @@ def _make_experiment(
         "direction_id": direction_id,
         "project_id": project_id,
         "parent_id": parent_id,
+        "artifact_count": artifact_count,
+        "git_close_commit": git_close_commit,
+        "git_close_branch": git_close_branch,
         "created_at": updated_at or _ago(24),
         "updated_at": updated_at or _ago(24),
     }
@@ -284,6 +290,26 @@ class TestNoContent:
         data = HealthData(experiments=[_make_experiment("EXP-0001", content=None)])
         issues = check_no_content(data)
         assert len(issues) == 1
+
+
+class TestCloseHygiene:
+    def test_missing_artifacts_flagged(self):
+        data = HealthData(experiments=[_make_experiment("EXP-0001", artifact_count=0)])
+        issues = run_checkers(data, category="experiment")
+        assert any("no artifacts attached" in issue.message for issue in issues)
+
+    def test_missing_close_provenance_flagged(self):
+        data = HealthData(
+            experiments=[
+                _make_experiment(
+                    "EXP-0001",
+                    git_close_commit=None,
+                    git_close_branch=None,
+                )
+            ]
+        )
+        issues = run_checkers(data, category="experiment")
+        assert any("incomplete close provenance" in issue.message for issue in issues)
 
 
 class TestWeakenedEvidence:
@@ -569,6 +595,7 @@ class TestHealthCommand:
         directions=None,
         projects=None,
         activity=None,
+        artifacts=None,
     ):
         """Set up mock to return different data per table."""
         table_data = {
@@ -578,6 +605,7 @@ class TestHealthCommand:
             "directions": directions or [],
             "projects": projects or [],
             "activity_log": activity or [],
+            "artifacts": artifacts or [],
         }
 
         def table_factory(name):
@@ -645,7 +673,14 @@ class TestHealthCommand:
     def test_health_no_issues(self, runner: CliRunner, patched_db: MagicMock):
         self._setup_health_mock(
             patched_db,
-            experiments=[_make_experiment("EXP-0001", project_id="PROJ-001")],
+            experiments=[
+                _make_experiment(
+                    "EXP-0001",
+                    project_id="PROJ-001",
+                    git_close_commit="abc123def456",
+                    git_close_branch="feature/test",
+                )
+            ],
             projects=[
                 {
                     "id": "PROJ-001",
@@ -655,6 +690,7 @@ class TestHealthCommand:
                 },
             ],
             activity=[{"record_id": "EXP-0001", "action": "created", "created_at": _now()}],
+            artifacts=[{"experiment_id": "EXP-0001"}],
         )
 
         from sonde.cli import cli

@@ -6,6 +6,7 @@ import click
 
 from sonde.cli_options import pass_output_options
 from sonde.db.activity import get_history
+from sonde.note_utils import CHECKPOINT_KIND, format_checkpoint_summary
 from sonde.output import err, print_error, print_json
 
 
@@ -50,7 +51,11 @@ def history(ctx: click.Context, record_id: str) -> None:
         elif action == "status_changed":
             desc = f"Status: {details.get('from', '?')} → {details.get('to', '?')}"
         elif action == "note_added":
-            desc = f"Note added ({details.get('note_id', '')})"
+            if details.get("kind") == CHECKPOINT_KIND:
+                summary = format_checkpoint_summary(details, include_note=True)
+                desc = f"Checkpoint: {summary}" if summary else "Checkpoint recorded"
+            else:
+                desc = f"Note added ({details.get('note_id', '')})"
         elif action == "artifact_attached":
             filenames = details.get("filenames", [])
             desc = f"Attached: {', '.join(filenames)}" if filenames else "Attached files"

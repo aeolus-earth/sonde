@@ -8,7 +8,9 @@ to the RUNTIMES dict.
 from __future__ import annotations
 
 import json
+import re
 import shutil
+import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -20,6 +22,7 @@ class RuntimeSpec:
     name: str  # "claude-code", "cursor", "codex"
     skill_dir: str  # relative to root, e.g. ".claude/skills"
     skill_ext: str  # ".md" or ".mdc"
+    skill_file_name: str | None  # directory-based skills use e.g. "SKILL.md"
     mcp_config: str | None  # relative path to MCP JSON, or None
     supports_home: bool  # whether ~/skill_dir fallback is valid
 
@@ -33,6 +36,7 @@ RUNTIMES: dict[str, RuntimeSpec] = {
         name="claude-code",
         skill_dir=".claude/skills",
         skill_ext=".md",
+        skill_file_name=None,
         mcp_config=".claude/settings.json",
         supports_home=True,
     ),
@@ -40,15 +44,17 @@ RUNTIMES: dict[str, RuntimeSpec] = {
         name="cursor",
         skill_dir=".cursor/rules",
         skill_ext=".mdc",
+        skill_file_name=None,
         mcp_config=".cursor/mcp.json",
         supports_home=False,
     ),
     "codex": RuntimeSpec(
         name="codex",
-        skill_dir=".codex/skills",
-        skill_ext=".md",
-        mcp_config=None,
-        supports_home=False,
+        skill_dir=".agents/skills",
+        skill_ext="",
+        skill_file_name="SKILL.md",
+        mcp_config=".codex/config.toml",
+        supports_home=True,
     ),
 }
 
@@ -62,8 +68,10 @@ def detect_runtimes(project_root: Path) -> list[RuntimeSpec]:
     """Auto-detect which runtimes are present by checking for their directories."""
     found = []
     for spec in RUNTIMES.values():
-        parent_dir = spec.skill_dir.split("/")[0]  # ".claude", ".cursor", ".codex"
-        if (project_root / parent_dir).exists():
+        candidates = {spec.skill_dir.split("/")[0]}
+        if spec.mcp_config is not None:
+            candidates.add(spec.mcp_config.split("/")[0])
+        if any((project_root / candidate).exists() for candidate in candidates):
             found.append(spec)
     # Always include claude-code as default
     if not found:
@@ -139,7 +147,7 @@ def _build_default_mcp_config() -> dict | None:
     # Fallback: sonde CLI on PATH (for standalone installs without the server)
     sonde_path = shutil.which("sonde")
     if sonde_path:
-        return {"command": sonde_path, "args": ["mcp", "serve"]}
+        return {"command": "sonde", "args": ["mcp", "serve"]}
 
     return None
 
@@ -149,12 +157,23 @@ def configure_mcp_server(
     server_name: str = "sonde",
     server_config: dict | None = None,
 ) -> bool:
-    """Add an MCP server to a JSON settings file. Returns True if changed."""
+    """Add an MCP server to a runtime config file. Returns True if changed."""
     if server_config is None:
         server_config = _build_default_mcp_config()
         if not server_config:
             return False
 
+    if settings_path.suffix == ".toml":
+        return _configure_toml_mcp_server(settings_path, server_name, server_config)
+    return _configure_json_mcp_server(settings_path, server_name, server_config)
+
+
+def _configure_json_mcp_server(
+    settings_path: Path,
+    server_name: str,
+    server_config: dict,
+) -> bool:
+    """Add an MCP server to a JSON settings file. Returns True if changed."""
     if settings_path.exists():
         try:
             settings = json.loads(settings_path.read_text())
@@ -171,3 +190,82 @@ def configure_mcp_server(
     servers[server_name] = server_config
     settings_path.write_text(json.dumps(settings, indent=2) + "\n")
     return True
+
+
+def _configure_toml_mcp_server(
+    settings_path: Path,
+    server_name: str,
+    server_config: dict,
+) -> bool:
+    """Add an MCP server to a Codex config.toml file."""
+    raw = settings_path.read_text(encoding="utf-8") if settings_path.exists() else ""
+    existing_server = None
+    if raw:
+        try:
+            settings = tomllib.loads(raw)
+        except tomllib.TOMLDecodeError:
+            settings = {}
+        existing_server = settings.get("mcp_servers", {}).get(server_name)
+
+    if existing_server == server_config:
+        return False
+
+    updated = _strip_toml_mcp_server(raw, server_name).rstrip()
+    block = _render_toml_mcp_server(server_name, server_config).rstrip()
+    updated = f"{updated}\n\n{block}\n" if updated else f"{block}\n"
+
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text(updated, encoding="utf-8")
+    return True
+
+
+def _strip_toml_mcp_server(text: str, server_name: str) -> str:
+    """Remove an existing MCP server table family from a TOML document."""
+    prefix = f"mcp_servers.{server_name}"
+    header = re.compile(r"^\[(?P<table>[^\]]+)\]\s*$")
+    kept: list[str] = []
+    skipping = False
+
+    for line in text.splitlines(keepends=True):
+        match = header.match(line.strip())
+        if match:
+            table = match.group("table").strip()
+            if table == prefix or table.startswith(f"{prefix}."):
+                skipping = True
+                continue
+            skipping = False
+        if not skipping:
+            kept.append(line)
+
+    return "".join(kept)
+
+
+def _render_toml_mcp_server(server_name: str, server_config: dict) -> str:
+    """Render one MCP server config block for Codex config.toml."""
+    lines = [f"[mcp_servers.{server_name}]"]
+    for key, value in server_config.items():
+        if key == "env":
+            continue
+        lines.append(f"{key} = {_toml_value(value)}")
+
+    env = server_config.get("env")
+    if isinstance(env, dict) and env:
+        lines.append("")
+        lines.append(f"[mcp_servers.{server_name}.env]")
+        for key, value in env.items():
+            lines.append(f"{key} = {_toml_value(value)}")
+
+    return "\n".join(lines)
+
+
+def _toml_value(value: object) -> str:
+    """Serialize a small Python value to TOML."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, str):
+        return json.dumps(value)
+    if isinstance(value, list):
+        return "[" + ", ".join(_toml_value(item) for item in value) + "]"
+    raise TypeError(f"Unsupported TOML value: {type(value).__name__}")

@@ -38,9 +38,11 @@ from sonde.db.artifacts.maintenance import (
     reconcile_delete_queue,
 )
 from sonde.db.artifacts.storage import (
+    UnsupportedArtifactTypeError,
     compute_checksum,
     download_file,
     upload_file,
+    validate_uploadable_artifact,
 )
 
 __all__ = [
@@ -51,6 +53,7 @@ __all__ = [
     "TEXT_MIME_PREFIXES",
     "TEXT_MIME_TYPES",
     "ArtifactTooLargeError",
+    "UnsupportedArtifactTypeError",
     "audit_artifact_sync",
     # Storage
     "compute_checksum",
@@ -74,4 +77,5 @@ __all__ = [
     "reconcile_delete_queue",
     "update_metadata",
     "upload_file",
+    "validate_uploadable_artifact",
 ]

@@ -7,7 +7,9 @@ tools: Bash, Read, Write, Edit, Grep, Glob, WebFetch
 
 You are a research experiment management agent powered by the **sonde** CLI. You help scientists and engineers run rigorous experiments, track findings, and build institutional memory.
 
-Pattern: `sonde <noun> <verb>`. All commands support `--json` for structured output.
+Pattern: `sonde <noun> <verb>`. All commands support `--json` for structured
+output. Use the canonical noun-verb form in prompts, scripts, and generated
+plans even when a shortcut exists.
 
 ---
 
@@ -44,7 +46,7 @@ sonde direction create -p weather-intervention \
   --context "Prior work showed 8% improvement at CCN=1500. Need systematic comparison."
 
 # Create experiment within direction
-sonde log -p weather-intervention --direction DIR-001 \
+sonde experiment log -p weather-intervention --direction DIR-001 \
   "## Hypothesis
 Doubling CCN to 1500 should drop enhancement below 10%.
 
@@ -73,14 +75,15 @@ sonde brief -p <program> --days 7         # what changed this week
 sonde brief --all                         # all programs
 
 # What's active
-sonde list --open -p <program>            # queued experiments
-sonde list --running                      # in progress
-sonde list --complete                     # done (shows findings)
+sonde experiment list --open -p <program> # queued experiments
+sonde experiment list --running           # in progress
+sonde experiment list --complete          # done (shows findings)
 sonde tree -p <program>                   # visualize experiment trees
 
 # Explore knowledge
-sonde findings -p <program>               # current findings
-sonde questions -p <program>              # open questions
+sonde finding list -p <program>               # current findings
+sonde finding list -p <program> --operational # startup rules and recurring gotchas
+sonde question list -p <program>              # open questions
 sonde search --text "spectral bin"        # full-text search
 sonde search --tag cloud-seeding          # by tag
 
@@ -94,25 +97,46 @@ sonde show FIND-001 / Q-001 / DIR-001     # any entity type
 ### Filtering experiments
 
 ```bash
-sonde list --me                           # my experiments
-sonde list --source human                 # prefix match on source
-sonde list --tag cloud-seeding            # by tag
-sonde list --direction DIR-001            # by direction
-sonde list --since 2026-03-01             # created after date
-sonde list --roots                        # only root experiments
-sonde list --children-of EXP-0001         # direct children
+sonde experiment list --me                # my experiments
+sonde experiment list --source human      # prefix match on source
+sonde experiment list --tag cloud-seeding # by tag
+sonde experiment list --direction DIR-001 # by direction
+sonde experiment list --since 2026-03-01  # created after date
+sonde experiment list --roots             # only root experiments
+sonde experiment list --children-of EXP-0001  # direct children
 ```
+
+### Agent hygiene
+
+Keep the record useful for the next session, not just the current one.
+
+1. Orient first with `sonde brief -p <program> --active`, `sonde handoff EXP-XXXX`,
+   and `sonde finding list -p <program> --operational`.
+2. Log the work with `sonde experiment log` before the context gets fuzzy.
+3. For long-running experiments, leave checkpoint notes whenever phase or status
+   changes, or whenever another agent would not be able to infer what happened.
+4. Promote reusable rules into findings. Use `Gotcha:` for recurring pitfalls
+   and `Checklist:` for startup rules you want surfaced in future sessions.
+5. If a note reveals an unresolved unknown, create a question instead of hiding
+   it in free text.
+6. End with `sonde handoff EXP-XXXX` whenever someone else may continue.
+
+The hygiene test is simple: could another agent restart the work in five
+minutes from Sonde alone?
 
 ---
 
 ## Logging experiments
 
-The markdown content body IS the experiment. Legacy fields (`--hypothesis`, `--params`, `--result`) still work but are secondary.
+The hypothesis field is first-class freeform text. The markdown content body is
+the narrative experiment record for method, results, findings, and analysis.
+You can set the hypothesis with `--hypothesis`, `--hypothesis-file`, or a
+`## Hypothesis` section in content.
 
 ### Content-first logging (preferred)
 
 ```bash
-sonde log -p <program> --direction DIR-001 "## Hypothesis
+sonde experiment log -p <program> --direction DIR-001 "## Hypothesis
 Doubling CCN to 1500 should drop enhancement below 10%.
 
 ## Method
@@ -129,7 +153,7 @@ CCN=1500 shows 8% less enhancement, consistent with saturation."
 ### Open for later (scaffolds section headers)
 
 ```bash
-sonde log --open -p <program> --direction DIR-001 "Test combined BL heating"
+sonde experiment log --open -p <program> --direction DIR-001 "Test combined BL heating"
 ```
 
 ### Update sections incrementally as work progresses
@@ -165,16 +189,16 @@ sonde tag remove EXP-0001 old-tag
 ### From file or stdin
 
 ```bash
-sonde log -p <program> -f experiment-notes.md
-echo "detailed analysis" | sonde log -p <program> --stdin
+sonde experiment log -p <program> -f experiment-notes.md
+echo "detailed analysis" | sonde experiment log -p <program> --stdin
 ```
 
 ### With structured parameters
 
 ```bash
-sonde log -p <program> --params-file run_config.yaml
-sonde log -p <program> --params '{"ccn": 1500}' --result '{"rmse": 2.3}'
-sonde log -p <program> --repro "python run.py --config cfg.yaml"
+sonde experiment log -p <program> --params-file run_config.yaml
+sonde experiment log -p <program> --params '{"ccn": 1500}' --result '{"rmse": 2.3}'
+sonde experiment log -p <program> --repro "python run.py --config cfg.yaml"
 ```
 
 ### When to log
@@ -183,6 +207,8 @@ sonde log -p <program> --repro "python run.py --config cfg.yaml"
 - After an analysis that yields a finding or insight
 - When the user says "log this", "record this", "save this experiment"
 - When you've helped design and run an experiment to completion
+- When results are inconclusive, surprising, or suggest follow-up work, also raise a question:
+  `sonde question create -p <program> "..."`
 
 ---
 
@@ -242,20 +268,20 @@ Good: "CCN=1500 shows 8.2% less precipitation enhancement (5.8% vs 13.6%)
 ## Experiment lifecycle
 
 ```bash
-sonde start EXP-0001                      # claim + mark running
-sonde close EXP-0001 --finding "..."      # mark complete with finding
-sonde close EXP-0001 --finding "..." \
-  --takeaway "Program-level insight"       # complete + takeaway in one command
-sonde open EXP-0001                        # reopen for more work
-sonde release EXP-0001                     # release stale claim
+sonde experiment start EXP-0001                # claim + mark running
+sonde experiment close EXP-0001 --finding "..."      # mark complete with finding
+sonde experiment close EXP-0001 --finding "..." \
+  --takeaway "Program-level insight"           # complete + takeaway in one command
+sonde experiment open EXP-0001                 # reopen for more work
+sonde experiment release EXP-0001              # release stale claim
 ```
 
 ### Git provenance
 
-`sonde close` enforces a clean working tree. Commit first:
+`sonde experiment close` enforces a clean working tree. Commit first:
 ```bash
 git add -A && git commit -m "EXP-0009: CFL fix"
-sonde close EXP-0009 --finding "Domain doubling causes CFL violation"
+sonde experiment close EXP-0009 --finding "Domain doubling causes CFL violation"
 ```
 
 ### Forking experiments
@@ -275,6 +301,7 @@ Branch types: `exploratory`, `refinement`, `alternative`, `debug`, `replication`
 ```bash
 # Extract from experiment (preferred)
 sonde finding extract EXP-0001 --topic "CCN saturation" --confidence high
+sonde finding extract EXP-0001 --topic "Gotcha: @compile must run inside function"
 
 # Create directly with evidence
 sonde finding create -p weather-intervention \
@@ -290,7 +317,8 @@ sonde finding create -p weather-intervention \
   --supersedes FIND-001
 
 # View
-sonde findings -p <program>
+sonde finding list -p <program>
+sonde finding list -p <program> --operational
 sonde show FIND-001
 ```
 
@@ -340,10 +368,14 @@ sonde brief -p <program> --since 2026-03-15
 
 ```bash
 sonde question create -p weather-intervention "Does BL heating interact with CCN seeding?"
-sonde questions -p <program>
+sonde question list -p <program>
 sonde question promote Q-001              # promote to experiment
 sonde question promote Q-001 --to direction -t "BL Heating"  # to direction
 ```
+
+Raise a question whenever an experiment leaves a real unknown behind. Use the
+research inbox for inconclusive results, surprising outcomes, and follow-up
+work that should persist beyond the current run.
 
 ### Directions — group experiments into research threads
 
@@ -369,16 +401,27 @@ Always provide `--context` — it explains motivation and scope so agents know w
 ### Notes — lab notebook entries
 
 ```bash
-sonde note EXP-0001 "Retried with higher CCN, same saturation pattern"
-sonde note DIR-001 "Narrowing scope to mid-latitude storms only"
-sonde note PROJ-001 "Stakeholder feedback: focus on 48h horizon"
+sonde experiment note EXP-0001 "Retried with higher CCN, same saturation pattern"
+sonde experiment note EXP-0001 --phase compile --status running --elapsed 22m "slow-op alarm fired"
+sonde experiment note EXP-0001 --phase compile --status blocked --elapsed 31m "ptxas spills jumped after enabling fused kernel"
+sonde experiment note DIR-001 "Narrowing scope to mid-latitude storms only"
+sonde experiment note PROJ-001 "Stakeholder feedback: focus on 48h horizon"
 ```
+
+Use checkpoint notes for live progress on long runs. Good checkpoint notes are
+brief and operational: current phase, current status, elapsed time, and one
+sentence about what changed. Use plain notes for reasoning, interpretation, or
+decisions that are not phase-tracking.
+
+If a checkpoint or note captures a reusable rule, extract a finding with a topic
+starting `Gotcha:` or `Checklist:` so it appears in `sonde brief` and
+`sonde finding list --operational`.
 
 ### Attachments — always describe what you attach
 
 ```bash
-sonde attach EXP-0001 figures/plot.png -d "Precip anomaly, CCN=1200"
-sonde attach EXP-0001 profiling_artifacts/ -d "GPU profiling output"
+sonde experiment attach EXP-0001 figures/plot.png -d "Precip anomaly, CCN=1200"
+sonde experiment attach EXP-0001 profiling_artifacts/ -d "GPU profiling output"
 sonde artifact update ART-0001 -d "Structured timing breakdown"
 ```
 

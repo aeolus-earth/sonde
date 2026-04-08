@@ -29,6 +29,10 @@ import { ChatPanel } from "@/components/chat/chat-panel";
 import { ChatPageProvider } from "@/contexts/chat-page-context";
 import { ArrowLeft, ChevronRight, Copy, MessageSquare } from "lucide-react";
 import { experimentDetailShareUrl } from "@/lib/app-origin";
+import {
+  effectiveExperimentHypothesis,
+  stripHypothesisSection,
+} from "@/lib/experiment-hypothesis";
 
 const routeApi = getRouteApi(ROUTE_API.authExperimentDetail);
 
@@ -82,6 +86,9 @@ export default function ExperimentDetailPage() {
       </div>
     );
   }
+
+  const hypothesisText = effectiveExperimentHypothesis(exp);
+  const contentBody = stripHypothesisSection(exp.content);
 
   return (
     <div className="space-y-4">
@@ -139,26 +146,25 @@ export default function ExperimentDetailPage() {
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start">
         {/* Main + meta (single column) */}
         <div className="min-w-0 flex-1 space-y-3">
-          {exp.content && (
-            <Section title="Content">
-              <MarkdownView content={exp.content} />
-            </Section>
-          )}
-
-          {/* Legacy structured fields — shown only when content is absent */}
-          {!exp.content && exp.hypothesis && (
+          {hypothesisText && (
             <Section title="Hypothesis">
-              {looksLikeMarkdown(exp.hypothesis) ? (
-                <MarkdownView content={exp.hypothesis} />
+              {looksLikeMarkdown(hypothesisText) ? (
+                <MarkdownView content={hypothesisText} />
               ) : (
                 <p className="text-[13px] leading-relaxed text-text">
-                  <SondeLinkifiedText text={exp.hypothesis} />
+                  <SondeLinkifiedText text={hypothesisText} />
                 </p>
               )}
             </Section>
           )}
 
-          {!exp.content && exp.finding && (
+          {contentBody && (
+            <Section title="Content">
+              <MarkdownView content={contentBody} />
+            </Section>
+          )}
+
+          {!contentBody && exp.finding && (
             <Section title="Finding">
               {looksLikeMarkdown(exp.finding) ? (
                 <MarkdownView content={exp.finding} />
@@ -231,8 +237,8 @@ export default function ExperimentDetailPage() {
             <ArtifactGallery parentId={exp.id} />
           </Section>
 
-          {!exp.content &&
-            !exp.hypothesis &&
+          {!contentBody &&
+            !hypothesisText &&
             !exp.finding &&
             exp.artifact_count === 0 &&
             (!notes || notes.length === 0) && (
@@ -334,6 +340,7 @@ export default function ExperimentDetailPage() {
               type: "experiment",
               id: exp.id,
               label: (exp.hypothesis ?? exp.finding ?? "").slice(0, 200) || undefined,
+              program: exp.program,
             }}
           >
             <div className="sticky top-0 flex h-[min(100vh-7rem,720px)] min-h-[420px] w-full min-w-0 flex-col overflow-hidden lg:h-[calc(100vh-7rem)]">

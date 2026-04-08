@@ -15,6 +15,26 @@ export type SandboxInitOptions = CreateSandboxOptions;
 /** Prefix for commands that need pip-installed scripts on PATH. */
 const PATH_PREFIX = 'export PATH="$HOME/.local/bin:$PATH" && ';
 
+export function resolveSondeCliGitRef(
+  env: NodeJS.ProcessEnv = process.env
+): string | null {
+  const explicit = env.SONDE_CLI_GIT_REF?.trim();
+  if (explicit) return explicit;
+
+  const commitSha = env.SONDE_COMMIT_SHA?.trim();
+  return commitSha || null;
+}
+
+export function buildSondeCliInstallSpec(ref: string | null): string {
+  const base = "git+https://github.com/aeolus-earth/sonde.git";
+  const refSuffix = ref ? `@${ref}` : "";
+  return `sonde @ ${base}${refSuffix}#subdirectory=cli`;
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\"'\"'`)}'`;
+}
+
 /**
  * Create a sandbox with sonde CLI installed and ready.
  * Does NOT pull the corpus — call `sandboxHandle.pullCorpus(program)` later.
@@ -26,10 +46,16 @@ export async function initSandbox(
   const sandbox = await createSandbox(opts);
   console.log("[sandbox] Sandbox created");
 
-  // Install sonde CLI from GitHub (public repo)
-  console.log("[sandbox] Installing sonde CLI...");
+  const gitRef = resolveSondeCliGitRef();
+  const installSpec = buildSondeCliInstallSpec(gitRef);
+
+  console.log(
+    gitRef
+      ? `[sandbox] Installing sonde CLI from ${gitRef}...`
+      : "[sandbox] Installing sonde CLI from default branch..."
+  );
   const installResult = await sandbox.exec(
-    'pip install --quiet "sonde @ git+https://github.com/aeolus-earth/sonde.git#subdirectory=cli" 2>&1',
+    `pip install --quiet ${shellQuote(installSpec)} 2>&1`,
     { timeout: 120 }
   );
   if (installResult.exitCode !== 0) {

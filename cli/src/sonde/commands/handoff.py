@@ -8,6 +8,8 @@ import click
 
 from sonde.cli_options import pass_output_options
 from sonde.commands._helpers import resolve_experiment_id
+from sonde.finding_utils import partition_operational_findings
+from sonde.note_utils import format_checkpoint_summary, latest_checkpoint_note
 from sonde.output import (
     err,
     print_error,
@@ -96,6 +98,7 @@ def _build_handoff_data(
 
     # Notes (last 5)
     notes = notes_db.list_by_experiment(exp.id)
+    latest_checkpoint = latest_checkpoint_note(notes or [])
     recent_notes = [
         {
             "content": truncate_text(n.get("content", ""), 200),
@@ -119,6 +122,7 @@ def _build_handoff_data(
 
     # Findings citing this experiment
     all_findings = find_db.list_active(program=exp.program)
+    operational_findings, _ = partition_operational_findings(all_findings)
     related_findings = [
         {
             "id": f.id,
@@ -161,8 +165,27 @@ def _build_handoff_data(
             {"id": s.id, "status": s.status, "branch_type": s.branch_type} for s in siblings
         ],
         "notes": recent_notes,
+        "latest_checkpoint": (
+            {
+                "id": latest_checkpoint.get("id"),
+                "source": latest_checkpoint.get("source"),
+                "created_at": latest_checkpoint.get("created_at"),
+                **latest_checkpoint["checkpoint"],
+            }
+            if latest_checkpoint
+            else None
+        ),
         "artifacts": artifact_list,
         "findings": related_findings,
+        "operational_findings": [
+            {
+                "id": f.id,
+                "topic": f.topic,
+                "finding": truncate_text(f.finding, 120),
+                "confidence": f.confidence,
+            }
+            for f in operational_findings[:3]
+        ],
         "own_finding": exp.finding,
         "suggested_next": suggestions,
     }
@@ -202,6 +225,11 @@ def _render_handoff(data: dict) -> None:
         err.print("\n  [sonde.heading]Finding[/]")
         err.print(f"    {truncate_text(data['own_finding'], 200)}")
 
+    if data.get("latest_checkpoint"):
+        checkpoint = data["latest_checkpoint"]
+        err.print("\n  [sonde.heading]Latest checkpoint[/]")
+        err.print(f"    {format_checkpoint_summary(checkpoint, include_note=True)}")
+
     # Notes
     if data["notes"]:
         err.print(f"\n  [sonde.heading]Recent notes ({len(data['notes'])})[/]")
@@ -226,6 +254,11 @@ def _render_handoff(data: dict) -> None:
         err.print("\n  [sonde.heading]Related findings[/]")
         for f in data["findings"]:
             err.print(f"    {f['id']} — {f['finding']} [{f['confidence']}]")
+
+    if data["operational_findings"]:
+        err.print("\n  [sonde.heading]Operational findings[/]")
+        for f in data["operational_findings"]:
+            err.print(f"    {f['id']} — {f['topic']} [{f['confidence']}]")
 
     # Tree context
     if data["parent"]:

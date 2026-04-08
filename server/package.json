@@ -10,7 +10,7 @@
     "lint": "tsc --noEmit",
     "test:tool-policy": "node --import tsx --test src/mcp/tool-policy.test.ts",
     "test:sandbox-policy": "node --import tsx --test src/sandbox/sandbox-tool-policy.test.ts",
-    "test": "node --import tsx --test src/**/*.test.ts",
+    "test": "node --import tsx --test src/*.test.ts src/**/*.test.ts",
     "smoke": "npm run build && node scripts/smoke.mjs"
   },
   "dependencies": {

@@ -4,11 +4,13 @@
  * Read-only commands auto-approve. Mutating commands require user approval.
  */
 
+import { isAllowedSandboxReadPath, isSensitiveSandboxPath } from "./sandbox-path-policy.js";
+
 export type CommandClass = "read" | "mutate" | "destructive";
 
 const READ_SHELL_COMMANDS = new Set([
-  "grep", "cat", "find", "ls", "head", "tail", "wc", "file",
-  "stat", "diff", "tree", "echo", "pwd", "env", "which", "less",
+  "grep", "find", "ls", "head", "tail", "wc", "file",
+  "stat", "diff", "tree", "echo", "pwd", "which", "less",
   "sort", "uniq", "awk", "sed", "cut", "tr", "xargs",
 ]);
 
@@ -65,15 +67,23 @@ export function classifySandboxTool(
   toolName: string,
   input: Record<string, unknown>
 ): CommandClass {
-  if (toolName === "sandbox_read" || toolName === "sandbox_glob") {
-    return "read";
+  if (toolName === "sandbox_read") {
+    const targetPath = (input.path as string | undefined) ?? "";
+    if (isSensitiveSandboxPath(targetPath)) return "destructive";
+    return isAllowedSandboxReadPath(targetPath) ? "read" : "mutate";
+  }
+  if (toolName === "sandbox_glob") {
+    const cwd = (input.cwd as string | undefined) ?? "/home/daytona/.sonde";
+    if (isSensitiveSandboxPath(cwd)) return "destructive";
+    return isAllowedSandboxReadPath(cwd) ? "read" : "mutate";
   }
   if (toolName === "sandbox_write") {
     return "mutate";
   }
   if (toolName === "sandbox_exec") {
-    const command = (input.command as string) ?? "";
-    return classifyCommand(command);
+    const command = (input.command as string | undefined) ?? "";
+    const classified = classifyCommand(command);
+    return classified === "destructive" ? "destructive" : "mutate";
   }
   return "mutate";
 }

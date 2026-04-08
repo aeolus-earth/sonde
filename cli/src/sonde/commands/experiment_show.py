@@ -8,6 +8,7 @@ import click
 
 from sonde.cli_options import pass_output_options
 from sonde.db import experiments as db
+from sonde.experiment_hygiene import hygiene_summary, print_hygiene_block
 from sonde.models.experiment import Experiment
 from sonde.output import (
     err,
@@ -61,6 +62,7 @@ def show(ctx: click.Context, experiment_id: str, graph: bool) -> None:
     from sonde.commands.lifecycle import _suggest_next
 
     suggestions = _suggest_next(exp, children, siblings)
+    hygiene = hygiene_summary(exp, phase="show", artifact_count=len(artifacts))
 
     if ctx.obj.get("json"):
         data = exp.model_dump(mode="json")
@@ -71,6 +73,7 @@ def show(ctx: click.Context, experiment_id: str, graph: bool) -> None:
         data["_children"] = [c.model_dump(mode="json") for c in children]
         data["_siblings"] = [s.model_dump(mode="json") for s in siblings]
         data["_suggested_next"] = suggestions
+        data["_hygiene"] = hygiene
         if graph:
             graph_data = db.get_graph_neighborhood(exp)
             data["_graph"] = _serialize_graph(graph_data)
@@ -132,6 +135,11 @@ def show(ctx: click.Context, experiment_id: str, graph: bool) -> None:
             sib_parts = [f"{s.id} [{s.status}]" for s in siblings[:5]]
             header.append(f"[sonde.muted]Siblings: {', '.join(sib_parts)}[/]")
 
+        from sonde.local import effective_hypothesis, remove_section
+
+        hypothesis_text = effective_hypothesis(exp.content, exp.hypothesis)
+        content_body = remove_section(exp.content, "Hypothesis") if exp.content else ""
+
         if exp.content:
             header.append("")
             out.print(
@@ -141,10 +149,13 @@ def show(ctx: click.Context, experiment_id: str, graph: bool) -> None:
                     border_style="sonde.brand.dim",
                 )
             )
-            out.print(Markdown(exp.content))
+            if hypothesis_text:
+                out.print(Markdown(f"## Hypothesis\n\n{hypothesis_text}"))
+            if content_body.strip():
+                out.print(Markdown(content_body))
         else:
-            if exp.hypothesis:
-                header.append(f"\n[sonde.heading]Hypothesis:[/sonde.heading]\n  {exp.hypothesis}")
+            if hypothesis_text:
+                header.append(f"\n[sonde.heading]Hypothesis:[/sonde.heading]\n  {hypothesis_text}")
             if exp.all_params:
                 param_str = "\n".join(f"  {k}: {v}" for k, v in exp.all_params.items())
                 header.append(f"\n[sonde.heading]Parameters:[/sonde.heading]\n{param_str}")
@@ -214,6 +225,8 @@ def show(ctx: click.Context, experiment_id: str, graph: bool) -> None:
                     f"  {a['filename']}{size_str}"
                 )
 
+        print_hygiene_block(hygiene)
+
         # Children
         if children:
             print_table(
@@ -264,7 +277,12 @@ def show(ctx: click.Context, experiment_id: str, graph: bool) -> None:
         breadcrumbs.extend(
             [
                 f"History: sonde history {exp.id}",
-                f'Note:    sonde note {exp.id} "observation"',
+                (
+                    f'Checkpoint: sonde note {exp.id} --phase "compile" --status running '
+                    '--elapsed "..." "what changed"'
+                    if exp.status == "running"
+                    else f'Note:    sonde note {exp.id} "observation"'
+                ),
             ]
         )
         if children or parent:
@@ -283,6 +301,13 @@ def show(ctx: click.Context, experiment_id: str, graph: bool) -> None:
                 f"Put files anywhere under .sonde/experiments/{exp.id}/, then sync them.",
                 f"sonde push experiment {exp.id}",
             )
+            if exp.status == "running":
+                print_nudge(
+                    "For long-running work, leave a checkpoint note instead of "
+                    "waiting for closeout:",
+                    f'sonde note {exp.id} --phase "compile" --status running '
+                    '--elapsed "..." "what changed"',
+                )
         elif exp.status in ("open", "running") and not exp.direction_id:
             print_nudge(
                 "This experiment isn't linked to a research direction.",

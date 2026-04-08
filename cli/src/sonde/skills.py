@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from datetime import UTC, datetime
 from importlib import resources
 from pathlib import Path
@@ -89,15 +90,60 @@ def deploy_skill(
 
     Returns (path, changed) where changed=False if content was already identical.
     """
-    target_dir = root / runtime.skill_dir
-    target_dir.mkdir(parents=True, exist_ok=True)
-    dest = target_dir / f"{stem}{runtime.skill_ext}"
+    rendered = rendered_skill_content(runtime, stem, content)
+    dest = skill_destination(root, runtime, stem)
+    dest.parent.mkdir(parents=True, exist_ok=True)
 
-    if dest.exists() and dest.read_text(encoding="utf-8") == content:
+    if dest.exists() and dest.read_text(encoding="utf-8") == rendered:
         return dest, False
 
-    dest.write_text(content, encoding="utf-8")
+    dest.write_text(rendered, encoding="utf-8")
     return dest, True
+
+
+def skill_destination(root: Path, runtime: RuntimeSpec, stem: str) -> Path:
+    """Return the on-disk destination for one deployed skill."""
+    if runtime.skill_file_name is not None:
+        return root / runtime.skill_dir / stem / runtime.skill_file_name
+    return root / runtime.skill_dir / f"{stem}{runtime.skill_ext}"
+
+
+def rendered_skill_content(runtime: RuntimeSpec, stem: str, content: str) -> str:
+    """Return runtime-specific skill content."""
+    if runtime.name != "codex" or _has_frontmatter(content):
+        return content
+
+    description = _extract_skill_description(content)
+    if not description:
+        description = f"Use when the task matches the {stem} workflow."
+
+    frontmatter = f"---\nname: {json.dumps(stem)}\ndescription: {json.dumps(description)}\n---\n\n"
+    return frontmatter + content.lstrip()
+
+
+def _has_frontmatter(content: str) -> bool:
+    """Return True when markdown already starts with YAML frontmatter."""
+    stripped = content.lstrip()
+    return stripped.startswith("---\n")
+
+
+def _extract_skill_description(content: str) -> str:
+    """Best-effort description from the first prose paragraph."""
+    lines = content.splitlines()
+    paragraph: list[str] = []
+
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            if paragraph:
+                break
+            continue
+        if stripped.startswith("#"):
+            continue
+        paragraph.append(stripped)
+
+    description = re.sub(r"\s+", " ", " ".join(paragraph)).strip()
+    return description
 
 
 # ---------------------------------------------------------------------------
@@ -132,9 +178,9 @@ def save_manifest(
     for stem, content in skills:
         deployed_to = {}
         for rt in runtimes:
-            rel_path = f"{rt.skill_dir}/{stem}{rt.skill_ext}"
-            if (root / rel_path).exists():
-                deployed_to[rt.name] = rel_path
+            dest = skill_destination(root, rt, stem)
+            if dest.exists():
+                deployed_to[rt.name] = str(dest.relative_to(root))
         manifest["skills"][stem] = {
             "hash": content_hash(content),
             "deployed_to": deployed_to,
@@ -156,12 +202,14 @@ def check_freshness(
     """
     results = []
     for stem, content in bundled_skills():
-        expected_hash = content_hash(content)
+        expected_hash = {
+            rt.name: content_hash(rendered_skill_content(rt, stem, content)) for rt in runtimes
+        }
         for rt in runtimes:
-            dest = root / rt.skill_dir / f"{stem}{rt.skill_ext}"
+            dest = skill_destination(root, rt, stem)
             if not dest.exists():
                 results.append({"skill": stem, "runtime": rt.name, "status": "missing"})
-            elif content_hash(dest.read_text(encoding="utf-8")) != expected_hash:
+            elif content_hash(dest.read_text(encoding="utf-8")) != expected_hash[rt.name]:
                 results.append({"skill": stem, "runtime": rt.name, "status": "outdated"})
             else:
                 results.append({"skill": stem, "runtime": rt.name, "status": "current"})

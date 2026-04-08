@@ -17,7 +17,10 @@ export function ProgramSwitcher() {
     if (!programs?.length) return;
     const ids = new Set(programs.map((p) => p.id));
     if (!ids.has(active)) {
-      setActive(programs[0].id);
+      const fallback =
+        programs.find((p) => p.id === "shared") ??
+        programs[0];
+      setActive(fallback.id);
     }
   }, [programs, active, setActive]);
 

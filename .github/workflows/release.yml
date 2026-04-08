@@ -24,6 +24,10 @@ jobs:
         with:
           python-version: "3.12"
 
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "latest"
+
       - name: Get current version
         id: version
         run: |
@@ -43,6 +47,20 @@ jobs:
             git tag "v${{ steps.version.outputs.version }}"
             git push --tags
           fi
+
+      - name: Verify tagged CLI install
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          rm -rf /tmp/sonde-release-bin
+          mkdir -p /tmp/sonde-release-bin
+          uv tool install \
+            --force \
+            --python 3.12 \
+            --bin-dir /tmp/sonde-release-bin \
+            "sonde @ git+https://github.com/aeolus-earth/sonde.git@v${VERSION}#subdirectory=cli"
+          /tmp/sonde-release-bin/sonde --help >/tmp/sonde-release-help.txt
+          test -s /tmp/sonde-release-help.txt
 
       - name: Generate changelog from commits
         id: changelog

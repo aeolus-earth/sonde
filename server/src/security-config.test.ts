@@ -1,0 +1,51 @@
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+import { assertSecurityConfig } from "./security-config.js";
+
+describe("assertSecurityConfig", () => {
+  it("allows test-only bypass configuration in test", () => {
+    assert.doesNotThrow(() =>
+      assertSecurityConfig({
+        NODE_ENV: "test",
+        SONDE_TEST_AUTH_BYPASS_TOKEN: "test-bypass",
+      }),
+    );
+  });
+
+  it("rejects bypass configuration outside test", () => {
+    assert.throws(
+      () =>
+        assertSecurityConfig({
+          NODE_ENV: "production",
+          SONDE_TEST_AUTH_BYPASS_TOKEN: "test-bypass",
+          SONDE_WS_TOKEN_SECRET: "ws",
+          SONDE_RUNTIME_AUDIT_TOKEN: "audit",
+        }),
+      /NODE_ENV=test/,
+    );
+  });
+
+  it("requires runtime audit and websocket config in strict environments", () => {
+    assert.throws(
+      () =>
+        assertSecurityConfig({
+          NODE_ENV: "staging",
+          SONDE_RUNTIME_AUDIT_TOKEN: "audit",
+        }),
+      /SONDE_WS_TOKEN_SECRET is required/,
+    );
+  });
+
+  it("requires shared redis config only when explicitly enabled", () => {
+    assert.throws(
+      () =>
+        assertSecurityConfig({
+          NODE_ENV: "staging",
+          SONDE_WS_TOKEN_SECRET: "ws",
+          SONDE_RUNTIME_AUDIT_TOKEN: "audit",
+          SONDE_REQUIRE_SHARED_RATE_LIMIT: "true",
+        }),
+      /Shared Redis rate limiting is required/,
+    );
+  });
+});

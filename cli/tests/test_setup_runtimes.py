@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from unittest.mock import patch
 
@@ -42,6 +43,7 @@ class TestDetectRuntimes:
     def test_all_runtimes(self, tmp_path: Path):
         (tmp_path / ".claude").mkdir()
         (tmp_path / ".cursor").mkdir()
+        (tmp_path / ".agents").mkdir()
         (tmp_path / ".codex").mkdir()
         found = detect_runtimes(tmp_path)
         names = {rt.name for rt in found}
@@ -101,11 +103,12 @@ class TestDeploySkill:
         assert dest.suffix == ".mdc"
         assert dest.name == "test-skill.mdc"
 
-    def test_codex_md_extension(self, tmp_path: Path):
+    def test_codex_skill_directory_layout(self, tmp_path: Path):
         rt = RUNTIMES["codex"]
-        dest, _ = deploy_skill(tmp_path, rt, "test-skill", "# Hello")
-        assert dest.suffix == ".md"
-        assert str(dest).endswith(".codex/skills/test-skill.md")
+        dest, _ = deploy_skill(tmp_path, rt, "test-skill", "# Hello\n\nUse this workflow.")
+        assert dest.name == "SKILL.md"
+        assert str(dest).endswith(".agents/skills/test-skill/SKILL.md")
+        assert 'name: "test-skill"' in dest.read_text(encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -276,7 +279,7 @@ class TestBuildDefaultMcpConfig:
         monkeypatch.setattr("sonde.runtimes.shutil.which", lambda _: "/usr/bin/sonde")
         config = _build_default_mcp_config()
         assert config is not None
-        assert config["command"] == "/usr/bin/sonde"
+        assert config["command"] == "sonde"
         assert config["args"] == ["mcp", "serve"]
 
     def test_returns_none_when_nothing_available(
@@ -333,6 +336,31 @@ class TestConfigureMcpServer:
         assert changed is False
         assert not settings_path.exists()
 
+    def test_writes_codex_toml_config(self, tmp_path: Path):
+        settings_path = tmp_path / ".codex" / "config.toml"
+        config = {"command": "sonde", "args": ["mcp", "serve"], "cwd": "/srv/sonde"}
+
+        changed = configure_mcp_server(settings_path, "sonde", config)
+        assert changed is True
+        text = settings_path.read_text(encoding="utf-8")
+        assert "[mcp_servers.sonde]" in text
+        assert 'command = "sonde"' in text
+        assert 'args = ["mcp", "serve"]' in text
+
+    def test_preserves_other_codex_toml_servers(self, tmp_path: Path):
+        settings_path = tmp_path / ".codex" / "config.toml"
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        settings_path.write_text(
+            '[mcp_servers.other]\ncommand = "other-cmd"\n',
+            encoding="utf-8",
+        )
+
+        configure_mcp_server(settings_path, "sonde", {"command": "sonde", "args": ["mcp", "serve"]})
+
+        text = settings_path.read_text(encoding="utf-8")
+        assert "[mcp_servers.other]" in text
+        assert "[mcp_servers.sonde]" in text
+
 
 # ---------------------------------------------------------------------------
 # CLI integration (setup command)
@@ -367,6 +395,8 @@ class TestSetupCommand:
             ),
             patch("sonde.db.client.get_client") as mock_client,
             patch("sonde.db.programs.get_client") as mock_prog_client,
+            patch("sonde.runtimes._find_server_dir", return_value=None),
+            patch("sonde.runtimes.shutil.which", return_value="/usr/bin/sonde"),
         ):
             # Mock the connectivity check (setup now uses prog_db.list_programs())
             for mc in (mock_client, mock_prog_client):
@@ -374,10 +404,52 @@ class TestSetupCommand:
                 tbl.select.return_value.order.return_value.execute.return_value.data = [
                     {"id": "shared"}
                 ]
-            result = runner.invoke(cli, ["-q", "setup", "--runtime", "codex", "--skip-mcp"])
+            result = runner.invoke(cli, ["-q", "setup", "--runtime", "codex"])
 
         assert result.exit_code == 0
-        codex_dir = tmp_path / ".codex" / "skills"
+        codex_dir = tmp_path / ".agents" / "skills"
         assert codex_dir.exists()
-        skill_files = list(codex_dir.glob("*.md"))
+        skill_files = list(codex_dir.glob("*/SKILL.md"))
         assert len(skill_files) >= 1
+        assert ".agents/skills/" in (tmp_path / ".gitignore").read_text(encoding="utf-8")
+        codex_config = (tmp_path / ".codex" / "config.toml").read_text(encoding="utf-8")
+        assert "[mcp_servers.sonde]" in codex_config
+        assert 'command = "sonde"' in codex_config
+        workspace_ignore = (tmp_path / ".sonde" / ".gitignore").read_text(encoding="utf-8")
+        assert "skills.json" in workspace_ignore
+        assert "brief.meta.json" in workspace_ignore
+
+    def test_setup_registers_stac_with_portable_command(self, tmp_path: Path):
+        runner = CliRunner()
+        with (
+            patch("sonde.commands.setup._find_project_root", return_value=tmp_path),
+            patch("sonde.auth.is_authenticated", return_value=True),
+            patch("sonde.auth.get_token", return_value="fake-token"),
+            patch(
+                "sonde.auth.get_current_user",
+                return_value=type("U", (), {"email": "test@aeolus.earth"})(),
+            ),
+            patch("sonde.db.client.get_client") as mock_client,
+            patch("sonde.db.programs.get_client") as mock_prog_client,
+            patch("shutil.which", return_value="/usr/bin/stac-mcp"),
+            patch("httpx.get") as mock_httpx_get,
+            patch("sonde.runtimes._find_server_dir", return_value=None),
+            patch("sonde.runtimes.shutil.which", return_value="/usr/bin/sonde"),
+        ):
+            for mc in (mock_client, mock_prog_client):
+                tbl = mc.return_value.table.return_value
+                tbl.select.return_value.order.return_value.execute.return_value.data = [
+                    {"id": "shared"}
+                ]
+            mock_httpx_get.return_value.status_code = 200
+            mock_httpx_get.return_value.json.return_value = {"collections": []}
+
+            result = runner.invoke(
+                cli,
+                ["-q", "setup", "--runtime", "claude-code", "--skip-skills"],
+            )
+
+        assert result.exit_code == 0, result.output
+        settings = json.loads((tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8"))
+        assert settings["mcpServers"]["stac"]["command"] == "stac-mcp"
+        assert settings["mcpServers"]["sonde"]["command"] == "sonde"

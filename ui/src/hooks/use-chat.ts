@@ -8,6 +8,7 @@ import {
 } from "@/contexts/chat-store-context";
 import { useChatPageContext } from "@/contexts/chat-page-context";
 import { filesToAttachmentPayloads } from "@/lib/chat-attachments";
+import { getAgentHttpBase } from "@/lib/agent-http";
 import type {
   MentionRef,
   ServerMessage,
@@ -20,27 +21,73 @@ function getAgentWsBase(): string {
   if (typeof explicit === "string" && explicit.trim() !== "") {
     return explicit.trim().replace(/\/$/, "");
   }
-  if (import.meta.env.DEV && typeof window !== "undefined") {
+  if (typeof window !== "undefined") {
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
     return `${proto}//${window.location.host}/agent`;
   }
   return "ws://localhost:3001";
 }
 
+async function fetchChatSessionToken(accessToken: string): Promise<string> {
+  const response = await fetch(`${getAgentHttpBase()}/chat/session-token`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`Chat session token request failed (${response.status})`);
+  }
+  const payload = (await response.json()) as { token?: string };
+  const token = payload.token?.trim() ?? "";
+  if (!token) {
+    throw new Error("Chat session token response was missing a token");
+  }
+  return token;
+}
+
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
+const CONNECTION_READY_TIMEOUT_MS = 10_000;
+const CONNECTION_READY_POLL_MS = 50;
 
 const WS_CLOSE_UNAUTHORIZED = 4001;
+
+function isChatDebugEnabled(): boolean {
+  const override = import.meta.env.VITE_CHAT_DEBUG as string | undefined;
+  if (override === "1") return true;
+  if (override === "0") return false;
+  return import.meta.env.DEV;
+}
+
+function chatDebug(event: string, detail?: Record<string, unknown>) {
+  if (!isChatDebugEnabled()) return;
+  if (detail) {
+    console.debug(`[chat] ${event}`, detail);
+    return;
+  }
+  console.debug(`[chat] ${event}`);
+}
 
 function resolveTargetTabId(storeApi: ChatStoreApi): string {
   const s = storeApi.getState();
   return s.streamingTabId ?? s.activeTabId;
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
 function handleServerMessage(msg: ServerMessage, storeApi: ChatStoreApi) {
   const s = storeApi.getState();
 
   switch (msg.type) {
+    case "auth_ok":
+      s.setConnectionStatus("connected");
+      break;
+
     case "session":
       if (s.streamingTabId == null) return;
       s.setTabAgentSessionId(s.streamingTabId, msg.sessionId);
@@ -83,6 +130,24 @@ function handleServerMessage(msg: ServerMessage, storeApi: ChatStoreApi) {
     }
 
     case "text_done":
+      {
+        const tabId = resolveTargetTabId(storeApi);
+        const tab = s.tabs.find((t) => t.id === tabId);
+        const last = tab?.messages[tab.messages.length - 1];
+        if (!last || last.role !== "assistant") {
+          s.addMessage(tabId, {
+            id: crypto.randomUUID(),
+            role: "assistant",
+            content: msg.content,
+            timestamp: Date.now(),
+            toolUses: [],
+          });
+          break;
+        }
+        if (!last.content && msg.content) {
+          s.appendToLastMessage(tabId, msg.content);
+        }
+      }
       break;
 
     case "tool_use_start": {
@@ -150,6 +215,9 @@ function handleServerMessage(msg: ServerMessage, storeApi: ChatStoreApi) {
       break;
 
     case "error":
+      if (msg.message.includes("Claude Code process exited with code 1")) {
+        s.setTabAgentSessionId(resolveTargetTabId(storeApi), null);
+      }
       s.addMessage(resolveTargetTabId(storeApi), {
         id: crypto.randomUUID(),
         role: "system",
@@ -218,12 +286,43 @@ export function useChat() {
     }, reconnectDelay.current);
   }, []);
 
+  const waitForConnected = useCallback(async (): Promise<boolean> => {
+    const deadline = Date.now() + CONNECTION_READY_TIMEOUT_MS;
+    let sawConnectionAttempt = false;
+
+    while (Date.now() < deadline) {
+      const ws = wsRef.current;
+      const status = chatStoreApiRef.current.getState().connectionStatus;
+
+      if (ws?.readyState === WebSocket.OPEN && status === "connected") {
+        return true;
+      }
+
+      if (authFailureRef.current) {
+        return false;
+      }
+
+      if (ws || status === "connecting") {
+        sawConnectionAttempt = true;
+      } else if (sawConnectionAttempt && status === "disconnected") {
+        return false;
+      }
+
+      await sleep(CONNECTION_READY_POLL_MS);
+    }
+
+    return false;
+  }, []);
+
   const connect = useCallback(async () => {
     if (authFailureRef.current) return;
 
     const { data: sessionData, error: sessionError } =
       await supabase.auth.getSession();
     if (sessionError || !sessionData.session?.access_token) {
+      chatDebug("connect:no-session", {
+        hasError: Boolean(sessionError),
+      });
       chatStoreApiRef.current.getState().setConnectionStatus("disconnected");
       return;
     }
@@ -241,18 +340,43 @@ export function useChat() {
     const token = sess.access_token;
     if (!token) return;
 
-    if (wsRef.current?.readyState === WebSocket.OPEN) return;
+    const existingSocket = wsRef.current;
+    if (
+      existingSocket?.readyState === WebSocket.OPEN ||
+      existingSocket?.readyState === WebSocket.CONNECTING
+    ) {
+      chatDebug("connect:skip-existing-socket", {
+        readyState: existingSocket.readyState,
+      });
+      return;
+    }
 
+    chatDebug("connect:start");
     chatStoreApiRef.current.getState().setConnectionStatus("connecting");
 
-    const url = `${getAgentWsBase()}/chat?token=${encodeURIComponent(token)}`;
-    const ws = new WebSocket(url);
+    let wsToken: string;
+    try {
+      wsToken = await fetchChatSessionToken(token);
+    } catch (error) {
+      chatDebug("connect:session-token-error", {
+        message: error instanceof Error ? error.message : String(error),
+      });
+      chatStoreApiRef.current.getState().setConnectionStatus("disconnected");
+      return;
+    }
+
+    const url = new URL(`${getAgentWsBase()}/chat`);
+    url.searchParams.set("ws_token", wsToken);
+    const ws = new WebSocket(url.toString());
     wsRef.current = ws;
 
     ws.onopen = () => {
+      chatDebug("ws:open", {
+        authSent: false,
+      });
       authFailureRef.current = false;
       authErrorLoggedRef.current = false;
-      chatStoreApiRef.current.getState().setConnectionStatus("connected");
+      chatStoreApiRef.current.getState().setConnectionStatus("connecting");
       reconnectDelay.current = RECONNECT_BASE_MS;
     };
 
@@ -263,10 +387,31 @@ export function useChat() {
       } catch {
         return;
       }
+      if (msg.type === "ping") {
+        const pong: ClientMessage = { type: "pong" };
+        ws.send(JSON.stringify(pong));
+        chatDebug("ws:ping");
+        return;
+      }
+      if (msg.type === "auth_ok") {
+        chatDebug("ws:auth-ok");
+      } else if (msg.type === "session") {
+        chatDebug("ws:session", { sessionId: msg.sessionId });
+      } else if (msg.type === "model_info") {
+        chatDebug("ws:model", { model: msg.model });
+      } else if (msg.type === "error") {
+        chatDebug("ws:error", { message: msg.message });
+      } else if (msg.type === "done") {
+        chatDebug("ws:done");
+      }
       handleServerMessage(msg, chatStoreApiRef.current);
     };
 
     ws.onclose = (ev) => {
+      chatDebug("ws:close", {
+        code: ev.code,
+        reason: ev.reason,
+      });
       wsRef.current = null;
       const st = chatStoreApiRef.current.getState();
       const tabId = st.streamingTabId ?? st.activeTabId;
@@ -304,6 +449,7 @@ export function useChat() {
     };
 
     ws.onerror = () => {
+      chatDebug("ws:error-event");
       ws.close();
     };
   }, [scheduleReconnect]);
@@ -335,11 +481,44 @@ export function useChat() {
 
   const send = useCallback(
     async (content: string, mentions: MentionRef[] = [], files: File[] = []) => {
-      const ws = wsRef.current;
-      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      const preflightState = chatStoreApiRef.current.getState();
+      const activeTabId = preflightState.activeTabId;
+      let ws = wsRef.current;
+      let connection = preflightState.connectionStatus;
+
+      if (!ws || ws.readyState !== WebSocket.OPEN || connection !== "connected") {
+        chatDebug("send:await-connection", {
+          hasSocket: Boolean(ws),
+          readyState: ws?.readyState ?? null,
+          connectionStatus: connection,
+        });
+        await connectRef.current();
+        const waitStartedAt = Date.now();
+        const connected = await waitForConnected();
+        chatDebug(
+          connected ? "send:connection-ready" : "send:connection-timeout",
+          {
+            waitMs: Date.now() - waitStartedAt,
+          }
+        );
+        ws = wsRef.current;
+        connection = chatStoreApiRef.current.getState().connectionStatus;
+        if (!connected || !ws || ws.readyState !== WebSocket.OPEN || connection !== "connected") {
+          const s = chatStoreApiRef.current.getState();
+          s.setStreaming(false);
+          s.setStreamingTabId(null);
+          s.addMessage(activeTabId, {
+            id: crypto.randomUUID(),
+            role: "system",
+            content:
+              "Chat is still connecting to the agent. Please try again in a moment.",
+            timestamp: Date.now(),
+          });
+          return;
+        }
+      }
 
       const s0 = chatStoreApiRef.current.getState();
-      const activeTabId = s0.activeTabId;
       s0.setStreamingTabId(activeTabId);
 
       const attachmentPayload =
@@ -361,6 +540,7 @@ export function useChat() {
         attachments: attachmentMeta.length > 0 ? attachmentMeta : undefined,
         timestamp: Date.now(),
       });
+      s1.setStreaming(true);
 
       const s2 = chatStoreApiRef.current.getState();
       const tab = s2.tabs.find((t) => t.id === activeTabId);
@@ -373,9 +553,16 @@ export function useChat() {
         pageContext: pageContext ?? undefined,
         attachments: attachmentPayload,
       };
+      chatDebug("send", {
+        activeTabId,
+        resumeSessionId: tab?.agentSessionId ?? null,
+        mentionCount: mentions.length,
+        attachmentCount: attachmentPayload?.length ?? 0,
+        contentPreview: wireContent.slice(0, 80),
+      });
       ws.send(JSON.stringify(payload));
     },
-    [pageContext]
+    [pageContext, waitForConnected]
   );
 
   const cancel = useCallback(() => {

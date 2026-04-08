@@ -9,6 +9,7 @@ import click
 
 from sonde import auth
 from sonde.cli_options import pass_output_options
+from sonde.ignore import ensure_runtime_asset_ignore, ensure_sonde_workspace_ignore
 from sonde.output import err, print_banner, print_error, print_json, print_success
 from sonde.runtimes import configure_mcp_server, resolve_runtimes
 from sonde.skills import (
@@ -90,6 +91,9 @@ def setup(
     project_root = _find_project_root()
     root = project_root or Path.home()
 
+    if project_root is not None and not check:
+        ensure_runtime_asset_ignore(project_root)
+
     runtimes = resolve_runtimes(root, runtime_names)
     runtime_names_str = ", ".join(rt.name for rt in runtimes)
     summary["project_root"] = str(project_root) if project_root is not None else None
@@ -143,6 +147,7 @@ def setup(
         elif not quiet:
             err.print("  [sonde.muted]All skills current (no changes)[/sonde.muted]")
 
+        ensure_sonde_workspace_ignore(root)
         save_manifest(root, skills, runtimes)
         summary["skills"] = {
             "bundled": len(skills),
@@ -201,7 +206,7 @@ def setup(
         if stac_mcp_path:
             stac_api_url = os.environ.get("STAC_API_URL", "https://stac.aeolus.earth")
             stac_config = {
-                "command": stac_mcp_path,
+                "command": "stac-mcp",
                 "args": ["--api-url", stac_api_url],
             }
             stac_summary: dict[str, object] = {

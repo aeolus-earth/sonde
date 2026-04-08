@@ -310,6 +310,23 @@ class TestCloseHints:
         assert "Suggested next" in result.output or "fork" in result.output
 
     @patch("sonde.commands.lifecycle.detect_git_context", return_value=_CLEAN_GIT)
+    def test_close_shows_question_capture_nudge(
+        self, _mock_git: MagicMock, runner: CliRunner, patched_db: MagicMock
+    ):
+        running_exp = {
+            **_BASE_ROW,
+            "status": "running",
+            "claimed_by": "human/test",
+            "claimed_at": _NOW.isoformat(),
+        }
+        closed_exp = {**running_exp, "status": "complete", "claimed_by": None, "claimed_at": None}
+        patched_db.table.side_effect = _lifecycle_table_factory(running_exp, closed_exp)
+
+        result = runner.invoke(cli, ["close", "EXP-0001"])
+        assert result.exit_code == 0, result.output
+        assert 'sonde question create -p weather-intervention "..."' in result.output
+
+    @patch("sonde.commands.lifecycle.detect_git_context", return_value=_CLEAN_GIT)
     def test_close_json_includes_suggested_next(
         self, _mock_git: MagicMock, runner: CliRunner, patched_db: MagicMock
     ):
@@ -388,7 +405,8 @@ class TestCloseGitProvenance:
         data = json.loads(result.output)
         assert data["error"] == "uncommitted_changes"
         assert data["file_count"] == 3
-        assert "suggested_commit" in data
+        assert data["suggested_commit_message"].startswith("EXP-0001:")
+        assert data["recommended_steps"][0] == "git status --short"
 
     @patch("sonde.commands.lifecycle.detect_git_context", return_value=_DIRTY_GIT)
     def test_close_force_bypasses_dirty_check(
@@ -448,6 +466,44 @@ class TestCloseGitProvenance:
         assert data["git"]["close_branch"] == "feature/test"
         assert data["git"]["dirty"] is False
         assert data["git"]["start_commit"] == "start123"
+
+    @patch("sonde.commands.lifecycle.detect_git_context", return_value=_CLEAN_GIT)
+    def test_close_explicit_provenance_overrides_git_context(
+        self, _mock_git: MagicMock, runner: CliRunner, patched_db: MagicMock
+    ):
+        """Manual close provenance should override the auto-detected git context."""
+        running_exp = {
+            **_BASE_ROW,
+            "status": "running",
+            "claimed_by": "human/test",
+            "claimed_at": _NOW.isoformat(),
+            "git_commit": "start123",
+        }
+        closed_exp = {
+            **running_exp,
+            "status": "complete",
+            "claimed_by": None,
+            "claimed_at": None,
+        }
+        patched_db.table.side_effect = _lifecycle_table_factory(running_exp, closed_exp)
+
+        result = runner.invoke(
+            cli,
+            [
+                "--json",
+                "close",
+                "EXP-0001",
+                "--close-commit",
+                "fedcba987654",
+                "--close-branch",
+                "repair/manual",
+            ],
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["git"]["close_commit"] == "fedcba987654"
+        assert data["git"]["close_branch"] == "repair/manual"
+        assert data["git"]["source"] == "explicit"
 
 
 # ---------------------------------------------------------------------------

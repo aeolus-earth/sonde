@@ -225,11 +225,17 @@ def sync(ctx: click.Context, program: str | None) -> None:
 
 def _one_line(exp: Any) -> str:
     """Short one-line summary for an experiment."""
+    from sonde.local import effective_hypothesis
+
+    hypothesis = effective_hypothesis(
+        getattr(exp, "content", None),
+        getattr(exp, "hypothesis", None),
+    )
+    if hypothesis:
+        return hypothesis[:60]
     if exp.content:
         first = exp.content.strip().split("\n")[0][:60]
         return first
-    if exp.hypothesis:
-        return exp.hypothesis[:60]
     return exp.finding[:60] if exp.finding else ""
 
 

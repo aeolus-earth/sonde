@@ -6,10 +6,17 @@
  */
 
 import { Daytona, type Sandbox } from "@daytonaio/sdk";
+import { sondeCommandError } from "./sandbox-command-security.js";
 
 export interface SandboxHandle {
   /** Execute a shell command and return its output. */
   exec(
+    command: string,
+    opts?: { cwd?: string; timeout?: number }
+  ): Promise<{ exitCode: number; stdout: string; stderr: string }>;
+
+  /** Execute one Sonde CLI command with scoped auth. */
+  execSondeCommand(
     command: string,
     opts?: { cwd?: string; timeout?: number }
   ): Promise<{ exitCode: number; stdout: string; stderr: string }>;
@@ -40,6 +47,9 @@ export interface SandboxHandle {
 
   /** Whether the sandbox is initialized and ready. */
   readonly ready: boolean;
+
+  /** Current session workspace root when the handle is scoped to a chat tab. */
+  readonly sessionDir?: string;
 }
 
 export interface CreateSandboxOptions {
@@ -67,9 +77,7 @@ export async function createSandbox(
 ): Promise<SandboxHandle> {
   const daytona = getDaytona();
 
-  const envVars: Record<string, string> = {
-    SONDE_TOKEN: opts.sondeToken,
-  };
+  const envVars: Record<string, string> = {};
   if (opts.supabaseUrl) envVars.AEOLUS_SUPABASE_URL = opts.supabaseUrl;
   if (opts.supabaseKey) envVars.AEOLUS_SUPABASE_KEY = opts.supabaseKey;
 
@@ -115,8 +123,13 @@ export async function getSandboxById(id: string): Promise<SandboxHandle> {
 
 function wrapSandbox(sandbox: Sandbox): SandboxHandle {
   let isReady = true;
+  let sondeToken = "";
 
-  return {
+  function shellQuote(value: string): string {
+    return `'${value.replace(/'/g, `'\"'\"'`)}'`;
+  }
+
+  const handle: SandboxHandle = {
     get ready() {
       return isReady;
     },
@@ -133,6 +146,20 @@ function wrapSandbox(sandbox: Sandbox): SandboxHandle {
         stdout: result.result ?? "",
         stderr: "",
       };
+    },
+
+    async execSondeCommand(command, opts) {
+      const validationError = sondeCommandError(command);
+      if (validationError) {
+        throw new Error(validationError);
+      }
+      if (!sondeToken) {
+        throw new Error("Sonde auth is not available in this sandbox session.");
+      }
+      const wrappedCommand =
+        `export PATH="$HOME/.local/bin:$PATH" && ` +
+        `SONDE_TOKEN=${shellQuote(sondeToken)} ${command}`;
+      return await handle.exec(wrappedCommand, opts);
     },
 
     async readFile(path) {
@@ -157,42 +184,27 @@ function wrapSandbox(sandbox: Sandbox): SandboxHandle {
     },
 
     async setToken(token) {
-      // Write token to a persistent env file so all commands pick it up
-      await sandbox.process.executeCommand(
-        `echo 'export SONDE_TOKEN="${token}"' > /home/daytona/.sonde_env`,
-      );
+      sondeToken = token;
       console.log("[sandbox] Auth token updated");
     },
 
     async pullCorpus(program) {
-      const cmd =
-        `source /home/daytona/.sonde_env 2>/dev/null; ` +
-        `export PATH="$HOME/.local/bin:$PATH" && ` +
-        `sonde pull -p ${program} --artifacts none 2>&1`;
-      const result = await sandbox.process.executeCommand(
-        cmd,
-        undefined,
-        undefined,
-        60
+      const result = await handle.execSondeCommand(
+        `sonde pull -p ${shellQuote(program)} --artifacts none`,
+        { timeout: 60 }
       );
-      return { exitCode: result.exitCode, stdout: result.result ?? "" };
+      return { exitCode: result.exitCode, stdout: result.stdout };
     },
 
     async pullAllPrograms() {
-      const env =
-        `source /home/daytona/.sonde_env 2>/dev/null; ` +
-        `export PATH="$HOME/.local/bin:$PATH"`;
-
       // Discover all programs
-      const listResult = await sandbox.process.executeCommand(
-        `${env} && sonde program list --json 2>&1`,
-        undefined,
-        undefined,
-        30
+      const listResult = await handle.execSondeCommand(
+        "sonde program list --json",
+        { timeout: 30 }
       );
       let programs: string[] = [];
       try {
-        const parsed = JSON.parse(listResult.result ?? "[]");
+        const parsed = JSON.parse(listResult.stdout ?? "[]");
         programs = (parsed as Array<{ id?: string }>).map(
           (p) => p.id ?? ""
         ).filter(Boolean);
@@ -206,17 +218,15 @@ function wrapSandbox(sandbox: Sandbox): SandboxHandle {
       // Pull each program
       let pulled = 0;
       for (const program of programs) {
-        const result = await sandbox.process.executeCommand(
-          `${env} && sonde pull -p ${program} --artifacts none 2>&1`,
-          undefined,
-          undefined,
-          60
+        const result = await handle.execSondeCommand(
+          `sonde pull -p ${shellQuote(program)} --artifacts none`,
+          { timeout: 60 }
         );
         if (result.exitCode === 0) {
           pulled++;
           console.log(`[sandbox] Pulled ${program}`);
         } else {
-          console.error(`[sandbox] Pull failed for ${program}:`, result.result?.slice(0, 100));
+          console.error(`[sandbox] Pull failed for ${program}:`, result.stdout.slice(0, 100));
         }
       }
       console.log(`[sandbox] Corpus ready: ${pulled}/${programs.length} programs`);
@@ -232,4 +242,5 @@ function wrapSandbox(sandbox: Sandbox): SandboxHandle {
       }
     },
   };
+  return handle;
 }

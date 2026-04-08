@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { useQueries } from "@tanstack/react-query";
+import { normalizeExperimentHypothesis } from "@/lib/experiment-hypothesis";
 import { supabase } from "@/lib/supabase";
 import { queryKeys } from "@/lib/query-keys";
 import type { Artifact } from "@/types/sonde";
@@ -55,7 +56,7 @@ export function useArtifactParentLookup(artifacts: Artifact[]) {
           .single();
 
         if (error) throw error;
-        return data;
+        return normalizeExperimentHypothesis(data);
       },
       enabled: !!id,
     })),

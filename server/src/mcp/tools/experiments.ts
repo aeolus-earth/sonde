@@ -49,10 +49,10 @@ export function createExperimentTools(sondeToken: string) {
 
     tool(
       "sonde_experiment_log",
-      "Log a new experiment. Provide content (preferred — use ## Hypothesis, ## Method, ## Results, ## Finding sections) or a hypothesis string, plus optional tags and direction.",
+      "Log a new experiment. Provide a freeform hypothesis plus optional content for method, results, findings, and analysis.",
       {
-        content: z.string().optional().describe("Full markdown content for the experiment body (preferred). Use ## Hypothesis, ## Method, ## Results, ## Finding sections."),
-        hypothesis: z.string().optional().describe("The hypothesis being tested (legacy — prefer content with sections)"),
+        content: z.string().optional().describe("Full markdown content for the experiment body. May include ## Method, ## Results, ## Finding, and other narrative sections."),
+        hypothesis: z.string().optional().describe("Freeform hypothesis text. Can be a sentence, bullets, or multiple alternatives."),
         direction: z.string().optional().describe("Direction ID to link to"),
         tag: z.array(z.string()).optional().describe("Tags to apply"),
         parent: z.string().optional().describe("Parent experiment ID for branching"),
@@ -93,7 +93,7 @@ export function createExperimentTools(sondeToken: string) {
         results: z.string().optional().describe("Update the ## Results narrative section in content (inserts if missing). NOT the structured JSON — use result_json for that."),
         result_json: z.string().optional().describe("Structured results as JSON dict, e.g. '{\"rmse\": 2.3}'. Queryable across experiments. NOT the narrative — use results for that."),
         finding: z.string().optional().describe("Set the finding/result summary"),
-        hypothesis: z.string().optional().describe("Update the hypothesis"),
+        hypothesis: z.string().optional().describe("Update the freeform hypothesis text"),
         status: z.enum(["open", "running", "complete", "failed", "superseded"]).optional().describe("Update status"),
         direction: z.string().optional().describe("Link to a direction ID"),
         project: z.string().optional().describe("Link to a project ID (e.g. PROJ-001)"),
@@ -137,14 +137,14 @@ export function createExperimentTools(sondeToken: string) {
       "Fork an experiment to create a child branch (refinement, alternative, debug, etc.).",
       {
         experiment_id: z.string().describe("Parent experiment ID to fork from"),
-        hypothesis: z.string().describe("Hypothesis for the forked experiment"),
+        hypothesis: z.string().describe("Freeform hypothesis text for the forked experiment"),
         branch_type: z.enum(["exploratory", "refinement", "alternative", "debug", "replication"]).default("refinement"),
       },
       async (args) => {
         const flags = [
           "experiment", "fork", args.experiment_id, "--json",
           "--hypothesis", args.hypothesis,
-          "--branch-type", args.branch_type,
+          "--type", args.branch_type,
         ];
         return runSonde(flags, sondeToken);
       }

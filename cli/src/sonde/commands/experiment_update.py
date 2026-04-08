@@ -31,7 +31,12 @@ from sonde.output import (
 @click.option(
     "--status", type=click.Choice(["open", "running", "complete", "failed", "superseded"])
 )
-@click.option("--hypothesis", help="Update hypothesis")
+@click.option("--hypothesis", help="Update hypothesis text")
+@click.option(
+    "--hypothesis-file",
+    type=click.Path(exists=True),
+    help="Read multiline hypothesis text from file",
+)
 @click.option("--params", help="Parameters as JSON (merges with existing)")
 @click.option(
     "--params-file", "params_file", type=click.Path(exists=True), help="Params from YAML/JSON file"
@@ -62,6 +67,8 @@ from sonde.output import (
 @click.option("--direction", help="Set or change the parent research direction")
 @click.option("--project", help="Set or change the parent project")
 @click.option("--linear", help="Link to a Linear issue ID (e.g. AEO-123)")
+@click.option("--close-commit", help="Repair or override the closing git commit")
+@click.option("--close-branch", help="Repair or override the closing git branch")
 @click.option(
     "--tag",
     multiple=True,
@@ -75,6 +82,7 @@ def update(
     experiment_id: str | None,
     status: str | None,
     hypothesis: str | None,
+    hypothesis_file: str | None,
     params: str | None,
     params_file: str | None,
     result: str | None,
@@ -87,6 +95,8 @@ def update(
     direction: str | None,
     project: str | None,
     linear: str | None,
+    close_commit: str | None,
+    close_branch: str | None,
     tag: tuple[str, ...],
     repro: str | None,
     evidence: tuple[str, ...],
@@ -117,11 +127,14 @@ def update(
         raise SystemExit(1)
 
     updates: dict[str, Any] = {}
+    resolved_hypothesis = hypothesis
+    if resolved_hypothesis is None and hypothesis_file:
+        resolved_hypothesis = Path(hypothesis_file).read_text(encoding="utf-8").strip()
 
     if status is not None:
         updates["status"] = status
-    if hypothesis is not None:
-        updates["hypothesis"] = hypothesis
+    if resolved_hypothesis is not None:
+        updates["hypothesis"] = resolved_hypothesis
     if finding is not None:
         updates["finding"] = finding
     if direction is not None:
@@ -130,6 +143,10 @@ def update(
         updates["project_id"] = project
     if linear is not None:
         updates["linear_id"] = linear
+    if close_commit is not None:
+        updates["git_close_commit"] = close_commit
+    if close_branch is not None:
+        updates["git_close_branch"] = close_branch
 
     # Content
     if content_file:
@@ -147,6 +164,22 @@ def update(
         if results_text is not None:
             existing_content = update_section(existing_content, "results", results_text)
         updates["content"] = existing_content
+
+    if "content" in updates:
+        from sonde.local import extract_section_text
+
+        extracted_hypothesis = extract_section_text(str(updates["content"] or ""), "Hypothesis")
+        if (
+            resolved_hypothesis is not None
+            and extracted_hypothesis
+            and extracted_hypothesis.strip() != resolved_hypothesis.strip()
+        ):
+            err.print(
+                "  [sonde.warning]Both --hypothesis and ## Hypothesis were provided; "
+                "using the explicit field.[/]"
+            )
+        elif resolved_hypothesis is None and extracted_hypothesis:
+            updates["hypothesis"] = extracted_hypothesis
 
     # Params: merge file + inline with existing
     try:

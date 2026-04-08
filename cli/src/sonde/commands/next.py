@@ -9,6 +9,7 @@ import click
 
 from sonde.cli_options import pass_output_options
 from sonde.config import get_settings
+from sonde.experiment_hygiene import artifact_count_map, hygiene_summary
 from sonde.output import err, print_error, print_json
 
 
@@ -48,8 +49,15 @@ def next_cmd(ctx: click.Context, program: str | None, limit: int) -> None:
     findings = find_db.list_active(program=program)
     questions = q_db.list_questions(program=program, include_all=False, limit=10000)
     directions = dir_db.list_directions(program=program, statuses=None, limit=10000)
+    artifact_counts = artifact_count_map([e.id for e in experiments])
 
-    suggestions = _build_suggestions(experiments, findings, questions, directions)
+    suggestions = _build_suggestions(
+        experiments,
+        findings,
+        questions,
+        directions,
+        artifact_counts=artifact_counts,
+    )
     suggestions = suggestions[:limit]
 
     if ctx.obj.get("json"):
@@ -80,10 +88,13 @@ def _build_suggestions(
     findings: list[Any],
     questions: list[Any],
     directions: list[Any],
+    *,
+    artifact_counts: dict[str, int] | None = None,
 ) -> list[dict[str, str]]:
     """Build a prioritized list of actionable suggestions."""
     suggestions: list[dict[str, str]] = []
     now = datetime.now(UTC)
+    artifact_counts = artifact_counts or {}
 
     # 1. Complete experiments with no finding — knowledge not captured
     complete_no_finding = [e for e in experiments if e.status == "complete" and not e.finding]
@@ -103,18 +114,56 @@ def _build_suggestions(
     for e in running:
         age_hours = (now - e.updated_at).total_seconds() / 3600 if e.updated_at else 999
         if age_hours > 24:
-            days = int(age_hours / 24)
+            elapsed = _format_elapsed(age_hours)
             suggestions.append(
                 {
                     "priority": "high",
                     "type": "stale_running",
                     "record": e.id,
-                    "reason": f"{e.id} has been running for {days}d with no update",
-                    "command": f"sonde show {e.id}",
+                    "reason": f"{e.id} has been running for {elapsed} with no checkpoint",
+                    "command": f'sonde note {e.id} --status running --elapsed "{elapsed}" '
+                    '"still running"',
                 }
             )
 
-    # 3. Open questions with no evidence
+    # 3. Terminal experiments with incomplete hygiene
+    terminal = [e for e in experiments if e.status in ("complete", "failed")]
+    for e in terminal[:5]:
+        review = hygiene_summary(
+            e,
+            phase="review",
+            artifact_count=artifact_counts.get(e.id),
+        )
+        warnings = [item for item in review["items"] if item["key"] != "finding"]
+        if not warnings:
+            continue
+        first = warnings[0]
+        priority = (
+            "high" if first["key"] in ("hypothesis", "artifacts", "close_provenance") else "medium"
+        )
+        suggestions.append(
+            {
+                "priority": priority,
+                "type": "experiment_cleanup",
+                "record": e.id,
+                "reason": first["message"],
+                "command": first["fix"] or f"sonde show {e.id}",
+            }
+        )
+
+    # 4. Directions whose experiments are all terminal and need closure review
+    for review in build_directions_for_review(experiments, directions)[:3]:
+        suggestions.append(
+            {
+                "priority": "medium",
+                "type": "direction_review",
+                "record": review["id"],
+                "reason": review["reason"],
+                "command": review["command"],
+            }
+        )
+
+    # 5. Open questions with no evidence
     open_questions = [q for q in questions if q.status == "open"]
     for q in open_questions[:3]:
         suggestions.append(
@@ -127,7 +176,7 @@ def _build_suggestions(
             }
         )
 
-    # 4. Directions with no active experiments
+    # 6. Directions with no active experiments
     active_exp_directions = {
         e.direction_id for e in experiments if e.status in ("open", "running") and e.direction_id
     }
@@ -144,7 +193,7 @@ def _build_suggestions(
                 }
             )
 
-    # 5. Open experiments that could be started
+    # 7. Open experiments that could be started
     open_exps = [e for e in experiments if e.status == "open"]
     for e in open_exps[:2]:
         suggestions.append(
@@ -165,3 +214,39 @@ def _build_suggestions(
 
 # Public alias for reuse in brief/handoff
 build_suggestions = _build_suggestions
+
+
+def build_directions_for_review(
+    experiments: list[Any], directions: list[Any]
+) -> list[dict[str, str]]:
+    """Return active/proposed directions whose experiments are all terminal."""
+    terminal = {"complete", "failed", "superseded"}
+    review: list[dict[str, str]] = []
+    for direction in directions:
+        if direction.status not in ("active", "proposed"):
+            continue
+        dir_experiments = [e for e in experiments if e.direction_id == direction.id]
+        if not dir_experiments:
+            continue
+        if all(e.status in terminal for e in dir_experiments):
+            review.append(
+                {
+                    "id": direction.id,
+                    "title": direction.title,
+                    "status": direction.status,
+                    "command": f"sonde direction show {direction.id}",
+                    "reason": (
+                        f"{direction.id} ({direction.title}) has "
+                        f"{len(dir_experiments)} finished experiment(s); review for closure"
+                    ),
+                }
+            )
+    return review
+
+
+def _format_elapsed(age_hours: float) -> str:
+    """Convert fractional hours to a compact elapsed string."""
+    if age_hours < 24:
+        return f"{max(1, round(age_hours))}h"
+    days = max(1, round(age_hours / 24))
+    return f"{days}d"

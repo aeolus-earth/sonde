@@ -1,8 +1,8 @@
 name: Production Smoke
 
 on:
-  # Triggers after Vercel deploys to production
-  deployment_status:
+  push:
+    branches: [main]
   # Manual trigger for on-demand verification
   workflow_dispatch:
     inputs:
@@ -10,15 +10,16 @@ on:
         description: "URL to test (leave blank for production default)"
         required: false
         type: string
+      agent_url:
+        description: "Agent base URL to smoke (leave blank for URL/agent)"
+        required: false
+        type: string
 
 jobs:
   smoke:
     runs-on: ubuntu-latest
-    # Run on: manual dispatch, OR successful production deploy
-    if: >
-      github.event_name == 'workflow_dispatch' ||
-      (github.event.deployment_status.state == 'success' &&
-       github.event.deployment_status.environment == 'Production')
+    env:
+      PRODUCTION_SMOKE_SESSION_FILE: ${{ runner.temp }}/sonde-production-smoke-session.json
     defaults:
       run:
         working-directory: ui
@@ -29,12 +30,20 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: "22"
+          cache: "npm"
+          cache-dependency-path: |
+            ui/package-lock.json
+            server/package-lock.json
 
       - name: Install dependencies
         run: npm ci
 
+      - name: Install server dependencies
+        working-directory: server
+        run: npm ci
+
       - name: Install Playwright
-        run: npx playwright install chromium --with-deps
+        run: npx playwright install chromium firefox --with-deps
 
       - name: Resolve target URL
         id: url
@@ -47,10 +56,127 @@ jobs:
           echo "target=$URL" >> "$GITHUB_OUTPUT"
           echo "Smoke testing: $URL"
 
+      - name: Resolve production schema version
+        id: schema
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
+        run: |
+          if [ -z "$SUPABASE_PROJECT_REF" ] || [ -z "$SUPABASE_ANON_KEY" ]; then
+            echo "::notice::Skipping production schema lookup because SUPABASE_PROJECT_REF or SUPABASE_ANON_KEY is not configured"
+            echo "version=unknown" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if VERSION=$(curl -sf \
+            -H "apikey: $SUPABASE_ANON_KEY" \
+            -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
+            "https://${SUPABASE_PROJECT_REF}.supabase.co/rest/v1/rpc/get_schema_version" | tr -d '"'); then
+            :
+          else
+            echo "::notice::Falling back to unknown schema version because production publishable-key RPC verification is unavailable"
+            VERSION="unknown"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for production UI
+        run: |
+          URL="${{ steps.url.outputs.target }}"
+          for attempt in $(seq 1 60); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$URL/login")
+            if [ "$STATUS" -ge 200 ] && [ "$STATUS" -lt 500 ]; then
+              echo "Production UI is reachable ($STATUS)"
+              exit 0
+            fi
+            echo "Waiting for production UI ($attempt/60)..."
+            sleep 10
+          done
+          echo "::error::Production UI did not become reachable in time"
+          exit 1
+
+      - name: Wait for production agent
+        if: ${{ inputs.agent_url != '' || vars.SONDE_AGENT_HTTP_BASE != '' }}
+        run: |
+          AGENT="${{ inputs.agent_url || vars.SONDE_AGENT_HTTP_BASE }}"
+          for attempt in $(seq 1 60); do
+            if curl -fsS "$AGENT/health" >/dev/null; then
+              echo "Production agent is reachable"
+              exit 0
+            fi
+            echo "Waiting for production agent ($attempt/60)..."
+            sleep 10
+          done
+          echo "::error::Production agent did not become reachable in time"
+          exit 1
+
+      - name: Mint production smoke session
+        working-directory: server
+        env:
+          SUPABASE_URL: https://${{ secrets.SUPABASE_PROJECT_REF }}.supabase.co
+          SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
+          SMOKE_USER_EMAIL: ${{ secrets.SONDE_PRODUCTION_SMOKE_USER_EMAIL }}
+          SMOKE_USER_PASSWORD: ${{ secrets.SONDE_PRODUCTION_SMOKE_USER_PASSWORD }}
+          SMOKE_SESSION_FILE: ${{ env.PRODUCTION_SMOKE_SESSION_FILE }}
+        run: |
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_ANON_KEY" ] || [ -z "$SMOKE_USER_EMAIL" ] || [ -z "$SMOKE_USER_PASSWORD" ]; then
+            echo "::notice::Skipping production smoke session mint because production auth inputs are not fully configured"
+            exit 0
+          fi
+          node scripts/mint-smoke-session.mjs >/dev/null
+
+      - name: Audit deployed production stack
+        if: ${{ inputs.agent_url != '' || vars.SONDE_AGENT_HTTP_BASE != '' }}
+        working-directory: server
+        env:
+          AUDIT_UI_BASE: ${{ steps.url.outputs.target }}
+          AUDIT_AGENT_BASE: ${{ inputs.agent_url || vars.SONDE_AGENT_HTTP_BASE }}
+          AUDIT_RUNTIME_TOKEN: ${{ secrets.SONDE_PRODUCTION_AGENT_RUNTIME_AUDIT_TOKEN }}
+          AUDIT_EXPECT_ENVIRONMENT: production
+          AUDIT_EXPECT_COMMIT_SHA: ${{ github.sha }}
+          AUDIT_EXPECT_SCHEMA_VERSION: ${{ steps.schema.outputs.version }}
+          AUDIT_EXPECT_SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: node scripts/audit-deployed-stack.mjs
+
       - name: Run production smoke tests
         env:
           E2E_BASE_URL: ${{ steps.url.outputs.target }}
-        run: npx playwright test e2e/deployed.spec.ts --reporter=github
+          E2E_AGENT_HTTP_BASE: ${{ inputs.agent_url || vars.SONDE_AGENT_HTTP_BASE }}
+          E2E_AGENT_RUNTIME_AUDIT_TOKEN: ${{ secrets.SONDE_PRODUCTION_AGENT_RUNTIME_AUDIT_TOKEN }}
+          E2E_SUPABASE_URL: https://${{ secrets.SUPABASE_PROJECT_REF }}.supabase.co
+          E2E_EXPECT_PROGRAM_ID: shared
+          E2E_EXPECT_TIMELINE_AUTH_MODE: server token
+          E2E_CHAT_PROMPT: "Use Sonde tools to list one accessible program id, then reply with SONDE_SMOKE_OK."
+          E2E_CHAT_EXPECT_SUBSTRING: SONDE_SMOKE_OK
+          PRODUCTION_SMOKE_SESSION_FILE: ${{ env.PRODUCTION_SMOKE_SESSION_FILE }}
+        run: |
+          if [ -f "$PRODUCTION_SMOKE_SESSION_FILE" ]; then
+            export E2E_AUTH_SESSION_JSON="$(cat "$PRODUCTION_SMOKE_SESSION_FILE")"
+          fi
+          npx playwright test e2e/deployed.spec.ts --project=chromium --project=firefox --reporter=github
+
+      - name: Run production agent chat smoke
+        if: ${{ inputs.agent_url != '' || vars.SONDE_AGENT_HTTP_BASE != '' }}
+        working-directory: server
+        env:
+          CHAT_SMOKE_HTTP_BASE: ${{ inputs.agent_url || vars.SONDE_AGENT_HTTP_BASE }}
+          CHAT_SMOKE_PROMPT: "Use Sonde tools to list one accessible program id, then reply with SONDE_SMOKE_OK."
+          CHAT_SMOKE_STALE_SESSION: "1"
+          CHAT_SMOKE_REQUIRE_TOOL_USE: "1"
+          CHAT_SMOKE_EXPECT_SUBSTRING: "SONDE_SMOKE_OK"
+          CHAT_SMOKE_TIMEOUT_MS: "60000"
+          PRODUCTION_SMOKE_SESSION_FILE: ${{ env.PRODUCTION_SMOKE_SESSION_FILE }}
+          FALLBACK_CHAT_SMOKE_TOKEN: ${{ secrets.SONDE_AGENT_CHAT_TOKEN }}
+        run: |
+          if [ -f "$PRODUCTION_SMOKE_SESSION_FILE" ]; then
+            export CHAT_SMOKE_TOKEN="$(node -e 'const fs=require(\"node:fs\"); const data=JSON.parse(fs.readFileSync(process.env.PRODUCTION_SMOKE_SESSION_FILE,\"utf8\")); process.stdout.write((data.access_token ?? \"\").trim());')"
+          fi
+          if [ -z "$CHAT_SMOKE_TOKEN" ]; then
+            export CHAT_SMOKE_TOKEN="$FALLBACK_CHAT_SMOKE_TOKEN"
+          fi
+          if [ -z "$CHAT_SMOKE_TOKEN" ]; then
+            echo "::notice::Skipping production agent chat smoke because no session token or SONDE_AGENT_CHAT_TOKEN is configured"
+            exit 0
+          fi
+          node scripts/chat-smoke.mjs
 
       - name: Upload report on failure
         uses: actions/upload-artifact@v7

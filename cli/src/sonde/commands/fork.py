@@ -37,6 +37,12 @@ from sonde.output import (
 @click.option("--add-tag", "add_tags", multiple=True, help="Add tag(s) to inherited set")
 @click.option("--drop-tag", "drop_tags", multiple=True, help="Remove tag(s) from inherited set")
 @click.option("--status", default="open", type=click.Choice(["open", "running"]))
+@click.option("--hypothesis", help="Hypothesis text for the forked experiment")
+@click.option(
+    "--hypothesis-file",
+    type=click.Path(exists=True),
+    help="Read multiline hypothesis text from file",
+)
 @click.option(
     "--type",
     "branch_type",
@@ -61,6 +67,8 @@ def fork(
     add_tags: tuple[str, ...],
     drop_tags: tuple[str, ...],
     status: str,
+    hypothesis: str | None,
+    hypothesis_file: str | None,
     branch_type: str | None,
     clean: bool,
     intent: str | None,
@@ -122,6 +130,26 @@ def fork(
     # Resolve source
     settings = get_settings()
     resolved_source = settings.source or resolve_source()
+    hypothesis_from_file = None
+    if hypothesis_file:
+        with open(hypothesis_file, encoding="utf-8") as fh:
+            hypothesis_from_file = fh.read().strip()
+    resolved_hypothesis = hypothesis if hypothesis is not None else hypothesis_from_file
+    if intent:
+        from sonde.local import extract_section_text
+
+        extracted_hypothesis = extract_section_text(intent, "Hypothesis")
+        if (
+            resolved_hypothesis is not None
+            and extracted_hypothesis
+            and extracted_hypothesis.strip() != resolved_hypothesis.strip()
+        ):
+            err.print(
+                "  [sonde.warning]Both --hypothesis and ## Hypothesis were provided; "
+                "using the explicit field.[/]"
+            )
+        elif resolved_hypothesis is None:
+            resolved_hypothesis = extracted_hypothesis
 
     # Auto-detect git context (single-repo + multi-repo)
     git_ctx = detect_git_context()
@@ -153,6 +181,7 @@ def fork(
         parent_id=source_exp.id,
         branch_type=branch_type,
         content=intent if intent else None,
+        hypothesis=resolved_hypothesis,
         git_commit=git_ctx.commit if git_ctx else None,
         git_repo=git_ctx.repo if git_ctx else None,
         git_branch=git_ctx.branch if git_ctx else None,

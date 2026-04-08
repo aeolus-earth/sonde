@@ -1,5 +1,10 @@
 import type { Context, Hono } from "hono";
-import { verifyToken } from "./auth.js";
+import { verifyToken, type VerifiedUser } from "./auth.js";
+import {
+  checkUserRateLimit,
+  tryStartUserOperation,
+} from "./request-guard.js";
+import { getGitHubAllowedRepos } from "./security-config.js";
 
 const GITHUB_API_BASE = "https://api.github.com";
 const GITHUB_DEFAULT_PER_PAGE = 100;
@@ -120,6 +125,13 @@ const repoInFlight = new Map<string, Promise<GitHubRepoSummary>>();
 const commitCache = new Map<string, CacheEntry<GitHubCommitPageData>>();
 const commitInFlight = new Map<string, Promise<GitHubCommitPageData>>();
 
+export function resetGitHubCachesForTests(): void {
+  repoCache.clear();
+  repoInFlight.clear();
+  commitCache.clear();
+  commitInFlight.clear();
+}
+
 function getGitHubToken(): string | null {
   const raw =
     process.env.GITHUB_TOKEN ??
@@ -132,6 +144,10 @@ function getGitHubToken(): string | null {
 
 function getGitHubAuthMode(): GitHubAuthMode {
   return getGitHubToken() ? "server_token" : "unauthenticated";
+}
+
+function isRepoAllowlisted(owner: string, repo: string): boolean {
+  return getGitHubAllowedRepos().has(`${owner}/${repo}`.toLowerCase());
 }
 
 function parseRateLimit(headers: Headers): GitHubRateLimit {
@@ -293,14 +309,13 @@ function buildWarnings(
   return warnings;
 }
 
-async function requireAuthenticatedUser(c: Context): Promise<boolean> {
+async function requireAuthenticatedUser(c: Context): Promise<VerifiedUser | null> {
   const authHeader = c.req.header("Authorization") ?? "";
   const token = authHeader.startsWith("Bearer ")
     ? authHeader.slice("Bearer ".length).trim()
     : "";
-  if (!token) return false;
-  const user = await verifyToken(token);
-  return user != null;
+  if (!token) return null;
+  return verifyToken(token);
 }
 
 function clampPerPage(raw: string | undefined): number {
@@ -316,7 +331,8 @@ function normalizeBranch(raw: string | undefined): string | null {
 
 export function registerGitHubRoutes(app: Hono): void {
   app.get("/github/repos/:owner/:repo/commits", async (c) => {
-    if (!(await requireAuthenticatedUser(c))) {
+    const user = await requireAuthenticatedUser(c);
+    if (!user) {
       return c.json(
         {
           error: {
@@ -342,6 +358,45 @@ export function registerGitHubRoutes(app: Hono): void {
           },
         },
         400
+      );
+    }
+
+    if (getGitHubAuthMode() === "server_token" && !isRepoAllowlisted(owner, repo)) {
+      return c.json(
+        {
+          error: {
+            type: "repo_not_allowed",
+            message: `GitHub proxy access is not allowed for ${owner}/${repo}.`,
+          },
+        },
+        403
+      );
+    }
+
+    const rateLimit = await checkUserRateLimit("github", user.id, 60, 60_000);
+    if (!rateLimit.allowed) {
+      return c.json(
+        {
+          error: {
+            type: "rate_limited",
+            message: "Too many GitHub requests for this user. Please wait a moment.",
+            retryAfterMs: rateLimit.retryAfterMs,
+          },
+        },
+        429
+      );
+    }
+
+    const releaseOperation = await tryStartUserOperation("github", user.id, 4);
+    if (!releaseOperation) {
+      return c.json(
+        {
+          error: {
+            type: "busy",
+            message: "Too many concurrent GitHub requests for this user.",
+          },
+        },
+        429
       );
     }
 
@@ -461,6 +516,8 @@ export function registerGitHubRoutes(app: Hono): void {
         },
         502
       );
+    } finally {
+      await releaseOperation();
     }
   });
 }
