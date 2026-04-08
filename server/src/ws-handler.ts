@@ -585,6 +585,8 @@ async function handleUserMessage(
   ): Promise<{ completed: boolean; emittedOutput: boolean }> {
     let emittedOutput = false;
     let eventCount = 0;
+    const startedAt = Date.now();
+    const eventStats: Record<string, number> = {};
 
     chatLog(state, "agent_query_start", {
       attempt,
@@ -597,6 +599,7 @@ async function handleUserMessage(
         resumeSessionId,
       })) {
         eventCount += 1;
+        eventStats[event.type] = (eventStats[event.type] ?? 0) + 1;
         switch (event.type) {
           case "session":
             send(ws, { type: "session", sessionId: event.sessionId });
@@ -659,6 +662,9 @@ async function handleUserMessage(
       chatLog(state, "agent_query_done", {
         attempt,
         eventCount,
+        eventStats,
+        durationMs: Date.now() - startedAt,
+        emittedOutput,
       });
       return { completed: true, emittedOutput };
     } catch (error) {
@@ -667,6 +673,8 @@ async function handleUserMessage(
         attempt,
         resumeSessionId: resumeSessionId ?? null,
         eventCount,
+        eventStats,
+        durationMs: Date.now() - startedAt,
         emittedOutput,
         message,
       });

@@ -28,9 +28,15 @@ jobs:
         with:
           node-version: "22"
           cache: "npm"
-          cache-dependency-path: "ui/package-lock.json"
+          cache-dependency-path: |
+            ui/package-lock.json
+            server/package-lock.json
 
       - name: Install dependencies
+        run: npm ci
+
+      - name: Install server dependencies
+        working-directory: server
         run: npm ci
 
       - name: Install Playwright
@@ -82,6 +88,16 @@ jobs:
           E2E_BASE_URL: ${{ steps.url.outputs.target }}
           E2E_AGENT_HTTP_BASE: ${{ inputs.agent_url || vars.SONDE_STAGING_AGENT_HTTP_BASE }}
         run: npx playwright test e2e/deployed.spec.ts --project=chromium --project=firefox --reporter=github
+
+      - name: Run staging agent chat smoke
+        if: ${{ (inputs.agent_url != '' || vars.SONDE_STAGING_AGENT_HTTP_BASE != '') && secrets.SONDE_STAGING_AGENT_CHAT_TOKEN != '' }}
+        working-directory: server
+        env:
+          CHAT_SMOKE_HTTP_BASE: ${{ inputs.agent_url || vars.SONDE_STAGING_AGENT_HTTP_BASE }}
+          CHAT_SMOKE_TOKEN: ${{ secrets.SONDE_STAGING_AGENT_CHAT_TOKEN }}
+          CHAT_SMOKE_PROMPT: "Say hello briefly."
+          CHAT_SMOKE_TIMEOUT_MS: "60000"
+        run: node scripts/chat-smoke.mjs
 
       - name: Upload report on failure
         uses: actions/upload-artifact@v7

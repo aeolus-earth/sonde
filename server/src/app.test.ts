@@ -49,12 +49,18 @@ describe("createApp", () => {
       status: string;
       environment: string;
       commitSha: string | null;
+      agentBackend: string;
+      daytonaConfigured: boolean;
+      bypassAuthEnabled: boolean;
     };
 
     assert.deepEqual(body, {
       status: "ok",
       environment: "test",
       commitSha: "abc123",
+      agentBackend: "direct",
+      daytonaConfigured: false,
+      bypassAuthEnabled: true,
     });
   });
 

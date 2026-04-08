@@ -260,6 +260,16 @@ jobs:
         run: npx playwright install chromium firefox --with-deps
 
       - if: steps.gate.outputs.run == 'true'
+        name: Direct agent chat smoke
+        working-directory: server
+        env:
+          CHAT_SMOKE_HTTP_BASE: http://127.0.0.1:3003
+          CHAT_SMOKE_TOKEN: ${{ env.E2E_AUTH_BYPASS_TOKEN }}
+          CHAT_SMOKE_STALE_SESSION: "1"
+          CHAT_SMOKE_TIMEOUT_MS: "30000"
+        run: node scripts/chat-smoke.mjs
+
+      - if: steps.gate.outputs.run == 'true'
         name: Run browser smoke
         run: npx playwright test e2e/ci-smoke.spec.ts --project=chromium --project=firefox
 
