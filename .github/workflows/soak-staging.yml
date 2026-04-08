@@ -22,12 +22,14 @@ permissions:
 jobs:
   soak:
     runs-on: ubuntu-latest
-    env:
-      SOAK_SESSION_FILE: ${{ runner.temp }}/sonde-soak-sessions.json
-      SOAK_USERS_FILE: ${{ runner.temp }}/sonde-soak-users.json
 
     steps:
       - uses: actions/checkout@v6
+
+      - name: Set soak temp paths
+        run: |
+          echo "SOAK_SESSION_FILE=$RUNNER_TEMP/sonde-soak-sessions.json" >> "$GITHUB_ENV"
+          echo "SOAK_USERS_FILE=$RUNNER_TEMP/sonde-soak-users.json" >> "$GITHUB_ENV"
 
       - uses: actions/setup-node@v6
         with:
@@ -103,7 +105,7 @@ jobs:
           for idx in $(seq 1 5); do
             curl -fsS \
               -H "Authorization: Bearer $ACCESS_TOKEN" \
-              "$AGENT_BASE/github/repos/aeolus-earth/sonde/commits?per_page=25" >/tmp/timeline-$idx.json &
+              "$AGENT_BASE/github/repos/aeolus-earth/sonde/commits?per_page=25" >"/tmp/timeline-$idx.json" &
           done
           wait
 
@@ -117,7 +119,8 @@ jobs:
           SOAK_CHAT_PROMPT: "Use Sonde tools to list one accessible program id and briefly explain what you found."
           SOAK_CHAT_REQUIRE_TOOL_USE: "1"
         run: |
-          export SOAK_CHAT_TOKENS="$(node -e 'const fs=require(\"node:fs\"); const file=process.env.SOAK_SESSION_FILE; const data=JSON.parse(fs.readFileSync(file,\"utf8\")); process.stdout.write((data.access_tokens ?? []).join(\",\"));')"
+          SOAK_CHAT_TOKENS="$(node -e 'const fs=require(\"node:fs\"); const file=process.env.SOAK_SESSION_FILE; const data=JSON.parse(fs.readFileSync(file,\"utf8\")); process.stdout.write((data.access_tokens ?? []).join(\",\"));')"
+          export SOAK_CHAT_TOKENS
           if [ -z "$SOAK_CHAT_TOKENS" ]; then
             echo "::error::No soak chat tokens available"
             exit 1

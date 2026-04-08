@@ -18,14 +18,15 @@ on:
 jobs:
   smoke:
     runs-on: ubuntu-latest
-    env:
-      PRODUCTION_SMOKE_SESSION_FILE: ${{ runner.temp }}/sonde-production-smoke-session.json
     defaults:
       run:
         working-directory: ui
 
     steps:
       - uses: actions/checkout@v6
+
+      - name: Set smoke temp paths
+        run: echo "PRODUCTION_SMOKE_SESSION_FILE=$RUNNER_TEMP/sonde-production-smoke-session.json" >> "$GITHUB_ENV"
 
       - uses: actions/setup-node@v6
         with:
@@ -159,7 +160,8 @@ jobs:
           PRODUCTION_SMOKE_SESSION_FILE: ${{ env.PRODUCTION_SMOKE_SESSION_FILE }}
         run: |
           if [ -f "$PRODUCTION_SMOKE_SESSION_FILE" ]; then
-            export E2E_AUTH_SESSION_JSON="$(cat "$PRODUCTION_SMOKE_SESSION_FILE")"
+            E2E_AUTH_SESSION_JSON="$(cat "$PRODUCTION_SMOKE_SESSION_FILE")"
+            export E2E_AUTH_SESSION_JSON
           fi
           npx playwright test e2e/deployed.spec.ts --project=chromium --project=firefox --reporter=github
 
@@ -177,7 +179,8 @@ jobs:
           FALLBACK_CHAT_SMOKE_TOKEN: ${{ secrets.SONDE_AGENT_CHAT_TOKEN }}
         run: |
           if [ -f "$PRODUCTION_SMOKE_SESSION_FILE" ]; then
-            export CHAT_SMOKE_TOKEN="$(node -e 'const fs=require(\"node:fs\"); const data=JSON.parse(fs.readFileSync(process.env.PRODUCTION_SMOKE_SESSION_FILE,\"utf8\")); process.stdout.write((data.access_token ?? \"\").trim());')"
+            CHAT_SMOKE_TOKEN="$(node -e 'const fs=require(\"node:fs\"); const data=JSON.parse(fs.readFileSync(process.env.PRODUCTION_SMOKE_SESSION_FILE,\"utf8\")); process.stdout.write((data.access_token ?? \"\").trim());')"
+            export CHAT_SMOKE_TOKEN
           fi
           if [ -z "$CHAT_SMOKE_TOKEN" ]; then
             export CHAT_SMOKE_TOKEN="$FALLBACK_CHAT_SMOKE_TOKEN"
