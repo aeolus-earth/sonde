@@ -65,9 +65,10 @@ jobs:
           mkdir -p "$TMPDIR/supabase"
           cp supabase/config.toml "$TMPDIR/supabase/config.toml"
           node server/scripts/render-supabase-hosted-config.mjs "$TMPDIR/supabase/config.toml"
-          supabase config push --workdir "$TMPDIR" --linked --yes
+          supabase config push --workdir "$TMPDIR" --project-ref "${SUPABASE_PROJECT_REF}" --yes
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || '' }}
           SUPABASE_AUTH_SMS_TWILIO_AUTH_TOKEN: ${{ secrets.SUPABASE_AUTH_SMS_TWILIO_AUTH_TOKEN || '' }}
           SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID: ${{ secrets.SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID }}
@@ -141,7 +142,9 @@ jobs:
       - name: Pin deployed commit metadata
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_PRODUCTION_PROJECT_TOKEN }}
+          SONDE_SCHEMA_VERSION: ${{ steps.schema.outputs.version }}
         run: |
+          SCHEMA_VERSION="${SONDE_SCHEMA_VERSION:-unknown}"
           railway variable set \
             -s "${{ vars.RAILWAY_PRODUCTION_SERVICE_NAME }}" \
             -e production \
@@ -152,7 +155,7 @@ jobs:
             SONDE_ENVIRONMENT="production" \
             SONDE_COMMIT_SHA="${GITHUB_SHA}" \
             SONDE_CLI_GIT_REF="${GITHUB_SHA}" \
-            SONDE_SCHEMA_VERSION="${{ steps.schema.outputs.version }}"
+            SONDE_SCHEMA_VERSION="${SCHEMA_VERSION}"
 
       - name: Deploy production agent
         env:
