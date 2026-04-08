@@ -27,6 +27,10 @@ function createFakeSandbox(label: string): FakeSandbox {
       this.execCommands.push(`${label}:${command}`);
       return { exitCode: 0, stdout: "", stderr: "" };
     },
+    async execSondeCommand(command) {
+      this.execCommands.push(`${label}:sonde:${command}`);
+      return { exitCode: 0, stdout: "", stderr: "" };
+    },
     async readFile() {
       return "";
     },

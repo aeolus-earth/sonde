@@ -19,6 +19,195 @@ from sonde.db.artifacts.inference import (
 from sonde.db.client import get_client
 from sonde.db.ids import create_with_retry
 
+SAFE_TEXT_EXTENSIONS = {
+    ".cfg",
+    ".conf",
+    ".csv",
+    ".ini",
+    ".ipynb",
+    ".jl",
+    ".json",
+    ".log",
+    ".md",
+    ".py",
+    ".r",
+    ".toml",
+    ".tsv",
+    ".txt",
+    ".xml",
+    ".yaml",
+    ".yml",
+}
+SAFE_IMAGE_EXTENSIONS = {
+    ".bmp",
+    ".gif",
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".tif",
+    ".tiff",
+    ".webp",
+}
+SAFE_VIDEO_EXTENSIONS = {
+    ".avi",
+    ".m4v",
+    ".mkv",
+    ".mov",
+    ".mp4",
+    ".ogv",
+    ".webm",
+}
+SAFE_AUDIO_EXTENSIONS = {
+    ".aac",
+    ".flac",
+    ".m4a",
+    ".mp3",
+    ".ogg",
+    ".wav",
+}
+SAFE_DATA_EXTENSIONS = {
+    ".h5",
+    ".hdf5",
+    ".jld2",
+    ".nc",
+    ".npy",
+    ".npz",
+    ".parquet",
+}
+SAFE_DOCUMENT_EXTENSIONS = {
+    ".docx",
+    ".pdf",
+    ".pptx",
+    ".xlsx",
+}
+SAFE_ARCHIVE_SUFFIXES = {
+    ".bz2",
+    ".gz",
+    ".tar",
+    ".tar.bz2",
+    ".tar.gz",
+    ".tar.xz",
+    ".tgz",
+    ".xz",
+    ".zip",
+}
+BLOCKED_EXTENSIONS = {
+    ".bat",
+    ".cjs",
+    ".cmd",
+    ".com",
+    ".css",
+    ".dll",
+    ".dylib",
+    ".exe",
+    ".fish",
+    ".htm",
+    ".html",
+    ".jar",
+    ".js",
+    ".jsx",
+    ".mjs",
+    ".msi",
+    ".php",
+    ".ps1",
+    ".sh",
+    ".so",
+    ".svg",
+    ".ts",
+    ".tsx",
+    ".zsh",
+}
+BLOCKED_MIME_TYPES = {
+    "application/javascript",
+    "application/x-bat",
+    "application/x-msdos-program",
+    "application/x-msdownload",
+    "application/x-sh",
+    "image/svg+xml",
+    "text/html",
+    "text/javascript",
+}
+SAFE_MIME_TYPES = {
+    "application/json",
+    "application/pdf",
+    "application/toml",
+    "application/vnd.apache.parquet",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/x-tar",
+    "application/x-toml",
+    "application/x-yaml",
+    "application/yaml",
+}
+SAFE_MIME_PREFIXES = ("audio/", "image/", "text/", "video/")
+
+
+class UnsupportedArtifactTypeError(ValueError):
+    """Raised when an artifact type is not allowed for upload."""
+
+
+def _is_zarr_member(storage_path: str | None) -> bool:
+    if not storage_path:
+        return False
+    normalized = storage_path.lower()
+    return ".zarr/" in normalized or normalized.endswith(".zarr")
+
+
+def _has_allowed_suffix(filepath: Path) -> bool:
+    name = filepath.name.lower()
+    if any(name.endswith(suffix) for suffix in SAFE_ARCHIVE_SUFFIXES):
+        return True
+    suffix = filepath.suffix.lower()
+    return suffix in (
+        SAFE_TEXT_EXTENSIONS
+        | SAFE_IMAGE_EXTENSIONS
+        | SAFE_VIDEO_EXTENSIONS
+        | SAFE_AUDIO_EXTENSIONS
+        | SAFE_DATA_EXTENSIONS
+        | SAFE_DOCUMENT_EXTENSIONS
+    )
+
+
+def validate_uploadable_artifact(
+    filepath: Path,
+    content_type: str,
+    *,
+    storage_path: str | None = None,
+) -> None:
+    """Raise when a file is not allowed for artifact upload."""
+    name = filepath.name.lower()
+    suffix = filepath.suffix.lower()
+    mime = content_type.lower().strip()
+
+    if suffix in BLOCKED_EXTENSIONS or any(name.endswith(ext) for ext in BLOCKED_EXTENSIONS):
+        raise UnsupportedArtifactTypeError(
+            f"{filepath.name} is not an allowed artifact type. "
+            "Upload passive data, documents, archives, or media "
+            "instead of active web/script/executable content."
+        )
+
+    if mime in BLOCKED_MIME_TYPES:
+        raise UnsupportedArtifactTypeError(
+            f"{filepath.name} uses blocked MIME type {content_type}. "
+            "Upload a passive data or document format instead."
+        )
+
+    if _is_zarr_member(storage_path):
+        return
+
+    if _has_allowed_suffix(filepath):
+        return
+
+    if mime in SAFE_MIME_TYPES or any(mime.startswith(prefix) for prefix in SAFE_MIME_PREFIXES):
+        return
+
+    raise UnsupportedArtifactTypeError(
+        f"{filepath.name} is not an allowed artifact type. "
+        "Supported uploads include text/data files, PDFs, common office "
+        "documents, passive media, archives, and dataset files."
+    )
+
 
 def compute_checksum(filepath: Path) -> str:
     """Compute the SHA-256 checksum for *filepath*."""
@@ -68,6 +257,7 @@ def upload_file(
         )
 
     content_type = mimetypes.guess_type(filepath.name)[0] or "application/octet-stream"
+    validate_uploadable_artifact(filepath, content_type, storage_path=storage_path)
     checksum = compute_checksum(filepath)
     existing = find_by_storage_path(storage_path)
 

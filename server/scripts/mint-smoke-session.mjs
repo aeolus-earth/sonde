@@ -25,10 +25,9 @@ async function requestJson(url, init) {
   return body;
 }
 
-function setOutput(name, value) {
-  const outputPath = process.env.GITHUB_OUTPUT?.trim();
-  if (!outputPath) return;
-  fs.appendFileSync(outputPath, `${name}<<EOF\n${value}\nEOF\n`);
+function writeJsonFile(path, value) {
+  if (!path) return;
+  fs.writeFileSync(path, JSON.stringify(value), { mode: 0o600 });
 }
 
 async function main() {
@@ -51,9 +50,7 @@ async function main() {
   );
 
   const sessionJson = JSON.stringify(session);
-  setOutput("session_json", sessionJson);
-  setOutput("access_token", session.access_token);
-  setOutput("user_id", session.user?.id ?? "");
+  writeJsonFile(process.env.SMOKE_SESSION_FILE?.trim(), session);
 
   console.log(sessionJson);
 }

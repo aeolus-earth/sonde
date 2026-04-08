@@ -8,6 +8,7 @@ import {
 } from "@/contexts/chat-store-context";
 import { useChatPageContext } from "@/contexts/chat-page-context";
 import { filesToAttachmentPayloads } from "@/lib/chat-attachments";
+import { getAgentHttpBase } from "@/lib/agent-http";
 import type {
   MentionRef,
   ServerMessage,
@@ -25,6 +26,24 @@ function getAgentWsBase(): string {
     return `${proto}//${window.location.host}/agent`;
   }
   return "ws://localhost:3001";
+}
+
+async function fetchChatSessionToken(accessToken: string): Promise<string> {
+  const response = await fetch(`${getAgentHttpBase()}/chat/session-token`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`Chat session token request failed (${response.status})`);
+  }
+  const payload = (await response.json()) as { token?: string };
+  const token = payload.token?.trim() ?? "";
+  if (!token) {
+    throw new Error("Chat session token response was missing a token");
+  }
+  return token;
 }
 
 const RECONNECT_BASE_MS = 1000;
@@ -335,18 +354,25 @@ export function useChat() {
     chatDebug("connect:start");
     chatStoreApiRef.current.getState().setConnectionStatus("connecting");
 
-    const url = `${getAgentWsBase()}/chat`;
-    const ws = new WebSocket(url);
+    let wsToken: string;
+    try {
+      wsToken = await fetchChatSessionToken(token);
+    } catch (error) {
+      chatDebug("connect:session-token-error", {
+        message: error instanceof Error ? error.message : String(error),
+      });
+      chatStoreApiRef.current.getState().setConnectionStatus("disconnected");
+      return;
+    }
+
+    const url = new URL(`${getAgentWsBase()}/chat`);
+    url.searchParams.set("ws_token", wsToken);
+    const ws = new WebSocket(url.toString());
     wsRef.current = ws;
 
     ws.onopen = () => {
-      const authPayload: ClientMessage = {
-        type: "auth",
-        token,
-      };
-      ws.send(JSON.stringify(authPayload));
       chatDebug("ws:open", {
-        authSent: true,
+        authSent: false,
       });
       authFailureRef.current = false;
       authErrorLoggedRef.current = false;

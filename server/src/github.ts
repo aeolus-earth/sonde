@@ -4,6 +4,7 @@ import {
   checkUserRateLimit,
   tryStartUserOperation,
 } from "./request-guard.js";
+import { getGitHubAllowedRepos } from "./security-config.js";
 
 const GITHUB_API_BASE = "https://api.github.com";
 const GITHUB_DEFAULT_PER_PAGE = 100;
@@ -143,6 +144,10 @@ function getGitHubToken(): string | null {
 
 function getGitHubAuthMode(): GitHubAuthMode {
   return getGitHubToken() ? "server_token" : "unauthenticated";
+}
+
+function isRepoAllowlisted(owner: string, repo: string): boolean {
+  return getGitHubAllowedRepos().has(`${owner}/${repo}`.toLowerCase());
 }
 
 function parseRateLimit(headers: Headers): GitHubRateLimit {
@@ -356,7 +361,19 @@ export function registerGitHubRoutes(app: Hono): void {
       );
     }
 
-    const rateLimit = checkUserRateLimit("github", user.id, 60, 60_000);
+    if (getGitHubAuthMode() === "server_token" && !isRepoAllowlisted(owner, repo)) {
+      return c.json(
+        {
+          error: {
+            type: "repo_not_allowed",
+            message: `GitHub proxy access is not allowed for ${owner}/${repo}.`,
+          },
+        },
+        403
+      );
+    }
+
+    const rateLimit = await checkUserRateLimit("github", user.id, 60, 60_000);
     if (!rateLimit.allowed) {
       return c.json(
         {
@@ -370,7 +387,7 @@ export function registerGitHubRoutes(app: Hono): void {
       );
     }
 
-    const releaseOperation = tryStartUserOperation("github", user.id, 4);
+    const releaseOperation = await tryStartUserOperation("github", user.id, 4);
     if (!releaseOperation) {
       return c.json(
         {
@@ -500,7 +517,7 @@ export function registerGitHubRoutes(app: Hono): void {
         502
       );
     } finally {
-      releaseOperation();
+      await releaseOperation();
     }
   });
 }

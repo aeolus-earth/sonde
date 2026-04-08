@@ -5,6 +5,7 @@ import { serve } from "@hono/node-server";
 import { createNodeWebSocket } from "@hono/node-ws";
 import WebSocket from "ws";
 import { createApp, handleWebSocket } from "./app.js";
+import { issueWsSessionToken } from "./ws-session-token.js";
 
 const originalEnv = { ...process.env };
 
@@ -40,19 +41,18 @@ describe("chat websocket session recovery", () => {
     const messages: Array<Record<string, unknown>> = [];
 
     await new Promise<void>((resolve, reject) => {
-      const ws = new WebSocket(`ws://127.0.0.1:${port}/chat`);
+      const wsToken = issueWsSessionToken("playwright-smoke-token", {
+        id: "e2e-user",
+        email: "ci-smoke@aeolus.earth",
+        name: "CI Smoke",
+      });
+      const ws = new WebSocket(`ws://127.0.0.1:${port}/chat?ws_token=${encodeURIComponent(wsToken)}`);
       const timeout = setTimeout(() => {
         ws.close();
         reject(new Error("Timed out waiting for chat response"));
       }, 10_000);
 
       ws.on("open", () => {
-        ws.send(
-          JSON.stringify({
-            type: "auth",
-            token: "playwright-smoke-token",
-          })
-        );
         ws.send(
           JSON.stringify({
             type: "message",

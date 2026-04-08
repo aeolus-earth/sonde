@@ -34,6 +34,8 @@ export default defineConfig({
             SONDE_TEST_AUTH_DELAY_MS: "750",
             SONDE_TEST_AUTH_BYPASS_TOKEN:
               process.env.E2E_AUTH_BYPASS_TOKEN || "playwright-smoke-token",
+            SONDE_WS_TOKEN_SECRET: "playwright-ws-secret",
+            SONDE_RUNTIME_AUDIT_TOKEN: "playwright-runtime-audit-token",
           },
         },
         {

@@ -14,8 +14,8 @@ function normalizeBaseUrl(value) {
   return value.replace(/\/+$/, "");
 }
 
-async function fetchJson(url) {
-  const response = await fetch(url);
+async function fetchJson(url, init) {
+  const response = await fetch(url, init);
   const bodyText = await response.text();
   const contentType = response.headers.get("content-type") ?? "";
 
@@ -66,6 +66,10 @@ function isRailwayHostname(hostname) {
 async function main() {
   const uiBase = normalizeBaseUrl(requiredEnv("AUDIT_UI_BASE"));
   const agentBase = normalizeBaseUrl(requiredEnv("AUDIT_AGENT_BASE"));
+  const runtimeAuditToken = process.env.AUDIT_RUNTIME_TOKEN?.trim() || null;
+  if (!runtimeAuditToken) {
+    throw new Error("Missing required env: AUDIT_RUNTIME_TOKEN");
+  }
   const expectedEnvironment = process.env.AUDIT_EXPECT_ENVIRONMENT?.trim() || null;
   const expectedCommitSha = process.env.AUDIT_EXPECT_COMMIT_SHA?.trim() || null;
   const expectedSchemaVersion =
@@ -82,9 +86,16 @@ async function main() {
     (process.env.AUDIT_REQUIRE_FIRST_PARTY_AGENT ?? "").trim().toLowerCase()
   );
 
-  const [uiVersion, agentHealth] = await Promise.all([
+  const [uiVersion, agentHealth, agentRuntime] = await Promise.all([
     fetchJson(`${uiBase}/version.json`),
     fetchJson(`${agentBase}/health`),
+    fetchJson(`${agentBase}/health/runtime`, {
+      headers: runtimeAuditToken
+        ? {
+            Authorization: `Bearer ${runtimeAuditToken}`,
+          }
+        : {},
+    }),
   ]);
 
   ensure(uiVersion?.environment, "UI version metadata is missing environment");
@@ -93,22 +104,26 @@ async function main() {
     "UI version metadata is missing commitSha"
   );
   ensure(agentHealth?.status === "ok", "Agent health status is not ok");
-  ensure(agentHealth?.environment, "Agent health is missing environment");
   ensure(
-    Object.prototype.hasOwnProperty.call(agentHealth ?? {}, "commitSha"),
-    "Agent health is missing commitSha"
+    Object.keys(agentHealth ?? {}).length === 1 && agentHealth?.status === "ok",
+    "Public agent health should expose only liveness status"
+  );
+  ensure(agentRuntime?.environment, "Agent runtime metadata is missing environment");
+  ensure(
+    Object.prototype.hasOwnProperty.call(agentRuntime ?? {}, "commitSha"),
+    "Agent runtime metadata is missing commitSha"
   );
   ensure(
-    Object.prototype.hasOwnProperty.call(agentHealth ?? {}, "schemaVersion"),
-    "Agent health is missing schemaVersion"
+    Object.prototype.hasOwnProperty.call(agentRuntime ?? {}, "schemaVersion"),
+    "Agent runtime metadata is missing schemaVersion"
   );
   ensure(
-    Object.prototype.hasOwnProperty.call(agentHealth ?? {}, "cliGitRef"),
-    "Agent health is missing cliGitRef"
+    Object.prototype.hasOwnProperty.call(agentRuntime ?? {}, "cliGitRef"),
+    "Agent runtime metadata is missing cliGitRef"
   );
   ensure(
-    Object.prototype.hasOwnProperty.call(agentHealth ?? {}, "supabaseProjectRef"),
-    "Agent health is missing supabaseProjectRef"
+    Object.prototype.hasOwnProperty.call(agentRuntime ?? {}, "supabaseProjectRef"),
+    "Agent runtime metadata is missing supabaseProjectRef"
   );
 
   if (expectedEnvironment) {
@@ -117,8 +132,8 @@ async function main() {
       `UI environment mismatch: expected ${expectedEnvironment}, got ${uiVersion.environment}`
     );
     ensure(
-      agentHealth.environment === expectedEnvironment,
-      `Agent environment mismatch: expected ${expectedEnvironment}, got ${agentHealth.environment}`
+      agentRuntime.environment === expectedEnvironment,
+      `Agent environment mismatch: expected ${expectedEnvironment}, got ${agentRuntime.environment}`
     );
   }
 
@@ -128,43 +143,43 @@ async function main() {
       `UI commit mismatch: expected ${expectedCommitSha}, got ${uiVersion.commitSha}`
     );
     ensure(
-      agentHealth.commitSha === expectedCommitSha,
-      `Agent commit mismatch: expected ${expectedCommitSha}, got ${agentHealth.commitSha}`
+      agentRuntime.commitSha === expectedCommitSha,
+      `Agent commit mismatch: expected ${expectedCommitSha}, got ${agentRuntime.commitSha}`
     );
-  } else if (uiVersion.commitSha && agentHealth.commitSha) {
+  } else if (uiVersion.commitSha && agentRuntime.commitSha) {
     ensure(
-      uiVersion.commitSha === agentHealth.commitSha,
-      `UI and agent commit mismatch: ${uiVersion.commitSha} vs ${agentHealth.commitSha}`
+      uiVersion.commitSha === agentRuntime.commitSha,
+      `UI and agent commit mismatch: ${uiVersion.commitSha} vs ${agentRuntime.commitSha}`
     );
   }
 
   if (expectedSchemaVersion) {
     if (expectedSchemaVersion === "unknown") {
       ensure(
-        agentHealth.schemaVersion,
-        "Agent health is missing a schemaVersion while audit is running in unknown fallback mode"
+        agentRuntime.schemaVersion,
+        "Agent runtime metadata is missing a schemaVersion while audit is running in unknown fallback mode"
       );
     } else {
       ensure(
-        agentHealth.schemaVersion === expectedSchemaVersion,
-        `Schema version mismatch: expected ${expectedSchemaVersion}, got ${agentHealth.schemaVersion}`
+        agentRuntime.schemaVersion === expectedSchemaVersion,
+        `Schema version mismatch: expected ${expectedSchemaVersion}, got ${agentRuntime.schemaVersion}`
       );
     }
   }
 
   if (expectedSupabaseProjectRef) {
     ensure(
-      agentHealth.supabaseProjectRef === expectedSupabaseProjectRef,
-      `Supabase project mismatch: expected ${expectedSupabaseProjectRef}, got ${agentHealth.supabaseProjectRef}`
+      agentRuntime.supabaseProjectRef === expectedSupabaseProjectRef,
+      `Supabase project mismatch: expected ${expectedSupabaseProjectRef}, got ${agentRuntime.supabaseProjectRef}`
     );
   }
 
   if (requireDaytona) {
-    ensure(agentHealth.daytonaConfigured, "Agent is missing Daytona configuration");
+    ensure(agentRuntime.daytonaConfigured, "Agent is missing Daytona configuration");
   }
 
   if (requireAnthropic) {
-    ensure(agentHealth.anthropicConfigured, "Agent is missing Anthropic configuration");
+    ensure(agentRuntime.anthropicConfigured, "Agent is missing Anthropic configuration");
   }
 
   if (requireFirstPartyAgent) {
@@ -185,7 +200,10 @@ async function main() {
     JSON.stringify(
       {
         ui: uiVersion,
-        agent: agentHealth,
+        agent: {
+          health: agentHealth,
+          runtime: agentRuntime,
+        },
       },
       null,
       2

@@ -10,6 +10,8 @@ import { seedActiveProgram, seedConfiguredSession } from "./helpers";
 
 const BASE_URL = process.env.E2E_BASE_URL;
 const AGENT_HTTP_BASE = process.env.E2E_AGENT_HTTP_BASE ?? null;
+const AGENT_RUNTIME_AUDIT_TOKEN =
+  process.env.E2E_AGENT_RUNTIME_AUDIT_TOKEN?.trim() || null;
 const AUTH_SESSION_JSON = process.env.E2E_AUTH_SESSION_JSON?.trim() || null;
 const EXPECT_PROGRAM_ID = process.env.E2E_EXPECT_PROGRAM_ID?.trim() || null;
 const EXPECT_EXPERIMENT_ID = process.env.E2E_EXPECT_EXPERIMENT_ID?.trim() || null;
@@ -106,6 +108,24 @@ test.describe("Production deployment", () => {
     test.skip(!AGENT_HTTP_BASE, "Skipped: no agent host configured");
 
     const response = await request.get(`${AGENT_HTTP_BASE}/health`);
+    expect(response.ok()).toBeTruthy();
+
+    const body = (await response.json()) as { status: string };
+    expect(body).toEqual({ status: "ok" });
+  });
+
+  test("agent runtime metadata is available with the audit token", async ({ request }) => {
+    test.skip(!AGENT_HTTP_BASE, "Skipped: no agent host configured");
+    test.skip(
+      !AGENT_RUNTIME_AUDIT_TOKEN,
+      "Skipped: no runtime audit token configured",
+    );
+
+    const response = await request.get(`${AGENT_HTTP_BASE}/health/runtime`, {
+      headers: {
+        Authorization: `Bearer ${AGENT_RUNTIME_AUDIT_TOKEN}`,
+      },
+    });
     expect(response.ok()).toBeTruthy();
 
     const body = (await response.json()) as {

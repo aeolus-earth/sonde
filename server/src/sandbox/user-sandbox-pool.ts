@@ -95,12 +95,21 @@ async function getOrCreateEntry(
 
 function createScopedSandbox(baseSandbox: SandboxHandle, sessionDir: string): SandboxHandle {
   return {
+    sessionDir,
+
     get ready() {
       return baseSandbox.ready;
     },
 
     exec(command, opts) {
       return baseSandbox.exec(command, {
+        ...opts,
+        cwd: opts?.cwd ?? sessionDir,
+      });
+    },
+
+    execSondeCommand(command, opts) {
+      return baseSandbox.execSondeCommand(command, {
         ...opts,
         cwd: opts?.cwd ?? sessionDir,
       });

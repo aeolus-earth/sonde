@@ -15,6 +15,7 @@ from sonde.db import experiments as exp_db
 from sonde.db import projects as proj_db
 from sonde.db.artifacts import (
     ArtifactTooLargeError,
+    UnsupportedArtifactTypeError,
     compute_checksum,
     find_by_storage_path,
     upload_file,
@@ -194,6 +195,11 @@ def attach(
             if not ctx.obj.get("json"):
                 err.print(f"  [sonde.warning]oversized: {relative_str} ({exc})[/]")
                 err.print(f"  [sonde.muted]{_large_artifact_fix()}[/]")
+        except UnsupportedArtifactTypeError as exc:
+            stats.failed += 1
+            failures.append({"path": relative_str, "error": str(exc), "kind": "blocked"})
+            if not ctx.obj.get("json"):
+                err.print(f"  [sonde.warning]blocked: {relative_str} ({exc})[/]")
         except Exception as exc:
             stats.failed += 1
             failures.append({"path": relative_str, "error": str(exc), "kind": "failed"})

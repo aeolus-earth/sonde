@@ -14,6 +14,7 @@ from sonde.artifact_sync import SyncCandidate, SyncJournal, build_fingerprint, b
 from sonde.cli import cli
 from sonde.db.artifacts import (
     ArtifactTooLargeError,
+    UnsupportedArtifactTypeError,
     audit_artifact_sync,
     finalize_deleted_artifacts,
     is_text_artifact,
@@ -317,6 +318,42 @@ class TestArtifactUpload:
             upload_file(artifact, "human/test", experiment_id="EXP-0001")
 
         mock_supabase.table.return_value.delete.assert_called_once()
+
+    def test_upload_file_rejects_active_content_types(self, mock_supabase, tmp_path: Path):
+        artifact = tmp_path / "report.html"
+        artifact.write_text("<html></html>", encoding="utf-8")
+
+        with (
+            patch("sonde.db.artifacts.storage.get_client", return_value=mock_supabase),
+            pytest.raises(UnsupportedArtifactTypeError, match="not an allowed artifact type"),
+        ):
+            upload_file(artifact, "human/test", experiment_id="EXP-0001")
+
+        mock_supabase.storage.from_.return_value.upload.assert_not_called()
+
+    def test_upload_file_allows_zarr_members_when_nested_under_zarr_path(
+        self, mock_supabase, tmp_path: Path
+    ):
+        artifact = tmp_path / "0.0"
+        artifact.write_bytes(b"\x01\x02\x03")
+
+        with (
+            patch("sonde.db.artifacts.storage.get_client", return_value=mock_supabase),
+            patch("sonde.db.artifacts.storage.find_by_storage_path", return_value=None),
+            patch(
+                "sonde.db.artifacts.storage.create_with_retry",
+                return_value={"id": "ART-0004", "storage_path": "EXP-0001/data.zarr/0.0"},
+            ),
+        ):
+            row = upload_file(
+                artifact,
+                "human/test",
+                experiment_id="EXP-0001",
+                storage_subpath="EXP-0001/data.zarr/0.0",
+            )
+
+        assert row["id"] == "ART-0004"
+        mock_supabase.storage.from_.return_value.upload.assert_called_once()
 
 
 class TestPullCommands:

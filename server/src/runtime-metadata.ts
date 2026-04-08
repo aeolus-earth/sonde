@@ -8,7 +8,6 @@ export interface RuntimeMetadata {
   agentBackend: "sandbox" | "direct";
   daytonaConfigured: boolean;
   anthropicConfigured: boolean;
-  bypassAuthEnabled: boolean;
   cliGitRef: string | null;
   supabaseProjectRef: string | null;
 }
@@ -49,7 +48,6 @@ export function getRuntimeMetadata(
     agentBackend: isSandboxMode() ? "sandbox" : "direct",
     daytonaConfigured: Boolean(env.DAYTONA_API_KEY?.trim()),
     anthropicConfigured: Boolean(env.ANTHROPIC_API_KEY?.trim()),
-    bypassAuthEnabled: Boolean(env.SONDE_TEST_AUTH_BYPASS_TOKEN?.trim()),
     cliGitRef: env.SONDE_CLI_GIT_REF?.trim() || null,
     supabaseProjectRef: getSupabaseProjectRef(env),
   };

@@ -40,10 +40,9 @@ async function requestJson(url, init) {
   return body;
 }
 
-function setOutput(name, value) {
-  const outputPath = process.env.GITHUB_OUTPUT?.trim();
-  if (!outputPath) return;
-  fs.appendFileSync(outputPath, `${name}<<EOF\n${value}\nEOF\n`);
+function writeJsonFile(path, value) {
+  if (!path) return;
+  fs.writeFileSync(path, JSON.stringify(value), { mode: 0o600 });
 }
 
 async function ensureProgramsExist(supabaseUrl, serviceRoleKey, programs) {
@@ -250,8 +249,17 @@ async function main() {
     users,
   };
 
-  setOutput("access_tokens", accessTokens.join(","));
-  setOutput("emails", emails.join(","));
+  writeJsonFile(process.env.SMOKE_SESSION_FILE?.trim(), {
+    access_tokens: accessTokens,
+    emails,
+  });
+  writeJsonFile(process.env.SMOKE_USERS_FILE?.trim(), {
+    count,
+    prefix,
+    programs,
+    role,
+    users,
+  });
   console.log(JSON.stringify(summary));
 }
 

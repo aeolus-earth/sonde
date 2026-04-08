@@ -8,6 +8,12 @@
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import type { SandboxHandle } from "./daytona-client.js";
+import {
+  SANDBOX_CORPUS_ROOT,
+  readPathError,
+  writePathError,
+} from "./sandbox-path-policy.js";
+import { isSondeCommand, sondeCommandError } from "./sandbox-command-security.js";
 
 export function createSandboxTools(sandbox: SandboxHandle) {
   return [
@@ -27,12 +33,34 @@ export function createSandboxTools(sandbox: SandboxHandle) {
       },
       async (args) => {
         try {
-          // Source auth token + ensure PATH includes pip-installed sonde
-          const cmd = `source /home/daytona/.sonde_env 2>/dev/null; export PATH="$HOME/.local/bin:$PATH" && ${args.command}`;
-          const result = await sandbox.exec(cmd, {
-            cwd: args.cwd,
-            timeout: 60,
-          });
+          const cwdError = args.cwd
+            ? readPathError(args.cwd, sandbox.sessionDir)
+            : null;
+          if (cwdError) {
+            return {
+              content: [{ type: "text" as const, text: `Error: ${cwdError}` }],
+            };
+          }
+
+          const commandError = sondeCommandError(args.command);
+          if (commandError) {
+            return {
+              content: [{ type: "text" as const, text: `Error: ${commandError}` }],
+            };
+          }
+
+          const result = isSondeCommand(args.command)
+            ? await sandbox.execSondeCommand(args.command, {
+                cwd: args.cwd,
+                timeout: 60,
+              })
+            : await sandbox.exec(
+                `export PATH="$HOME/.local/bin:$PATH" && ${args.command}`,
+                {
+                  cwd: args.cwd,
+                  timeout: 60,
+                },
+              );
           const output = result.stdout || "(no output)";
           const text =
             result.exitCode === 0
@@ -58,6 +86,12 @@ export function createSandboxTools(sandbox: SandboxHandle) {
       },
       async (args) => {
         try {
+          const error = readPathError(args.path, sandbox.sessionDir);
+          if (error) {
+            return {
+              content: [{ type: "text" as const, text: `Error: ${error}` }],
+            };
+          }
           const content = await sandbox.readFile(args.path);
           return { content: [{ type: "text" as const, text: content }] };
         } catch (err) {
@@ -78,6 +112,12 @@ export function createSandboxTools(sandbox: SandboxHandle) {
       },
       async (args) => {
         try {
+          const error = writePathError(args.path, sandbox.sessionDir);
+          if (error) {
+            return {
+              content: [{ type: "text" as const, text: `Error: ${error}` }],
+            };
+          }
           await sandbox.writeFile(args.path, args.content);
           return {
             content: [
@@ -111,7 +151,13 @@ export function createSandboxTools(sandbox: SandboxHandle) {
       },
       async (args) => {
         try {
-          const cwd = args.cwd ?? "/home/daytona/.sonde";
+          const cwd = args.cwd ?? SANDBOX_CORPUS_ROOT;
+          const error = readPathError(cwd, sandbox.sessionDir);
+          if (error) {
+            return {
+              content: [{ type: "text" as const, text: `Error: ${error}` }],
+            };
+          }
           // Use find command for glob-like behavior
           const result = await sandbox.exec(
             `find ${cwd} -name '${args.pattern}' -type f 2>/dev/null | head -200`,
