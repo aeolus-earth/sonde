@@ -47,9 +47,6 @@ jobs:
     name: cli-core
     runs-on: ubuntu-latest
     needs: changes
-    defaults:
-      run:
-        working-directory: cli
 
     steps:
       - id: gate
@@ -80,35 +77,38 @@ jobs:
 
       - if: steps.gate.outputs.run == 'true'
         name: Install dependencies
+        working-directory: cli
         run: uv sync
 
       - if: steps.gate.outputs.run == 'true'
         name: Verify lockfile is up to date
+        working-directory: cli
         run: uv lock --check
 
       - if: steps.gate.outputs.run == 'true'
         name: Lint
+        working-directory: cli
         run: uv run ruff check src/ tests/
 
       - if: steps.gate.outputs.run == 'true'
         name: Format check
+        working-directory: cli
         run: uv run ruff format --check src/ tests/
 
       - if: steps.gate.outputs.run == 'true'
         name: Type check
+        working-directory: cli
         run: uv run ty check src/
 
       - if: steps.gate.outputs.run == 'true'
         name: Unit tests
+        working-directory: cli
         run: uv run pytest -m "not integration" --tb=short
 
   ui-core:
     name: ui-core
     runs-on: ubuntu-latest
     needs: changes
-    defaults:
-      run:
-        working-directory: ui
 
     steps:
       - id: gate
@@ -134,10 +134,12 @@ jobs:
 
       - if: steps.gate.outputs.run == 'true'
         name: Install dependencies
+        working-directory: ui
         run: npm ci
 
       - if: steps.gate.outputs.run == 'true'
         name: Verify lockfile is up to date
+        working-directory: ui
         run: |
           git diff --exit-code package-lock.json || {
             echo "::error::package-lock.json is out of sync. Run 'npm install' and commit the lockfile."
@@ -146,23 +148,23 @@ jobs:
 
       - if: steps.gate.outputs.run == 'true'
         name: Lint
+        working-directory: ui
         run: npm run lint
 
       - if: steps.gate.outputs.run == 'true'
         name: Build
+        working-directory: ui
         run: npm run build
 
       - if: steps.gate.outputs.run == 'true'
         name: Unit tests
+        working-directory: ui
         run: npm run test
 
   server-core:
     name: server-core
     runs-on: ubuntu-latest
     needs: changes
-    defaults:
-      run:
-        working-directory: server
 
     steps:
       - id: gate
@@ -188,10 +190,12 @@ jobs:
 
       - if: steps.gate.outputs.run == 'true'
         name: Install dependencies
+        working-directory: server
         run: npm ci
 
       - if: steps.gate.outputs.run == 'true'
         name: Verify lockfile is up to date
+        working-directory: server
         run: |
           git diff --exit-code package-lock.json || {
             echo "::error::package-lock.json is out of sync. Run 'npm install' and commit the lockfile."
@@ -200,23 +204,23 @@ jobs:
 
       - if: steps.gate.outputs.run == 'true'
         name: Type check
+        working-directory: server
         run: npm run lint
 
       - if: steps.gate.outputs.run == 'true'
         name: Tests
+        working-directory: server
         run: npm test
 
       - if: steps.gate.outputs.run == 'true'
         name: Build
+        working-directory: server
         run: npm run build
 
   browser-smoke:
     name: browser-smoke
     runs-on: ubuntu-latest
     needs: [changes, ui-core, server-core]
-    defaults:
-      run:
-        working-directory: ui
     env:
       VITE_SUPABASE_URL: https://utvmqjssbkzpumsdpgdy.supabase.co
       VITE_SUPABASE_ANON_KEY: sb_publishable_tWTyul-LMC9QDFYID8pOZA_wKM2e2AL
@@ -248,6 +252,7 @@ jobs:
 
       - if: steps.gate.outputs.run == 'true'
         name: Install UI dependencies
+        working-directory: ui
         run: npm ci
 
       - if: steps.gate.outputs.run == 'true'
@@ -257,6 +262,7 @@ jobs:
 
       - if: steps.gate.outputs.run == 'true'
         name: Install Playwright browsers
+        working-directory: ui
         run: npx playwright install chromium firefox --with-deps
 
       - if: steps.gate.outputs.run == 'true'
@@ -296,6 +302,7 @@ jobs:
 
       - if: steps.gate.outputs.run == 'true'
         name: Run browser smoke
+        working-directory: ui
         run: npx playwright test e2e/ci-smoke.spec.ts --project=chromium --project=firefox
 
       - if: failure() && steps.gate.outputs.run == 'true'
@@ -309,6 +316,7 @@ jobs:
 
       - if: always() && steps.gate.outputs.run == 'true'
         name: Stop mock agent server
+        working-directory: ui
         run: |
           if [ -f /tmp/sonde-agent-smoke.pid ]; then
             kill "$(cat /tmp/sonde-agent-smoke.pid)" || true
