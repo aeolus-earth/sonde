@@ -259,8 +259,15 @@ async function main() {
         throw error;
       }
       await sleep(waitIntervalMs);
-      state = await collectRuntimeState({ uiBase, agentBase, runtimeAuditToken });
-      ({ uiVersion, agentHealth, agentRuntime } = state);
+      try {
+        state = await collectRuntimeState({ uiBase, agentBase, runtimeAuditToken });
+        ({ uiVersion, agentHealth, agentRuntime } = state);
+      } catch (refreshError) {
+        lastError = refreshError;
+        if (Date.now() >= deadline) {
+          throw refreshError;
+        }
+      }
     }
   }
 
