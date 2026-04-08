@@ -1,0 +1,82 @@
+name: Merge Readiness
+
+on:
+  pull_request_target:
+    branches: [main, staging]
+    types: [opened, reopened, synchronize, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  merge-readiness:
+    name: merge-readiness
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check mergeability
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const pull_number = context.payload.pull_request.number;
+
+            let pull = null;
+            for (let attempt = 1; attempt <= 10; attempt += 1) {
+              const response = await github.rest.pulls.get({
+                owner,
+                repo,
+                pull_number,
+              });
+
+              pull = response.data;
+              core.info(
+                `Attempt ${attempt}: mergeable=${pull.mergeable} mergeable_state=${pull.mergeable_state}`
+              );
+
+              if (pull.mergeable !== null) {
+                break;
+              }
+
+              await new Promise((resolve) => setTimeout(resolve, 3000));
+            }
+
+            if (!pull) {
+              core.setFailed("Unable to load pull request mergeability state.");
+              return;
+            }
+
+            const state = pull.mergeable_state || "unknown";
+
+            await core.summary
+              .addHeading("Merge readiness")
+              .addRaw(`PR #${pull.number} into \`${pull.base.ref}\``)
+              .addBreak()
+              .addList([
+                `mergeable: ${String(pull.mergeable)}`,
+                `mergeable_state: ${state}`,
+              ])
+              .write();
+
+            if (pull.mergeable === false || state === "dirty") {
+              core.setFailed(
+                `This branch has merge conflicts with ${pull.base.ref}. Update the branch and resolve conflicts before relying on required CI checks.`
+              );
+              return;
+            }
+
+            if (state === "behind") {
+              core.notice(
+                `This branch is behind ${pull.base.ref}. CI can still run, but GitHub will require an update before merge because branch protection is strict.`
+              );
+            }
+
+            if (pull.mergeable === null || state === "unknown") {
+              core.warning(
+                "GitHub did not fully resolve mergeability yet, but no hard conflict was detected."
+              );
+            }
+
+            core.info(`Merge readiness check passed with state=${state}`);
