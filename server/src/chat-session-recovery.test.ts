@@ -12,8 +12,10 @@ beforeEach(() => {
   process.env = {
     ...originalEnv,
     NODE_ENV: "test",
+    SONDE_AGENT_BACKEND: "direct",
     SONDE_TEST_AGENT_MOCK: "1",
     SONDE_TEST_AUTH_BYPASS_TOKEN: "playwright-smoke-token",
+    SONDE_TEST_AUTH_DELAY_MS: "25",
   };
 });
 
@@ -51,15 +53,13 @@ describe("chat websocket session recovery", () => {
             token: "playwright-smoke-token",
           })
         );
-        setTimeout(() => {
-          ws.send(
-            JSON.stringify({
-              type: "message",
-              content: "Say hello briefly.",
-              sessionId: "deadbeef-dead-beef-dead-beefdeadbeef",
-            })
-          );
-        }, 50);
+        ws.send(
+          JSON.stringify({
+            type: "message",
+            content: "Say hello briefly.",
+            sessionId: "deadbeef-dead-beef-dead-beefdeadbeef",
+          })
+        );
       });
 
       ws.on("message", (data) => {
@@ -91,5 +91,8 @@ describe("chat websocket session recovery", () => {
     const finalText = messages.find((message) => message.type === "text_done");
     assert.ok(finalText);
     assert.match(String(finalText.content ?? ""), /^Mock response:/);
+
+    const authOk = messages.find((message) => message.type === "auth_ok");
+    assert.ok(authOk, "Expected auth_ok before chat completion");
   });
 });

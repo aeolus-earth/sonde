@@ -1,9 +1,26 @@
+import type { Page } from "@playwright/test";
 import { expect, test } from "@playwright/test";
 import {
   seedActiveProgram,
   seedBypassSession,
   seedStaleChatSession,
 } from "./helpers";
+
+async function mockProgramsRoute(page: Page) {
+  await page.route("**/rest/v1/programs*", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([
+        {
+          id: "shared",
+          name: "Shared",
+          description: "CI smoke program",
+        },
+      ]),
+    });
+  });
+}
 
 test.describe("CI smoke", () => {
   test("login renders without third-party auth gate", async ({ page }) => {
@@ -49,19 +66,7 @@ test.describe("CI smoke", () => {
     await seedBypassSession(page);
     await seedStaleChatSession(page);
     await seedActiveProgram(page, "shared");
-    await page.route("**/rest/v1/programs*", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify([
-          {
-            id: "shared",
-            name: "Shared",
-            description: "CI smoke program",
-          },
-        ]),
-      });
-    });
+    await mockProgramsRoute(page);
 
     await page.goto("/");
 
@@ -72,7 +77,7 @@ test.describe("CI smoke", () => {
     await input.fill("Say hello briefly.");
     await page.locator('button[aria-label="Send"]:visible').first().click();
 
-    await expect(page.getByText("Say hello briefly.")).toBeVisible({
+    await expect(page.getByText("Say hello briefly.", { exact: true })).toBeVisible({
       timeout: 15_000,
     });
     await expect(page.getByText(/Mock response:/)).toBeVisible({
@@ -83,22 +88,37 @@ test.describe("CI smoke", () => {
     ).not.toBeVisible();
   });
 
+  test("chat waits for auth readiness before sending the first message", async ({
+    page,
+  }) => {
+    await seedBypassSession(page);
+    await seedActiveProgram(page, "shared");
+    await mockProgramsRoute(page);
+
+    await page.goto("/");
+
+    const input = page.locator('textarea[aria-label="Chat message"]:visible').first();
+    await input.fill("Say hello briefly while the agent is still connecting.");
+    await page.locator('button[aria-label="Send"]:visible').first().click();
+
+    await expect(
+      page.getByText(
+        "Say hello briefly while the agent is still connecting.",
+        { exact: true }
+      )
+    ).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText(/Mock response:/)).toBeVisible({
+      timeout: 30_000,
+    });
+    await expect(
+      page.getByText("Chat is still connecting to the agent. Please try again in a moment.")
+    ).not.toBeVisible();
+  });
+
   test("chat renders a final-only assistant response", async ({ page }) => {
     await seedBypassSession(page);
     await seedActiveProgram(page, "shared");
-    await page.route("**/rest/v1/programs*", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify([
-          {
-            id: "shared",
-            name: "Shared",
-            description: "CI smoke program",
-          },
-        ]),
-      });
-    });
+    await mockProgramsRoute(page);
 
     await page.goto("/");
 

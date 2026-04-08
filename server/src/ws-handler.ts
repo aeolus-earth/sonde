@@ -51,6 +51,7 @@ interface ConnectionState {
   heartbeatTimer: NodeJS.Timeout | null;
   awaitingPong: boolean;
   closed: boolean;
+  authenticating: Promise<boolean> | null;
 }
 
 function isChatDebugEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
@@ -80,6 +81,13 @@ function send(ws: WSContext<WebSocket>, msg: ServerMessage) {
 
 function clearTimer(timer: NodeJS.Timeout | null): void {
   if (timer) clearTimeout(timer);
+}
+
+function getTestAuthDelayMs(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = env.SONDE_TEST_AUTH_DELAY_MS?.trim();
+  if (!raw) return 0;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
 }
 
 function closeWithError(
@@ -231,6 +239,13 @@ async function authenticateConnection(
     return false;
   }
 
+  const testAuthDelayMs = getTestAuthDelayMs();
+  if (testAuthDelayMs > 0) {
+    await new Promise((resolve) => {
+      setTimeout(resolve, testAuthDelayMs);
+    });
+  }
+
   const user = await verifyToken(trimmedToken);
   if (!user) {
     closeWithError(
@@ -249,6 +264,7 @@ async function authenticateConnection(
   state.authenticated = true;
   state.approvalBridge = createToolApprovalBridge(ws);
   startHeartbeat(state, ws);
+  send(ws, { type: "auth_ok" });
   chatLog(state, "authenticated", {
     userId: user.id,
     email: user.email ?? null,
@@ -370,6 +386,7 @@ export function handleWebSocket(
     heartbeatTimer: null,
     awaitingPong: false,
     closed: false,
+    authenticating: null,
   };
 
   return {
@@ -408,7 +425,25 @@ export function handleWebSocket(
       }
 
       if (!state.authenticated) {
-        if (msg.type !== "auth") {
+        if (msg.type === "auth") {
+          if (!state.authenticating) {
+            chatLog(state, "auth_frame_received");
+            state.authenticating = authenticateConnection(state, ws, msg.token)
+              .finally(() => {
+                state.authenticating = null;
+              });
+          }
+          await state.authenticating;
+          return;
+        }
+
+        if (state.authenticating) {
+          chatLog(state, "message_waiting_for_auth", { type: msg.type });
+          const authenticated = await state.authenticating;
+          if (!authenticated || !state.authenticated) {
+            return;
+          }
+        } else {
           chatLog(state, "message_before_auth", { type: msg.type });
           closeWithError(
             ws,
@@ -418,9 +453,6 @@ export function handleWebSocket(
           );
           return;
         }
-        chatLog(state, "auth_frame_received");
-        await authenticateConnection(state, ws, msg.token);
-        return;
       }
 
       state.awaitingPong = false;

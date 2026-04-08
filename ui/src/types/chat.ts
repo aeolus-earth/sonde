@@ -116,6 +116,10 @@ export interface ServerSession {
   sessionId: string;
 }
 
+export interface ServerAuthOk {
+  type: "auth_ok";
+}
+
 export interface ServerModelInfo {
   type: "model_info";
   model: string;
@@ -178,6 +182,7 @@ export interface ServerPing {
 }
 
 export type ServerMessage =
+  | ServerAuthOk
   | ServerSession
   | ServerModelInfo
   | ServerTextDelta

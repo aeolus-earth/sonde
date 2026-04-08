@@ -14,6 +14,10 @@ function parsePositiveInt(value, fallback) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function parseBooleanFlag(value) {
+  return value === "1" || value === "true";
+}
+
 function resolveWsUrl() {
   const explicit = process.env.CHAT_SMOKE_WS_URL?.trim();
   if (explicit) {
@@ -51,6 +55,10 @@ async function main() {
   const token = requiredEnv("CHAT_SMOKE_TOKEN");
   const timeoutMs = parsePositiveInt(process.env.CHAT_SMOKE_TIMEOUT_MS, 45_000);
   const messagePayload = buildMessagePayload();
+  const expectedSubstring = process.env.CHAT_SMOKE_EXPECT_SUBSTRING?.trim();
+  const requireToolUse = parseBooleanFlag(
+    (process.env.CHAT_SMOKE_REQUIRE_TOOL_USE ?? "").trim().toLowerCase()
+  );
 
   console.log(`[chat-smoke] Connecting to ${wsUrl}`);
 
@@ -59,6 +67,9 @@ async function main() {
     const eventStats = {};
     let sawVisibleOutput = false;
     let receivedDone = false;
+    let authReady = false;
+    let streamedText = "";
+    let finalText = "";
 
     const timer = setTimeout(() => {
       ws.close();
@@ -71,14 +82,12 @@ async function main() {
         reject(error);
         return;
       }
-      resolve({ eventStats, sawVisibleOutput, receivedDone });
+      resolve({ eventStats, sawVisibleOutput, receivedDone, finalText });
     }
 
     ws.on("open", () => {
       ws.send(JSON.stringify({ type: "auth", token }));
-      setTimeout(() => {
-        ws.send(JSON.stringify(messagePayload));
-      }, 50);
+      ws.send(JSON.stringify(messagePayload));
     });
 
     ws.on("message", (data) => {
@@ -96,8 +105,21 @@ async function main() {
         sawVisibleOutput = true;
       }
 
+      if (message.type === "text_delta") {
+        streamedText += message.content ?? "";
+      }
+
+      if (message.type === "text_done") {
+        finalText = message.content ?? streamedText;
+      }
+
       if (message.type === "ping") {
         ws.send(JSON.stringify({ type: "pong" }));
+        return;
+      }
+
+      if (message.type === "auth_ok") {
+        authReady = true;
         return;
       }
 
@@ -108,8 +130,27 @@ async function main() {
 
       if (message.type === "done") {
         receivedDone = true;
+        if (!authReady) {
+          finish(new Error("Chat completed without auth_ok"));
+          return;
+        }
         if (!sawVisibleOutput) {
           finish(new Error("Chat completed without any visible output events"));
+          return;
+        }
+        if (!finalText && streamedText) {
+          finalText = streamedText;
+        }
+        if (requireToolUse && !eventStats.tool_use_start) {
+          finish(new Error("Chat completed without any tool use events"));
+          return;
+        }
+        if (expectedSubstring && !finalText.includes(expectedSubstring)) {
+          finish(
+            new Error(
+              `Chat response did not contain expected substring: ${expectedSubstring}`
+            )
+          );
           return;
         }
         ws.close(1000, "chat smoke complete");

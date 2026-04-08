@@ -29,6 +29,8 @@ function getAgentWsBase(): string {
 
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
+const CONNECTION_READY_TIMEOUT_MS = 10_000;
+const CONNECTION_READY_POLL_MS = 50;
 
 const WS_CLOSE_UNAUTHORIZED = 4001;
 
@@ -53,10 +55,20 @@ function resolveTargetTabId(storeApi: ChatStoreApi): string {
   return s.streamingTabId ?? s.activeTabId;
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
 function handleServerMessage(msg: ServerMessage, storeApi: ChatStoreApi) {
   const s = storeApi.getState();
 
   switch (msg.type) {
+    case "auth_ok":
+      s.setConnectionStatus("connected");
+      break;
+
     case "session":
       if (s.streamingTabId == null) return;
       s.setTabAgentSessionId(s.streamingTabId, msg.sessionId);
@@ -255,6 +267,34 @@ export function useChat() {
     }, reconnectDelay.current);
   }, []);
 
+  const waitForConnected = useCallback(async (): Promise<boolean> => {
+    const deadline = Date.now() + CONNECTION_READY_TIMEOUT_MS;
+    let sawConnectionAttempt = false;
+
+    while (Date.now() < deadline) {
+      const ws = wsRef.current;
+      const status = chatStoreApiRef.current.getState().connectionStatus;
+
+      if (ws?.readyState === WebSocket.OPEN && status === "connected") {
+        return true;
+      }
+
+      if (authFailureRef.current) {
+        return false;
+      }
+
+      if (ws || status === "connecting") {
+        sawConnectionAttempt = true;
+      } else if (sawConnectionAttempt && status === "disconnected") {
+        return false;
+      }
+
+      await sleep(CONNECTION_READY_POLL_MS);
+    }
+
+    return false;
+  }, []);
+
   const connect = useCallback(async () => {
     if (authFailureRef.current) return;
 
@@ -310,7 +350,7 @@ export function useChat() {
       });
       authFailureRef.current = false;
       authErrorLoggedRef.current = false;
-      chatStoreApiRef.current.getState().setConnectionStatus("connected");
+      chatStoreApiRef.current.getState().setConnectionStatus("connecting");
       reconnectDelay.current = RECONNECT_BASE_MS;
     };
 
@@ -327,7 +367,9 @@ export function useChat() {
         chatDebug("ws:ping");
         return;
       }
-      if (msg.type === "session") {
+      if (msg.type === "auth_ok") {
+        chatDebug("ws:auth-ok");
+      } else if (msg.type === "session") {
         chatDebug("ws:session", { sessionId: msg.sessionId });
       } else if (msg.type === "model_info") {
         chatDebug("ws:model", { model: msg.model });
@@ -413,11 +455,44 @@ export function useChat() {
 
   const send = useCallback(
     async (content: string, mentions: MentionRef[] = [], files: File[] = []) => {
-      const ws = wsRef.current;
-      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      const preflightState = chatStoreApiRef.current.getState();
+      const activeTabId = preflightState.activeTabId;
+      let ws = wsRef.current;
+      let connection = preflightState.connectionStatus;
+
+      if (!ws || ws.readyState !== WebSocket.OPEN || connection !== "connected") {
+        chatDebug("send:await-connection", {
+          hasSocket: Boolean(ws),
+          readyState: ws?.readyState ?? null,
+          connectionStatus: connection,
+        });
+        await connectRef.current();
+        const waitStartedAt = Date.now();
+        const connected = await waitForConnected();
+        chatDebug(
+          connected ? "send:connection-ready" : "send:connection-timeout",
+          {
+            waitMs: Date.now() - waitStartedAt,
+          }
+        );
+        ws = wsRef.current;
+        connection = chatStoreApiRef.current.getState().connectionStatus;
+        if (!connected || !ws || ws.readyState !== WebSocket.OPEN || connection !== "connected") {
+          const s = chatStoreApiRef.current.getState();
+          s.setStreaming(false);
+          s.setStreamingTabId(null);
+          s.addMessage(activeTabId, {
+            id: crypto.randomUUID(),
+            role: "system",
+            content:
+              "Chat is still connecting to the agent. Please try again in a moment.",
+            timestamp: Date.now(),
+          });
+          return;
+        }
+      }
 
       const s0 = chatStoreApiRef.current.getState();
-      const activeTabId = s0.activeTabId;
       s0.setStreamingTabId(activeTabId);
 
       const attachmentPayload =
@@ -461,7 +536,7 @@ export function useChat() {
       });
       ws.send(JSON.stringify(payload));
     },
-    [pageContext]
+    [pageContext, waitForConnected]
   );
 
   const cancel = useCallback(() => {

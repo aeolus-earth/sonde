@@ -95,7 +95,10 @@ jobs:
         env:
           CHAT_SMOKE_HTTP_BASE: ${{ inputs.agent_url || vars.SONDE_STAGING_AGENT_HTTP_BASE }}
           CHAT_SMOKE_TOKEN: ${{ secrets.SONDE_STAGING_AGENT_CHAT_TOKEN }}
-          CHAT_SMOKE_PROMPT: "Say hello briefly."
+          CHAT_SMOKE_PROMPT: "Use Sonde tools to list the program ids available to you and answer briefly."
+          CHAT_SMOKE_STALE_SESSION: "1"
+          CHAT_SMOKE_REQUIRE_TOOL_USE: "1"
+          CHAT_SMOKE_EXPECT_SUBSTRING: "shared"
           CHAT_SMOKE_TIMEOUT_MS: "60000"
         run: node scripts/chat-smoke.mjs
 

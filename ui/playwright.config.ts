@@ -27,9 +27,11 @@ export default defineConfig({
           env: {
             ...process.env,
             NODE_ENV: "test",
+            SONDE_AGENT_BACKEND: "direct",
             SONDE_SERVER_PORT: "3003",
             SONDE_SKIP_CLI_PROBE: "1",
             SONDE_TEST_AGENT_MOCK: "1",
+            SONDE_TEST_AUTH_DELAY_MS: "750",
             SONDE_TEST_AUTH_BYPASS_TOKEN:
               process.env.E2E_AUTH_BYPASS_TOKEN || "playwright-smoke-token",
           },

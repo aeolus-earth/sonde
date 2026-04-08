@@ -260,10 +260,35 @@ jobs:
         run: npx playwright install chromium firefox --with-deps
 
       - if: steps.gate.outputs.run == 'true'
+        name: Start mock agent server
+        working-directory: server
+        env:
+          NODE_ENV: test
+          SONDE_AGENT_BACKEND: direct
+          SONDE_SERVER_PORT: "3004"
+          SONDE_SKIP_CLI_PROBE: "1"
+          SONDE_TEST_AGENT_MOCK: "1"
+          SONDE_TEST_AUTH_DELAY_MS: "100"
+          SONDE_TEST_AUTH_BYPASS_TOKEN: ${{ env.E2E_AUTH_BYPASS_TOKEN }}
+        run: |
+          npx tsx src/index.ts >/tmp/sonde-agent-smoke.log 2>&1 &
+          echo $! >/tmp/sonde-agent-smoke.pid
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3004/health >/dev/null; then
+              echo "Mock agent server is reachable"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::Mock agent server did not become reachable in time"
+          cat /tmp/sonde-agent-smoke.log || true
+          exit 1
+
+      - if: steps.gate.outputs.run == 'true'
         name: Direct agent chat smoke
         working-directory: server
         env:
-          CHAT_SMOKE_HTTP_BASE: http://127.0.0.1:3003
+          CHAT_SMOKE_HTTP_BASE: http://127.0.0.1:3004
           CHAT_SMOKE_TOKEN: ${{ env.E2E_AUTH_BYPASS_TOKEN }}
           CHAT_SMOKE_STALE_SESSION: "1"
           CHAT_SMOKE_TIMEOUT_MS: "30000"
@@ -278,7 +303,16 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: playwright-report
-          path: ui/playwright-report/
+          path: |
+            ui/playwright-report/
+            /tmp/sonde-agent-smoke.log
+
+      - if: always() && steps.gate.outputs.run == 'true'
+        name: Stop mock agent server
+        run: |
+          if [ -f /tmp/sonde-agent-smoke.pid ]; then
+            kill "$(cat /tmp/sonde-agent-smoke.pid)" || true
+          fi
 
   data-integration:
     name: data-integration

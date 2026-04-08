@@ -86,6 +86,10 @@ export interface ServerSession {
   sessionId: string;
 }
 
+export interface ServerAuthOk {
+  type: "auth_ok";
+}
+
 /** Emitted after the agent SDK reports which model is in use (first turn). */
 export interface ServerModelInfo {
   type: "model_info";
@@ -150,6 +154,7 @@ export interface ServerPing {
 }
 
 export type ServerMessage =
+  | ServerAuthOk
   | ServerSession
   | ServerModelInfo
   | ServerTextDelta
