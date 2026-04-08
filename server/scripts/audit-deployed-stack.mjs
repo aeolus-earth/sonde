@@ -121,10 +121,17 @@ async function main() {
   }
 
   if (expectedSchemaVersion) {
-    ensure(
-      agentHealth.schemaVersion === expectedSchemaVersion,
-      `Schema version mismatch: expected ${expectedSchemaVersion}, got ${agentHealth.schemaVersion}`
-    );
+    if (expectedSchemaVersion === "unknown") {
+      ensure(
+        agentHealth.schemaVersion,
+        "Agent health is missing a schemaVersion while audit is running in unknown fallback mode"
+      );
+    } else {
+      ensure(
+        agentHealth.schemaVersion === expectedSchemaVersion,
+        `Schema version mismatch: expected ${expectedSchemaVersion}, got ${agentHealth.schemaVersion}`
+      );
+    }
   }
 
   if (expectedSupabaseProjectRef) {

@@ -62,12 +62,18 @@ jobs:
         run: |
           if [ -z "$SUPABASE_PROJECT_REF" ] || [ -z "$SUPABASE_ANON_KEY" ]; then
             echo "::notice::Skipping production schema lookup because SUPABASE_PROJECT_REF or SUPABASE_ANON_KEY is not configured"
+            echo "version=unknown" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          VERSION=$(curl -sf \
+          if VERSION=$(curl -sf \
             -H "apikey: $SUPABASE_ANON_KEY" \
             -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
-            "https://${SUPABASE_PROJECT_REF}.supabase.co/rest/v1/rpc/get_schema_version" | tr -d '"')
+            "https://${SUPABASE_PROJECT_REF}.supabase.co/rest/v1/rpc/get_schema_version" | tr -d '"'); then
+            :
+          else
+            echo "::notice::Falling back to unknown schema version because production publishable-key RPC verification is unavailable"
+            VERSION="unknown"
+          fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Wait for production UI

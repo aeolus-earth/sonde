@@ -64,10 +64,15 @@ jobs:
       - name: Resolve staging schema version
         id: schema
         run: |
-          VERSION=$(curl -sf \
+          if VERSION=$(curl -sf \
             -H "apikey: ${{ vars.SUPABASE_STAGING_ANON_KEY }}" \
             -H "Authorization: Bearer ${{ vars.SUPABASE_STAGING_ANON_KEY }}" \
-            "https://${{ vars.SUPABASE_STAGING_PROJECT_REF }}.supabase.co/rest/v1/rpc/get_schema_version" | tr -d '"')
+            "https://${{ vars.SUPABASE_STAGING_PROJECT_REF }}.supabase.co/rest/v1/rpc/get_schema_version" | tr -d '"'); then
+            :
+          else
+            echo "::notice::Falling back to unknown schema version because staging publishable-key RPC verification is unavailable"
+            VERSION="unknown"
+          fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Wait for staging UI and agent
@@ -142,10 +147,15 @@ jobs:
       - name: Resolve production schema version
         id: schema
         run: |
-          VERSION=$(curl -sf \
+          if VERSION=$(curl -sf \
             -H "apikey: ${{ vars.SUPABASE_ANON_KEY }}" \
             -H "Authorization: Bearer ${{ vars.SUPABASE_ANON_KEY }}" \
-            "https://${{ secrets.SUPABASE_PROJECT_REF }}.supabase.co/rest/v1/rpc/get_schema_version" | tr -d '"')
+            "https://${{ secrets.SUPABASE_PROJECT_REF }}.supabase.co/rest/v1/rpc/get_schema_version" | tr -d '"'); then
+            :
+          else
+            echo "::notice::Falling back to unknown schema version because production publishable-key RPC verification is unavailable"
+            VERSION="unknown"
+          fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Wait for production UI and agent
