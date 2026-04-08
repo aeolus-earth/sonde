@@ -113,6 +113,8 @@ jobs:
           AUDIT_EXPECT_SCHEMA_VERSION: ${{ steps.schema.outputs.version }}
           AUDIT_EXPECT_SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_STAGING_PROJECT_REF }}
           AUDIT_REQUIRE_FIRST_PARTY_AGENT: ${{ vars.SONDE_REQUIRE_FIRST_PARTY_AGENT || '' }}
+          AUDIT_WAIT_TIMEOUT_MS: "600000"
+          AUDIT_WAIT_INTERVAL_MS: "10000"
         run: node scripts/audit-deployed-stack.mjs
 
   production-config-audit:
@@ -209,4 +211,6 @@ jobs:
           AUDIT_EXPECT_SCHEMA_VERSION: ${{ steps.schema.outputs.version }}
           AUDIT_EXPECT_SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
           AUDIT_REQUIRE_FIRST_PARTY_AGENT: ${{ vars.SONDE_REQUIRE_FIRST_PARTY_AGENT || '' }}
+          AUDIT_WAIT_TIMEOUT_MS: "600000"
+          AUDIT_WAIT_INTERVAL_MS: "10000"
         run: node scripts/audit-deployed-stack.mjs
