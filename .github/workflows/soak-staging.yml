@@ -66,14 +66,18 @@ jobs:
 
       - name: Mint secondary staging smoke session
         id: secondary
-        if: ${{ secrets.SONDE_STAGING_SMOKE_USER2_EMAIL != '' && secrets.SONDE_STAGING_SMOKE_USER2_PASSWORD != '' }}
         working-directory: server
         env:
           SUPABASE_URL: https://${{ vars.SUPABASE_STAGING_PROJECT_REF }}.supabase.co
           SUPABASE_ANON_KEY: ${{ vars.SUPABASE_STAGING_ANON_KEY }}
           SMOKE_USER_EMAIL: ${{ secrets.SONDE_STAGING_SMOKE_USER2_EMAIL }}
           SMOKE_USER_PASSWORD: ${{ secrets.SONDE_STAGING_SMOKE_USER2_PASSWORD }}
-        run: node scripts/mint-smoke-session.mjs >/dev/null
+        run: |
+          if [ -z "$SMOKE_USER_EMAIL" ] || [ -z "$SMOKE_USER_PASSWORD" ]; then
+            echo "::notice::Skipping secondary staging smoke session mint because secondary smoke credentials are not configured"
+            exit 0
+          fi
+          node scripts/mint-smoke-session.mjs >/dev/null
 
       - name: Timeline concurrency smoke
         env:

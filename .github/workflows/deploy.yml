@@ -107,12 +107,18 @@ jobs:
 
       - name: Resolve production schema version
         id: schema
-        if: ${{ secrets.SUPABASE_PROJECT_REF != '' && vars.SUPABASE_ANON_KEY != '' }}
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
         run: |
+          if [ -z "$SUPABASE_PROJECT_REF" ] || [ -z "$SUPABASE_ANON_KEY" ]; then
+            echo "::notice::Skipping schema lookup because SUPABASE_PROJECT_REF or SUPABASE_ANON_KEY is not configured"
+            exit 0
+          fi
           VERSION=$(curl -sf \
-            -H "apikey: ${{ vars.SUPABASE_ANON_KEY }}" \
-            -H "Authorization: Bearer ${{ vars.SUPABASE_ANON_KEY }}" \
-            "https://${{ secrets.SUPABASE_PROJECT_REF }}.supabase.co/rest/v1/rpc/get_schema_version" | tr -d '"')
+            -H "apikey: $SUPABASE_ANON_KEY" \
+            -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
+            "https://${SUPABASE_PROJECT_REF}.supabase.co/rest/v1/rpc/get_schema_version" | tr -d '"')
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Install Railway CLI

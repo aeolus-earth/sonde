@@ -49,17 +49,20 @@ jobs:
     needs: changes
     if: >-
       ${{
-        secrets.VERCEL_STAGING_DEPLOY_HOOK_URL != '' &&
-        (
-          needs.changes.outputs.ui == 'true' ||
-          github.event_name == 'workflow_dispatch'
-        )
+        needs.changes.outputs.ui == 'true' ||
+        github.event_name == 'workflow_dispatch'
       }}
 
     steps:
       - name: Trigger staging UI deploy
+        env:
+          VERCEL_STAGING_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_STAGING_DEPLOY_HOOK_URL }}
         run: |
-          curl -sf -X POST "${{ secrets.VERCEL_STAGING_DEPLOY_HOOK_URL }}"
+          if [ -z "$VERCEL_STAGING_DEPLOY_HOOK_URL" ]; then
+            echo "::notice::Skipping staging UI deploy trigger because VERCEL_STAGING_DEPLOY_HOOK_URL is not configured"
+            exit 0
+          fi
+          curl -sf -X POST "$VERCEL_STAGING_DEPLOY_HOOK_URL"
 
   push-staging-database:
     runs-on: ubuntu-latest
