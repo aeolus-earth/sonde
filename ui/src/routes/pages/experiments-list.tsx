@@ -24,13 +24,18 @@ import {
   buildExperimentsProjectTree,
   flattenExperimentsInTreeOrder,
 } from "@/lib/experiments-grouped";
+import {
+  EXPERIMENT_STATUS_FILTERS,
+  experimentStatusFilterLabel,
+  type ExperimentStatusFilter,
+} from "@/lib/experiment-status";
 import { useActiveProgram } from "@/stores/program";
-import type { ArtifactType, ExperimentStatus, ExperimentSummary } from "@/types/sonde";
+import type { ArtifactType, ExperimentSummary } from "@/types/sonde";
 import { experimentMatchesSearchQuery } from "@/lib/experiment-search-match";
 
 export type ExperimentsSearch = {
   q?: string;
-  status?: ExperimentStatus | "all";
+  status?: ExperimentStatusFilter;
   artifact?: ArtifactType | "any" | undefined;
   view?: "list" | "grouped";
   /** ISO date YYYY-MM-DD — filter to experiments created on this calendar day (local). */
@@ -311,15 +316,6 @@ export default function ExperimentsListPage() {
     );
   }
 
-  const statuses: (ExperimentStatus | "all")[] = [
-    "all",
-    "open",
-    "running",
-    "complete",
-    "failed",
-    "superseded",
-  ];
-
   return (
     <div className="space-y-3">
       <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
@@ -420,7 +416,7 @@ export default function ExperimentsListPage() {
           </button>
         </div>
         <div className="flex h-8 shrink-0 overflow-hidden rounded-[5.5px] border border-border bg-surface">
-          {statuses.map((s) => (
+          {EXPERIMENT_STATUS_FILTERS.map((s) => (
             <button
               key={s}
               type="button"
@@ -439,7 +435,7 @@ export default function ExperimentsListPage() {
                   : "text-text-quaternary hover:text-text-tertiary"
               }`}
             >
-              {s}
+              {experimentStatusFilterLabel(s)}
             </button>
           ))}
         </div>

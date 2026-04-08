@@ -1,9 +1,9 @@
 import { createRoute, lazyRouteComponent } from "@tanstack/react-router";
 import { Route as authenticatedRoute } from "../_authenticated";
 import type { ArtifactType, ExperimentStatus } from "@/types/sonde";
+import { normalizeExperimentStatusFilter } from "@/lib/experiment-status";
 import type { ExperimentsSearch } from "../pages/experiments-list";
 
-const VALID_STATUSES = ["all", "open", "running", "complete", "failed", "superseded"];
 const VALID_ARTIFACT_TYPES = ["any", "figure", "paper", "dataset", "notebook", "config", "log", "report", "other"];
 const VALID_VIEWS = ["list", "grouped"] as const;
 
@@ -14,8 +14,8 @@ export const Route = createRoute({
   validateSearch: (search: Record<string, unknown>): ExperimentsSearch => ({
     q: typeof search.q === "string" ? search.q : undefined,
     status:
-      typeof search.status === "string" && VALID_STATUSES.includes(search.status)
-        ? (search.status as ExperimentStatus | "all")
+      typeof search.status === "string"
+        ? (normalizeExperimentStatusFilter(search.status) as ExperimentStatus | "all" | undefined)
         : undefined,
     artifact:
       typeof search.artifact === "string" && VALID_ARTIFACT_TYPES.includes(search.artifact)
