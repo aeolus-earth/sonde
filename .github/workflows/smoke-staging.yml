@@ -19,8 +19,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       STAGING_SMOKE_SESSION_FILE: ${{ runner.temp }}/sonde-staging-smoke-session.json
-      STAGING_SMOKE_INPUT_URL: ${{ github.event.inputs.url || '' }}
-      STAGING_SMOKE_INPUT_AGENT_URL: ${{ github.event.inputs.agent_url || '' }}
     defaults:
       run:
         working-directory: ui
@@ -47,15 +45,25 @@ jobs:
         run: npx playwright install chromium firefox --with-deps
 
       - name: Resolve target URLs
-        id: url
+        id: targets
+        env:
+          DEFAULT_UI_URL: ${{ vars.SONDE_STAGING_UI_URL }}
+          DEFAULT_AGENT_URL: ${{ vars.SONDE_STAGING_AGENT_HTTP_BASE }}
         run: |
-          URL="${STAGING_SMOKE_INPUT_URL:-${{ vars.SONDE_STAGING_UI_URL }}}"
-          if [ -z "$URL" ]; then
+          RAW_URL="$(jq -r '.inputs.url // empty' "$GITHUB_EVENT_PATH")"
+          RAW_AGENT_URL="$(jq -r '.inputs.agent_url // empty' "$GITHUB_EVENT_PATH")"
+          UI_URL="${RAW_URL:-$DEFAULT_UI_URL}"
+          AGENT_URL="${RAW_AGENT_URL:-$DEFAULT_AGENT_URL}"
+          if [ -z "$UI_URL" ]; then
             echo "::error::No URL to test. Set SONDE_STAGING_UI_URL in repo variables or pass a URL via workflow dispatch."
             exit 1
           fi
-          echo "target=$URL" >> "$GITHUB_OUTPUT"
-          echo "Smoke testing: $URL"
+          echo "ui_url=$UI_URL" >> "$GITHUB_OUTPUT"
+          echo "agent_url=$AGENT_URL" >> "$GITHUB_OUTPUT"
+          echo "Smoke testing UI: $UI_URL"
+          if [ -n "$AGENT_URL" ]; then
+            echo "Smoke testing agent: $AGENT_URL"
+          fi
 
       - name: Resolve staging schema version
         id: schema
@@ -74,7 +82,7 @@ jobs:
 
       - name: Wait for staging UI
         run: |
-          URL="${{ steps.url.outputs.target }}"
+          URL="${{ steps.targets.outputs.ui_url }}"
           for attempt in $(seq 1 60); do
             STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$URL/login")
             if [ "$STATUS" -ge 200 ] && [ "$STATUS" -lt 500 ]; then
@@ -88,9 +96,9 @@ jobs:
           exit 1
 
       - name: Wait for staging agent
-        if: ${{ env.STAGING_SMOKE_INPUT_AGENT_URL != '' || vars.SONDE_STAGING_AGENT_HTTP_BASE != '' }}
+        if: ${{ steps.targets.outputs.agent_url != '' }}
         run: |
-          AGENT="${STAGING_SMOKE_INPUT_AGENT_URL:-${{ vars.SONDE_STAGING_AGENT_HTTP_BASE }}}"
+          AGENT="${{ steps.targets.outputs.agent_url }}"
           for attempt in $(seq 1 60); do
             if curl -fsS "$AGENT/health" >/dev/null; then
               echo "Staging agent is reachable"
@@ -118,11 +126,11 @@ jobs:
           node scripts/mint-smoke-session.mjs >/dev/null
 
       - name: Audit deployed staging stack
-        if: ${{ env.STAGING_SMOKE_INPUT_AGENT_URL != '' || vars.SONDE_STAGING_AGENT_HTTP_BASE != '' }}
+        if: ${{ steps.targets.outputs.agent_url != '' }}
         working-directory: server
         env:
-          AUDIT_UI_BASE: ${{ steps.url.outputs.target }}
-          AUDIT_AGENT_BASE: ${{ env.STAGING_SMOKE_INPUT_AGENT_URL || vars.SONDE_STAGING_AGENT_HTTP_BASE }}
+          AUDIT_UI_BASE: ${{ steps.targets.outputs.ui_url }}
+          AUDIT_AGENT_BASE: ${{ steps.targets.outputs.agent_url }}
           AUDIT_RUNTIME_TOKEN: ${{ secrets.SONDE_STAGING_AGENT_RUNTIME_AUDIT_TOKEN }}
           AUDIT_EXPECT_ENVIRONMENT: staging
           AUDIT_EXPECT_COMMIT_SHA: ${{ github.sha }}
@@ -132,8 +140,8 @@ jobs:
 
       - name: Run staging smoke tests
         env:
-          E2E_BASE_URL: ${{ steps.url.outputs.target }}
-          E2E_AGENT_HTTP_BASE: ${{ env.STAGING_SMOKE_INPUT_AGENT_URL || vars.SONDE_STAGING_AGENT_HTTP_BASE }}
+          E2E_BASE_URL: ${{ steps.targets.outputs.ui_url }}
+          E2E_AGENT_HTTP_BASE: ${{ steps.targets.outputs.agent_url }}
           E2E_AGENT_RUNTIME_AUDIT_TOKEN: ${{ secrets.SONDE_STAGING_AGENT_RUNTIME_AUDIT_TOKEN }}
           E2E_SUPABASE_URL: https://${{ vars.SUPABASE_STAGING_PROJECT_REF }}.supabase.co
           E2E_EXPECT_PROGRAM_ID: shared
@@ -149,10 +157,10 @@ jobs:
           npx playwright test e2e/deployed.spec.ts --project=chromium --project=firefox --reporter=github
 
       - name: Run staging agent chat smoke
-        if: ${{ env.STAGING_SMOKE_INPUT_AGENT_URL != '' || vars.SONDE_STAGING_AGENT_HTTP_BASE != '' }}
+        if: ${{ steps.targets.outputs.agent_url != '' }}
         working-directory: server
         env:
-          CHAT_SMOKE_HTTP_BASE: ${{ env.STAGING_SMOKE_INPUT_AGENT_URL || vars.SONDE_STAGING_AGENT_HTTP_BASE }}
+          CHAT_SMOKE_HTTP_BASE: ${{ steps.targets.outputs.agent_url }}
           CHAT_SMOKE_PROMPT: "Use Sonde tools to list one accessible program id, then reply with SONDE_SMOKE_OK."
           CHAT_SMOKE_STALE_SESSION: "1"
           CHAT_SMOKE_REQUIRE_TOOL_USE: "1"
