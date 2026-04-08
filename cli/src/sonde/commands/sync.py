@@ -227,7 +227,10 @@ def _one_line(exp: Any) -> str:
     """Short one-line summary for an experiment."""
     from sonde.local import effective_hypothesis
 
-    hypothesis = effective_hypothesis(getattr(exp, "content", None), getattr(exp, "hypothesis", None))
+    hypothesis = effective_hypothesis(
+        getattr(exp, "content", None),
+        getattr(exp, "hypothesis", None),
+    )
     if hypothesis:
         return hypothesis[:60]
     if exp.content:

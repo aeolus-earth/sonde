@@ -20,9 +20,15 @@ export interface PageContextExperiment {
   type: "experiment";
   id: string;
   label?: string;
+  program?: string;
 }
 
 export type PageContext = PageContextExperiment;
+
+export interface ClientMessageAuth {
+  type: "auth";
+  token: string;
+}
 
 export interface ChatAttachmentPayload {
   name: string;
@@ -60,18 +66,28 @@ export interface ClientMessageDenyTool {
   reason?: string;
 }
 
+export interface ClientMessagePong {
+  type: "pong";
+}
+
 export type ClientMessage =
+  | ClientMessageAuth
   | ClientMessageChat
   | ClientMessageApproveTasks
   | ClientMessageCancel
   | ClientMessageApproveTool
-  | ClientMessageDenyTool;
+  | ClientMessageDenyTool
+  | ClientMessagePong;
 
 // -- Server -> Client --
 
 export interface ServerSession {
   type: "session";
   sessionId: string;
+}
+
+export interface ServerAuthOk {
+  type: "auth_ok";
 }
 
 /** Emitted after the agent SDK reports which model is in use (first turn). */
@@ -133,7 +149,12 @@ export interface ServerDone {
   type: "done";
 }
 
+export interface ServerPing {
+  type: "ping";
+}
+
 export type ServerMessage =
+  | ServerAuthOk
   | ServerSession
   | ServerModelInfo
   | ServerTextDelta
@@ -144,7 +165,8 @@ export type ServerMessage =
   | ServerToolApprovalRequired
   | ServerTasks
   | ServerError
-  | ServerDone;
+  | ServerDone
+  | ServerPing;
 
 // -- Agent internal events (from agent.ts -> ws-handler.ts) --
 

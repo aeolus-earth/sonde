@@ -37,10 +37,15 @@ const MAX_BUDGET_USD = 1.0;
 
 /** Claude API ID — see https://platform.claude.com/docs/en/about-claude/models/overview */
 const DEFAULT_MODEL = "claude-sonnet-4-6";
+const MOCK_MODEL = "mock-sonde-agent";
 
 function resolveAgentModel(): string {
   const fromEnv = process.env.AGENT_MODEL?.trim();
   return fromEnv && fromEnv.length > 0 ? fromEnv : DEFAULT_MODEL;
+}
+
+function isMockAgentMode(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.SONDE_TEST_AGENT_MOCK === "1";
 }
 
 export interface AgentSession {
@@ -57,10 +62,24 @@ export interface CreateAgentSessionOptions {
   canUseTool: CanUseTool;
 }
 
+function extractAssistantText(
+  content: Array<Record<string, unknown>> | undefined
+): string {
+  if (!content?.length) return "";
+  return content
+    .filter((block) => block.type === "text")
+    .map((block) => (typeof block.text === "string" ? block.text : ""))
+    .join("");
+}
+
 export function createAgentSession(
   sondeToken: string,
   sessionOptions: CreateAgentSessionOptions
 ): AgentSession {
+  if (isMockAgentMode()) {
+    return createMockAgentSession();
+  }
+
   const firstSessionId: string = crypto.randomUUID();
   let sessionId: string = firstSessionId;
   let abortController = new AbortController();
@@ -182,6 +201,7 @@ export function createAgentSession(
           assistantMessageId = (msg as Record<string, unknown>).uuid as string ?? "";
           const message = (msg as Record<string, unknown>).message as Record<string, unknown>;
           const content = message?.content as Array<Record<string, unknown>> | undefined;
+          const finalAssistantText = extractAssistantText(content);
 
           if (content) {
             for (const block of content) {
@@ -193,6 +213,10 @@ export function createAgentSession(
                 };
               }
             }
+          }
+
+          if (!assistantText && finalAssistantText) {
+            assistantText = finalAssistantText;
           }
 
           if (assistantText) {
@@ -450,6 +474,10 @@ export interface CreateSandboxAgentSessionOptions {
 export function createSandboxAgentSession(
   sessionOptions: CreateSandboxAgentSessionOptions
 ): AgentSession {
+  if (isMockAgentMode()) {
+    return createMockAgentSession();
+  }
+
   const firstSessionId: string = crypto.randomUUID();
   let sessionId: string = firstSessionId;
   let abortController = new AbortController();
@@ -590,6 +618,7 @@ export function createSandboxAgentSession(
           const content = message?.content as
             | Array<Record<string, unknown>>
             | undefined;
+          const finalAssistantText = extractAssistantText(content);
 
           if (content) {
             for (const block of content) {
@@ -602,6 +631,10 @@ export function createSandboxAgentSession(
                 };
               }
             }
+          }
+
+          if (!assistantText && finalAssistantText) {
+            assistantText = finalAssistantText;
           }
 
           if (assistantText) {
@@ -668,6 +701,76 @@ export function createSandboxAgentSession(
   };
 }
 
+function createMockAgentSession(): AgentSession {
+  const firstSessionId: string = crypto.randomUUID();
+  let sessionId: string = firstSessionId;
+  let aborted = false;
+  const knownSessions = new Set<string>([firstSessionId]);
+
+  return {
+    get sessionId() {
+      return sessionId;
+    },
+
+    async *query(
+      prompt: string,
+      queryOptions?: { resumeSessionId?: string }
+    ): AsyncIterable<AgentEvent> {
+      aborted = false;
+      const requestedResume = queryOptions?.resumeSessionId?.trim();
+      if (requestedResume && !knownSessions.has(requestedResume)) {
+        const nextSessionId = crypto.randomUUID();
+        sessionId = nextSessionId;
+        knownSessions.add(nextSessionId);
+        yield { type: "session", sessionId: nextSessionId };
+        yield { type: "model_info", model: MOCK_MODEL };
+        throw new Error("Claude Code process exited with code 1");
+      }
+
+      if (!requestedResume) {
+        const nextSessionId = crypto.randomUUID();
+        sessionId = nextSessionId;
+        knownSessions.add(nextSessionId);
+        yield { type: "session", sessionId: nextSessionId };
+      } else {
+        sessionId = requestedResume;
+      }
+
+      yield { type: "model_info", model: MOCK_MODEL };
+
+      if (aborted) {
+        yield { type: "error", message: "Request cancelled." };
+        return;
+      }
+
+      const summary = prompt.replace(/\s+/g, " ").trim().slice(0, 80);
+      const content = `Mock response: ${summary || "ok"}`;
+      if (prompt.includes("[[FINAL_ONLY_RESPONSE]]")) {
+        yield {
+          type: "text_done",
+          content,
+          messageId: crypto.randomUUID(),
+        };
+        return;
+      }
+      yield { type: "text_delta", content };
+      yield {
+        type: "text_done",
+        content,
+        messageId: crypto.randomUUID(),
+      };
+    },
+
+    abort() {
+      aborted = true;
+    },
+
+    close() {
+      aborted = true;
+    },
+  };
+}
+
 /** Check if sandbox mode is enabled. */
 export function isSandboxMode(): boolean {
   const backend = process.env.SONDE_AGENT_BACKEND?.trim().toLowerCase();
@@ -675,4 +778,3 @@ export function isSandboxMode(): boolean {
   if (backend === "auto") return !!process.env.DAYTONA_API_KEY;
   return false;
 }
-

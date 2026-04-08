@@ -4,7 +4,10 @@ const defaultSupabaseUrl = "https://utvmqjssbkzpumsdpgdy.supabase.co";
 const defaultBypassToken = "playwright-smoke-token";
 
 function getSupabaseProjectRef(): string {
-  const raw = process.env.VITE_SUPABASE_URL || defaultSupabaseUrl;
+  const raw =
+    process.env.E2E_SUPABASE_URL ||
+    process.env.VITE_SUPABASE_URL ||
+    defaultSupabaseUrl;
   return new URL(raw).hostname.split(".")[0] ?? "local";
 }
 
@@ -54,4 +57,86 @@ export async function seedBypassSession(page: Page): Promise<void> {
       value: session,
     }
   );
+}
+
+function parseSessionJson(sessionJson: string) {
+  const parsed = JSON.parse(sessionJson) as {
+    access_token: string;
+    refresh_token: string;
+    user: Record<string, unknown>;
+  };
+
+  if (!parsed.access_token || !parsed.refresh_token || !parsed.user) {
+    throw new Error("E2E auth session JSON is missing required session fields.");
+  }
+
+  return parsed;
+}
+
+export async function seedSupabaseSession(
+  page: Page,
+  sessionJson: string
+): Promise<void> {
+  const storageKey = `sb-${getSupabaseProjectRef()}-auth-token`;
+  const session = parseSessionJson(sessionJson);
+
+  await page.addInitScript(
+    ({ key, value }) => {
+      window.localStorage.setItem(key, JSON.stringify(value));
+      window.localStorage.setItem(`${key}-user`, JSON.stringify({ user: value.user }));
+    },
+    {
+      key: storageKey,
+      value: session,
+    }
+  );
+}
+
+export async function seedConfiguredSession(page: Page): Promise<void> {
+  const realSession = process.env.E2E_AUTH_SESSION_JSON?.trim();
+  if (realSession) {
+    await seedSupabaseSession(page, realSession);
+    return;
+  }
+
+  await seedBypassSession(page);
+}
+
+export async function seedStaleChatSession(page: Page): Promise<void> {
+  const staleState = {
+    state: {
+      tabs: [
+        {
+          id: "tab-stale-session",
+          title: "Chat 1",
+          messages: [],
+          tasks: [],
+          agentSessionId: "deadbeef-dead-beef-dead-beefdeadbeef",
+          pendingToolApprovals: [],
+        },
+      ],
+      activeTabId: "tab-stale-session",
+    },
+    version: 3,
+  };
+
+  await page.addInitScript((value) => {
+    window.localStorage.setItem("sonde-chat", JSON.stringify(value));
+  }, staleState);
+}
+
+export async function seedActiveProgram(
+  page: Page,
+  programId = "shared"
+): Promise<void> {
+  const persisted = {
+    state: {
+      activeProgram: programId,
+    },
+    version: 0,
+  };
+
+  await page.addInitScript((value) => {
+    window.localStorage.setItem("sonde-active-program", JSON.stringify(value));
+  }, persisted);
 }

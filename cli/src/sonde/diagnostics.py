@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import tomllib
 from datetime import UTC, datetime
 from pathlib import Path
 from time import perf_counter
@@ -1009,12 +1010,23 @@ def detect_s3_credentials() -> str | None:
 
 
 def mcp_server_present(path: Path, server_name: str) -> bool:
-    """Return True when the named MCP server exists in the JSON config."""
+    """Return True when the named MCP server exists in the runtime config."""
     if not path.exists():
         return False
     try:
-        settings = json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    if path.suffix == ".toml":
+        try:
+            settings = tomllib.loads(text)
+        except tomllib.TOMLDecodeError:
+            return False
+        servers = settings.get("mcp_servers", {})
+        return isinstance(servers, dict) and server_name in servers
+    try:
+        settings = json.loads(text)
+    except json.JSONDecodeError:
         return False
     servers = settings.get("mcpServers", {})
     return isinstance(servers, dict) and server_name in servers
