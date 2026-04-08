@@ -225,6 +225,8 @@ jobs:
       VITE_SUPABASE_URL: https://utvmqjssbkzpumsdpgdy.supabase.co
       VITE_SUPABASE_ANON_KEY: sb_publishable_tWTyul-LMC9QDFYID8pOZA_wKM2e2AL
       E2E_AUTH_BYPASS_TOKEN: playwright-smoke-token
+      VITE_AGENT_PROXY_TARGET: http://127.0.0.1:3004
+      VITE_AGENT_WS_URL: ws://127.0.0.1:3004
 
     steps:
       - id: gate

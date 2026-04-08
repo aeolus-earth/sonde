@@ -44,6 +44,7 @@ export default defineConfig({
           env: {
             ...process.env,
             VITE_AGENT_WS_URL: "ws://127.0.0.1:3003",
+            VITE_AGENT_PROXY_TARGET: "http://127.0.0.1:3003",
           },
         },
       ],

@@ -6,6 +6,11 @@ import { fileURLToPath } from "node:url";
 import type { PluginOption } from "vite";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const devAgentTarget =
+  process.env.VITE_AGENT_PROXY_TARGET?.trim() ||
+  process.env.VITE_AGENT_HTTP_BASE?.trim() ||
+  process.env.VITE_AGENT_WS_URL?.trim().replace(/^ws/i, "http") ||
+  "http://127.0.0.1:3001";
 
 function versionMetadataPlugin(): PluginOption {
   return {
@@ -57,7 +62,7 @@ export default defineConfig({
   server: {
     proxy: {
       "/agent": {
-        target: "http://127.0.0.1:3001",
+        target: devAgentTarget,
         ws: true,
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/agent/, ""),
