@@ -55,10 +55,18 @@ jobs:
               .addRaw(`PR #${pull.number} into \`${pull.base.ref}\``)
               .addBreak()
               .addList([
+                `head: ${pull.head.ref}`,
                 `mergeable: ${String(pull.mergeable)}`,
                 `mergeable_state: ${state}`,
               ])
               .write();
+
+            if (pull.base.ref === "main" && pull.head.ref !== "staging") {
+              core.setFailed(
+                "main is promotion-only. Merge feature work into staging first, then promote staging to main."
+              );
+              return;
+            }
 
             if (pull.mergeable === false || state === "dirty") {
               core.setFailed(
