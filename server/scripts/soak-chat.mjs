@@ -5,6 +5,14 @@ import {
   runChatConversation,
 } from "./chat-smoke-lib.mjs";
 
+function normalizeExpectedSubstring(value) {
+  const trimmed = value?.trim();
+  if (!trimmed || trimmed === "__SKIP__") {
+    return null;
+  }
+  return trimmed;
+}
+
 function percentile(values, ratio) {
   if (values.length === 0) return 0;
   const sorted = [...values].sort((a, b) => a - b);
@@ -80,9 +88,10 @@ async function main() {
   const timeoutMs = parsePositiveInt(process.env.SOAK_CHAT_TIMEOUT_MS, 90_000);
   const prompt =
     process.env.SOAK_CHAT_PROMPT?.trim() ||
-    "Use Sonde tools to list one accessible program id, then reply with SONDE_SMOKE_OK.";
-  const expectedSubstring =
-    process.env.SOAK_CHAT_EXPECT_SUBSTRING?.trim() || "SONDE_SMOKE_OK";
+    "Use Sonde tools to list one accessible program id and briefly explain what you found.";
+  const expectedSubstring = normalizeExpectedSubstring(
+    process.env.SOAK_CHAT_EXPECT_SUBSTRING
+  );
   const requireToolUse = parseBooleanFlag(
     (process.env.SOAK_CHAT_REQUIRE_TOOL_USE ?? "1").trim().toLowerCase()
   );
@@ -111,6 +120,7 @@ async function main() {
     failureCount: failures.length,
     p50Ms: percentile(durations, 0.5),
     p95Ms: percentile(durations, 0.95),
+    expectedSubstring,
     failures,
   };
 

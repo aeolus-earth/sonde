@@ -17,10 +17,28 @@ function normalizeBaseUrl(value) {
 async function fetchJson(url) {
   const response = await fetch(url);
   const bodyText = await response.text();
-  const body = bodyText ? JSON.parse(bodyText) : null;
+  const contentType = response.headers.get("content-type") ?? "";
 
   if (!response.ok) {
     throw new Error(`Request failed (${response.status}) for ${url}`);
+  }
+
+  if (!contentType.includes("application/json")) {
+    const normalized = bodyText.trim().toLowerCase();
+    if (normalized.startsWith("<!doctype html") || normalized.startsWith("<html")) {
+      throw new Error(
+        `Expected JSON from ${url}, but received HTML instead. This usually means an SPA rewrite or stale deploy is intercepting the endpoint.`
+      );
+    }
+  }
+
+  let body = null;
+  try {
+    body = bodyText ? JSON.parse(bodyText) : null;
+  } catch {
+    throw new Error(
+      `Expected JSON from ${url}, but response could not be parsed. Response preview: ${bodyText.slice(0, 160)}`
+    );
   }
 
   return body;

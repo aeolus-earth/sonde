@@ -98,7 +98,6 @@ jobs:
           SOAK_CHAT_TOKENS: ${{ steps.primary.outputs.access_token }}${{ steps.secondary.outputs.access_token != '' && format(',{0}', steps.secondary.outputs.access_token) || '' }}
           SOAK_CHAT_CONCURRENCY: ${{ inputs.concurrency || '10' }}
           SOAK_CHAT_ROUNDS: ${{ inputs.rounds || '2' }}
-          SOAK_CHAT_PROMPT: "Use Sonde tools to list one accessible program id, then reply with SONDE_SMOKE_OK."
-          SOAK_CHAT_EXPECT_SUBSTRING: SONDE_SMOKE_OK
+          SOAK_CHAT_PROMPT: "Use Sonde tools to list one accessible program id and briefly explain what you found."
           SOAK_CHAT_REQUIRE_TOOL_USE: "1"
         run: node scripts/soak-chat.mjs

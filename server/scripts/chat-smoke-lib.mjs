@@ -35,6 +35,19 @@ export function resolveWsUrl({
   return url.toString();
 }
 
+function summarizeText(text) {
+  if (!text) {
+    return "(empty)";
+  }
+
+  const singleLine = text.replace(/\s+/g, " ").trim();
+  if (!singleLine) {
+    return "(whitespace only)";
+  }
+
+  return singleLine.length > 160 ? `${singleLine.slice(0, 157)}...` : singleLine;
+}
+
 export async function runChatConversation({
   wsUrl,
   token,
@@ -134,13 +147,17 @@ export async function runChatConversation({
           finalText = streamedText;
         }
         if (requireToolUse && !eventStats.tool_use_start) {
-          finish(new Error("Chat completed without any tool use events"));
+          finish(
+            new Error(
+              `Chat completed without any tool use events. Final text: ${summarizeText(finalText)}`
+            )
+          );
           return;
         }
         if (expectedSubstring && !finalText.includes(expectedSubstring)) {
           finish(
             new Error(
-              `Chat response did not contain expected substring: ${expectedSubstring}`
+              `Chat response did not contain expected substring: ${expectedSubstring}. Final text: ${summarizeText(finalText)}`
             )
           );
           return;
