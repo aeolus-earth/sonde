@@ -23,8 +23,8 @@ jobs:
   soak:
     runs-on: ubuntu-latest
     env:
-      SOAK_CONCURRENCY: ${{ inputs.concurrency || '10' }}
-      SOAK_ROUNDS: ${{ inputs.rounds || '2' }}
+      SOAK_CONCURRENCY: ${{ github.event.inputs.concurrency || '10' }}
+      SOAK_ROUNDS: ${{ github.event.inputs.rounds || '2' }}
       SOAK_SESSION_FILE: ${{ runner.temp }}/sonde-soak-sessions.json
       SOAK_USERS_FILE: ${{ runner.temp }}/sonde-soak-users.json
 
