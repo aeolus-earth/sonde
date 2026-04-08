@@ -10,6 +10,11 @@ on:
         required: false
         type: boolean
         default: false
+      allow_ref_mismatch:
+        description: "Allow running staging deploy from a non-staging ref"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -19,8 +24,19 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  validate-ref:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate staging deploy ref
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.ref_name }}" != "staging" ] && [ "${{ inputs.allow_ref_mismatch }}" != "true" ]; then
+            echo "::error::Deploy Staging must be dispatched from the staging branch unless allow_ref_mismatch=true."
+            exit 1
+          fi
+
   changes:
     runs-on: ubuntu-latest
+    needs: validate-ref
     outputs:
       agent: ${{ steps.filter.outputs.agent }}
       database: ${{ steps.filter.outputs.database }}
