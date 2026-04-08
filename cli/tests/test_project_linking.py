@@ -601,7 +601,7 @@ class TestProjectInheritanceIntegration:
         with (
             patch("sonde.db.directions.get", return_value=mock_direction),
             patch("sonde.commands.log.db.create", return_value=created_exp),
-            patch("sonde.db.activity.log_activity"),
+            patch("sonde.commands.log.log_activity"),
         ):
             result = runner.invoke(
                 cli,
@@ -638,7 +638,7 @@ class TestProjectInheritanceIntegration:
 
         with (
             patch("sonde.commands.log.db.create", return_value=created_exp),
-            patch("sonde.db.activity.log_activity"),
+            patch("sonde.commands.log.log_activity"),
         ):
             result = runner.invoke(
                 cli,
@@ -676,7 +676,7 @@ class TestProjectInheritanceIntegration:
 
         with (
             patch("sonde.commands.log.db.create", return_value=created_exp),
-            patch("sonde.db.activity.log_activity"),
+            patch("sonde.commands.log.log_activity"),
         ):
             result = runner.invoke(
                 cli,
