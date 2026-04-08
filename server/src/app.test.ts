@@ -40,6 +40,10 @@ describe("createApp", () => {
 
   it("returns health metadata for smoke checks", async () => {
     process.env.SONDE_COMMIT_SHA = "abc123";
+    process.env.SONDE_SCHEMA_VERSION = "20260407000123";
+    process.env.SONDE_CLI_GIT_REF = "refs/heads/staging";
+    process.env.ANTHROPIC_API_KEY = "test-key";
+    process.env.VITE_SUPABASE_URL = "https://oxajsxoedrmvrcatqser.supabase.co";
     const app = createApp();
 
     const response = await app.request("http://localhost/health");
@@ -49,18 +53,26 @@ describe("createApp", () => {
       status: string;
       environment: string;
       commitSha: string | null;
+      schemaVersion: string | null;
       agentBackend: string;
       daytonaConfigured: boolean;
+      anthropicConfigured: boolean;
       bypassAuthEnabled: boolean;
+      cliGitRef: string | null;
+      supabaseProjectRef: string | null;
     };
 
     assert.deepEqual(body, {
       status: "ok",
       environment: "test",
       commitSha: "abc123",
+      schemaVersion: "20260407000123",
       agentBackend: "direct",
       daytonaConfigured: false,
+      anthropicConfigured: true,
       bypassAuthEnabled: true,
+      cliGitRef: "refs/heads/staging",
+      supabaseProjectRef: "oxajsxoedrmvrcatqser",
     });
   });
 

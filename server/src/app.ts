@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { registerGitHubRoutes } from "./github.js";
 import { handleWebSocket } from "./ws-handler.js";
-import { isSandboxMode } from "./agent.js";
+import { getRuntimeMetadata } from "./runtime-metadata.js";
 
 const LOCAL_UI_ORIGINS = [
   "http://localhost:5173",
@@ -47,14 +47,7 @@ export function createApp(): Hono {
   );
 
   app.get("/health", (c) =>
-    c.json({
-      status: "ok",
-      environment: process.env.NODE_ENV ?? "development",
-      commitSha: process.env.SONDE_COMMIT_SHA ?? null,
-      agentBackend: isSandboxMode() ? "sandbox" : "direct",
-      daytonaConfigured: Boolean(process.env.DAYTONA_API_KEY),
-      bypassAuthEnabled: Boolean(process.env.SONDE_TEST_AUTH_BYPASS_TOKEN),
-    })
+    c.json(getRuntimeMetadata())
   );
 
   registerGitHubRoutes(app);

@@ -59,6 +59,28 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
+      - name: Push hosted Supabase config
+        run: |
+          TMPDIR=$(mktemp -d)
+          mkdir -p "$TMPDIR/supabase"
+          cp supabase/config.toml "$TMPDIR/supabase/config.toml"
+          node server/scripts/render-supabase-hosted-config.mjs "$TMPDIR/supabase/config.toml"
+          supabase config push --workdir "$TMPDIR" --linked --yes
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || '' }}
+          SUPABASE_AUTH_SMS_TWILIO_AUTH_TOKEN: ${{ secrets.SUPABASE_AUTH_SMS_TWILIO_AUTH_TOKEN || '' }}
+          SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID: ${{ secrets.SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID }}
+          SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET: ${{ secrets.SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET }}
+          SUPABASE_AUTH_EXTERNAL_APPLE_SECRET: ${{ secrets.SUPABASE_AUTH_EXTERNAL_APPLE_SECRET || '' }}
+          S3_HOST: ${{ secrets.S3_HOST || '' }}
+          S3_REGION: ${{ secrets.S3_REGION || '' }}
+          S3_ACCESS_KEY: ${{ secrets.S3_ACCESS_KEY || '' }}
+          S3_SECRET_KEY: ${{ secrets.S3_SECRET_KEY || '' }}
+          SUPABASE_HOSTED_SITE_URL: ${{ vars.SONDE_UI_URL }}
+          SUPABASE_HOSTED_ADDITIONAL_REDIRECT_URLS: https://sonde-neon.vercel.app/auth/callback,https://*.vercel.app/**,http://localhost:5173/auth/callback,http://127.0.0.1:5173/auth/callback,http://localhost:*/callback,http://127.0.0.1:*/callback
+          SUPABASE_HOSTED_STORAGE_FILE_SIZE_LIMIT: 50MiB
+
       - name: Verify schema version after deploy
         run: |
           VERSION=$(curl -sf \
@@ -82,6 +104,16 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: "22"
+
+      - name: Resolve production schema version
+        id: schema
+        if: ${{ secrets.SUPABASE_PROJECT_REF != '' && vars.SUPABASE_ANON_KEY != '' }}
+        run: |
+          VERSION=$(curl -sf \
+            -H "apikey: ${{ vars.SUPABASE_ANON_KEY }}" \
+            -H "Authorization: Bearer ${{ vars.SUPABASE_ANON_KEY }}" \
+            "https://${{ secrets.SUPABASE_PROJECT_REF }}.supabase.co/rest/v1/rpc/get_schema_version" | tr -d '"')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Install Railway CLI
         run: npm install -g @railway/cli
@@ -108,8 +140,13 @@ jobs:
             -s "${{ vars.RAILWAY_PRODUCTION_SERVICE_NAME }}" \
             -e production \
             --skip-deploys \
+            VITE_SUPABASE_URL="https://${{ secrets.SUPABASE_PROJECT_REF }}.supabase.co" \
+            VITE_SUPABASE_ANON_KEY="${{ vars.SUPABASE_ANON_KEY }}" \
+            SONDE_ALLOWED_ORIGINS="${{ vars.SONDE_UI_URL }}" \
+            SONDE_ENVIRONMENT="production" \
             SONDE_COMMIT_SHA="${GITHUB_SHA}" \
-            SONDE_CLI_GIT_REF="${GITHUB_SHA}"
+            SONDE_CLI_GIT_REF="${GITHUB_SHA}" \
+            SONDE_SCHEMA_VERSION="${{ steps.schema.outputs.version }}"
 
       - name: Deploy production agent
         env:

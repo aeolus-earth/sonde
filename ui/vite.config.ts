@@ -3,15 +3,56 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import type { PluginOption } from "vite";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+function versionMetadataPlugin(): PluginOption {
+  return {
+    name: "sonde-version-metadata",
+    generateBundle() {
+      const inferredUrl =
+        process.env.VITE_PUBLIC_APP_ORIGIN?.trim() ||
+        process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim() ||
+        process.env.VERCEL_URL?.trim() ||
+        "";
+      const inferredEnvironment = inferredUrl.includes("staging")
+        ? "staging"
+        : process.env.VERCEL_ENV?.trim() === "production"
+          ? "production"
+          : "";
+      const environment =
+        process.env.SONDE_ENVIRONMENT?.trim() ||
+        inferredEnvironment ||
+        process.env.NODE_ENV?.trim() ||
+        "development";
+      const commitSha =
+        process.env.SONDE_COMMIT_SHA?.trim() ||
+        process.env.VERCEL_GIT_COMMIT_SHA?.trim() ||
+        null;
+
+      this.emitFile({
+        type: "asset",
+        fileName: "version.json",
+        source: JSON.stringify(
+          {
+            environment,
+            commitSha,
+          },
+          null,
+          2
+        ),
+      });
+    },
+  };
+}
 
 export default defineConfig({
   test: {
     environment: "node",
     include: ["src/**/*.test.ts"],
   },
-  plugins: [react(), tailwindcss()],
+  plugins: [react(), tailwindcss(), versionMetadataPlugin()],
   /** Same-origin WebSocket in dev (localhost vs 127.0.0.1, no cross-origin upgrade issues). */
   server: {
     proxy: {

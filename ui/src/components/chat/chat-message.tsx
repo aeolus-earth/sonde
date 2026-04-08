@@ -25,7 +25,7 @@ export const ChatMessage = memo(function ChatMessage({
 }: ChatMessageProps) {
   if (message.role === "system") {
     return (
-      <div className="flex justify-center px-1">
+      <div data-chat-role="system" className="flex justify-center px-1">
         <div className="max-w-[min(100%,36rem)] rounded-[8px] border border-status-failed/25 bg-status-failed/8 px-3 py-2 text-center text-[12px] leading-relaxed text-text-secondary">
           {message.content}
         </div>
@@ -35,7 +35,7 @@ export const ChatMessage = memo(function ChatMessage({
 
   if (message.role === "user") {
     return (
-      <div className="flex justify-end px-1">
+      <div data-chat-role="user" className="flex justify-end px-1">
         <div className="max-w-[min(100%,85%)] space-y-1.5">
           <div className="flex justify-end">
             <span className="text-[10px] tabular-nums text-text-quaternary">
@@ -74,7 +74,7 @@ export const ChatMessage = memo(function ChatMessage({
   }
 
   return (
-    <div className="flex w-full flex-col items-start gap-2 px-1">
+    <div data-chat-role="assistant" className="flex w-full flex-col items-start gap-2 px-1">
       <div className="w-full max-w-[min(100%,42rem,90%)] space-y-2">
         <div className="flex items-baseline gap-2">
           <span className="text-[11px] font-medium text-text-tertiary">Sonde</span>
