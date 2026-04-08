@@ -223,11 +223,16 @@ test.describe("Production deployment authenticated flows", () => {
   }) => {
     test.skip(!AGENT_HTTP_BASE, "Skipped: no agent host configured");
     test.skip(browserName !== "chromium", "Run hosted chat once to keep smoke lean.");
+    test.setTimeout(120_000);
 
     await page.goto("/");
 
     const input = page.locator('textarea[aria-label="Chat message"]:visible').first();
     await expect(input).toBeVisible({ timeout: 20_000 });
+    await expect(input).toBeEditable({ timeout: 60_000 });
+    await expect(page.getByText(/agent is not connected/i)).not.toBeVisible({
+      timeout: 60_000,
+    });
 
     await input.fill(CHAT_PROMPT);
     await page.locator('button[aria-label="Send"]:visible').first().click();
