@@ -7,15 +7,8 @@ import { assertSecurityConfig } from "./security-config.js";
 
 const app = createApp();
 const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
-const uiOrigins = [
-  "http://localhost:5173",
-  "http://127.0.0.1:5173",
-  "http://localhost:4173",
-  "http://127.0.0.1:4173",
-];
 
 app.get("/chat", upgradeWebSocket((c) => handleWebSocket(c)));
-registerGitHubRoutes(app);
 
 const configuredPort = process.env.PORT ?? process.env.SONDE_SERVER_PORT ?? "3001";
 const port = Number.parseInt(configuredPort, 10);
