@@ -54,7 +54,7 @@ export interface ChatState {
   addTab: () => void;
   closeTab: (id: string) => void;
   setActiveTab: (id: string) => void;
-  setTabAgentSessionId: (tabId: string, id: string) => void;
+  setTabAgentSessionId: (tabId: string, id: string | null) => void;
 
   addMessage: (tabId: string, msg: ChatMessageData) => void;
   appendToLastMessage: (tabId: string, text: string) => void;

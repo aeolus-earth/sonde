@@ -340,6 +340,7 @@ export default function ExperimentDetailPage() {
               type: "experiment",
               id: exp.id,
               label: (exp.hypothesis ?? exp.finding ?? "").slice(0, 200) || undefined,
+              program: exp.program,
             }}
           >
             <div className="sticky top-0 flex h-[min(100vh-7rem,720px)] min-h-[420px] w-full min-w-0 flex-col overflow-hidden lg:h-[calc(100vh-7rem)]">

@@ -1,5 +1,9 @@
 import { expect, test } from "@playwright/test";
-import { seedBypassSession } from "./helpers";
+import {
+  seedActiveProgram,
+  seedBypassSession,
+  seedStaleChatSession,
+} from "./helpers";
 
 test.describe("CI smoke", () => {
   test("login renders without third-party auth gate", async ({ page }) => {
@@ -37,5 +41,76 @@ test.describe("CI smoke", () => {
       page.getByRole("heading", { name: "Page not found" })
     ).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText("ci-smoke@aeolus.earth")).toBeVisible();
+  });
+
+  test("chat recovers from a stale agent session on the first message", async ({
+    page,
+  }) => {
+    await seedBypassSession(page);
+    await seedStaleChatSession(page);
+    await seedActiveProgram(page, "shared");
+    await page.route("**/rest/v1/programs*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([
+          {
+            id: "shared",
+            name: "Shared",
+            description: "CI smoke program",
+          },
+        ]),
+      });
+    });
+
+    await page.goto("/");
+
+    const input = page.locator('textarea[aria-label="Chat message"]:visible').first();
+    await expect(input).toBeVisible({ timeout: 15_000 });
+    await expect(input).toBeEnabled({ timeout: 15_000 });
+
+    await input.fill("Say hello briefly.");
+    await page.locator('button[aria-label="Send"]:visible').first().click();
+
+    await expect(page.getByText("Say hello briefly.")).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(page.getByText(/Mock response:/)).toBeVisible({
+      timeout: 30_000,
+    });
+    await expect(
+      page.getByText("Claude Code process exited with code 1")
+    ).not.toBeVisible();
+  });
+
+  test("chat renders a final-only assistant response", async ({ page }) => {
+    await seedBypassSession(page);
+    await seedActiveProgram(page, "shared");
+    await page.route("**/rest/v1/programs*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([
+          {
+            id: "shared",
+            name: "Shared",
+            description: "CI smoke program",
+          },
+        ]),
+      });
+    });
+
+    await page.goto("/");
+
+    const input = page.locator('textarea[aria-label="Chat message"]:visible').first();
+    await expect(input).toBeVisible({ timeout: 15_000 });
+    await expect(input).toBeEnabled({ timeout: 15_000 });
+
+    await input.fill("[[FINAL_ONLY_RESPONSE]] Say hello briefly.");
+    await page.locator('button[aria-label="Send"]:visible').first().click();
+
+    await expect(page.getByText(/Mock response:/)).toBeVisible({
+      timeout: 15_000,
+    });
   });
 });

@@ -32,6 +32,22 @@ const RECONNECT_MAX_MS = 30000;
 
 const WS_CLOSE_UNAUTHORIZED = 4001;
 
+function isChatDebugEnabled(): boolean {
+  const override = import.meta.env.VITE_CHAT_DEBUG as string | undefined;
+  if (override === "1") return true;
+  if (override === "0") return false;
+  return import.meta.env.DEV;
+}
+
+function chatDebug(event: string, detail?: Record<string, unknown>) {
+  if (!isChatDebugEnabled()) return;
+  if (detail) {
+    console.debug(`[chat] ${event}`, detail);
+    return;
+  }
+  console.debug(`[chat] ${event}`);
+}
+
 function resolveTargetTabId(storeApi: ChatStoreApi): string {
   const s = storeApi.getState();
   return s.streamingTabId ?? s.activeTabId;
@@ -83,6 +99,24 @@ function handleServerMessage(msg: ServerMessage, storeApi: ChatStoreApi) {
     }
 
     case "text_done":
+      {
+        const tabId = resolveTargetTabId(storeApi);
+        const tab = s.tabs.find((t) => t.id === tabId);
+        const last = tab?.messages[tab.messages.length - 1];
+        if (!last || last.role !== "assistant") {
+          s.addMessage(tabId, {
+            id: crypto.randomUUID(),
+            role: "assistant",
+            content: msg.content,
+            timestamp: Date.now(),
+            toolUses: [],
+          });
+          break;
+        }
+        if (!last.content && msg.content) {
+          s.appendToLastMessage(tabId, msg.content);
+        }
+      }
       break;
 
     case "tool_use_start": {
@@ -150,6 +184,9 @@ function handleServerMessage(msg: ServerMessage, storeApi: ChatStoreApi) {
       break;
 
     case "error":
+      if (msg.message.includes("Claude Code process exited with code 1")) {
+        s.setTabAgentSessionId(resolveTargetTabId(storeApi), null);
+      }
       s.addMessage(resolveTargetTabId(storeApi), {
         id: crypto.randomUUID(),
         role: "system",
@@ -224,6 +261,9 @@ export function useChat() {
     const { data: sessionData, error: sessionError } =
       await supabase.auth.getSession();
     if (sessionError || !sessionData.session?.access_token) {
+      chatDebug("connect:no-session", {
+        hasError: Boolean(sessionError),
+      });
       chatStoreApiRef.current.getState().setConnectionStatus("disconnected");
       return;
     }
@@ -241,15 +281,33 @@ export function useChat() {
     const token = sess.access_token;
     if (!token) return;
 
-    if (wsRef.current?.readyState === WebSocket.OPEN) return;
+    const existingSocket = wsRef.current;
+    if (
+      existingSocket?.readyState === WebSocket.OPEN ||
+      existingSocket?.readyState === WebSocket.CONNECTING
+    ) {
+      chatDebug("connect:skip-existing-socket", {
+        readyState: existingSocket.readyState,
+      });
+      return;
+    }
 
+    chatDebug("connect:start");
     chatStoreApiRef.current.getState().setConnectionStatus("connecting");
 
-    const url = `${getAgentWsBase()}/chat?token=${encodeURIComponent(token)}`;
+    const url = `${getAgentWsBase()}/chat`;
     const ws = new WebSocket(url);
     wsRef.current = ws;
 
     ws.onopen = () => {
+      const authPayload: ClientMessage = {
+        type: "auth",
+        token,
+      };
+      ws.send(JSON.stringify(authPayload));
+      chatDebug("ws:open", {
+        authSent: true,
+      });
       authFailureRef.current = false;
       authErrorLoggedRef.current = false;
       chatStoreApiRef.current.getState().setConnectionStatus("connected");
@@ -263,10 +321,29 @@ export function useChat() {
       } catch {
         return;
       }
+      if (msg.type === "ping") {
+        const pong: ClientMessage = { type: "pong" };
+        ws.send(JSON.stringify(pong));
+        chatDebug("ws:ping");
+        return;
+      }
+      if (msg.type === "session") {
+        chatDebug("ws:session", { sessionId: msg.sessionId });
+      } else if (msg.type === "model_info") {
+        chatDebug("ws:model", { model: msg.model });
+      } else if (msg.type === "error") {
+        chatDebug("ws:error", { message: msg.message });
+      } else if (msg.type === "done") {
+        chatDebug("ws:done");
+      }
       handleServerMessage(msg, chatStoreApiRef.current);
     };
 
     ws.onclose = (ev) => {
+      chatDebug("ws:close", {
+        code: ev.code,
+        reason: ev.reason,
+      });
       wsRef.current = null;
       const st = chatStoreApiRef.current.getState();
       const tabId = st.streamingTabId ?? st.activeTabId;
@@ -304,6 +381,7 @@ export function useChat() {
     };
 
     ws.onerror = () => {
+      chatDebug("ws:error-event");
       ws.close();
     };
   }, [scheduleReconnect]);
@@ -361,6 +439,7 @@ export function useChat() {
         attachments: attachmentMeta.length > 0 ? attachmentMeta : undefined,
         timestamp: Date.now(),
       });
+      s1.setStreaming(true);
 
       const s2 = chatStoreApiRef.current.getState();
       const tab = s2.tabs.find((t) => t.id === activeTabId);
@@ -373,6 +452,13 @@ export function useChat() {
         pageContext: pageContext ?? undefined,
         attachments: attachmentPayload,
       };
+      chatDebug("send", {
+        activeTabId,
+        resumeSessionId: tab?.agentSessionId ?? null,
+        mentionCount: mentions.length,
+        attachmentCount: attachmentPayload?.length ?? 0,
+        contentPreview: wireContent.slice(0, 80),
+      });
       ws.send(JSON.stringify(payload));
     },
     [pageContext]

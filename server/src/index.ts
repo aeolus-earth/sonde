@@ -3,6 +3,7 @@ import { serve } from "@hono/node-server";
 import { createNodeWebSocket } from "@hono/node-ws";
 import { createApp, handleWebSocket } from "./app.js";
 import { probeSondeCliEnvironment } from "./sonde-runner.js";
+
 const app = createApp();
 const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
 
@@ -26,33 +27,27 @@ injectWebSocket(server);
 // Daytona sandbox lifecycle management
 import { isSandboxMode } from "./agent.js";
 if (isSandboxMode()) {
-  // Clean up orphaned sandboxes, then pre-warm the shared sandbox
-  // so it's ready before anyone connects (no blocking in onOpen)
+  // Clean up orphaned Daytona sandboxes on boot so a crashed server does not
+  // strand quota indefinitely.
   import("./sandbox/daytona-client.js")
     .then(({ cleanupStaleSandboxes }) => cleanupStaleSandboxes())
-    .then(() => import("./sandbox/shared-sandbox.js"))
-    .then(({ getSharedSandbox }) => {
-      const token = "startup-prewarm"; // Dummy — real token passed per-session
-      return getSharedSandbox(
-        token,
-        process.env.VITE_SUPABASE_URL,
-        process.env.VITE_SUPABASE_ANON_KEY
-      );
-    })
-    .then((sb) => {
-      if (sb) console.log("[sandbox] Pre-warmed and ready for connections");
-      else console.error("[sandbox] Pre-warm returned null");
-    })
     .catch((err) =>
       console.error("[sandbox] Startup failed:", err.message)
     );
 
-  // Clean up shared sandbox + stale sandboxes on graceful shutdown
+  const cleanupInterval = setInterval(() => {
+    import("./sandbox/user-sandbox-pool.js")
+      .then(({ cleanupExpiredUserSandboxes }) => cleanupExpiredUserSandboxes())
+      .catch(() => {});
+  }, 5 * 60_000);
+
+  // Clean up active user sandboxes + stale sandboxes on graceful shutdown
   const shutdownCleanup = () => {
     console.log("[sandbox] Server shutting down, cleaning up...");
+    clearInterval(cleanupInterval);
     Promise.all([
-      import("./sandbox/shared-sandbox.js").then(({ disposeSharedSandbox }) =>
-        disposeSharedSandbox()
+      import("./sandbox/user-sandbox-pool.js").then(({ disposeUserSandboxes }) =>
+        disposeUserSandboxes()
       ),
       import("./sandbox/daytona-client.js").then(({ cleanupStaleSandboxes }) =>
         cleanupStaleSandboxes()

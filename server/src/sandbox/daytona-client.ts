@@ -157,9 +157,10 @@ function wrapSandbox(sandbox: Sandbox): SandboxHandle {
     },
 
     async setToken(token) {
-      // Write token to a persistent env file so all commands pick it up
-      await sandbox.process.executeCommand(
-        `echo 'export SONDE_TOKEN="${token}"' > /home/daytona/.sonde_env`,
+      const escapedToken = token.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+      await sandbox.fs.uploadFile(
+        Buffer.from(`export SONDE_TOKEN="${escapedToken}"\n`, "utf-8"),
+        "/home/daytona/.sonde_env"
       );
       console.log("[sandbox] Auth token updated");
     },

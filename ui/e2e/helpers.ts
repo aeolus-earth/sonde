@@ -55,3 +55,42 @@ export async function seedBypassSession(page: Page): Promise<void> {
     }
   );
 }
+
+export async function seedStaleChatSession(page: Page): Promise<void> {
+  const staleState = {
+    state: {
+      tabs: [
+        {
+          id: "tab-stale-session",
+          title: "Chat 1",
+          messages: [],
+          tasks: [],
+          agentSessionId: "deadbeef-dead-beef-dead-beefdeadbeef",
+          pendingToolApprovals: [],
+        },
+      ],
+      activeTabId: "tab-stale-session",
+    },
+    version: 3,
+  };
+
+  await page.addInitScript((value) => {
+    window.localStorage.setItem("sonde-chat", JSON.stringify(value));
+  }, staleState);
+}
+
+export async function seedActiveProgram(
+  page: Page,
+  programId = "shared"
+): Promise<void> {
+  const persisted = {
+    state: {
+      activeProgram: programId,
+    },
+    version: 0,
+  };
+
+  await page.addInitScript((value) => {
+    window.localStorage.setItem("sonde-active-program", JSON.stringify(value));
+  }, persisted);
+}
