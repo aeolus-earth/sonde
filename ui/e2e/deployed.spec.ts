@@ -5,7 +5,7 @@
  * Only runs when E2E_BASE_URL is set (CI post-deploy or manual dispatch).
  * Skipped entirely during local dev (no webServer needed).
  */
-import { test, expect, type Locator } from "@playwright/test";
+import { test, expect, type Locator, type Page } from "@playwright/test";
 import { seedActiveProgram, seedConfiguredSession } from "./helpers";
 
 const BASE_URL = process.env.E2E_BASE_URL;
@@ -21,41 +21,46 @@ const CHAT_PROMPT =
   process.env.E2E_CHAT_PROMPT?.trim() ||
   "Use Sonde tools to list one accessible program id, then reply with SONDE_SMOKE_OK.";
 async function waitForHostedChatResponse(
+  page: Page,
   assistantMessage: Locator,
-  approveButton: Locator
+  approveButtons: Locator
 ): Promise<void> {
-  await expect
-    .poll(
-      async () => {
-        const needsApproval = await approveButton.isVisible().catch(() => false);
-        if (needsApproval) {
-          await approveButton.click();
-          return false;
-        }
+  const deadline = Date.now() + 90_000;
 
-        const content = await assistantMessage
-          .locator("[data-chat-assistant-content]")
-          .last()
-          .textContent()
-          .catch(() => "");
-        if (content?.trim()) {
-          return true;
-        }
-
-        const toolChainText = await assistantMessage
-          .locator("[data-chat-tool-chain]")
-          .last()
-          .textContent()
-          .catch(() => "");
-        return Boolean(toolChainText?.replace(/\s+/g, " ").trim());
-      },
-      {
-        timeout: 90_000,
-        message:
-          "Expected hosted chat to render assistant text or visible tool activity on the first turn.",
+  while (Date.now() < deadline) {
+    const approveCount = await approveButtons.count().catch(() => 0);
+    for (let index = 0; index < approveCount; index += 1) {
+      const button = approveButtons.nth(index);
+      const isVisible = await button.isVisible().catch(() => false);
+      const isEnabled = await button.isEnabled().catch(() => false);
+      if (isVisible && isEnabled) {
+        await button.click().catch(() => {});
       }
-    )
-    .toBeTruthy();
+    }
+
+    const smokeMarkerVisible = await page
+      .getByText("SONDE_SMOKE_OK", { exact: false })
+      .isVisible()
+      .catch(() => false);
+    if (smokeMarkerVisible) {
+      return;
+    }
+
+    const content = await assistantMessage
+      .locator("[data-chat-assistant-content]")
+      .last()
+      .textContent()
+      .catch(() => "");
+    if (content?.includes("SONDE_SMOKE_OK")) {
+      return;
+    }
+
+    await page.waitForTimeout(1_000);
+  }
+
+  throw new Error(
+    "Expected hosted chat to render SONDE_SMOKE_OK on the first turn."
+  );
 }
 
 test.describe("Production deployment", () => {
@@ -276,8 +281,9 @@ test.describe("Production deployment authenticated flows", () => {
       timeout: 15_000,
     });
     await waitForHostedChatResponse(
+      page,
       page.locator('[data-chat-role="assistant"]').last(),
-      page.getByRole("button", { name: "Approve" }).first()
+      page.getByRole("button", { name: "Approve" })
     );
     await expect(page.getByText(/agent is not connected/i)).not.toBeVisible();
   });
