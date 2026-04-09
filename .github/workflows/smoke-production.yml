@@ -72,7 +72,7 @@ jobs:
         run: |
           VERSION="$(node - <<'NODE'
           const fs = require("node:fs");
-          const text = fs.readFileSync("cli/src/sonde/db/compat.py", "utf8");
+          const text = fs.readFileSync("../cli/src/sonde/db/compat.py", "utf8");
           const match = text.match(/MINIMUM_SCHEMA_VERSION = (\d+)/);
           if (!match) {
             console.error("Could not determine MINIMUM_SCHEMA_VERSION from cli/src/sonde/db/compat.py");
