@@ -98,10 +98,19 @@ export async function runChatConversation({
     let messageSent = false;
     let streamedText = "";
     let finalText = "";
+    let lastEventType = null;
 
     const timer = setTimeout(() => {
       ws.close();
-      reject(new Error(`Timed out after ${timeoutMs}ms waiting for chat response`));
+      const preview = summarizeText(finalText || streamedText);
+      reject(
+        new Error(
+          `Timed out after ${timeoutMs}ms waiting for chat response ` +
+            `(authReady=${authReady}, messageSent=${messageSent}, sawVisibleOutput=${sawVisibleOutput}, ` +
+            `receivedDone=${receivedDone}, lastEventType=${lastEventType ?? "none"}, ` +
+            `eventStats=${JSON.stringify(eventStats)}, preview=${preview})`
+        )
+      );
     }, timeoutMs);
 
     function finish(error) {
@@ -123,6 +132,7 @@ export async function runChatConversation({
 
     ws.on("message", (data) => {
       const message = JSON.parse(String(data));
+      lastEventType = message.type ?? null;
       eventStats[message.type] = (eventStats[message.type] ?? 0) + 1;
 
       if (
