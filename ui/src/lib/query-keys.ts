@@ -42,6 +42,9 @@ export const queryKeys = {
     byExperiment: (expId: string) => ["notes", "experiment", expId] as const,
     search: (expId: string, q: string) => ["notes", "search", expId, q] as const,
   },
+  reviews: {
+    byExperiment: (expId: string) => ["reviews", "experiment", expId] as const,
+  },
   activity: {
     recent: (program: string) => ["activity", "recent", program] as const,
     byRecord: (recordId: string) => ["activity", recordId] as const,

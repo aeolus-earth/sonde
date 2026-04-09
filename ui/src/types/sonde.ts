@@ -264,6 +264,31 @@ export interface ActivityLogEntry {
   created_at: string;
 }
 
+export interface ExperimentReview {
+  id: string;
+  experiment_id: string;
+  status: "open" | "resolved";
+  opened_by: string;
+  resolved_by: string | null;
+  resolved_at: string | null;
+  resolution: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ExperimentReviewEntry {
+  id: string;
+  review_id: string;
+  source: string;
+  content: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ExperimentReviewThread extends ExperimentReview {
+  entries: ExperimentReviewEntry[];
+}
+
 export interface RecordLink {
   source_id: string;
   source_type: RecordType;
