@@ -25,6 +25,7 @@ from sonde.db import findings as find_db
 from sonde.db import notes as notes_db
 from sonde.db import program_takeaways as takeaways_db
 from sonde.db import questions as q_db
+from sonde.db import reviews as review_db
 from sonde.db.artifacts import (
     compute_checksum,
     download_file,
@@ -42,6 +43,7 @@ from sonde.local import (
 )
 from sonde.note_utils import extract_checkpoint, render_note_markdown
 from sonde.output import err, print_error, print_json, print_success
+from sonde.review_utils import write_review_payload_to_dir
 
 ARTIFACT_CHOICES = ("none", "text", "media", "all")
 
@@ -650,6 +652,22 @@ def _sync_experiments(
                 action="read notes",
             )
             err.print(f"  [sonde.warning]Could not pull notes for {exp['id']}: {what}[/]")
+
+        try:
+            review = review_db.get_thread_with_entries(exp["id"])
+            if review:
+                write_review_payload_to_dir(exp_base, review)
+        except APIError as exc:
+            from sonde.db import classify_api_error
+
+            what, _why, _fix = classify_api_error(
+                exc,
+                table="experiment_reviews",
+                action="read reviews",
+            )
+            err.print(f"  [sonde.warning]Could not pull review for {exp['id']}: {what}[/]")
+        except SystemExit:
+            pass
 
     return _download_selected_artifacts(
         sonde_dir,

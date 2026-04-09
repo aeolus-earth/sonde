@@ -8,6 +8,7 @@ from sonde.cli_options import pass_output_options
 from sonde.db.activity import get_history
 from sonde.note_utils import CHECKPOINT_KIND, format_checkpoint_summary
 from sonde.output import err, print_error, print_json
+from sonde.review_utils import one_line
 
 
 @click.command()
@@ -59,6 +60,17 @@ def history(ctx: click.Context, record_id: str) -> None:
         elif action == "artifact_attached":
             filenames = details.get("filenames", [])
             desc = f"Attached: {', '.join(filenames)}" if filenames else "Attached files"
+        elif action == "review_opened":
+            desc = f"Review opened ({details.get('review_id', '')})"
+        elif action == "review_comment_added":
+            summary = one_line(str(details.get("summary") or ""))
+            desc = f"Review entry: {summary}" if summary else "Review entry added"
+        elif action == "review_resolved":
+            summary = one_line(str(details.get("summary") or ""))
+            desc = f"Review resolved: {summary}" if summary else "Review resolved"
+        elif action == "review_reopened":
+            summary = one_line(str(details.get("summary") or ""))
+            desc = f"Review reopened: {summary}" if summary else "Review reopened"
         elif action == "tag_added":
             desc = f"Tag added: {details.get('tag', '')}"
         elif action == "tag_removed":

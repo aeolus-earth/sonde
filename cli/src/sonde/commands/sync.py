@@ -44,6 +44,8 @@ def sync(ctx: click.Context, program: str | None) -> None:
     from sonde.db import notes as notes_db
     from sonde.db import program_takeaways as takeaways_db
     from sonde.db import questions as q_db
+    from sonde.db import reviews as review_db
+    from sonde.review_utils import write_review_payload_to_dir
 
     settings = get_settings()
     program = program or settings.program or None
@@ -100,6 +102,12 @@ def sync(ctx: click.Context, program: str | None) -> None:
                 _write_notes(exp_base, notes)
         except Exception:
             pass  # Non-critical — notes may not be available
+        try:
+            review = review_db.get_thread_with_entries(exp.id)
+            if review:
+                write_review_payload_to_dir(exp_base, review)
+        except Exception:
+            pass  # Non-critical — reviews may not be available
 
     # Findings and questions stay flat
     for f in all_findings:

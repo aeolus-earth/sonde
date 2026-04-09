@@ -16,12 +16,22 @@ from sonde.models.direction import Direction, DirectionCreate
 from sonde.models.experiment import Experiment, ExperimentCreate
 from sonde.models.finding import Finding, FindingCreate
 from sonde.models.question import Question, QuestionCreate
+from sonde.models.review import (
+    ExperimentReview,
+    ExperimentReviewCreate,
+    ExperimentReviewEntry,
+    ExperimentReviewEntryCreate,
+)
 
 __all__ = [
     "Direction",
     "DirectionCreate",
     "Experiment",
     "ExperimentCreate",
+    "ExperimentReview",
+    "ExperimentReviewCreate",
+    "ExperimentReviewEntry",
+    "ExperimentReviewEntryCreate",
     "Finding",
     "FindingCreate",
     "Question",

@@ -93,6 +93,7 @@ def authenticated(fake_session: dict[str, Any]):
         patch("sonde.auth.load_session", return_value=fake_session),
         patch("sonde.auth.get_token", return_value="eyJ-fake-access-token"),
         patch("sonde.auth.is_authenticated", return_value=True),
+        patch("sonde.db.compat.check_schema_compat", return_value=999),
         patch(
             "sonde.auth.get_current_user",
             return_value=MagicMock(
@@ -206,6 +207,7 @@ def patched_db(mock_supabase: MagicMock, authenticated: None) -> Generator[Magic
         import sonde.db.notes as notes_poly_mod
         import sonde.db.programs as prog_mod
         import sonde.db.questions as q_mod
+        import sonde.db.reviews as review_mod
         import sonde.db.tags as tags_mod
 
         modules: list[Any] = [
@@ -226,6 +228,7 @@ def patched_db(mock_supabase: MagicMock, authenticated: None) -> Generator[Magic
             notes_poly_mod,
             prog_mod,
             q_mod,
+            review_mod,
             tags_mod,
         ]
         originals = {mod: mod.get_client for mod in modules}

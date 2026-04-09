@@ -9,6 +9,7 @@ from sonde.config import get_settings
 from sonde.db.activity import get_recent
 from sonde.note_utils import CHECKPOINT_KIND, format_checkpoint_summary
 from sonde.output import err, print_json, print_table
+from sonde.review_utils import one_line
 
 
 @click.command()
@@ -113,6 +114,13 @@ def recent(
             elif e["action"] == "artifact_attached":
                 count = details.get("count", 0)
                 detail = f"{count} file(s)"
+            elif e["action"] in {
+                "review_opened",
+                "review_comment_added",
+                "review_resolved",
+                "review_reopened",
+            }:
+                detail = one_line(str(details.get("summary") or details.get("review_id") or ""))
 
             table_rows.append(
                 {

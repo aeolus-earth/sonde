@@ -44,6 +44,7 @@ def handoff(ctx: click.Context, experiment_id: str | None) -> None:
     from sonde.db import experiments as exp_db
     from sonde.db import findings as find_db
     from sonde.db import notes as notes_db
+    from sonde.db import reviews as review_db
 
     experiment_id = resolve_experiment_id(experiment_id)
     exp = exp_db.get(experiment_id)
@@ -55,7 +56,16 @@ def handoff(ctx: click.Context, experiment_id: str | None) -> None:
         )
         raise SystemExit(1)
 
-    data = _build_handoff_data(exp, exp_db, dir_db, find_db, notes_db, art_db, build_suggestions)
+    data = _build_handoff_data(
+        exp,
+        exp_db,
+        dir_db,
+        find_db,
+        notes_db,
+        art_db,
+        build_suggestions,
+        review_db=review_db,
+    )
 
     if ctx.obj.get("json"):
         print_json(data)
@@ -72,6 +82,7 @@ def _build_handoff_data(
     notes_db,
     art_db,
     build_suggestions,
+    review_db=None,
 ) -> dict[str, Any]:
     """Assemble handoff data for an experiment."""
     # Direction context
@@ -107,6 +118,24 @@ def _build_handoff_data(
         }
         for n in (notes[:5] if notes else [])
     ]
+
+    review_summary = None
+    review = review_db.get_thread_with_entries(exp.id) if review_db else None
+    if review:
+        review_summary = {
+            "id": review.get("id"),
+            "status": review.get("status"),
+            "resolution": review.get("resolution"),
+            "entries": [
+                {
+                    "id": entry.get("id", ""),
+                    "content": truncate_text(entry.get("content", ""), 240),
+                    "source": entry.get("source", ""),
+                    "created_at": entry.get("created_at", ""),
+                }
+                for entry in (review.get("entries") or [])[-5:]
+            ],
+        }
 
     # Artifacts
     artifacts = art_db.list_artifacts(exp.id)
@@ -175,6 +204,7 @@ def _build_handoff_data(
             if latest_checkpoint
             else None
         ),
+        "review": review_summary,
         "artifacts": artifact_list,
         "findings": related_findings,
         "operational_findings": [
@@ -237,6 +267,17 @@ def _render_handoff(data: dict) -> None:
             ts = n["created_at"][:16] if n["created_at"] else "—"
             source = n["source"].split("/")[-1] if "/" in n["source"] else n["source"]
             err.print(f"    {ts}  {source}  {truncate_text(n['content'], 80)}")
+
+    if data.get("review"):
+        review = data["review"]
+        entries = review.get("entries") or []
+        err.print(f"\n  [sonde.heading]Review ({review.get('status', 'open')})[/]")
+        if review.get("resolution"):
+            err.print(f"    Resolution: {truncate_text(review['resolution'], 120)}")
+        for entry in entries[-3:]:
+            ts = entry["created_at"][:16] if entry["created_at"] else "—"
+            source = entry["source"].split("/")[-1] if "/" in entry["source"] else entry["source"]
+            err.print(f"    {ts}  {source}  {truncate_text(entry['content'], 100)}")
 
     # Artifacts
     if data["artifacts"]:
