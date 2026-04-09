@@ -110,7 +110,10 @@ export const ChatMessage = memo(function ChatMessage({
         )}
 
         {message.content && (
-          <div className="rounded-[5.5px] border border-border-subtle bg-surface-raised px-3 py-2 text-[13px] leading-relaxed text-text dark:border-white/[0.08]">
+          <div
+            data-chat-assistant-content
+            className="rounded-[5.5px] border border-border-subtle bg-surface-raised px-3 py-2 text-[13px] leading-relaxed text-text dark:border-white/[0.08]"
+          >
             <Suspense fallback={<span className="whitespace-pre-wrap">{message.content}</span>}>
               <AssistantMarkdown content={message.content} />
             </Suspense>

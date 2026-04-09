@@ -98,10 +98,19 @@ export async function runChatConversation({
     let messageSent = false;
     let streamedText = "";
     let finalText = "";
+    let lastEventType = null;
 
     const timer = setTimeout(() => {
       ws.close();
-      reject(new Error(`Timed out after ${timeoutMs}ms waiting for chat response`));
+      const preview = summarizeText(finalText || streamedText);
+      reject(
+        new Error(
+          `Timed out after ${timeoutMs}ms waiting for chat response ` +
+            `(authReady=${authReady}, messageSent=${messageSent}, sawVisibleOutput=${sawVisibleOutput}, ` +
+            `receivedDone=${receivedDone}, lastEventType=${lastEventType ?? "none"}, ` +
+            `eventStats=${JSON.stringify(eventStats)}, preview=${preview})`
+        )
+      );
     }, timeoutMs);
 
     function finish(error) {
@@ -123,6 +132,7 @@ export async function runChatConversation({
 
     ws.on("message", (data) => {
       const message = JSON.parse(String(data));
+      lastEventType = message.type ?? null;
       eventStats[message.type] = (eventStats[message.type] ?? 0) + 1;
 
       if (
@@ -131,6 +141,7 @@ export async function runChatConversation({
         message.type === "thinking_delta" ||
         message.type === "tool_use_start" ||
         message.type === "tool_use_end" ||
+        message.type === "tool_approval_required" ||
         message.type === "tasks"
       ) {
         sawVisibleOutput = true;
@@ -155,6 +166,17 @@ export async function runChatConversation({
           ws.send(JSON.stringify(messagePayload));
           messageSent = true;
         }
+        return;
+      }
+
+      if (message.type === "tool_approval_required") {
+        ws.send(
+          JSON.stringify({
+            type: "approve_tool",
+            approvalId: message.approvalId,
+            toolUseID: message.toolUseID,
+          })
+        );
         return;
       }
 

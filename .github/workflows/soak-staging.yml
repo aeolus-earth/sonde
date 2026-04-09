@@ -22,20 +22,34 @@ permissions:
 jobs:
   soak:
     runs-on: ubuntu-latest
-    env:
-      SOAK_CONCURRENCY: ${{ inputs.concurrency || '10' }}
-      SOAK_ROUNDS: ${{ inputs.rounds || '2' }}
-      SOAK_SESSION_FILE: ${{ runner.temp }}/sonde-soak-sessions.json
-      SOAK_USERS_FILE: ${{ runner.temp }}/sonde-soak-users.json
 
     steps:
       - uses: actions/checkout@v6
+
+      - name: Set soak temp paths
+        run: |
+          echo "SOAK_SESSION_FILE=$RUNNER_TEMP/sonde-soak-sessions.json" >> "$GITHUB_ENV"
+          echo "SOAK_USERS_FILE=$RUNNER_TEMP/sonde-soak-users.json" >> "$GITHUB_ENV"
 
       - uses: actions/setup-node@v6
         with:
           node-version: "22"
           cache: "npm"
           cache-dependency-path: server/package-lock.json
+
+      - name: Resolve soak settings
+        id: soak
+        env:
+          DEFAULT_CONCURRENCY: "10"
+          DEFAULT_ROUNDS: "2"
+        run: |
+          RAW_CONCURRENCY="$(jq -r '.inputs.concurrency // empty' "$GITHUB_EVENT_PATH")"
+          RAW_ROUNDS="$(jq -r '.inputs.rounds // empty' "$GITHUB_EVENT_PATH")"
+          CONCURRENCY="${RAW_CONCURRENCY:-$DEFAULT_CONCURRENCY}"
+          ROUNDS="${RAW_ROUNDS:-$DEFAULT_ROUNDS}"
+          echo "concurrency=$CONCURRENCY" >> "$GITHUB_OUTPUT"
+          echo "rounds=$ROUNDS" >> "$GITHUB_OUTPUT"
+          echo "Running soak with concurrency=$CONCURRENCY rounds=$ROUNDS"
 
       - name: Install server dependencies
         working-directory: server
@@ -65,7 +79,7 @@ jobs:
           SUPABASE_URL: https://${{ vars.SUPABASE_STAGING_PROJECT_REF }}.supabase.co
           SUPABASE_ANON_KEY: ${{ vars.SUPABASE_STAGING_ANON_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_STAGING_SERVICE_ROLE_KEY }}
-          SMOKE_USER_COUNT: ${{ env.SOAK_CONCURRENCY }}
+          SMOKE_USER_COUNT: ${{ steps.soak.outputs.concurrency }}
           SMOKE_USER_PREFIX: sonde-staging-soak
           SMOKE_USER_PROGRAMS: shared,weather-intervention,cc,dir
           SMOKE_USER_ROLE: member
@@ -91,7 +105,7 @@ jobs:
           for idx in $(seq 1 5); do
             curl -fsS \
               -H "Authorization: Bearer $ACCESS_TOKEN" \
-              "$AGENT_BASE/github/repos/aeolus-earth/sonde/commits?per_page=25" >/tmp/timeline-$idx.json &
+              "$AGENT_BASE/github/repos/aeolus-earth/sonde/commits?per_page=25" >"/tmp/timeline-$idx.json" &
           done
           wait
 
@@ -100,12 +114,13 @@ jobs:
         env:
           SOAK_CHAT_HTTP_BASE: ${{ vars.SONDE_STAGING_AGENT_HTTP_BASE }}
           SOAK_SESSION_FILE: ${{ env.SOAK_SESSION_FILE }}
-          SOAK_CHAT_CONCURRENCY: ${{ env.SOAK_CONCURRENCY }}
-          SOAK_CHAT_ROUNDS: ${{ env.SOAK_ROUNDS }}
+          SOAK_CHAT_CONCURRENCY: ${{ steps.soak.outputs.concurrency }}
+          SOAK_CHAT_ROUNDS: ${{ steps.soak.outputs.rounds }}
           SOAK_CHAT_PROMPT: "Use Sonde tools to list one accessible program id and briefly explain what you found."
           SOAK_CHAT_REQUIRE_TOOL_USE: "1"
         run: |
-          export SOAK_CHAT_TOKENS="$(node -e 'const fs=require(\"node:fs\"); const file=process.env.SOAK_SESSION_FILE; const data=JSON.parse(fs.readFileSync(file,\"utf8\")); process.stdout.write((data.access_tokens ?? []).join(\",\"));')"
+          SOAK_CHAT_TOKENS="$(node -e 'const fs=require(\"node:fs\"); const file=process.env.SOAK_SESSION_FILE; const data=JSON.parse(fs.readFileSync(file,\"utf8\")); process.stdout.write((data.access_tokens ?? []).join(\",\"));')"
+          export SOAK_CHAT_TOKENS
           if [ -z "$SOAK_CHAT_TOKENS" ]; then
             echo "::error::No soak chat tokens available"
             exit 1

@@ -14,6 +14,11 @@ function normalizeBaseUrl(value) {
   return value.replace(/\/+$/, "");
 }
 
+function parseNumber(value, fallback) {
+  const parsed = Number.parseInt(value ?? "", 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
 async function fetchJson(url, init) {
   const response = await fetch(url, init);
   const bodyText = await response.text();
@@ -63,6 +68,28 @@ function isRailwayHostname(hostname) {
   return hostname.endsWith(".railway.app") || hostname.endsWith(".up.railway.app");
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+async function collectRuntimeState({ uiBase, agentBase, runtimeAuditToken }) {
+  const [uiVersion, agentHealth, agentRuntime] = await Promise.all([
+    fetchJson(`${uiBase}/version.json`),
+    fetchJson(`${agentBase}/health`),
+    fetchJson(`${agentBase}/health/runtime`, {
+      headers: runtimeAuditToken
+        ? {
+            Authorization: `Bearer ${runtimeAuditToken}`,
+          }
+        : {},
+    }),
+  ]);
+
+  return { uiVersion, agentHealth, agentRuntime };
+}
+
 async function main() {
   const uiBase = normalizeBaseUrl(requiredEnv("AUDIT_UI_BASE"));
   const agentBase = normalizeBaseUrl(requiredEnv("AUDIT_AGENT_BASE"));
@@ -88,130 +115,160 @@ async function main() {
   const requireSharedRateLimit = parseBooleanFlag(
     (process.env.AUDIT_REQUIRE_SHARED_RATE_LIMIT ?? "").trim().toLowerCase()
   );
+  const waitTimeoutMs = parseNumber(process.env.AUDIT_WAIT_TIMEOUT_MS, 0);
+  const waitIntervalMs = parseNumber(process.env.AUDIT_WAIT_INTERVAL_MS, 5000);
 
-  const [uiVersion, agentHealth, agentRuntime] = await Promise.all([
-    fetchJson(`${uiBase}/version.json`),
-    fetchJson(`${agentBase}/health`),
-    fetchJson(`${agentBase}/health/runtime`, {
-      headers: runtimeAuditToken
-        ? {
-            Authorization: `Bearer ${runtimeAuditToken}`,
-          }
-        : {},
-    }),
-  ]);
+  let state;
+  let lastError = null;
+  const deadline = Date.now() + waitTimeoutMs;
 
-  ensure(uiVersion?.environment, "UI version metadata is missing environment");
-  ensure(
-    Object.prototype.hasOwnProperty.call(uiVersion ?? {}, "commitSha"),
-    "UI version metadata is missing commitSha"
-  );
-  ensure(agentHealth?.status === "ok", "Agent health status is not ok");
-  ensure(
-    Object.keys(agentHealth ?? {}).length === 1 && agentHealth?.status === "ok",
-    "Public agent health should expose only liveness status"
-  );
-  ensure(agentRuntime?.environment, "Agent runtime metadata is missing environment");
-  ensure(
-    Object.prototype.hasOwnProperty.call(agentRuntime ?? {}, "commitSha"),
-    "Agent runtime metadata is missing commitSha"
-  );
-  ensure(
-    Object.prototype.hasOwnProperty.call(agentRuntime ?? {}, "schemaVersion"),
-    "Agent runtime metadata is missing schemaVersion"
-  );
-  ensure(
-    Object.prototype.hasOwnProperty.call(agentRuntime ?? {}, "cliGitRef"),
-    "Agent runtime metadata is missing cliGitRef"
-  );
-  ensure(
-    Object.prototype.hasOwnProperty.call(agentRuntime ?? {}, "supabaseProjectRef"),
-    "Agent runtime metadata is missing supabaseProjectRef"
-  );
-  ensure(
-    Object.prototype.hasOwnProperty.call(agentRuntime ?? {}, "sharedRateLimitConfigured"),
-    "Agent runtime metadata is missing sharedRateLimitConfigured"
-  );
-  ensure(
-    Object.prototype.hasOwnProperty.call(agentRuntime ?? {}, "sharedRateLimitRequired"),
-    "Agent runtime metadata is missing sharedRateLimitRequired"
-  );
-
-  if (expectedEnvironment) {
-    ensure(
-      uiVersion.environment === expectedEnvironment,
-      `UI environment mismatch: expected ${expectedEnvironment}, got ${uiVersion.environment}`
-    );
-    ensure(
-      agentRuntime.environment === expectedEnvironment,
-      `Agent environment mismatch: expected ${expectedEnvironment}, got ${agentRuntime.environment}`
-    );
-  }
-
-  if (expectedCommitSha) {
-    ensure(
-      uiVersion.commitSha === expectedCommitSha,
-      `UI commit mismatch: expected ${expectedCommitSha}, got ${uiVersion.commitSha}`
-    );
-    ensure(
-      agentRuntime.commitSha === expectedCommitSha,
-      `Agent commit mismatch: expected ${expectedCommitSha}, got ${agentRuntime.commitSha}`
-    );
-  } else if (uiVersion.commitSha && agentRuntime.commitSha) {
-    ensure(
-      uiVersion.commitSha === agentRuntime.commitSha,
-      `UI and agent commit mismatch: ${uiVersion.commitSha} vs ${agentRuntime.commitSha}`
-    );
-  }
-
-  if (expectedSchemaVersion) {
-    if (expectedSchemaVersion === "unknown") {
-      ensure(
-        agentRuntime.schemaVersion,
-        "Agent runtime metadata is missing a schemaVersion while audit is running in unknown fallback mode"
-      );
-    } else {
-      ensure(
-        agentRuntime.schemaVersion === expectedSchemaVersion,
-        `Schema version mismatch: expected ${expectedSchemaVersion}, got ${agentRuntime.schemaVersion}`
-      );
+  while (true) {
+    try {
+      state = await collectRuntimeState({ uiBase, agentBase, runtimeAuditToken });
+      break;
+    } catch (error) {
+      lastError = error;
+      if (Date.now() >= deadline || waitTimeoutMs <= 0) {
+        throw error;
+      }
+      await sleep(waitIntervalMs);
     }
   }
 
-  if (expectedSupabaseProjectRef) {
-    ensure(
-      agentRuntime.supabaseProjectRef === expectedSupabaseProjectRef,
-      `Supabase project mismatch: expected ${expectedSupabaseProjectRef}, got ${agentRuntime.supabaseProjectRef}`
-    );
-  }
+  let { uiVersion, agentHealth, agentRuntime } = state;
 
-  if (requireDaytona) {
-    ensure(agentRuntime.daytonaConfigured, "Agent is missing Daytona configuration");
-  }
+  while (true) {
+    try {
+      ensure(uiVersion?.environment, "UI version metadata is missing environment");
+      ensure(
+        Object.prototype.hasOwnProperty.call(uiVersion ?? {}, "commitSha"),
+        "UI version metadata is missing commitSha"
+      );
+      ensure(agentHealth?.status === "ok", "Agent health status is not ok");
+      ensure(
+        Object.keys(agentHealth ?? {}).length === 1 && agentHealth?.status === "ok",
+        "Public agent health should expose only liveness status"
+      );
+      ensure(agentRuntime?.environment, "Agent runtime metadata is missing environment");
+      ensure(
+        Object.prototype.hasOwnProperty.call(agentRuntime ?? {}, "commitSha"),
+        "Agent runtime metadata is missing commitSha"
+      );
+      ensure(
+        Object.prototype.hasOwnProperty.call(agentRuntime ?? {}, "schemaVersion"),
+        "Agent runtime metadata is missing schemaVersion"
+      );
+      ensure(
+        Object.prototype.hasOwnProperty.call(agentRuntime ?? {}, "cliGitRef"),
+        "Agent runtime metadata is missing cliGitRef"
+      );
+      ensure(
+        Object.prototype.hasOwnProperty.call(agentRuntime ?? {}, "supabaseProjectRef"),
+        "Agent runtime metadata is missing supabaseProjectRef"
+      );
+      ensure(
+        Object.prototype.hasOwnProperty.call(agentRuntime ?? {}, "sharedRateLimitConfigured"),
+        "Agent runtime metadata is missing sharedRateLimitConfigured"
+      );
+      ensure(
+        Object.prototype.hasOwnProperty.call(agentRuntime ?? {}, "sharedRateLimitRequired"),
+        "Agent runtime metadata is missing sharedRateLimitRequired"
+      );
 
-  if (requireAnthropic) {
-    ensure(agentRuntime.anthropicConfigured, "Agent is missing Anthropic configuration");
-  }
+      if (expectedEnvironment) {
+        ensure(
+          uiVersion.environment === expectedEnvironment,
+          `UI environment mismatch: expected ${expectedEnvironment}, got ${uiVersion.environment}`
+        );
+        ensure(
+          agentRuntime.environment === expectedEnvironment,
+          `Agent environment mismatch: expected ${expectedEnvironment}, got ${agentRuntime.environment}`
+        );
+      }
 
-  if (requireSharedRateLimit) {
-    ensure(
-      agentRuntime.sharedRateLimitConfigured,
-      "Agent is missing shared rate limiting configuration",
-    );
-  }
+      if (expectedCommitSha) {
+        ensure(
+          uiVersion.commitSha === expectedCommitSha,
+          `UI commit mismatch: expected ${expectedCommitSha}, got ${uiVersion.commitSha}`
+        );
+        ensure(
+          agentRuntime.commitSha === expectedCommitSha,
+          `Agent commit mismatch: expected ${expectedCommitSha}, got ${agentRuntime.commitSha}`
+        );
+      } else if (uiVersion.commitSha && agentRuntime.commitSha) {
+        ensure(
+          uiVersion.commitSha === agentRuntime.commitSha,
+          `UI and agent commit mismatch: ${uiVersion.commitSha} vs ${agentRuntime.commitSha}`
+        );
+      }
 
-  if (requireFirstPartyAgent) {
-    const agentHostname = new URL(agentBase).hostname;
-    ensure(
-      !isRailwayHostname(agentHostname),
-      `Agent host is still provider-branded: ${agentHostname}`
-    );
+      if (expectedSchemaVersion) {
+        if (expectedSchemaVersion === "unknown") {
+          ensure(
+            agentRuntime.schemaVersion,
+            "Agent runtime metadata is missing a schemaVersion while audit is running in unknown fallback mode"
+          );
+        } else {
+          ensure(
+            agentRuntime.schemaVersion === expectedSchemaVersion,
+            `Schema version mismatch: expected ${expectedSchemaVersion}, got ${agentRuntime.schemaVersion}`
+          );
+        }
+      }
 
-    const loginHtml = await fetchText(`${uiBase}/login`);
-    ensure(
-      !loginHtml.includes(".railway.app"),
-      "UI HTML still exposes a Railway hostname"
-    );
+      if (expectedSupabaseProjectRef) {
+        ensure(
+          agentRuntime.supabaseProjectRef === expectedSupabaseProjectRef,
+          `Supabase project mismatch: expected ${expectedSupabaseProjectRef}, got ${agentRuntime.supabaseProjectRef}`
+        );
+      }
+
+      if (requireDaytona) {
+        ensure(agentRuntime.daytonaConfigured, "Agent is missing Daytona configuration");
+      }
+
+      if (requireAnthropic) {
+        ensure(agentRuntime.anthropicConfigured, "Agent is missing Anthropic configuration");
+      }
+
+      if (requireSharedRateLimit) {
+        ensure(
+          agentRuntime.sharedRateLimitConfigured,
+          "Agent is missing shared rate limiting configuration",
+        );
+      }
+
+      if (requireFirstPartyAgent) {
+        const agentHostname = new URL(agentBase).hostname;
+        ensure(
+          !isRailwayHostname(agentHostname),
+          `Agent host is still provider-branded: ${agentHostname}`
+        );
+
+        const loginHtml = await fetchText(`${uiBase}/login`);
+        ensure(
+          !loginHtml.includes(".railway.app"),
+          "UI HTML still exposes a Railway hostname"
+        );
+      }
+
+      break;
+    } catch (error) {
+      lastError = error;
+      if (Date.now() >= deadline || waitTimeoutMs <= 0) {
+        throw error;
+      }
+      await sleep(waitIntervalMs);
+      try {
+        state = await collectRuntimeState({ uiBase, agentBase, runtimeAuditToken });
+        ({ uiVersion, agentHealth, agentRuntime } = state);
+      } catch (refreshError) {
+        lastError = refreshError;
+        if (Date.now() >= deadline) {
+          throw refreshError;
+        }
+      }
+    }
   }
 
   console.log(

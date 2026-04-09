@@ -72,18 +72,23 @@ function getDaytona(): Daytona {
   return daytonaInstance;
 }
 
+export function buildSandboxEnvVars(
+  opts: Pick<CreateSandboxOptions, "supabaseUrl" | "supabaseKey">
+): Record<string, string> {
+  const envVars: Record<string, string> = {};
+  if (opts.supabaseUrl) envVars.AEOLUS_SUPABASE_URL = opts.supabaseUrl;
+  if (opts.supabaseKey) envVars.AEOLUS_SUPABASE_ANON_KEY = opts.supabaseKey;
+  return envVars;
+}
+
 export async function createSandbox(
   opts: CreateSandboxOptions
 ): Promise<SandboxHandle> {
   const daytona = getDaytona();
 
-  const envVars: Record<string, string> = {};
-  if (opts.supabaseUrl) envVars.AEOLUS_SUPABASE_URL = opts.supabaseUrl;
-  if (opts.supabaseKey) envVars.AEOLUS_SUPABASE_KEY = opts.supabaseKey;
-
   const sandbox = await daytona.create({
     language: "python",
-    envVars,
+    envVars: buildSandboxEnvVars(opts),
     autoStopInterval: 15, // Stop after 15 min idle
     autoDeleteInterval: 30, // Delete 30 min after stopping (45 min total worst case)
   });
