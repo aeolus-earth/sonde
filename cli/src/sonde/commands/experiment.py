@@ -44,6 +44,7 @@ from sonde.commands.note import note  # noqa: E402
 from sonde.commands.pull import pull_experiment  # noqa: E402
 from sonde.commands.push import push_experiment  # noqa: E402
 from sonde.commands.remove import remove_experiment  # noqa: E402
+from sonde.commands.review import review  # noqa: E402
 from sonde.commands.tag import tag  # noqa: E402
 
 experiment.add_command(close_experiment)
@@ -59,3 +60,4 @@ experiment.add_command(pull_experiment, "pull")
 experiment.add_command(push_experiment, "push")
 experiment.add_command(remove_experiment)
 experiment.add_command(diff_cmd)
+experiment.add_command(review)

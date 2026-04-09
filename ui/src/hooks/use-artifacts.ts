@@ -1,10 +1,13 @@
 import { useMemo } from "react";
-import { useQuery, useQueries } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueries } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { artifactContentCache } from "@/lib/artifact-content-cache";
+import { artifactDeletedActivityRow } from "@/lib/artifact-delete";
 import { queryClient } from "@/lib/query-client";
 import { queryKeys } from "@/lib/query-keys";
 import type { Artifact } from "@/types/sonde";
+import { useAuthStore } from "@/stores/auth";
+import { useAddToast } from "@/stores/toast";
 
 /** Max blob size to hold in the LRU + Object URL cache (aligned with gallery / chat use). */
 export const BLOB_CACHE_MAX_ENTRY_BYTES = 50 * 1024 * 1024;
@@ -49,6 +52,90 @@ export function useArtifacts(parentId: string) {
     queryKey: queryKeys.artifacts.byParent(parentId),
     queryFn: () => fetchArtifactsByParentId(parentId),
     enabled: !!parentId,
+  });
+}
+
+function removeArtifactFromPreviewCaches(artifact: Artifact): void {
+  artifactContentCache.delete(artifact.storage_path);
+  queryClient.removeQueries({ queryKey: queryKeys.artifacts.detail(artifact.id) });
+  queryClient.removeQueries({ queryKey: ["artifact-url", artifact.storage_path] as const });
+  queryClient.removeQueries({ queryKey: ["artifact-text", artifact.storage_path] as const });
+}
+
+async function logArtifactDeletedActivity(
+  parentId: string,
+  artifact: Artifact,
+  userEmail: string | undefined,
+) {
+  const { error } = await supabase.from("activity_log").insert(
+    artifactDeletedActivityRow({
+      artifactId: artifact.id,
+      filename: artifact.filename,
+      parentId,
+      userEmail,
+    }),
+  );
+
+  if (error) {
+    console.warn("Failed to log artifact deletion activity", error);
+  }
+}
+
+export function useDeleteArtifact(parentId: string) {
+  const userEmail = useAuthStore((s) => s.user?.email);
+  const addToast = useAddToast();
+
+  return useMutation({
+    mutationFn: async (artifact: Artifact) => {
+      const { error } = await supabase.from("artifacts").delete().eq("id", artifact.id);
+      if (error) throw error;
+
+      await logArtifactDeletedActivity(parentId, artifact, userEmail);
+      return artifact;
+    },
+    onMutate: async (artifact) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.artifacts.byParent(parentId) });
+
+      const previous = queryClient.getQueryData<Artifact[]>(
+        queryKeys.artifacts.byParent(parentId),
+      );
+      queryClient.setQueryData<Artifact[]>(
+        queryKeys.artifacts.byParent(parentId),
+        (current) => current?.filter((a) => a.id !== artifact.id) ?? [],
+      );
+      removeArtifactFromPreviewCaches(artifact);
+
+      return { previous };
+    },
+    onSuccess: (artifact) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.artifacts.byParent(parentId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.activity.byRecord(parentId) });
+      queryClient.invalidateQueries({ queryKey: ["activity"] });
+      queryClient.invalidateQueries({ queryKey: ["artifacts", "assistantCanvas"] });
+      queryClient.invalidateQueries({ queryKey: ["experiments"] });
+
+      addToast({
+        title: "Artifact deleted",
+        description: artifact.filename,
+        variant: "success",
+      });
+    },
+    onError: (err: Error, _artifact, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(queryKeys.artifacts.byParent(parentId), context.previous);
+      }
+
+      addToast({
+        title: "Failed to delete artifact",
+        description: err.message,
+        variant: "error",
+      });
+    },
+    onSettled: (_data, _error, artifact) => {
+      if (artifact) {
+        queryClient.invalidateQueries({ queryKey: queryKeys.artifacts.detail(artifact.id) });
+      }
+    },
   });
 }
 

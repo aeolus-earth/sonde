@@ -3,6 +3,7 @@ import type { StateCreator } from "zustand";
 import { persist } from "zustand/middleware";
 import type {
   ChatMessageData,
+  AgentRuntimeInfo,
   AgentTask,
   ConnectionStatus,
   ToolUseData,
@@ -49,6 +50,7 @@ export interface ChatState {
   streamingTabId: string | null;
   isStreaming: boolean;
   agentModel: string | null;
+  agentRuntime: AgentRuntimeInfo | null;
   connectionStatus: ConnectionStatus;
 
   addTab: () => void;
@@ -59,8 +61,6 @@ export interface ChatState {
   addMessage: (tabId: string, msg: ChatMessageData) => void;
   appendToLastMessage: (tabId: string, text: string) => void;
   appendThinkingToLastMessage: (tabId: string, text: string) => void;
-  /** If the assistant has only thinking text and no answer (no-tool turn), merge into content. */
-  promoteThinkingToContentIfNeeded: (tabId: string) => void;
   addToolUseToLastMessage: (tabId: string, toolUse: ToolUseData) => void;
   updateToolUse: (
     tabId: string,
@@ -80,6 +80,7 @@ export interface ChatState {
     status: AgentTask["status"]
   ) => void;
   setAgentModel: (model: string | null) => void;
+  setAgentRuntime: (runtime: AgentRuntimeInfo | null) => void;
   setStreaming: (streaming: boolean) => void;
   setStreamingTabId: (tabId: string | null) => void;
   setConnectionStatus: (status: ConnectionStatus) => void;
@@ -101,6 +102,7 @@ const chatStateCreator: StateCreator<ChatState, [], [], ChatState> = (set) => ({
       streamingTabId: null,
       isStreaming: false,
       agentModel: null,
+      agentRuntime: null,
       connectionStatus: "disconnected",
 
       addTab: () =>
@@ -174,25 +176,6 @@ const chatStateCreator: StateCreator<ChatState, [], [], ChatState> = (set) => ({
           }),
         })),
 
-      promoteThinkingToContentIfNeeded: (tabId) =>
-        set((s) => ({
-          tabs: mapTabsMessages(s.tabs, tabId, (msgs) => {
-            const copy = [...msgs];
-            const last = copy[copy.length - 1];
-            if (last?.role !== "assistant") return msgs;
-            const think = last.thinkingContent?.trim() ?? "";
-            const body = last.content?.trim() ?? "";
-            if (think.length === 0 || body.length > 0) return msgs;
-            if ((last.toolUses?.length ?? 0) > 0) return msgs;
-            copy[copy.length - 1] = {
-              ...last,
-              content: last.thinkingContent ?? "",
-              thinkingContent: undefined,
-            };
-            return copy;
-          }),
-        })),
-
       addToolUseToLastMessage: (tabId, toolUse) =>
         set((s) => ({
           tabs: mapTabsMessages(s.tabs, tabId, (msgs) => {
@@ -200,9 +183,24 @@ const chatStateCreator: StateCreator<ChatState, [], [], ChatState> = (set) => ({
             const last = copy[copy.length - 1];
             if (last?.role === "assistant") {
               const existing = last.toolUses ?? [];
+              const next = existing.some((tu) => tu.id === toolUse.id)
+                ? existing.map((tu) =>
+                    tu.id === toolUse.id
+                      ? {
+                          ...tu,
+                          ...toolUse,
+                          status:
+                            tu.status === "awaiting_approval" &&
+                            toolUse.status === "running"
+                              ? tu.status
+                              : toolUse.status,
+                        }
+                      : tu
+                  )
+                : [...existing, toolUse];
               copy[copy.length - 1] = {
                 ...last,
-                toolUses: [...existing, toolUse],
+                toolUses: next,
               };
             }
             return copy;
@@ -285,6 +283,8 @@ const chatStateCreator: StateCreator<ChatState, [], [], ChatState> = (set) => ({
         })),
 
       setAgentModel: (model) => set({ agentModel: model }),
+
+      setAgentRuntime: (runtime) => set({ agentRuntime: runtime }),
 
       setStreaming: (streaming) => set({ isStreaming: streaming }),
 

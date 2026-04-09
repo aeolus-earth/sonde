@@ -70,5 +70,14 @@ describe("artifact-kind", () => {
         }),
       ),
     ).toBe(true);
+    expect(
+      isTextRenderable(
+        artifact({
+          filename: "project-report.tex",
+          mime_type: "text/x-tex",
+          type: "report",
+        }),
+      ),
+    ).toBe(true);
   });
 });

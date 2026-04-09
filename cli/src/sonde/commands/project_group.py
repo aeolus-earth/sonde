@@ -11,9 +11,15 @@ from sonde.cli_options import pass_output_options
 from sonde.config import get_settings
 from sonde.db import projects as db
 from sonde.db.activity import log_activity
+from sonde.git import provenance_hygiene_nudge
 from sonde.models.project import ProjectCreate
-from sonde.output import err, print_error, print_json, print_success, print_table
+from sonde.output import err, print_error, print_json, print_nudge, print_success, print_table
 from sonde.services.projects import delete_project as delete_project_record
+
+
+def _project_completion_requires_report(project_id: str) -> str:
+    """Return the canonical report registration command."""
+    return f"sonde project report {project_id} --pdf build/project-report.pdf --tex report/main.tex"
 
 
 @click.group(invoke_without_command=True)
@@ -150,6 +156,21 @@ def project_create(
         from pathlib import Path
 
         description = Path(description_file).read_text(encoding="utf-8")
+    if status == "completed":
+        print_error(
+            "Completed projects require a canonical PDF report",
+            (
+                "A project cannot be created directly in the completed state "
+                "because no report is registered yet."
+            ),
+            (
+                "Create it as active or proposed first, then register the report "
+                "and close it. "
+                f"Example: {_project_completion_requires_report('PROJ-001')} "
+                "followed by sonde project close PROJ-001"
+            ),
+        )
+        raise SystemExit(2)
 
     resolved_source = source or settings.source or resolve_source()
     data = ProjectCreate(
@@ -172,6 +193,9 @@ def project_create(
             breadcrumbs=[f"View: sonde project show {result.id}"],
             record_id=result.id,
         )
+        nudge = provenance_hygiene_nudge("project creation")
+        if nudge:
+            print_nudge(*nudge)
 
 
 @project.command("update")
@@ -232,6 +256,16 @@ def project_update(
         from pathlib import Path
 
         description = Path(description_file).read_text(encoding="utf-8")
+    if status == "completed" and not current.report_pdf_artifact_id:
+        print_error(
+            "Completed projects require a canonical PDF report",
+            f"{project_id} does not have a registered PDF report yet.",
+            (
+                f"Run: {_project_completion_requires_report(project_id)} "
+                f"and then sonde project close {project_id}"
+            ),
+        )
+        raise SystemExit(1)
 
     updates = {
         key: value
@@ -267,6 +301,9 @@ def project_update(
             breadcrumbs=[f"View: sonde project show {project_id}"],
             record_id=project_id,
         )
+        nudge = provenance_hygiene_nudge("project update")
+        if nudge:
+            print_nudge(*nudge)
 
 
 @project.command("delete")
@@ -527,7 +564,15 @@ def project_adopt(
             print_success("Nothing to adopt — all records already assigned")
 
 
-# Wire project brief subcommand
+# Wire project subcommands
 from sonde.commands.project_brief import project_brief  # noqa: E402
+from sonde.commands.project_lifecycle import project_close  # noqa: E402
+from sonde.commands.project_report import project_report  # noqa: E402
+from sonde.commands.project_report_template import project_report_template  # noqa: E402
+from sonde.commands.pull import pull_project  # noqa: E402
 
 project.add_command(project_brief)
+project.add_command(project_report)
+project.add_command(project_report_template)
+project.add_command(project_close)
+project.add_command(pull_project, "pull")

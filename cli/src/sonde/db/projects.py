@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 
 from sonde.db import rows as to_rows
@@ -50,6 +51,21 @@ def update(project_id: str, updates: dict[str, Any]) -> Project | None:
     result = client.table("projects").update(updates).eq("id", project_id).execute()
     data = to_rows(result.data)
     return Project(**data[0]) if data else None
+
+
+def update_report(
+    project_id: str,
+    *,
+    pdf_artifact_id: str | None = None,
+    tex_artifact_id: str | None = None,
+) -> Project | None:
+    """Point a project at its canonical report artifacts."""
+    updates: dict[str, Any] = {"report_updated_at": datetime.now(UTC).isoformat()}
+    if pdf_artifact_id is not None:
+        updates["report_pdf_artifact_id"] = pdf_artifact_id
+    if tex_artifact_id is not None:
+        updates["report_tex_artifact_id"] = tex_artifact_id
+    return update(project_id, updates)
 
 
 def delete(project_id: str) -> dict[str, Any]:

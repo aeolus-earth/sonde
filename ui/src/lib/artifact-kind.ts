@@ -25,6 +25,7 @@ const SAFE_TEXT_EXTENSIONS = [
   "py",
   "r",
   "toml",
+  "tex",
   "tsv",
   "txt",
   "xml",

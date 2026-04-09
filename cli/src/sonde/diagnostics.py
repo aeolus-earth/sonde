@@ -725,6 +725,7 @@ def check_write_capabilities(program: str) -> DoctorCheck:
         ("questions", "program"),
         ("artifacts", "experiment_id"),
         ("notes", "record_id"),
+        ("experiment_reviews", "experiment_id"),
     ]
 
     def build() -> dict[str, Any]:

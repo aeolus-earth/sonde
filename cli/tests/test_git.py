@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from sonde.git import detect_git_context
+from sonde.git import RepoSnapshot, detect_git_context, provenance_hygiene_nudge
 
 
 def test_detect_git_context_in_repo(tmp_path):
@@ -49,3 +49,36 @@ def test_detect_git_context_detached_head():
     assert ctx.commit == "def789"
     assert ctx.branch == ""
     assert ctx.repo == ""
+
+
+def test_provenance_hygiene_nudge_returns_none_when_clean():
+    with patch("sonde.git.detect_multi_repo_context", return_value=[]):
+        assert provenance_hygiene_nudge("project update") is None
+
+
+def test_provenance_hygiene_nudge_summarizes_dirty_repos():
+    dirty = [
+        RepoSnapshot(
+            name="superdroplets",
+            remote="github.com/aeolus-earth/superdroplets",
+            commit="abc123",
+            branch="feature/a",
+            dirty=True,
+        ),
+        RepoSnapshot(
+            name="analysis-notebooks",
+            remote="github.com/aeolus-earth/analysis-notebooks",
+            commit="def456",
+            branch="feature/b",
+            dirty=True,
+        ),
+    ]
+
+    with patch("sonde.git.detect_multi_repo_context", return_value=dirty):
+        nudge = provenance_hygiene_nudge("artifact upload")
+
+    assert nudge is not None
+    message, command = nudge
+    assert "superdroplets and analysis-notebooks" in message
+    assert "artifact upload" in message
+    assert "git status --short" in command

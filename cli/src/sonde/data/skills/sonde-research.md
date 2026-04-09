@@ -528,11 +528,16 @@ sonde project create "CCN Sensitivity" \
 # Update
 sonde project update PROJ-001 --objective "Updated scope"
 sonde project update PROJ-001 --description-file updated_motivation.md
-sonde project update PROJ-001 --status completed
 
 # Project-level brief (scoped summary with directions, experiments, findings)
 sonde project brief PROJ-001
 sonde project brief PROJ-001 --json
+
+# Final project report (PDF + editable LaTeX source)
+sonde project report-template PROJ-001
+sonde project report PROJ-001 --pdf build/project-report.pdf --tex report/main.tex
+sonde project close PROJ-001
+sonde project pull PROJ-001 --artifacts all
 
 # Project takeaways (scoped synthesis, separate from program takeaways)
 sonde takeaway --project PROJ-001 "Confirmed GPU port viable for spectral bin"
@@ -544,6 +549,16 @@ sonde project detach DIR-001
 sonde project adopt PROJ-001 --direction DIR-001
 sonde project delete PROJ-001 --confirm
 ```
+
+Before closing a project, follow the `sonde-project-report` skill. `sonde project close`
+requires a registered PDF report. Sonde stores the report PDF and LaTeX source
+as project artifacts; the analysis/research repo is responsible for compiling
+LaTeX into the PDF. Use `sonde project report-template PROJ-001` to scaffold the
+standardized LaTeX entrypoint before editing. Best practice is: pull the program
+notebooks with `sonde pull -p <program>`, pull project artifacts with
+`sonde project pull PROJ-001 --artifacts all`, grep the local records to
+understand the evidence set, inspect git provenance for code-dependent claims,
+then build and proofread the PDF before `sonde project report`.
 
 ---
 
@@ -699,10 +714,12 @@ sonde history EXP-0001                # full audit trail for one record
 
 ```bash
 sonde pull -p <program>               # download experiments, findings, questions
+sonde project pull PROJ-001 --artifacts all  # download project report source/PDF
 sonde push                            # sync local edits back to database
 ```
 
-After pulling, `.sonde/experiments/` contains one markdown file per experiment.
+After pulling, `.sonde/experiments/` contains experiment notebooks and
+`.sonde/projects/PROJ-001/reports/` contains registered project report artifacts.
 Read and grep these directly -- they're the knowledge base.
 
 ---

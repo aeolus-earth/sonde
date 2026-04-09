@@ -4,6 +4,7 @@ import { ROUTE_API } from "../route-ids";
 import { useExperiment } from "@/hooks/use-experiments";
 import { useRecordActivity } from "@/hooks/use-activity";
 import { useExperimentNotes } from "@/hooks/use-notes";
+import { useExperimentReview } from "@/hooks/use-reviews";
 import { useRealtimeInvalidation } from "@/hooks/use-realtime";
 import { useHotkey } from "@/hooks/use-keyboard";
 import { Badge } from "@/components/ui/badge";
@@ -27,7 +28,7 @@ import { GitProvenance } from "@/components/experiments/git-provenance";
 import { CodeContext } from "@/components/experiments/code-context";
 import { ChatPanel } from "@/components/chat/chat-panel";
 import { ChatPageProvider } from "@/contexts/chat-page-context";
-import { ArrowLeft, ChevronRight, Copy, MessageSquare } from "lucide-react";
+import { ArrowLeft, ChevronRight, Copy, MessageSquare, MessagesSquare } from "lucide-react";
 import { experimentDetailShareUrl } from "@/lib/app-origin";
 import {
   effectiveExperimentHypothesis,
@@ -50,6 +51,7 @@ export default function ExperimentDetailPage() {
   const { data: exp, isLoading } = useExperiment(id);
   const { data: activity } = useRecordActivity(id);
   const { data: notes } = useExperimentNotes(id);
+  const { data: review } = useExperimentReview(id);
   useRealtimeInvalidation("experiments", ["experiments"]);
   useRealtimeInvalidation("activity_log", ["activity"]);
   useHotkey("Escape", useCallback(() => nav({ to: "/experiments" }), [nav]));
@@ -190,7 +192,7 @@ export default function ExperimentDetailPage() {
 
           {/* Notes */}
           {notes && notes.length > 0 && (
-            <Section id="notes" title="Notes" count={notes.length}>
+            <Section id="notes" title="Notes" count={notes.length} collapsible>
               <div className="space-y-3">
                 {notes.map((note) => (
                   <div
@@ -218,6 +220,57 @@ export default function ExperimentDetailPage() {
                       ) : (
                         <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-text">
                           {note.content}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Section>
+          )}
+
+          {/* Experiment review thread */}
+          {review && review.entries.length > 0 && (
+            <Section id="review" title="Review" count={review.entries.length} collapsible>
+              <div className="space-y-3">
+                {review.status === "resolved" && (
+                  <div className="rounded-[5.5px] border border-border-subtle bg-surface-raised px-2.5 py-2">
+                    <p className="text-[11px] font-medium uppercase tracking-wide text-text-quaternary">
+                      Resolved
+                    </p>
+                    {review.resolution && (
+                      <p className="mt-1 whitespace-pre-wrap text-[12px] leading-relaxed text-text-secondary">
+                        {review.resolution}
+                      </p>
+                    )}
+                  </div>
+                )}
+                {review.entries.map((entry) => (
+                  <div
+                    key={entry.id}
+                    className="border-b border-border-subtle pb-3 last:border-0 last:pb-0"
+                  >
+                    <div className="mb-1.5 flex items-center gap-2">
+                      <MessagesSquare className="h-3 w-3 text-accent" />
+                      <span className="text-[11px] font-medium text-text-secondary">
+                        {entry.source}
+                      </span>
+                      <span
+                        className="text-[10px] text-text-quaternary"
+                        title={formatDateTime(entry.created_at)}
+                      >
+                        {formatDateTimeShort(entry.created_at)}
+                      </span>
+                      <span className="font-mono text-[10px] text-text-quaternary">
+                        {entry.id}
+                      </span>
+                    </div>
+                    <div className="pl-5">
+                      {looksLikeMarkdown(entry.content) ? (
+                        <MarkdownView content={entry.content} />
+                      ) : (
+                        <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-text">
+                          {entry.content}
                         </p>
                       )}
                     </div>

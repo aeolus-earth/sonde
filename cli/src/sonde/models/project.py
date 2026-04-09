@@ -23,5 +23,8 @@ class Project(ProjectCreate):
     """Full project record as returned from the database."""
 
     id: str
+    report_pdf_artifact_id: str | None = None
+    report_tex_artifact_id: str | None = None
+    report_updated_at: datetime | None = None
     created_at: datetime
     updated_at: datetime

@@ -6,14 +6,16 @@ import { isSondeMcpTool } from "../mcp/tool-policy.js";
 describe("sandbox-tool-policy", () => {
   describe("classifyCommand", () => {
     it("classifies grep as read", () => {
+      assert.equal(classifyCommand('rg "CCN" /home/daytona/.sonde/'), "read");
       assert.equal(classifyCommand('grep -rl "CCN" /home/daytona/.sonde/'), "read");
       assert.equal(classifyCommand('grep -C 5 "keyword" .sonde/EXP-001.md'), "read");
       assert.equal(classifyCommand('grep -rl "^status: complete" .sonde/ --include="*.md"'), "read");
     });
 
-    it("classifies find/head/tail as read and cat as mutate", () => {
+    it("classifies find/cat/head/tail as read", () => {
       assert.equal(classifyCommand("find .sonde/ -name '*.md' -type f"), "read");
-      assert.equal(classifyCommand("cat .sonde/tree.md"), "mutate");
+      assert.equal(classifyCommand("cat /home/daytona/.sonde/tree.md"), "read");
+      assert.equal(classifyCommand("cat .sonde/tree.md"), "read");
       assert.equal(classifyCommand("head -20 .sonde/experiments/EXP-001.md"), "read");
       assert.equal(classifyCommand("tail -5 .sonde/tree.md"), "read");
       assert.equal(classifyCommand("wc -l .sonde/experiments/*.md"), "read");
@@ -27,11 +29,16 @@ describe("sandbox-tool-policy", () => {
     });
 
     it("classifies sonde noun-action commands", () => {
-      // sandbox-tool-policy parses "sonde <noun> <action>" patterns
       assert.equal(classifyCommand("sonde experiment list -p weather"), "read");
       assert.equal(classifyCommand("sonde experiment show EXP-001"), "read");
+      assert.equal(classifyCommand("sonde show EXP-001"), "read");
+      assert.equal(classifyCommand("uv run sonde show EXP-001 --json"), "read");
+      assert.equal(classifyCommand("sonde program list --json"), "read");
+      assert.equal(classifyCommand("sonde pull -p weather --artifacts none"), "read");
       assert.equal(classifyCommand("sonde experiment log -p weather"), "mutate");
+      assert.equal(classifyCommand("sonde log -p weather"), "mutate");
       assert.equal(classifyCommand("sonde experiment update EXP-001"), "mutate");
+      assert.equal(classifyCommand("sonde push -p weather"), "mutate");
       assert.equal(classifyCommand('sonde attach EXP-001 plot.png -d "Plot"'), "mutate");
     });
 
@@ -40,9 +47,10 @@ describe("sandbox-tool-policy", () => {
       assert.equal(classifyCommand("rm -rf /home/daytona/.sonde/"), "destructive");
     });
 
-    it("classifies python as mutate (unknown command)", () => {
-      assert.equal(classifyCommand("python3 analysis.py"), "mutate");
-      assert.equal(classifyCommand("pip install pandas"), "mutate");
+    it("classifies analysis and install commands as session work", () => {
+      assert.equal(classifyCommand("python3 analysis.py"), "session");
+      assert.equal(classifyCommand("pip install pandas"), "session");
+      assert.equal(classifyCommand("sonde project report-template PROJ-001"), "session");
     });
   });
 
@@ -52,15 +60,33 @@ describe("sandbox-tool-policy", () => {
       assert.equal(classifySandboxTool("sandbox_glob", { pattern: "EXP-*.md" }), "read");
     });
 
-    it("requires approval for sandbox_write", () => {
+    it("auto-approves sandbox_write inside a session workspace", () => {
+      assert.equal(
+        classifySandboxTool(
+          "sandbox_write",
+          { path: "/home/daytona/sessions/abc/test.py", content: "x=1" },
+          "/home/daytona/sessions/abc"
+        ),
+        "session"
+      );
+    });
+
+    it("requires approval for sandbox_write outside a session workspace", () => {
       assert.equal(classifySandboxTool("sandbox_write", { path: "test.py", content: "x=1" }), "mutate");
     });
 
-    it("always requires approval for sandbox_exec", () => {
+    it("auto-approves read and session sandbox_exec commands", () => {
       assert.equal(
         classifySandboxTool("sandbox_exec", { command: 'grep -rl "CCN" .sonde/' }),
-        "mutate"
+        "read"
       );
+      assert.equal(
+        classifySandboxTool("sandbox_exec", { command: "python3 analysis.py" }),
+        "session"
+      );
+    });
+
+    it("requires approval for sonde write commands through sandbox_exec", () => {
       assert.equal(
         classifySandboxTool("sandbox_exec", { command: "sonde experiment log -p weather" }),
         "mutate"
@@ -70,8 +96,8 @@ describe("sandbox-tool-policy", () => {
 
   describe("approval bridge bypass", () => {
     it("sandbox tools are not classified as sonde MCP tools", () => {
-      // This is the critical check: sandbox_exec/read/write/glob bypass the
-      // approval bridge entirely because isSondeMcpTool returns false.
+      // Sandbox tools are classified by sandbox-tool-policy before the bridge
+      // falls back to Sonde MCP tool-name policy.
       assert.equal(isSondeMcpTool("sandbox_exec"), false);
       assert.equal(isSondeMcpTool("sandbox_read"), false);
       assert.equal(isSondeMcpTool("sandbox_write"), false);

@@ -373,10 +373,24 @@ def _show_project(ctx: click.Context, project_id: str) -> None:
         .execute()
     )
 
+    try:
+        from sonde.db.artifacts import get as get_artifact
+        from sonde.db.artifacts import list_for_project
+
+        project_artifacts = list_for_project(project_id)
+        report_pdf = get_artifact(p.report_pdf_artifact_id) if p.report_pdf_artifact_id else None
+        report_tex = get_artifact(p.report_tex_artifact_id) if p.report_tex_artifact_id else None
+    except Exception:
+        project_artifacts = []
+        report_pdf = None
+        report_tex = None
+
     if ctx.obj.get("json"):
         data = p.model_dump(mode="json")
         data["_directions"] = dirs_result.data or []
         data["_experiments"] = exps_result.data or []
+        data["_artifacts"] = project_artifacts
+        data["_report"] = {"pdf": report_pdf, "tex": report_tex}
         print_json(data)
         return
 
@@ -451,27 +465,28 @@ def _show_project(ctx: click.Context, project_id: str) -> None:
             title=f"Experiments ({len(exps)})",
         )
 
-    # Show project artifacts if any
-    try:
-        from sonde.db.artifacts import list_for_project
+    if report_pdf:
+        err.print(
+            "\n[sonde.heading]Project Report[/]\n"
+            f"PDF: {report_pdf['id']}  {report_pdf['filename']}"
+            + (f"\nLaTeX: {report_tex['id']}  {report_tex['filename']}" if report_tex else "")
+        )
 
-        project_artifacts = list_for_project(project_id)
-        if project_artifacts:
-            art_rows = [
-                {
-                    "id": a["id"],
-                    "type": a.get("type", ""),
-                    "filename": a["filename"],
-                }
-                for a in project_artifacts[:10]
-            ]
-            print_table(["id", "type", "filename"], art_rows, title="Artifacts")
-    except Exception:
-        err.print("  [sonde.muted](artifacts unavailable)[/]")
+    if project_artifacts:
+        art_rows = [
+            {
+                "id": a["id"],
+                "type": a.get("type", ""),
+                "filename": a["filename"],
+            }
+            for a in project_artifacts[:10]
+        ]
+        print_table(["id", "type", "filename"], art_rows, title="Artifacts")
 
     print_breadcrumbs(
         [
             f"\U0001f517 {ui_url(project_id)}",
+            f"Report: sonde project report {project_id}",
             f"Brief: sonde project brief {project_id}",
             "Directions: sonde direction list --all",
             "Experiments: sonde list --all",

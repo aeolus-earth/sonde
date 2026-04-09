@@ -55,6 +55,7 @@ function ChatPanelInner({ glass }: { glass: boolean }) {
     messages,
     tasks,
     agentModel,
+    agentRuntime,
     isStreaming,
     isConnected,
     connectionStatus,
@@ -105,6 +106,7 @@ function ChatPanelInner({ glass }: { glass: boolean }) {
         hasMessages={messages.length > 0}
         onClearConversation={clearConversation}
         pageContext={pageContext}
+        agentRuntime={agentRuntime}
         glass={glass}
       />
 

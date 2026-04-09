@@ -11,14 +11,18 @@ import { classifySandboxTool } from "./sandbox/sandbox-tool-policy.js";
 import {
   isSensitiveSandboxPath,
   readPathError,
+  writePathError,
 } from "./sandbox/sandbox-path-policy.js";
-import type { ServerMessage } from "./types.js";
+import type { ServerMessage, ToolApprovalKind } from "./types.js";
 
 function send(ws: WSContext<WebSocket>, msg: ServerMessage) {
   ws.send(JSON.stringify(msg));
 }
 
-export function createToolApprovalBridge(ws: WSContext<WebSocket>): {
+export function createToolApprovalBridge(
+  ws: WSContext<WebSocket>,
+  getSandboxSessionDir?: () => string | undefined
+): {
   canUseTool: CanUseTool;
   dispose: () => void;
   resolveApproval: (approvalId: string, approve: boolean, reason?: string) => boolean;
@@ -29,15 +33,20 @@ export function createToolApprovalBridge(ws: WSContext<WebSocket>): {
   >();
 
   const canUseTool: CanUseTool = async (toolName, input, opts) => {
+    const sandboxSessionDir = getSandboxSessionDir?.();
+
     if (toolName === "sandbox_read") {
-      const error = readPathError(String(input.path ?? ""));
+      const error = readPathError(String(input.path ?? ""), sandboxSessionDir);
       if (error) {
         return { behavior: "deny", message: error, interrupt: true };
       }
     }
 
     if (toolName === "sandbox_glob") {
-      const error = readPathError(String(input.cwd ?? "/home/daytona/.sonde"));
+      const error = readPathError(
+        String(input.cwd ?? "/home/daytona/.sonde"),
+        sandboxSessionDir
+      );
       if (error) {
         return { behavior: "deny", message: error, interrupt: true };
       }
@@ -45,6 +54,10 @@ export function createToolApprovalBridge(ws: WSContext<WebSocket>): {
 
     if (toolName === "sandbox_write") {
       const path = String(input.path ?? "");
+      const error = writePathError(path, sandboxSessionDir);
+      if (!error) {
+        return { behavior: "allow", updatedInput: input };
+      }
       if (isSensitiveSandboxPath(path)) {
         return {
           behavior: "deny",
@@ -55,11 +68,19 @@ export function createToolApprovalBridge(ws: WSContext<WebSocket>): {
     }
 
     if (toolName.startsWith("sandbox_")) {
-      const sandboxClass = classifySandboxTool(toolName, input);
-      if (sandboxClass === "read") {
+      const sandboxClass = classifySandboxTool(
+        toolName,
+        input,
+        sandboxSessionDir
+      );
+      if (sandboxClass === "read" || sandboxClass === "session") {
         return { behavior: "allow", updatedInput: input };
       }
       const id = opts.toolUseID;
+      const kind: ToolApprovalKind =
+        sandboxClass === "destructive"
+          ? "sandbox_destructive"
+          : "sandbox_mutate";
       return new Promise((resolve) => {
         pending.set(id, { resolve, input });
         send(ws, {
@@ -69,6 +90,7 @@ export function createToolApprovalBridge(ws: WSContext<WebSocket>): {
           tool: toolName,
           input,
           destructive: sandboxClass === "destructive",
+          kind,
         });
       });
     }
@@ -84,6 +106,7 @@ export function createToolApprovalBridge(ws: WSContext<WebSocket>): {
           tool: toolName,
           input,
           destructive: true,
+          kind: "external_tool",
         });
       });
     }
@@ -101,6 +124,7 @@ export function createToolApprovalBridge(ws: WSContext<WebSocket>): {
         tool: sondeName,
         input,
         destructive: isDestructiveTool(sondeName),
+        kind: "sonde_write",
       });
     });
   };
