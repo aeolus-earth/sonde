@@ -141,6 +141,7 @@ export async function runChatConversation({
         message.type === "thinking_delta" ||
         message.type === "tool_use_start" ||
         message.type === "tool_use_end" ||
+        message.type === "tool_approval_required" ||
         message.type === "tasks"
       ) {
         sawVisibleOutput = true;
@@ -165,6 +166,17 @@ export async function runChatConversation({
           ws.send(JSON.stringify(messagePayload));
           messageSent = true;
         }
+        return;
+      }
+
+      if (message.type === "tool_approval_required") {
+        ws.send(
+          JSON.stringify({
+            type: "approve_tool",
+            approvalId: message.approvalId,
+            toolUseID: message.toolUseID,
+          })
+        );
         return;
       }
 
