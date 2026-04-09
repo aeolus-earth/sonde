@@ -155,6 +155,7 @@ jobs:
         env:
           CHAT_PREWARM_HTTP_BASE: ${{ steps.targets.outputs.agent_url }}
           CHAT_PREWARM_TIMEOUT_MS: "300000"
+          CHAT_PREWARM_RETRY_INTERVAL_MS: "10000"
           CHAT_SMOKE_HTTP_BASE: ${{ steps.targets.outputs.agent_url }}
           CHAT_SMOKE_PROMPT: "Use Sonde tools to list one accessible program id, then reply with SONDE_SMOKE_OK."
           CHAT_SMOKE_STALE_SESSION: "1"
