@@ -35,6 +35,7 @@ const navPrimitives = [
   { to: "/directions", label: "Directions", icon: Compass },
   { to: "/experiments", label: "Experiments", icon: FlaskConical },
   { to: "/findings", label: "Findings", icon: Lightbulb },
+  { to: "/questions", label: "Questions", icon: MessageCircleQuestion },
 ] as const;
 
 /** Graph / structure views */
@@ -43,10 +44,7 @@ const navGraph = [
   { to: "/timeline", label: "Timeline", icon: GitCommitHorizontal },
 ] as const;
 
-const navInboxActivity = [
-  { to: "/questions", label: "Inbox", icon: MessageCircleQuestion },
-  { to: "/activity", label: "Activity", icon: Activity },
-] as const;
+const navActivity = [{ to: "/activity", label: "Activity", icon: Activity }] as const;
 
 type SidebarNavItem = {
   readonly to: string;
@@ -102,7 +100,7 @@ function SidebarContent({ iconOnly, onNavClick }: { iconOnly: boolean; onNavClic
         <div className="space-y-px">{renderLinks(navGraph)}</div>
 
         <div className="mt-1.5 space-y-px border-t border-border-subtle pt-1.5">
-          {renderLinks(navInboxActivity)}
+          {renderLinks(navActivity)}
         </div>
       </nav>
     </>

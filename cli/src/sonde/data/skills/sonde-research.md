@@ -171,8 +171,9 @@ why the run changed course, and what the next agent should watch for.
 - After an analysis that yields a finding or insight
 - When the user says "log this", "record this", "save this experiment"
 - When you've helped design and run an experiment to completion
-- When results are inconclusive, surprising, or suggest follow-up work, also raise a question:
-  `sonde question create -p <program> "..."`
+- When results are inconclusive, surprising, or suggest follow-up work, log the
+  experiment and raise the open question in the same step:
+  `sonde log -p <program> "..." --question "..."`
 
 ---
 
@@ -461,9 +462,13 @@ Track what the team doesn't know yet. Promote to experiments or directions.
 
 Raise a question whenever an experiment leaves a real unknown behind. Use this
 for inconclusive results, surprising outcomes, or obvious follow-up work that
-should land in the research inbox instead of living only in chat.
+should land in Questions instead of living only in chat. When you are already
+logging the experiment, prefer `sonde log --question` so the follow-up stays
+linked to the experiment from the start.
 
 ```bash
+sonde log -p weather-intervention "CCN sweep was inconclusive" \
+  --question "Does spectral bin change the CCN curve?"
 sonde question list -p <program>
 sonde question list -p <program> --json
 sonde show Q-001

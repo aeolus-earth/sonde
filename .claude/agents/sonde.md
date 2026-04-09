@@ -339,11 +339,16 @@ sonde brief -p <program> --since 2026-03-15
 ### Questions — track what we don't know
 
 ```bash
+sonde log -p weather-intervention "CCN sweep was inconclusive" \
+  --question "Does BL heating interact with CCN seeding?"
 sonde question create -p weather-intervention "Does BL heating interact with CCN seeding?"
 sonde questions -p <program>
 sonde question promote Q-001              # promote to experiment
 sonde question promote Q-001 --to direction -t "BL Heating"  # to direction
 ```
+
+When you are already logging the experiment, prefer `sonde log --question` so
+the experiment and the open question stay linked from the start.
 
 ### Directions — group experiments into research threads
 
