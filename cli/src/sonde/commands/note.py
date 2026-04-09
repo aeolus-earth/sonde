@@ -11,6 +11,7 @@ from postgrest.exceptions import APIError
 from sonde.auth import resolve_source
 from sonde.cli_options import pass_output_options
 from sonde.db import notes as db
+from sonde.git import provenance_hygiene_nudge
 from sonde.local import ensure_subdir, find_sonde_dir
 from sonde.note_utils import (
     CHECKPOINT_STATUSES,
@@ -223,6 +224,9 @@ def note(
             record_id=record_id,
         )
         err.print(f"  [sonde.muted]\u2192 {local_file.relative_to(sonde_dir.parent)}[/]")
+        provenance_nudge = provenance_hygiene_nudge(f"{record_type} note")
+        if provenance_nudge:
+            print_nudge(*provenance_nudge)
 
         # Research hygiene nudge for experiments with accumulating notes
         if record_type == "experiment":

@@ -1,4 +1,4 @@
-"""Artifact commands — list files attached to experiments, findings, or directions."""
+"""Artifact commands — list files attached to research records."""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ artifact.add_command(artifact_update)
 @pass_output_options
 @click.pass_context
 def list_cmd(ctx: click.Context, parent_id: str) -> None:
-    """List artifacts for an experiment (EXP-), finding (FIND-), or direction (DIR-).
+    """List artifacts for an experiment, finding, direction, or project.
 
     \b
     Examples:
@@ -48,11 +48,13 @@ def list_cmd(ctx: click.Context, parent_id: str) -> None:
         data = art_db.list_for_finding(rid)
     elif prefix == "DIR":
         data = art_db.list_for_direction(rid)
+    elif prefix == "PROJ":
+        data = art_db.list_for_project(rid)
     else:
         print_error(
             "Invalid record id",
-            f"Expected EXP-, FIND-, or DIR- prefix, got {parent_id!r}.",
-            "Try: sonde artifact list EXP-0001",
+            f"Expected EXP-, FIND-, DIR-, or PROJ- prefix, got {parent_id!r}.",
+            "Try: sonde artifact list PROJ-001",
         )
         raise SystemExit(1)
 

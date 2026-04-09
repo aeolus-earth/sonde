@@ -96,6 +96,14 @@ export interface ServerModelInfo {
   model: string;
 }
 
+export interface ServerRuntimeInfo {
+  type: "runtime_info";
+  backend: "sandbox" | "direct";
+  label: string;
+  traces: boolean;
+  workspaceDir?: string;
+}
+
 export interface ServerTextDelta {
   type: "text_delta";
   content: string;
@@ -126,6 +134,19 @@ export interface ServerToolUseEnd {
   output: string;
 }
 
+export interface ServerToolUseError {
+  type: "tool_use_error";
+  id: string;
+  error: string;
+}
+
+export type ToolApprovalKind =
+  | "sonde_write"
+  | "sandbox_mutate"
+  | "sandbox_destructive"
+  | "sandbox_sensitive"
+  | "external_tool";
+
 export interface ServerToolApprovalRequired {
   type: "tool_approval_required";
   approvalId: string;
@@ -133,6 +154,7 @@ export interface ServerToolApprovalRequired {
   tool: string;
   input: Record<string, unknown>;
   destructive?: boolean;
+  kind?: ToolApprovalKind;
 }
 
 export interface ServerTasks {
@@ -157,11 +179,13 @@ export type ServerMessage =
   | ServerAuthOk
   | ServerSession
   | ServerModelInfo
+  | ServerRuntimeInfo
   | ServerTextDelta
   | ServerThinkingDelta
   | ServerTextDone
   | ServerToolUseStart
   | ServerToolUseEnd
+  | ServerToolUseError
   | ServerToolApprovalRequired
   | ServerTasks
   | ServerError
@@ -178,5 +202,6 @@ export type AgentEvent =
   | { type: "text_done"; content: string; messageId: string }
   | { type: "tool_use_start"; id: string; tool: string; input: Record<string, unknown> }
   | { type: "tool_use_end"; id: string; output: string }
+  | { type: "tool_use_error"; id: string; error: string }
   | { type: "tasks"; tasks: AgentTask[] }
   | { type: "error"; message: string };

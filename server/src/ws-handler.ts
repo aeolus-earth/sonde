@@ -15,6 +15,7 @@ import {
 import type { UserSandboxLease } from "./sandbox/user-sandbox-pool.js";
 import { createToolApprovalBridge } from "./tool-approval-bridge.js";
 import type {
+  AgentEvent,
   ChatAttachmentPayload,
   ClientMessage,
   MentionRef,
@@ -82,6 +83,53 @@ function send(ws: WSContext<WebSocket>, msg: ServerMessage) {
   } catch {
     // Ignore best-effort socket write failures.
   }
+}
+
+function sendAgentTraceEvent(
+  ws: WSContext<WebSocket>,
+  event: AgentEvent
+): void {
+  if (event.type === "tool_use_start") {
+    send(ws, {
+      type: "tool_use_start",
+      id: event.id,
+      tool: event.tool,
+      input: event.input,
+    });
+  } else if (event.type === "tool_use_end") {
+    send(ws, {
+      type: "tool_use_end",
+      id: event.id,
+      output: event.output,
+    });
+  } else if (event.type === "tool_use_error") {
+    send(ws, {
+      type: "tool_use_error",
+      id: event.id,
+      error: event.error,
+    });
+  }
+}
+
+function runtimeBackend(state: ConnectionState): "sandbox" | "direct" {
+  if (state.initialized) {
+    return state.sandboxLease ? "sandbox" : "direct";
+  }
+  return isSandboxMode() ? "sandbox" : "direct";
+}
+
+function sendRuntimeInfo(
+  state: ConnectionState,
+  ws: WSContext<WebSocket>
+): void {
+  const backend = runtimeBackend(state);
+  send(ws, {
+    type: "runtime_info",
+    backend,
+    label: backend === "sandbox" ? "Daytona sandbox" : "Direct Sonde MCP",
+    traces: true,
+    workspaceDir: state.sandboxLease?.sessionDir,
+  });
 }
 
 function clearTimer(timer: NodeJS.Timeout | null): void {
@@ -268,9 +316,13 @@ async function authenticateConnection(
   state.token = trimmedToken;
   state.user = user;
   state.authenticated = true;
-  state.approvalBridge = createToolApprovalBridge(ws);
+  state.approvalBridge = createToolApprovalBridge(
+    ws,
+    () => state.sandboxLease?.sessionDir
+  );
   startHeartbeat(state, ws);
   send(ws, { type: "auth_ok" });
+  sendRuntimeInfo(state, ws);
   chatLog(state, "authenticated", {
     userId: user.id,
   });
@@ -294,9 +346,13 @@ function primeAuthenticatedConnection(
   state.token = authenticated.accessToken;
   state.user = authenticated.user;
   state.authenticated = true;
-  state.approvalBridge = createToolApprovalBridge(ws);
+  state.approvalBridge = createToolApprovalBridge(
+    ws,
+    () => state.sandboxLease?.sessionDir
+  );
   startHeartbeat(state, ws);
   send(ws, { type: "auth_ok" });
+  sendRuntimeInfo(state, ws);
   chatLog(state, "authenticated_pre_upgrade", {
     userId: authenticated.user.id,
   });
@@ -304,6 +360,7 @@ function primeAuthenticatedConnection(
 
 async function ensureInitialized(
   state: ConnectionState,
+  ws: WSContext<WebSocket>,
   pageContext: PageContext | undefined,
   mentions: MentionRef[]
 ): Promise<boolean> {
@@ -346,6 +403,7 @@ async function ensureInitialized(
       state.session = createSandboxAgentSession({
         canUseTool: approvalBridge.canUseTool,
         sandbox: sandboxLease.sandbox,
+        emitTrace: (event) => sendAgentTraceEvent(ws, event),
       });
     }
   }
@@ -353,6 +411,7 @@ async function ensureInitialized(
   if (!state.session) {
     state.session = createAgentSession(token, {
       canUseTool: approvalBridge.canUseTool,
+      emitTrace: (event) => sendAgentTraceEvent(ws, event),
     });
   }
 
@@ -363,6 +422,7 @@ async function ensureInitialized(
   }
 
   state.initialized = true;
+  sendRuntimeInfo(state, ws);
   chatLog(state, "session_initialized", {
     backend: isSandboxMode() ? "sandbox" : "direct",
     sessionId: state.session.sessionId,
@@ -550,6 +610,7 @@ export function handleWebSocket(
           try {
             const initialized = await ensureInitialized(
               state,
+              ws,
               msg.pageContext,
               msg.mentions ?? []
             );
@@ -711,6 +772,14 @@ async function handleUserMessage(
               type: "tool_use_end",
               id: event.id,
               output: event.output,
+            });
+            break;
+          case "tool_use_error":
+            emittedOutput = true;
+            send(ws, {
+              type: "tool_use_error",
+              id: event.id,
+              error: event.error,
             });
             break;
           case "tasks":

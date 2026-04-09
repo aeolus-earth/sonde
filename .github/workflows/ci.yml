@@ -101,6 +101,11 @@ jobs:
         run: uv run ty check src/
 
       - if: steps.gate.outputs.run == 'true'
+        name: Dead-code scan
+        working-directory: cli
+        run: uv run vulture
+
+      - if: steps.gate.outputs.run == 'true'
         name: Unit tests
         working-directory: cli
         run: uv run pytest -m "not integration" --tb=short

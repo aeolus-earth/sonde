@@ -25,6 +25,7 @@ from sonde.db import findings as find_db
 from sonde.db import notes as notes_db
 from sonde.db import program_takeaways as takeaways_db
 from sonde.db import questions as q_db
+from sonde.db import reviews as review_db
 from sonde.db.activity import log_activity
 from sonde.git import detect_git_context, detect_multi_repo_context, snapshots_to_json
 from sonde.local import (
@@ -38,8 +39,14 @@ from sonde.models.direction import DirectionCreate
 from sonde.models.experiment import ExperimentCreate
 from sonde.models.finding import FindingCreate
 from sonde.models.question import QuestionCreate
+from sonde.models.review import ExperimentReview, ExperimentReviewEntryCreate
 from sonde.note_utils import checkpoint_activity_details, extract_checkpoint, render_note_markdown
 from sonde.output import err, print_error, print_json, print_nudge, print_success
+from sonde.review_utils import (
+    activity_review_details,
+    render_review_entry_markdown,
+    write_review_payload_to_dir,
+)
 
 _SKIP = {".DS_Store", "__pycache__"}
 
@@ -602,18 +609,19 @@ def _upsert_experiment(
         else ArtifactUploadStats()
     )
     note_count = _sync_notes(exp_id, exp_dir) if exp_dir.is_dir() else 0
-    if (artifact_stats.total or note_count) and not use_json:
+    review_count = _sync_review(exp_id, exp_dir) if exp_dir.is_dir() else 0
+    if (artifact_stats.total or note_count or review_count) and not use_json:
         err.print(
             f"  [sonde.muted]{exp_id}: uploaded {artifact_stats.uploaded}, "
             f"updated {artifact_stats.updated}, skipped {artifact_stats.skipped}, "
             f"failed {artifact_stats.failed}, oversized {artifact_stats.oversized}, "
-            f"notes {note_count}[/]"
+            f"notes {note_count}, reviews {review_count}[/]"
         )
     return {
         "id": exp_id,
         "record_type": "experiment",
         "action": action,
-        "_sync": {"artifacts": asdict(artifact_stats), "notes": note_count},
+        "_sync": {"artifacts": asdict(artifact_stats), "notes": note_count, "review": review_count},
     }
 
 
@@ -745,7 +753,8 @@ def _sync_directory(
     candidates = [
         path
         for path in sorted(exp_dir.rglob("*"))
-        if path.is_file() and not any(part in _SKIP or part == "notes" for part in path.parts)
+        if path.is_file()
+        and not any(part in _SKIP or part in {"notes", "review"} for part in path.parts)
     ]
     if only_relative_paths is not None:
         candidates = [
@@ -991,3 +1000,156 @@ def _sync_record_notes(record_type: str, record_id: str, notes_dir: Path) -> int
             encoding="utf-8",
         )
     return created
+
+
+def _sync_review(experiment_id: str, exp_dir: Path) -> int:
+    """Sync an experiment review from a local review directory to DB."""
+    review_dir = exp_dir / "review"
+    if not review_dir.exists():
+        return 0
+
+    thread_file = review_dir / "thread.md"
+    thread_frontmatter: dict[str, Any] = {}
+    thread_body = ""
+    if thread_file.exists():
+        thread_frontmatter, thread_body = parse_markdown(thread_file.read_text(encoding="utf-8"))
+
+    entries_dir = review_dir / "entries"
+    entry_files = sorted(entries_dir.glob("*.md")) if entries_dir.exists() else []
+    if not thread_file.exists() and not entry_files:
+        return 0
+
+    thread_source = str(
+        thread_frontmatter.get("opened_by")
+        or thread_frontmatter.get("author")
+        or thread_frontmatter.get("source")
+        or _resolve_source({})
+    )
+    thread, thread_created = review_db.ensure_thread(experiment_id, thread_source)
+    if thread_created:
+        log_activity(
+            experiment_id,
+            "experiment",
+            "review_opened",
+            activity_review_details(review_id=thread.id),
+        )
+
+    created_entries = _sync_review_entries(experiment_id, thread.id, entry_files)
+    thread = _sync_review_thread_state(experiment_id, thread, thread_frontmatter, thread_body)
+
+    payload = review_db.get_thread_with_entries(experiment_id)
+    if payload:
+        write_review_payload_to_dir(exp_dir, payload)
+    return created_entries
+
+
+def _sync_review_entries(experiment_id: str, review_id: str, entry_files: list[Path]) -> int:
+    """Sync review entry markdown files and rewrite them with remote IDs."""
+    existing = review_db.list_entries(review_id)
+    existing_ids = {entry.id for entry in existing}
+    existing_keys: set[tuple[str, str]] = {
+        ((entry.content or "").strip(), entry.source or "") for entry in existing
+    }
+    created = 0
+
+    for entry_file in entry_files:
+        frontmatter, body = parse_markdown(entry_file.read_text(encoding="utf-8"))
+        body = body.strip()
+        if not body:
+            continue
+        local_entry_id = str(frontmatter.get("entry_id") or "")
+        if local_entry_id and local_entry_id in existing_ids:
+            continue
+
+        source = str(frontmatter.get("author") or frontmatter.get("source") or _resolve_source({}))
+        key = (body, source)
+        if key in existing_keys:
+            continue
+
+        entry = review_db.append_entry(
+            ExperimentReviewEntryCreate(
+                review_id=review_id,
+                source=source,
+                content=body,
+            )
+        )
+        existing_ids.add(entry.id)
+        existing_keys.add(key)
+        created += 1
+        log_activity(
+            experiment_id,
+            "experiment",
+            "review_comment_added",
+            activity_review_details(
+                review_id=review_id,
+                entry_id=entry.id,
+                content=body,
+            ),
+        )
+        entry_file.write_text(
+            render_review_entry_markdown(
+                source=source,
+                timestamp=entry.created_at.isoformat(),
+                body=body,
+                review_id=review_id,
+                entry_id=entry.id,
+            ),
+            encoding="utf-8",
+        )
+
+    return created
+
+
+def _sync_review_thread_state(
+    experiment_id: str,
+    thread: ExperimentReview,
+    frontmatter: dict[str, Any],
+    body: str,
+) -> ExperimentReview:
+    """Apply status/resolution from local thread.md to the remote thread."""
+    status = str(frontmatter.get("status") or "").strip().lower()
+    if status not in {"open", "resolved"}:
+        status = ""
+    resolution = str(frontmatter.get("resolution") or "").strip() or _extract_resolution(body)
+
+    updates: dict[str, Any] = {}
+    status_changed = bool(status and status != thread.status)
+    if status_changed:
+        updates["status"] = status
+    if resolution and resolution != (thread.resolution or ""):
+        updates["resolution"] = resolution
+    if updates:
+        if updates.get("status") == "resolved":
+            updates.setdefault("resolved_by", _resolve_source(frontmatter))
+            from datetime import UTC, datetime
+
+            updates.setdefault("resolved_at", datetime.now(UTC).isoformat())
+        elif updates.get("status") == "open":
+            updates["resolved_by"] = None
+            updates["resolved_at"] = None
+            updates.setdefault("resolution", None)
+
+        updated = review_db.update_thread(thread.id, updates)
+        if updated:
+            thread = updated
+        if status_changed:
+            action = "review_resolved" if status == "resolved" else "review_reopened"
+            log_activity(
+                experiment_id,
+                "experiment",
+                action,
+                activity_review_details(
+                    review_id=thread.id,
+                    status=thread.status,
+                    content=resolution,
+                ),
+            )
+    return thread
+
+
+def _extract_resolution(body: str) -> str | None:
+    """Extract a resolution body from thread.md."""
+    lines = body.strip().splitlines()
+    if lines and lines[0].strip().lower() == "## resolution":
+        return "\n".join(lines[1:]).strip() or None
+    return body.strip() or None

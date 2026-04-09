@@ -25,11 +25,13 @@ from sonde.db import findings as find_db
 from sonde.db import notes as notes_db
 from sonde.db import program_takeaways as takeaways_db
 from sonde.db import questions as q_db
+from sonde.db import reviews as review_db
 from sonde.db.artifacts import (
     compute_checksum,
     download_file,
     is_text_artifact,
     list_for_experiments,
+    list_for_project,
 )
 from sonde.local import (
     build_direction_index,
@@ -42,6 +44,7 @@ from sonde.local import (
 )
 from sonde.note_utils import extract_checkpoint, render_note_markdown
 from sonde.output import err, print_error, print_json, print_success
+from sonde.review_utils import write_review_payload_to_dir
 
 ARTIFACT_CHOICES = ("none", "text", "media", "all")
 
@@ -317,6 +320,62 @@ def pull_directions(ctx: click.Context) -> None:
     print_success(f"Pulled {len(directions)} direction(s)")
 
 
+@pull.command("project")
+@click.argument("project_id")
+@_artifact_mode_option()
+@pass_output_options
+@click.pass_context
+def pull_project(ctx: click.Context, project_id: str, artifacts: str | None) -> None:
+    """Pull a project record, takeaways, notes, and project-level artifacts."""
+    from sonde.db import project_takeaways as ptw_db
+    from sonde.db import projects as proj_db
+
+    project_id = project_id.upper()
+    project = proj_db.get(project_id)
+    if not project:
+        print_error(
+            f"Project {project_id} not found",
+            "No project with this ID in the database.",
+            "List projects: sonde project list",
+        )
+        raise SystemExit(1)
+
+    sonde_dir = find_sonde_dir()
+    project_data = project.model_dump(mode="json")
+    project_dir = _write_project_record(sonde_dir, project_data)
+    ptw = ptw_db.get(project_id)
+    if ptw and ptw.body.strip():
+        ptw_db.write_takeaways_file(sonde_dir, project_id, ptw.body)
+    try:
+        notes = notes_db.list_by_record("project", project_id)
+        if notes:
+            _write_notes(project_dir, notes)
+    except (Exception, SystemExit):
+        pass
+
+    mode = _resolve_artifact_mode(ctx, artifacts=artifacts, selector_kind="single")
+    sync = _download_project_artifacts(
+        sonde_dir,
+        [project_data],
+        mode=mode,
+        use_json=bool(ctx.obj.get("json")),
+        follow_up_command=f"sonde project pull {project_id} --artifacts media",
+    )
+
+    if ctx.obj.get("json"):
+        payload = dict(project_data)
+        payload["_sync"] = asdict(sync)
+        print_json(payload)
+        return
+
+    print_success(f"Pulled {project_id} → {project_dir.relative_to(sonde_dir.parent)}")
+    if sync.mode != "none":
+        err.print(
+            f"  [sonde.muted]Project artifacts: downloaded {sync.downloaded}, "
+            f"updated {sync.updated}, skipped {sync.skipped}, failed {sync.failed}[/]"
+        )
+
+
 def _run_experiment_pull(
     ctx: click.Context,
     *,
@@ -533,7 +592,7 @@ def _pull_all(ctx: click.Context) -> None:
         for p in projects:
             p_data = p.model_dump(mode="json")
             rel_dir = compute_record_dir("project", p_data)
-            write_nested_record(sonde_dir, rel_dir, "project.md", render_record(p_data))
+            _write_project_record(sonde_dir, p_data)
             ptw = ptw_db.get(p.id)
             if ptw and ptw.body.strip():
                 ptw_db.write_takeaways_file(sonde_dir, p.id, ptw.body)
@@ -566,6 +625,13 @@ def _pull_all(ctx: click.Context) -> None:
         use_json=bool(ctx.obj.get("json")),
         follow_up_command=f"sonde pull -p {program} --artifacts media",
         direction_index=direction_index,
+    )
+    project_artifact_sync = _download_project_artifacts(
+        sonde_dir,
+        [p.model_dump(mode="json") for p in projects],
+        mode=ctx.obj.get("pull_artifacts", "text"),
+        use_json=bool(ctx.obj.get("json")),
+        follow_up_command=f"sonde pull -p {program} --artifacts media",
     )
 
     # Findings and questions stay flat
@@ -601,6 +667,7 @@ def _pull_all(ctx: click.Context) -> None:
                 "takeaways": bool(tw and tw.body.strip()),
                 "project_takeaways": project_takeaways_count,
                 "_sync": asdict(sync),
+                "_project_artifact_sync": asdict(project_artifact_sync),
             }
         )
         return
@@ -617,6 +684,17 @@ def _pull_all(ctx: click.Context) -> None:
             f"  [sonde.muted]Artifacts: downloaded {sync.downloaded}, "
             f"updated {sync.updated}, skipped {sync.skipped}, failed {sync.failed}[/]"
         )
+    if project_artifact_sync.mode != "none" and project_artifact_sync.selected:
+        err.print(
+            f"  [sonde.muted]Project artifacts: downloaded {project_artifact_sync.downloaded}, "
+            f"updated {project_artifact_sync.updated}, skipped {project_artifact_sync.skipped}, "
+            f"failed {project_artifact_sync.failed}[/]"
+        )
+
+
+def _write_project_record(sonde_dir: Path, project: dict[str, Any]) -> Path:
+    rel_dir = compute_record_dir("project", project)
+    return write_nested_record(sonde_dir, rel_dir, "project.md", render_record(project))
 
 
 def _sync_experiments(
@@ -650,6 +728,22 @@ def _sync_experiments(
                 action="read notes",
             )
             err.print(f"  [sonde.warning]Could not pull notes for {exp['id']}: {what}[/]")
+
+        try:
+            review = review_db.get_thread_with_entries(exp["id"])
+            if review:
+                write_review_payload_to_dir(exp_base, review)
+        except APIError as exc:
+            from sonde.db import classify_api_error
+
+            what, _why, _fix = classify_api_error(
+                exc,
+                table="experiment_reviews",
+                action="read reviews",
+            )
+            err.print(f"  [sonde.warning]Could not pull review for {exp['id']}: {what}[/]")
+        except SystemExit:
+            pass
 
     return _download_selected_artifacts(
         sonde_dir,
@@ -793,6 +887,150 @@ def _download_selected_artifacts(
             f"Run: {follow_up_command}[/]"
         )
     return summary
+
+
+def _download_project_artifacts(
+    sonde_dir: Path,
+    projects: list[dict[str, Any]],
+    *,
+    mode: str,
+    use_json: bool,
+    follow_up_command: str | None,
+) -> ArtifactSyncSummary:
+    summary = ArtifactSyncSummary(mode=mode)
+    if mode == "none" or not projects:
+        return summary
+
+    planned: list[SyncCandidate] = []
+    for project in projects:
+        project_id = str(project["id"])
+        project_dir = sonde_dir / compute_record_dir("project", project)
+        for artifact in list_for_project(project_id):
+            candidate = _project_artifact_candidate(sonde_dir, project_dir, artifact, mode, summary)
+            if candidate:
+                planned.append(candidate)
+
+    plan = build_plan(planned)
+    summary.selected = plan.total
+    summary.selected_bytes = plan.total_bytes
+    summary.plan = asdict(plan)
+    journal = SyncJournal(
+        sonde_dir,
+        operation="pull-project",
+        selector={"kind": "project-artifacts", "mode": mode},
+        candidates=planned,
+    )
+    summary.resume = asdict(journal.resume)
+    if not planned:
+        if mode == "text" and summary.media_total and follow_up_command and not use_json:
+            err.print(
+                f"  [sonde.muted]Skipped {summary.media_total} project media artifact(s). "
+                f"Run: {follow_up_command}[/]"
+            )
+        return summary
+
+    progress = SyncProgress(
+        title="Pulling project artifacts",
+        verb="download",
+        plan=plan,
+        resume=journal.resume,
+        use_json=use_json,
+    )
+    progress.print_preflight()
+    progress.start()
+    try:
+        for candidate in planned:
+            if candidate.action == "skip":
+                summary.skipped += 1
+                journal.record(candidate, status="skipped", bytes_transferred=candidate.size_bytes)
+                progress.advance_file(bytes_transferred=candidate.size_bytes)
+                continue
+
+            progress.set_current(candidate.label)
+            result = _download_one_artifact(Path(candidate.local_path or ""), candidate.metadata)
+            if result in {"downloaded", "updated"}:
+                if result == "downloaded":
+                    summary.downloaded += 1
+                else:
+                    summary.updated += 1
+                summary.downloaded_bytes += candidate.size_bytes
+                journal.record(candidate, status=result, bytes_transferred=candidate.size_bytes)
+            else:
+                summary.failed += 1
+                journal.record(candidate, status="failed", bytes_transferred=0)
+            progress.advance_file(
+                bytes_transferred=candidate.size_bytes if result != "failed" else 0
+            )
+    finally:
+        summary.elapsed_seconds = progress.stop()
+
+    journal.finish(keep=summary.failed > 0)
+    return summary
+
+
+def _project_artifact_candidate(
+    sonde_dir: Path,
+    project_dir: Path,
+    artifact: dict[str, Any],
+    mode: str,
+    summary: ArtifactSyncSummary,
+) -> SyncCandidate | None:
+    storage_path = str(artifact.get("storage_path") or "")
+    if not storage_path:
+        return None
+
+    is_text = is_text_artifact(
+        str(artifact.get("filename") or Path(storage_path).name),
+        artifact.get("mime_type"),
+    )
+    if is_text:
+        summary.text_total += 1
+    else:
+        summary.media_total += 1
+    should_select = (
+        mode == "all" or (mode == "text" and is_text) or (mode == "media" and not is_text)
+    )
+    if not should_select:
+        return None
+
+    local_path, local_action = _planned_project_pull_target(project_dir, artifact)
+    fingerprint = build_fingerprint(
+        storage_path,
+        local_action,
+        artifact.get("checksum_sha256"),
+        artifact.get("size_bytes"),
+    )
+    return SyncCandidate(
+        key=storage_path,
+        label=str(local_path.relative_to(sonde_dir)),
+        size_bytes=int(artifact.get("size_bytes") or 0),
+        kind="text" if is_text else "media",
+        action=local_action,
+        fingerprint=fingerprint,
+        local_path=str(local_path),
+        storage_path=storage_path,
+        metadata=artifact,
+    )
+
+
+def _planned_project_pull_target(project_dir: Path, artifact: dict[str, Any]) -> tuple[Path, str]:
+    from sonde.db.validate import contained_path
+
+    project_id = str(artifact.get("project_id") or "")
+    storage_path = str(artifact.get("storage_path") or "")
+    if storage_path.startswith(f"{project_id}/"):
+        relative = storage_path[len(project_id) + 1 :]
+    else:
+        relative = str(artifact.get("filename") or Path(storage_path).name)
+
+    try:
+        local_path = contained_path(project_dir, relative)
+    except ValueError:
+        local_path = project_dir / Path(relative).name
+
+    if local_path.exists():
+        return local_path, "skip" if _matches_local_artifact(local_path, artifact) else "update"
+    return local_path, "download"
 
 
 def _planned_pull_target(

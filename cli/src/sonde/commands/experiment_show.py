@@ -39,6 +39,7 @@ def show(ctx: click.Context, experiment_id: str, graph: bool) -> None:
       sonde show EXP-0001 --graph
     """
     from sonde.db import findings as find_db
+    from sonde.db import reviews as review_db
     from sonde.db.activity import get_history
     from sonde.db.artifacts import list_artifacts
 
@@ -56,6 +57,7 @@ def show(ctx: click.Context, experiment_id: str, graph: bool) -> None:
     related_findings = find_db.find_by_evidence(exp.id)
     artifacts = list_artifacts(exp.id)
     activity = get_history(exp.id)[-5:]  # last 5 entries
+    review_data = review_db.get_thread_with_entries(exp.id)
     parent = db.get(exp.parent_id) if exp.parent_id else None
     children = db.get_children(exp.id)
     siblings = db.get_siblings(exp.id) if exp.parent_id else []
@@ -69,6 +71,7 @@ def show(ctx: click.Context, experiment_id: str, graph: bool) -> None:
         data["_findings"] = [f.model_dump(mode="json") for f in related_findings]
         data["_artifacts"] = artifacts
         data["_activity"] = activity
+        data["_review"] = review_data
         data["_parent"] = parent.model_dump(mode="json") if parent else None
         data["_children"] = [c.model_dump(mode="json") for c in children]
         data["_siblings"] = [s.model_dump(mode="json") for s in siblings]
@@ -194,6 +197,12 @@ def show(ctx: click.Context, experiment_id: str, graph: bool) -> None:
                 title="Findings from this experiment",
             )
 
+        # Review thread
+        if review_data:
+            from sonde.commands.review import _render_review_payload
+
+            _render_review_payload(review_data, limit=5)
+
         # Structured metadata (repro, evidence, env, blocker)
         from sonde.commands._helpers import META_BLOCKER, META_ENV, META_EVIDENCE, META_REPRO
 
@@ -283,6 +292,7 @@ def show(ctx: click.Context, experiment_id: str, graph: bool) -> None:
                     if exp.status == "running"
                     else f'Note:    sonde note {exp.id} "observation"'
                 ),
+                f'Review:  sonde experiment review add {exp.id} "methodology critique"',
             ]
         )
         if children or parent:

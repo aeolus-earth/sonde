@@ -20,6 +20,7 @@ describe("tool-policy", () => {
   it("classifies read tools", () => {
     assert.equal(isReadTool("sonde_show"), true);
     assert.equal(isReadTool("sonde_experiment_search"), true);
+    assert.equal(isReadTool("sonde_project_report_template"), true);
     assert.equal(isReadTool("sonde_propose_tasks"), true);
     assert.equal(requiresApproval("sonde_show"), false);
   });

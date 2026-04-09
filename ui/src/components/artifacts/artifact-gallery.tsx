@@ -11,6 +11,8 @@ import {
   FileSpreadsheet,
   File,
   Film,
+  Trash2,
+  X,
 } from "lucide-react";
 import { CsvTable } from "@/components/artifacts/csv-table";
 import {
@@ -20,6 +22,7 @@ import {
   useArtifactBlob,
   isBlobCacheable,
   prefetchArtifactContent,
+  useDeleteArtifact,
 } from "@/hooks/use-artifacts";
 import { useAuthStore } from "@/stores/auth";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -448,7 +451,9 @@ export const ArtifactGallery = memo(function ArtifactGallery({
   const user = useAuthStore((s) => s.user);
   const signIn = useAuthStore((s) => s.signInWithGoogle);
   const { data: artifacts, isLoading } = useArtifacts(parentId);
+  const deleteArtifact = useDeleteArtifact(parentId);
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!artifacts?.length) return;
@@ -459,7 +464,10 @@ export const ArtifactGallery = memo(function ArtifactGallery({
   }, [artifacts, selectedIndex]);
 
   const tree = useMemo(() => buildFileTree(artifacts ?? []), [artifacts]);
-  const handleTreeSelect = useCallback((i: number) => setSelectedIndex(i), []);
+  const handleTreeSelect = useCallback((i: number) => {
+    setConfirmDeleteId(null);
+    setSelectedIndex(i);
+  }, []);
 
   if (!user) {
     return (
@@ -498,6 +506,9 @@ export const ArtifactGallery = memo(function ArtifactGallery({
   const selected = artifacts[clampedIndex];
   const hasPrev = clampedIndex > 0;
   const hasNext = clampedIndex < artifacts.length - 1;
+  const confirmingDelete = confirmDeleteId === selected.id;
+  const deletingSelected =
+    deleteArtifact.isPending && deleteArtifact.variables?.id === selected.id;
 
   const showTree = hasDirectories(tree);
 
@@ -528,7 +539,10 @@ export const ArtifactGallery = memo(function ArtifactGallery({
             return (
               <button
                 key={a.id}
-                onClick={() => setSelectedIndex(i)}
+                onClick={() => {
+                  setConfirmDeleteId(null);
+                  setSelectedIndex(i);
+                }}
                 className={`flex shrink-0 items-center gap-1.5 rounded-[5.5px] px-2.5 py-1.5 text-[11px] font-medium transition-colors ${
                   i === clampedIndex
                     ? "bg-accent/15 text-accent"
@@ -559,17 +573,60 @@ export const ArtifactGallery = memo(function ArtifactGallery({
             <span className="rounded-[3px] bg-surface-raised px-1 py-0.5 text-[9px] font-medium uppercase text-text-quaternary">Video</span>
           )}
         </div>
-        <span className="text-[11px] text-text-quaternary">
-          {clampedIndex + 1} / {artifacts.length}
-          {selected.size_bytes != null && <> &middot; {formatBytes(selected.size_bytes)}</>}
-        </span>
+        <div className="flex shrink-0 items-center gap-2">
+          {confirmingDelete ? (
+            <div className="flex items-center gap-1 rounded-full border border-status-failed/20 bg-status-failed/10 p-0.5">
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteId(null)}
+                disabled={deletingSelected}
+                className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-medium text-text-tertiary transition-colors hover:bg-surface hover:text-text disabled:opacity-50"
+              >
+                <X className="h-3 w-3" />
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  deleteArtifact.mutate(selected, {
+                    onSettled: () => setConfirmDeleteId(null),
+                  });
+                }}
+                disabled={deletingSelected}
+                className="inline-flex items-center gap-1 rounded-full bg-status-failed px-2.5 py-1 text-[11px] font-semibold text-on-accent transition-opacity disabled:opacity-60"
+              >
+                <Trash2 className="h-3 w-3" />
+                {deletingSelected ? "Deleting..." : "Delete forever"}
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setConfirmDeleteId(selected.id)}
+              disabled={deleteArtifact.isPending}
+              title={`Delete ${selected.filename}`}
+              aria-label={`Delete ${selected.filename}`}
+              className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-medium text-text-quaternary transition-colors hover:bg-status-failed/10 hover:text-status-failed disabled:opacity-50"
+            >
+              <Trash2 className="h-3 w-3" />
+              Delete
+            </button>
+          )}
+          <span className="text-[11px] text-text-quaternary">
+            {clampedIndex + 1} / {artifacts.length}
+            {selected.size_bytes != null && <> &middot; {formatBytes(selected.size_bytes)}</>}
+          </span>
+        </div>
       </div>
 
       {/* Viewer with nav arrows */}
       <div className="relative">
         {hasPrev && (
           <button
-            onClick={() => setSelectedIndex((i) => i - 1)}
+            onClick={() => {
+              setConfirmDeleteId(null);
+              setSelectedIndex((i) => i - 1);
+            }}
             className="absolute -left-1 top-1/2 z-10 -translate-y-1/2 rounded-full border border-border bg-surface p-1 text-text-tertiary shadow-sm transition-colors hover:bg-surface-hover hover:text-text"
           >
             <ChevronLeft className="h-4 w-4" />
@@ -577,7 +634,10 @@ export const ArtifactGallery = memo(function ArtifactGallery({
         )}
         {hasNext && (
           <button
-            onClick={() => setSelectedIndex((i) => i + 1)}
+            onClick={() => {
+              setConfirmDeleteId(null);
+              setSelectedIndex((i) => i + 1);
+            }}
             className="absolute -right-1 top-1/2 z-10 -translate-y-1/2 rounded-full border border-border bg-surface p-1 text-text-tertiary shadow-sm transition-colors hover:bg-surface-hover hover:text-text"
           >
             <ChevronRight className="h-4 w-4" />

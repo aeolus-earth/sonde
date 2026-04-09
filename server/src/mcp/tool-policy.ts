@@ -13,6 +13,8 @@ const READ = new Set<string>([
   "sonde_handoff",
   "sonde_project_list",
   "sonde_project_show",
+  "sonde_project_brief",
+  "sonde_project_report_template",
   "sonde_question_list",
   "sonde_question_show",
   "sonde_finding_list",

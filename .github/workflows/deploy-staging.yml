@@ -154,13 +154,22 @@ jobs:
 
   deploy-staging-agent:
     runs-on: ubuntu-latest
-    needs: changes
+    needs:
+      - changes
+      - push-staging-database
     if: >-
       ${{
-        needs.changes.outputs.agent == 'true' ||
+        always() &&
         (
-          github.event_name == 'workflow_dispatch' &&
-          !inputs.seed_only
+          needs.push-staging-database.result == 'success' ||
+          needs.push-staging-database.result == 'skipped'
+        ) &&
+        (
+          needs.changes.outputs.agent == 'true' ||
+          (
+            github.event_name == 'workflow_dispatch' &&
+            !inputs.seed_only
+          )
         )
       }}
 

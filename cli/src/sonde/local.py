@@ -34,6 +34,9 @@ _FRONTMATTER_KEYS = {
     "data_sources",
     "direction_id",
     "project_id",
+    "report_pdf_artifact_id",
+    "report_tex_artifact_id",
+    "report_updated_at",
     "parent_id",
     "branch_type",
     # Directions

@@ -1,5 +1,8 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
-import type { CanUseTool } from "@anthropic-ai/claude-agent-sdk";
+import type {
+  CanUseTool,
+  HookCallbackMatcher,
+} from "@anthropic-ai/claude-agent-sdk";
 import { createSondeMcpServer } from "./mcp/sonde-server.js";
 import { createSandboxMcpServer } from "./sandbox/sandbox-mcp-server.js";
 import { getPendingTasks, clearPendingTasks } from "./mcp/tools/tasks.js";
@@ -18,12 +21,13 @@ Approval and writes:
 
 Formatting (user-visible replies):
 - Use Markdown: short ### headings, bullet lists, and GitHub-style tables when comparing records or fields.
-- Link every record ID you mention using in-app paths so the UI can navigate: [EXP-0001](/experiments/EXP-0001), [FIND-0001](/findings/FIND-0001), [DIR-001](/directions/DIR-001), [Q-001](/questions). To point at notes on an experiment, use [EXP-0001 notes](/experiments/EXP-0001#notes).
+- Link every record ID you mention using in-app paths so the UI can navigate: [EXP-0001](/experiments/EXP-0001), [FIND-0001](/findings/FIND-0001), [DIR-001](/directions/DIR-001), [PROJ-001](/projects/PROJ-001), [Q-001](/questions). To point at notes on an experiment, use [EXP-0001 notes](/experiments/EXP-0001#notes).
 - Summarize tool JSON in prose, tables, or short lists—do not dump raw JSON unless the user asks for it.
 
 Guidelines:
 - When the user mentions records by ID (EXP-*, FIND-*, DIR-*, Q-*), look them up with sonde_show.
-- When the user asks for files, attachments, or artifacts for runs or experiments, prefer sonde_artifacts_list with the parent EXP-/FIND-/DIR- id for a compact metadata list, or sonde_experiment_show when they need full experiment context (findings, notes, activity). Summarize filenames and types; do not paste large raw JSON unless asked.
+- When the user asks for files, attachments, artifacts, or project reports, prefer sonde_artifacts_list with the parent EXP-/FIND-/DIR-/PROJ- id for a compact metadata list, or sonde_experiment_show / sonde_project_show when they need full record context. Summarize filenames and types; do not paste large raw JSON unless asked.
+- To complete a project, first scaffold or update the LaTeX entrypoint in the work repo with sonde_project_report_template, build the PDF locally, register both artifacts with sonde_project_report, then use sonde_project_close. Do not mark projects completed with sonde_project_update.
 - When asked to plan work or queue up tasks, use sonde_propose_tasks to register a visible task list.
 - Be concise and precise. Prefer tables and structured output over prose.
 - After write operations, confirm what was done, share the UI link (e.g. [EXP-0183](/experiments/EXP-0183)), and suggest the logical next step.
@@ -63,6 +67,7 @@ export interface AgentSession {
 
 export interface CreateAgentSessionOptions {
   canUseTool: CanUseTool;
+  emitTrace?: (event: AgentEvent) => void;
 }
 
 function extractAssistantText(
@@ -73,6 +78,102 @@ function extractAssistantText(
     .filter((block) => block.type === "text")
     .map((block) => (typeof block.text === "string" ? block.text : ""))
     .join("");
+}
+
+function toInputRecord(input: unknown): Record<string, unknown> {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return {};
+  }
+  return input as Record<string, unknown>;
+}
+
+function extractTextContent(value: unknown): string | null {
+  if (!value || typeof value !== "object") return null;
+  const content = (value as { content?: unknown }).content;
+  if (!Array.isArray(content)) return null;
+
+  const text = content
+    .map((block) => {
+      if (!block || typeof block !== "object") return "";
+      const item = block as { text?: unknown };
+      return typeof item.text === "string" ? item.text : "";
+    })
+    .filter((item) => item.length > 0)
+    .join("\n");
+
+  return text.length > 0 ? text : null;
+}
+
+function formatToolResponse(value: unknown): string {
+  if (typeof value === "string") return value;
+  const text = extractTextContent(value);
+  if (text) return text;
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+type ToolTraceHooks = Partial<
+  Record<
+    "PreToolUse" | "PostToolUse" | "PostToolUseFailure",
+    HookCallbackMatcher[]
+  >
+>;
+
+export function createToolTraceHooks(
+  emitTrace: (event: AgentEvent) => void
+): ToolTraceHooks {
+  const ok = { continue: true };
+
+  return {
+    PreToolUse: [{
+      hooks: [async (input) => {
+        if (input.hook_event_name === "PreToolUse") {
+          emitTrace({
+            type: "tool_use_start",
+            id: input.tool_use_id,
+            tool: input.tool_name,
+            input: toInputRecord(input.tool_input),
+          });
+        }
+        return ok;
+      }],
+    }],
+    PostToolUse: [{
+      hooks: [async (input) => {
+        if (input.hook_event_name === "PostToolUse") {
+          emitTrace({
+            type: "tool_use_end",
+            id: input.tool_use_id,
+            output: formatToolResponse(input.tool_response),
+          });
+        }
+        return ok;
+      }],
+    }],
+    PostToolUseFailure: [{
+      hooks: [async (input) => {
+        if (input.hook_event_name === "PostToolUseFailure") {
+          emitTrace({
+            type: "tool_use_error",
+            id: input.tool_use_id,
+            error: input.error,
+          });
+        }
+        return ok;
+      }],
+    }],
+  };
+}
+
+function toolTraceHooks(
+  sessionOptions: CreateAgentSessionOptions
+): ToolTraceHooks | undefined {
+  return sessionOptions.emitTrace
+    ? createToolTraceHooks(sessionOptions.emitTrace)
+    : undefined;
 }
 
 export function createAgentSession(
@@ -116,6 +217,7 @@ export function createAgentSession(
           maxTurns: MAX_TURNS,
           maxBudgetUsd: MAX_BUDGET_USD,
           includePartialMessages: true,
+          hooks: toolTraceHooks(sessionOptions),
         },
       });
 
@@ -152,12 +254,6 @@ export function createAgentSession(
             if (index >= 0 && bt) blockKindByIndex.set(index, bt);
             if (bt === "tool_use") {
               inToolBlockDepth += 1;
-              yield {
-                type: "tool_use_start",
-                id: block.id as string,
-                tool: block.name as string,
-                input: {},
-              };
             }
           }
 
@@ -205,18 +301,6 @@ export function createAgentSession(
           const message = (msg as Record<string, unknown>).message as Record<string, unknown>;
           const content = message?.content as Array<Record<string, unknown>> | undefined;
           const finalAssistantText = extractAssistantText(content);
-
-          if (content) {
-            for (const block of content) {
-              if (block.type === "tool_use") {
-                yield {
-                  type: "tool_use_end",
-                  id: block.id as string,
-                  output: "",
-                };
-              }
-            }
-          }
 
           if (!assistantText && finalAssistantText) {
             assistantText = finalAssistantText;
@@ -476,6 +560,7 @@ Call all the tools you need FIRST, then write your answer ONCE at the end.`;
 export interface CreateSandboxAgentSessionOptions {
   canUseTool: CanUseTool;
   sandbox: SandboxHandle;
+  emitTrace?: (event: AgentEvent) => void;
 }
 
 export function createSandboxAgentSession(
@@ -519,6 +604,7 @@ export function createSandboxAgentSession(
           maxTurns: MAX_TURNS,
           maxBudgetUsd: MAX_BUDGET_USD,
           includePartialMessages: true,
+          hooks: toolTraceHooks(sessionOptions),
         },
       });
 
@@ -563,12 +649,6 @@ export function createSandboxAgentSession(
               toolIdByIndex.set(index, id);
               toolNameByIndex.set(index, name);
               toolInputBuffers.set(index, "");
-              yield {
-                type: "tool_use_start",
-                id,
-                tool: name,
-                input: {},
-              };
             }
           }
 
@@ -627,19 +707,6 @@ export function createSandboxAgentSession(
             | undefined;
           const finalAssistantText = extractAssistantText(content);
 
-          if (content) {
-            for (const block of content) {
-              if (block.type === "tool_use") {
-                const blockInput = block.input as Record<string, unknown> | undefined;
-                yield {
-                  type: "tool_use_end",
-                  id: block.id as string,
-                  output: JSON.stringify(blockInput ?? {}, null, 2),
-                };
-              }
-            }
-          }
-
           if (!assistantText && finalAssistantText) {
             assistantText = finalAssistantText;
           }
@@ -651,20 +718,6 @@ export function createSandboxAgentSession(
               messageId: assistantMessageId,
             };
             assistantText = "";
-          }
-          continue;
-        }
-
-        // Capture tool results — the actual output from tool execution
-        if (msg.type === "tool_result") {
-          const toolUseId = (msg as { tool_use_id?: string }).tool_use_id;
-          const resultContent = (msg as { content?: string }).content ?? "";
-          if (toolUseId) {
-            yield {
-              type: "tool_use_end",
-              id: toolUseId,
-              output: resultContent,
-            };
           }
           continue;
         }

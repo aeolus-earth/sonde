@@ -2,15 +2,18 @@ import { useState, useMemo, useCallback } from "react";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { useProject, useExperimentsByProject, useDirectionsByProject } from "@/hooks/use-projects";
 import { useRecordActivity } from "@/hooks/use-activity";
+import { useArtifacts, useArtifactUrl } from "@/hooks/use-artifacts";
 import { useHotkey } from "@/hooks/use-keyboard";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton, DetailSectionSkeleton, ExperimentRowSkeleton } from "@/components/ui/skeleton";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { Section, DetailRow } from "@/components/shared/detail-layout";
 import { RecordLink } from "@/components/shared/record-link";
+import { ArtifactGallery } from "@/components/artifacts/artifact-gallery";
+import { EmbeddedDocumentPreview } from "@/components/artifacts/embedded-document-preview";
 import { formatDateTime, formatDateTimeShort } from "@/lib/utils";
-import { ArrowLeft } from "lucide-react";
-import type { ExperimentStatus } from "@/types/sonde";
+import { ArrowLeft, Download, FileText } from "lucide-react";
+import type { Artifact, ExperimentStatus, ProjectSummary } from "@/types/sonde";
 
 export default function ProjectDetailPage() {
   const { id } = useParams({ strict: false }) as { id: string };
@@ -19,6 +22,7 @@ export default function ProjectDetailPage() {
   const { data: directions, isLoading: loadingDirections } = useDirectionsByProject(id, proj?.program);
   const { data: experiments, isLoading: loadingExps } = useExperimentsByProject(id);
   const { data: activity } = useRecordActivity(id);
+  const { data: projectArtifacts, isLoading: loadingProjectArtifacts } = useArtifacts(id);
   const [statusFilter, setStatusFilter] = useState<ExperimentStatus | "all">("all");
   useHotkey("Escape", useCallback(() => navigate({ to: "/projects" }), [navigate]));
 
@@ -27,6 +31,15 @@ export default function ProjectDetailPage() {
     if (statusFilter === "all") return experiments;
     return experiments.filter((e) => e.status === statusFilter);
   }, [experiments, statusFilter]);
+
+  const reportPdf = useMemo(
+    () => findProjectReportArtifact(projectArtifacts, proj?.report_pdf_artifact_id ?? null, "pdf"),
+    [projectArtifacts, proj?.report_pdf_artifact_id],
+  );
+  const reportTex = useMemo(
+    () => findProjectReportArtifact(projectArtifacts, proj?.report_tex_artifact_id ?? null, "tex"),
+    [projectArtifacts, proj?.report_tex_artifact_id],
+  );
 
   if (loadingProj || !proj) {
     return (
@@ -87,6 +100,13 @@ export default function ProjectDetailPage() {
               <p className="mt-1 text-[13px] leading-relaxed text-text-secondary">{proj.objective}</p>
             )}
           </Section>
+
+          <ProjectReportSection
+            project={proj}
+            pdf={reportPdf}
+            tex={reportTex}
+            isLoading={loadingProjectArtifacts}
+          />
 
           {/* Directions — always shown so project scope is visible next to experiments */}
           <Section
@@ -189,6 +209,10 @@ export default function ProjectDetailPage() {
               </div>
             )}
           </div>
+
+          <Section title="Artifacts">
+            <ArtifactGallery parentId={proj.id} />
+          </Section>
         </div>
 
         {/* Sidebar */}
@@ -241,5 +265,107 @@ export default function ProjectDetailPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+function findProjectReportArtifact(
+  artifacts: Artifact[] | undefined,
+  artifactId: string | null,
+  extension: "pdf" | "tex",
+): Artifact | null {
+  if (!artifacts?.length) return null;
+  if (artifactId) {
+    const exact = artifacts.find((a) => a.id === artifactId);
+    if (exact) return exact;
+  }
+  const canonicalSuffix = `/reports/project-report.${extension}`;
+  return artifacts.find((a) => a.storage_path.endsWith(canonicalSuffix)) ?? null;
+}
+
+function ProjectReportSection({
+  project,
+  pdf,
+  tex,
+  isLoading,
+}: {
+  project: ProjectSummary;
+  pdf: Artifact | null;
+  tex: Artifact | null;
+  isLoading: boolean;
+}) {
+  if (isLoading) {
+    return (
+      <Section title="Project Report">
+        <Skeleton className="h-[360px] w-full rounded-[8px]" />
+      </Section>
+    );
+  }
+
+  if (!pdf) {
+    return (
+      <Section title="Project Report">
+        <div className="rounded-[8px] border border-dashed border-border-subtle bg-surface-raised px-4 py-5">
+          <div className="flex items-start gap-3">
+            <div className="rounded-[7px] border border-border bg-surface p-2 text-text-tertiary">
+              <FileText className="h-4 w-4" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-[13px] font-medium text-text-secondary">No final project report yet</p>
+              <p className="mt-1 text-[12px] leading-relaxed text-text-quaternary">
+                Register the curated PDF + LaTeX source before closing this project.
+              </p>
+              <code className="mt-3 block overflow-x-auto rounded-[6px] bg-bg px-2 py-1.5 font-mono text-[11px] text-text-tertiary">
+                sonde project report {project.id} --pdf build/report.pdf --tex report/main.tex
+              </code>
+            </div>
+          </div>
+        </div>
+      </Section>
+    );
+  }
+
+  return (
+    <Section title="Project Report">
+      <ProjectReportPdf artifact={pdf} />
+      {tex && <ReportSourceLink artifact={tex} />}
+      {project.report_updated_at && (
+        <p className="mt-2 text-[11px] text-text-quaternary" title={formatDateTime(project.report_updated_at)}>
+          Report updated {formatDateTimeShort(project.report_updated_at)}
+        </p>
+      )}
+    </Section>
+  );
+}
+
+function ProjectReportPdf({ artifact }: { artifact: Artifact }) {
+  const { data: url } = useArtifactUrl(artifact.storage_path);
+
+  if (!url) {
+    return <Skeleton className="h-[360px] w-full rounded-[8px]" />;
+  }
+
+  return (
+    <EmbeddedDocumentPreview
+      fileUrl={url}
+      embedUrl={url}
+      title={artifact.filename}
+    />
+  );
+}
+
+function ReportSourceLink({ artifact }: { artifact: Artifact }) {
+  const { data: url } = useArtifactUrl(artifact.storage_path);
+
+  if (!url) return null;
+
+  return (
+    <a
+      href={url}
+      download={artifact.filename}
+      className="mt-3 inline-flex items-center gap-1.5 rounded-[5.5px] border border-border-subtle bg-surface-raised px-2.5 py-1.5 text-[12px] text-text-tertiary transition-colors hover:border-accent/30 hover:text-text-secondary"
+    >
+      <Download className="h-3.5 w-3.5" />
+      Download LaTeX source
+    </a>
   );
 }
