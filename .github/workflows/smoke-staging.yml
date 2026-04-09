@@ -155,7 +155,7 @@ jobs:
           FALLBACK_CHAT_SMOKE_TOKEN: ${{ secrets.SONDE_STAGING_AGENT_CHAT_TOKEN }}
         run: |
           if [ -f "$STAGING_SMOKE_SESSION_FILE" ]; then
-            CHAT_SMOKE_TOKEN="$(node -e 'const fs=require(\"node:fs\"); const data=JSON.parse(fs.readFileSync(process.env.STAGING_SMOKE_SESSION_FILE,\"utf8\")); process.stdout.write((data.access_token ?? \"\").trim());')"
+            CHAT_SMOKE_TOKEN="$(node -e 'const fs = require("node:fs"); const data = JSON.parse(fs.readFileSync(process.env.STAGING_SMOKE_SESSION_FILE, "utf8")); process.stdout.write((data.access_token ?? "").trim());')"
             export CHAT_SMOKE_TOKEN
           fi
           if [ -z "$CHAT_SMOKE_TOKEN" ]; then
