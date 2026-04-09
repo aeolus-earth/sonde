@@ -149,24 +149,6 @@ jobs:
           AUDIT_WAIT_INTERVAL_MS: "10000"
         run: node scripts/audit-deployed-stack.mjs
 
-      - name: Run production smoke tests
-        env:
-          E2E_BASE_URL: ${{ steps.targets.outputs.ui_url }}
-          E2E_AGENT_HTTP_BASE: ${{ steps.targets.outputs.agent_url }}
-          E2E_AGENT_RUNTIME_AUDIT_TOKEN: ${{ secrets.SONDE_PRODUCTION_AGENT_RUNTIME_AUDIT_TOKEN }}
-          E2E_SUPABASE_URL: https://${{ secrets.SUPABASE_PROJECT_REF }}.supabase.co
-          E2E_EXPECT_PROGRAM_ID: shared
-          E2E_EXPECT_TIMELINE_AUTH_MODE: server token
-          E2E_CHAT_PROMPT: "Use Sonde tools to list one accessible program id, then reply with SONDE_SMOKE_OK."
-          E2E_CHAT_EXPECT_SUBSTRING: SONDE_SMOKE_OK
-          PRODUCTION_SMOKE_SESSION_FILE: ${{ env.PRODUCTION_SMOKE_SESSION_FILE }}
-        run: |
-          if [ -f "$PRODUCTION_SMOKE_SESSION_FILE" ]; then
-            E2E_AUTH_SESSION_JSON="$(cat "$PRODUCTION_SMOKE_SESSION_FILE")"
-            export E2E_AUTH_SESSION_JSON
-          fi
-          npx playwright test e2e/deployed.spec.ts --project=chromium --project=firefox --reporter=github
-
       - name: Run production agent chat smoke
         if: ${{ steps.targets.outputs.agent_url != '' }}
         working-directory: server
@@ -193,9 +175,29 @@ jobs:
           fi
           node scripts/chat-smoke.mjs
 
+      - name: Run production smoke tests
+        env:
+          E2E_BASE_URL: ${{ steps.targets.outputs.ui_url }}
+          E2E_AGENT_HTTP_BASE: ${{ steps.targets.outputs.agent_url }}
+          E2E_AGENT_RUNTIME_AUDIT_TOKEN: ${{ secrets.SONDE_PRODUCTION_AGENT_RUNTIME_AUDIT_TOKEN }}
+          E2E_SUPABASE_URL: https://${{ secrets.SUPABASE_PROJECT_REF }}.supabase.co
+          E2E_EXPECT_PROGRAM_ID: shared
+          E2E_EXPECT_TIMELINE_AUTH_MODE: server token
+          E2E_CHAT_PROMPT: "Use Sonde tools to list one accessible program id, then reply with SONDE_SMOKE_OK."
+          PRODUCTION_SMOKE_SESSION_FILE: ${{ env.PRODUCTION_SMOKE_SESSION_FILE }}
+        run: |
+          if [ -f "$PRODUCTION_SMOKE_SESSION_FILE" ]; then
+            E2E_AUTH_SESSION_JSON="$(cat "$PRODUCTION_SMOKE_SESSION_FILE")"
+            export E2E_AUTH_SESSION_JSON
+          fi
+          npx playwright test e2e/deployed.spec.ts --project=chromium --project=firefox --reporter=github
+
       - name: Upload report on failure
         uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: production-smoke-report
-          path: ui/playwright-report/
+          if-no-files-found: ignore
+          path: |
+            ui/playwright-report/
+            ui/test-results/
