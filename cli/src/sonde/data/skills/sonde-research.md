@@ -554,7 +554,11 @@ Before closing a project, follow the `sonde-project-report` skill. `sonde projec
 requires a registered PDF report. Sonde stores the report PDF and LaTeX source
 as project artifacts; the analysis/research repo is responsible for compiling
 LaTeX into the PDF. Use `sonde project report-template PROJ-001` to scaffold the
-standardized LaTeX entrypoint before editing.
+standardized LaTeX entrypoint before editing. Best practice is: pull the program
+notebooks with `sonde pull -p <program>`, pull project artifacts with
+`sonde project pull PROJ-001 --artifacts all`, grep the local records to
+understand the evidence set, inspect git provenance for code-dependent claims,
+then build and proofread the PDF before `sonde project report`.
 
 ---
 

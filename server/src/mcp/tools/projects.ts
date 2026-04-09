@@ -97,18 +97,20 @@ export function createProjectTools(sondeToken: string) {
 
     tool(
       "sonde_project_report",
-      "Register or update a project's final report. Use this after generating the PDF and optional LaTeX source in the project repo; Sonde stores, renders, downloads, and pulls the artifacts but does not compile LaTeX.",
+      "Register or update a project's final report. By default Sonde runs a local report preflight, rebuilding the PDF from the LaTeX source and blocking on draft markers or formatting warnings. Use force only to bypass that gate when you need to unblock yourself.",
       {
         project_id: z.string().describe("Project ID (e.g. PROJ-001)"),
         pdf_path: z.string().optional().describe("Path to the rendered PDF report"),
         tex_path: z.string().optional().describe("Path to the editable LaTeX report entrypoint"),
         description: z.string().optional().describe("Short report description/caption"),
+        force: z.boolean().default(false).describe("Bypass report preflight checks"),
       },
       async (args) => {
         const flags = ["project", "report", args.project_id, "--json"];
         if (args.pdf_path) flags.push("--pdf", args.pdf_path);
         if (args.tex_path) flags.push("--tex", args.tex_path);
         if (args.description) flags.push("-d", args.description);
+        if (args.force) flags.push("--force");
         return runSonde(flags, sondeToken);
       }
     ),

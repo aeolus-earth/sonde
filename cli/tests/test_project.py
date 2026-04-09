@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from sonde.cli import cli
+from sonde.commands.project_report import ReportPreflightError
 from sonde.models.project import Project, ProjectCreate
 
 
@@ -131,6 +132,7 @@ class TestProjectReportCommands:
                 "sonde.commands.project_report.upload_file",
                 side_effect=[pdf_artifact, tex_artifact],
             ) as upload_file,
+            patch("sonde.commands.project_report._run_report_preflight") as preflight,
             patch("sonde.commands.project_report.log_activity"),
             patch(
                 "sonde.commands.project_report.get_settings",
@@ -152,6 +154,7 @@ class TestProjectReportCommands:
             )
 
         assert result.exit_code == 0, result.output
+        preflight.assert_called_once_with(tex, pdf)
         assert upload_file.call_args_list[0].kwargs["storage_subpath"] == (
             "PROJ-001/reports/project-report.pdf"
         )
@@ -163,6 +166,106 @@ class TestProjectReportCommands:
             pdf_artifact_id="ART-0001",
             tex_artifact_id="ART-0002",
         )
+
+    def test_report_blocks_when_preflight_finds_issues(self, runner, tmp_path: Path):
+        pdf = tmp_path / "project-report.pdf"
+        tex = tmp_path / "main.tex"
+        pdf.write_bytes(b"%PDF")
+        tex.write_text("\\placeholder{draft}\n", encoding="utf-8")
+
+        with (
+            patch("sonde.commands.project_report.project_db.get", return_value=_project()),
+            patch(
+                "sonde.commands.project_report._run_report_preflight",
+                side_effect=ReportPreflightError(
+                    "Report preflight found issues",
+                    (
+                        "Sonde found unresolved draft markers or LaTeX formatting "
+                        "warnings in the report bundle."
+                    ),
+                    (
+                        "Fix the issues, rebuild the PDF, and rerun sonde project report. "
+                        "Use --force only when you intentionally need to bypass the gate."
+                    ),
+                    details=["Draft markers:", f"  {tex}:1: \\placeholder{{draft}}"],
+                ),
+            ),
+            patch("sonde.commands.project_report.upload_file") as upload_file,
+        ):
+            result = runner.invoke(
+                cli,
+                [
+                    "project",
+                    "report",
+                    "PROJ-001",
+                    "--pdf",
+                    str(pdf),
+                    "--tex",
+                    str(tex),
+                ],
+            )
+
+        assert result.exit_code == 1
+        assert "Report preflight found issues" in result.output
+        assert "--force" in result.output
+        upload_file.assert_not_called()
+
+    def test_report_force_bypasses_preflight(self, runner, tmp_path: Path):
+        pdf = tmp_path / "report.pdf"
+        tex = tmp_path / "main.tex"
+        pdf.write_bytes(b"%PDF")
+        tex.write_text("\\section{Summary}\n", encoding="utf-8")
+
+        pdf_artifact = _artifact("ART-0001", "report.pdf", "PROJ-001/reports/project-report.pdf")
+        tex_artifact = _artifact("ART-0002", "main.tex", "PROJ-001/reports/project-report.tex")
+        updated = _project(report_pdf_artifact_id="ART-0001", report_tex_artifact_id="ART-0002")
+
+        with (
+            patch("sonde.commands.project_report.project_db.get", return_value=_project()),
+            patch("sonde.commands.project_report.project_db.update_report", return_value=updated),
+            patch(
+                "sonde.commands.project_report.upload_file",
+                side_effect=[pdf_artifact, tex_artifact],
+            ) as upload_file,
+            patch("sonde.commands.project_report._run_report_preflight") as preflight,
+            patch("sonde.commands.project_report.log_activity"),
+            patch(
+                "sonde.commands.project_report.get_settings",
+                return_value=MagicMock(source="human/test"),
+            ),
+        ):
+            result = runner.invoke(
+                cli,
+                [
+                    "--json",
+                    "project",
+                    "report",
+                    "PROJ-001",
+                    "--pdf",
+                    str(pdf),
+                    "--tex",
+                    str(tex),
+                    "--force",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        preflight.assert_not_called()
+        assert upload_file.call_count == 2
+        assert '"forced": true' in result.output
+
+    def test_report_requires_both_pdf_and_tex_for_verified_upload(self, runner, tmp_path: Path):
+        tex = tmp_path / "main.tex"
+        tex.write_text("\\section{Summary}\n", encoding="utf-8")
+
+        with patch("sonde.commands.project_report.project_db.get", return_value=_project()):
+            result = runner.invoke(
+                cli,
+                ["project", "report", "PROJ-001", "--tex", str(tex)],
+            )
+
+        assert result.exit_code == 1
+        assert "Verified report upload requires both --pdf and --tex" in result.output
 
     def test_close_requires_report_pdf(self, runner):
         with (
