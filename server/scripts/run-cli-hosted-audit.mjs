@@ -28,12 +28,53 @@ async function requestJson(url, init) {
   return body;
 }
 
+function parsePositiveInt(value, fallback) {
+  const parsed = Number.parseInt(value ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+function decodeExecOutput(value) {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (Buffer.isBuffer(value)) {
+    return value.toString("utf-8");
+  }
+  return "";
+}
+
+function buildCliFailureMessage(command, args, error) {
+  const stderr = decodeExecOutput(error?.stderr).trim();
+  const stdout = decodeExecOutput(error?.stdout).trim();
+  const details = [stderr, stdout].filter(Boolean).join("\n");
+  const fallback = error instanceof Error ? error.message : String(error);
+  const suffix = details || fallback;
+  return `${command} ${args.join(" ")} failed: ${suffix}`;
+}
+
+function isRetryableCliReadinessError(message) {
+  return (
+    /Remote schema version .*< required/.test(message) ||
+    /needs a migration update/i.test(message)
+  );
+}
+
 function runCli(command, args, env) {
-  return execFileSync(command, args, {
-    encoding: "utf-8",
-    env,
-    stdio: ["ignore", "pipe", "inherit"],
-  }).trim();
+  try {
+    return execFileSync(command, args, {
+      encoding: "utf-8",
+      env,
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim();
+  } catch (error) {
+    throw new Error(buildCliFailureMessage(command, args, error));
+  }
 }
 
 function parseJsonOutput(raw, label) {
@@ -41,6 +82,34 @@ function parseJsonOutput(raw, label) {
     return JSON.parse(raw);
   } catch (error) {
     throw new Error(`Failed to parse ${label} JSON output: ${error.message}`);
+  }
+}
+
+async function waitForCliReadiness({
+  command,
+  args,
+  env,
+  timeoutMs,
+  intervalMs,
+}) {
+  if (timeoutMs <= 0) {
+    return;
+  }
+
+  const deadline = Date.now() + timeoutMs;
+
+  while (true) {
+    try {
+      runCli(command, args, env);
+      return;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!isRetryableCliReadinessError(message) || Date.now() >= deadline) {
+        throw error;
+      }
+      console.log(`[run-cli-hosted-audit] Waiting for hosted CLI readiness: ${message}`);
+      await sleep(intervalMs);
+    }
   }
 }
 
@@ -67,6 +136,8 @@ async function main() {
   const expectedExperimentId = process.env.CLI_AUDIT_EXPECT_EXPERIMENT_ID?.trim() || "";
   const allowWrite = (process.env.CLI_AUDIT_ALLOW_WRITE ?? "") === "1";
   const sondeExecutable = process.env.CLI_AUDIT_SONDE_BIN?.trim() || "sonde";
+  const waitTimeoutMs = parsePositiveInt(process.env.CLI_AUDIT_WAIT_TIMEOUT_MS, 0);
+  const waitIntervalMs = parsePositiveInt(process.env.CLI_AUDIT_WAIT_INTERVAL_MS, 10_000);
 
   const configDir = fs.mkdtempSync(path.join(os.tmpdir(), "sonde-cli-audit-"));
   fs.chmodSync(configDir, 0o700);
@@ -94,6 +165,14 @@ async function main() {
       { mode: 0o600 }
     );
   }
+
+  await waitForCliReadiness({
+    command: sondeExecutable,
+    args: ["program", "list", "--json"],
+    env: cliEnv,
+    timeoutMs: waitTimeoutMs,
+    intervalMs: waitIntervalMs,
+  });
 
   const whoami = parseJsonOutput(
     runCli(sondeExecutable, ["whoami", "--json"], cliEnv),
