@@ -33,15 +33,24 @@ async function initUserSandbox(
   supabaseKey?: string
 ): Promise<SandboxHandle | null> {
   const { initSandbox } = await import("./sandbox-init.js");
+  const startedAt = Date.now();
+  console.log(`[sandbox] Starting sandbox init for ${userId}`);
   try {
-    return await initSandbox({
+    const sandbox = await initSandbox({
       sondeToken,
       supabaseUrl,
       supabaseKey,
     });
+    console.log(
+      `[sandbox] Sandbox init ready for ${userId} in ${Date.now() - startedAt}ms`
+    );
+    return sandbox;
   } catch (error) {
     const message = error instanceof Error ? error.message : "init failed";
-    console.error(`[sandbox] Failed to initialize sandbox for ${userId}:`, message);
+    console.error(
+      `[sandbox] Failed to initialize sandbox for ${userId} after ${Date.now() - startedAt}ms:`,
+      message
+    );
     return null;
   }
 }
@@ -220,6 +229,32 @@ export async function getUserSandboxLease(options: {
       await scopedSandbox.dispose();
     },
   };
+}
+
+export async function prewarmUserSandbox(options: {
+  userId: string;
+  sondeToken: string;
+  supabaseUrl?: string;
+  supabaseKey?: string;
+}): Promise<{ ready: boolean; reused: boolean }> {
+  const existing = userSandboxes.get(options.userId);
+  const reused = Boolean(existing?.sandbox?.ready || existing?.initPromise);
+  const entry = await getOrCreateEntry(
+    options.userId,
+    options.sondeToken,
+    options.supabaseUrl,
+    options.supabaseKey
+  );
+  if (!entry?.sandbox) {
+    return { ready: false, reused };
+  }
+
+  entry.lastUsedAt = Date.now();
+  await entry.sandbox.setToken(options.sondeToken);
+  console.log(
+    `[sandbox] Prewarm ${reused ? "reused" : "prepared"} sandbox for ${options.userId}`
+  );
+  return { ready: true, reused };
 }
 
 export async function cleanupExpiredUserSandboxes(

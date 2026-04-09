@@ -8,6 +8,7 @@ import { requireRuntimeAuditAuth } from "./runtime-audit.js";
 import { verifyToken } from "./auth.js";
 import { issueWsSessionToken, verifyWsSessionToken } from "./ws-session-token.js";
 import { checkUserRateLimit } from "./request-guard.js";
+import { isSandboxMode } from "./agent.js";
 
 const LOCAL_UI_ORIGINS = [
   "http://localhost:5173",
@@ -166,9 +167,86 @@ export function createApp(): Hono {
       );
     }
 
+    if (isSandboxMode()) {
+      void import("./sandbox/user-sandbox-pool.js")
+        .then(({ prewarmUserSandbox }) =>
+          prewarmUserSandbox({
+            userId: user.id,
+            sondeToken: accessToken,
+            supabaseUrl: process.env.VITE_SUPABASE_URL,
+            supabaseKey: process.env.VITE_SUPABASE_ANON_KEY,
+          })
+        )
+        .catch((error) => {
+          const message = error instanceof Error ? error.message : "unknown error";
+          console.error("[sandbox] Background prewarm failed:", message);
+        });
+    }
+
     return c.json({
       token: issueWsSessionToken(accessToken, user),
       expires_at: new Date(Date.now() + 60_000).toISOString(),
+    });
+  });
+
+  app.post("/chat/prewarm", async (c) => {
+    if (!isSandboxMode()) {
+      return c.json({ status: "disabled", backend: "direct" });
+    }
+
+    const authHeader = c.req.header("Authorization") ?? "";
+    const accessToken = authHeader.startsWith("Bearer ")
+      ? authHeader.slice("Bearer ".length).trim()
+      : "";
+    if (!accessToken) {
+      return c.json(
+        {
+          error: {
+            type: "unauthorized",
+            message: "Missing or invalid Sonde session token",
+          },
+        },
+        401,
+      );
+    }
+
+    const user = await verifyToken(accessToken);
+    if (!user) {
+      return c.json(
+        {
+          error: {
+            type: "unauthorized",
+            message: "Missing or invalid Sonde session token",
+          },
+        },
+        401,
+      );
+    }
+
+    const startedAt = Date.now();
+    const { prewarmUserSandbox } = await import("./sandbox/user-sandbox-pool.js");
+    const result = await prewarmUserSandbox({
+      userId: user.id,
+      sondeToken: accessToken,
+      supabaseUrl: process.env.VITE_SUPABASE_URL,
+      supabaseKey: process.env.VITE_SUPABASE_ANON_KEY,
+    });
+    if (!result.ready) {
+      return c.json(
+        {
+          error: {
+            type: "service_unavailable",
+            message: "Chat sandbox is not ready",
+          },
+        },
+        503,
+      );
+    }
+
+    return c.json({
+      status: "ready",
+      reused: result.reused,
+      duration_ms: Date.now() - startedAt,
     });
   });
 

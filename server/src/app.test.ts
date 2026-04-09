@@ -121,6 +121,27 @@ describe("createApp", () => {
     assert.ok(body.expires_at.length > 0);
   });
 
+  it("returns a disabled prewarm status outside sandbox mode", async () => {
+    process.env.SONDE_AGENT_BACKEND = "direct";
+    const app = createApp();
+    const response = await app.request("http://localhost/chat/prewarm", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${authToken}`,
+      },
+    });
+
+    assert.equal(response.status, 200);
+    const body = (await response.json()) as {
+      status: string;
+      backend: string;
+    };
+    assert.deepEqual(body, {
+      status: "disabled",
+      backend: "direct",
+    });
+  });
+
   it("rejects unauthenticated GitHub proxy requests", async () => {
     const app = createApp();
 
