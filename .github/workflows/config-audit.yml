@@ -73,18 +73,20 @@ jobs:
               ;;
           esac
 
-      - name: Resolve staging schema version
+      - name: Resolve expected staging schema version
         id: schema
         run: |
-          if VERSION=$(curl -sf \
-            -H "apikey: ${{ vars.SUPABASE_STAGING_ANON_KEY }}" \
-            -H "Authorization: Bearer ${{ vars.SUPABASE_STAGING_ANON_KEY }}" \
-            "https://${{ vars.SUPABASE_STAGING_PROJECT_REF }}.supabase.co/rest/v1/rpc/get_schema_version" | tr -d '"'); then
-            :
-          else
-            echo "::notice::Falling back to unknown schema version because staging publishable-key RPC verification is unavailable"
-            VERSION="unknown"
-          fi
+          VERSION="$(node - <<'NODE'
+          const fs = require("node:fs");
+          const text = fs.readFileSync("cli/src/sonde/db/compat.py", "utf8");
+          const match = text.match(/MINIMUM_SCHEMA_VERSION = (\d+)/);
+          if (!match) {
+            console.error("Could not determine MINIMUM_SCHEMA_VERSION from cli/src/sonde/db/compat.py");
+            process.exit(1);
+          }
+          process.stdout.write(match[1]);
+          NODE
+          )"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Wait for staging UI and agent
@@ -171,18 +173,20 @@ jobs:
               ;;
           esac
 
-      - name: Resolve production schema version
+      - name: Resolve expected production schema version
         id: schema
         run: |
-          if VERSION=$(curl -sf \
-            -H "apikey: ${{ vars.SUPABASE_ANON_KEY }}" \
-            -H "Authorization: Bearer ${{ vars.SUPABASE_ANON_KEY }}" \
-            "https://${{ secrets.SUPABASE_PROJECT_REF }}.supabase.co/rest/v1/rpc/get_schema_version" | tr -d '"'); then
-            :
-          else
-            echo "::notice::Falling back to unknown schema version because production publishable-key RPC verification is unavailable"
-            VERSION="unknown"
-          fi
+          VERSION="$(node - <<'NODE'
+          const fs = require("node:fs");
+          const text = fs.readFileSync("cli/src/sonde/db/compat.py", "utf8");
+          const match = text.match(/MINIMUM_SCHEMA_VERSION = (\d+)/);
+          if (!match) {
+            console.error("Could not determine MINIMUM_SCHEMA_VERSION from cli/src/sonde/db/compat.py");
+            process.exit(1);
+          }
+          process.stdout.write(match[1]);
+          NODE
+          )"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Wait for production UI and agent
