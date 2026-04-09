@@ -112,11 +112,20 @@ jobs:
 
   deploy-production-agent:
     runs-on: ubuntu-latest
-    needs: changes
+    needs:
+      - changes
+      - push-migrations
     if: >-
       ${{
-        needs.changes.outputs.agent == 'true' ||
-        github.event_name == 'workflow_dispatch'
+        always() &&
+        (
+          needs.push-migrations.result == 'success' ||
+          needs.push-migrations.result == 'skipped'
+        ) &&
+        (
+          needs.changes.outputs.agent == 'true' ||
+          github.event_name == 'workflow_dispatch'
+        )
       }}
 
     steps:
