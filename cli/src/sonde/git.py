@@ -196,3 +196,35 @@ def snapshots_to_json(snapshots: list[RepoSnapshot]) -> list[dict[str, Any]]:
             d.pop("modified_files", None)
         result.append(d)
     return result
+
+
+def provenance_hygiene_nudge(action: str) -> tuple[str, str] | None:
+    """Return a non-blocking nudge when git state is dirty.
+
+    This is intended for write commands that do not themselves capture git
+    provenance but should encourage agents to keep code history legible before
+    downstream lifecycle steps record provenance in Sonde.
+    """
+    dirty_repos = [snapshot for snapshot in detect_multi_repo_context() if snapshot.dirty]
+    if not dirty_repos:
+        return None
+
+    repo_names = [snapshot.name for snapshot in dirty_repos if snapshot.name]
+    if not repo_names:
+        repo_label = "the current code context"
+    elif len(repo_names) == 1:
+        repo_label = repo_names[0]
+    elif len(repo_names) == 2:
+        repo_label = f"{repo_names[0]} and {repo_names[1]}"
+    else:
+        repo_label = f"{repo_names[0]}, {repo_names[1]}, +{len(repo_names) - 2} more"
+
+    message = (
+        f"Dirty git state in {repo_label}. Commit or stash the code and analysis changes "
+        f"behind this {action} so later Sonde provenance stays clean."
+    )
+    command = (
+        "git status --short  # repeat in each dirty repo, then git add -p && git commit -m "
+        '"Describe the research/code change"'
+    )
+    return message, command

@@ -51,7 +51,7 @@ export function createProjectTools(sondeToken: string) {
 
     tool(
       "sonde_project_update",
-      "Update a project's name, objective, description, status, or Linear link.",
+      "Update a project's name, objective, description, status, or Linear link. Do not use this to mark a project completed; use sonde_project_report then sonde_project_close so a curated PDF report is required.",
       {
         project_id: z.string().describe("Project ID"),
         name: z.string().optional().describe("New name"),
@@ -91,6 +91,52 @@ export function createProjectTools(sondeToken: string) {
       },
       async (args) => {
         const flags = ["project", "brief", args.project_id, "--json"];
+        return runSonde(flags, sondeToken);
+      }
+    ),
+
+    tool(
+      "sonde_project_report",
+      "Register or update a project's final report. Use this after generating the PDF and optional LaTeX source in the project repo; Sonde stores, renders, downloads, and pulls the artifacts but does not compile LaTeX.",
+      {
+        project_id: z.string().describe("Project ID (e.g. PROJ-001)"),
+        pdf_path: z.string().optional().describe("Path to the rendered PDF report"),
+        tex_path: z.string().optional().describe("Path to the editable LaTeX report entrypoint"),
+        description: z.string().optional().describe("Short report description/caption"),
+      },
+      async (args) => {
+        const flags = ["project", "report", args.project_id, "--json"];
+        if (args.pdf_path) flags.push("--pdf", args.pdf_path);
+        if (args.tex_path) flags.push("--tex", args.tex_path);
+        if (args.description) flags.push("-d", args.description);
+        return runSonde(flags, sondeToken);
+      }
+    ),
+
+    tool(
+      "sonde_project_report_template",
+      "Scaffold a standardized LaTeX project report entrypoint in the local work repo using the project's Sonde brief. This writes a local file but does not update the knowledge graph.",
+      {
+        project_id: z.string().describe("Project ID (e.g. PROJ-001)"),
+        output: z.string().optional().describe("Where to write the LaTeX entrypoint"),
+        force: z.boolean().default(false).describe("Overwrite an existing file"),
+      },
+      async (args) => {
+        const flags = ["project", "report-template", args.project_id, "--json"];
+        if (args.output) flags.push("--output", args.output);
+        if (args.force) flags.push("--force");
+        return runSonde(flags, sondeToken);
+      }
+    ),
+
+    tool(
+      "sonde_project_close",
+      "Close a project after the final PDF project report is registered. This fails if sonde_project_report has not registered a PDF report.",
+      {
+        project_id: z.string().describe("Project ID to close (e.g. PROJ-001)"),
+      },
+      async (args) => {
+        const flags = ["project", "close", args.project_id, "--json"];
         return runSonde(flags, sondeToken);
       }
     ),

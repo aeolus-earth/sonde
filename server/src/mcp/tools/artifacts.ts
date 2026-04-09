@@ -6,11 +6,11 @@ export function createArtifactTools(sondeToken: string) {
   return [
     tool(
       "sonde_artifacts_list",
-      "List artifact metadata (id, filename, type, description, storage) for an experiment (EXP-), finding (FIND-), or direction (DIR-). Use when the user asks to see files or attachments for a run.",
+      "List artifact metadata (id, filename, type, description, storage) for an experiment (EXP-), finding (FIND-), direction (DIR-), or project (PROJ-). Use when the user asks to see files, project reports, or attachments.",
       {
         parent_id: z
           .string()
-          .describe("Experiment, finding, or direction id (e.g. EXP-0001, FIND-0001, DIR-001)"),
+          .describe("Experiment, finding, direction, or project id (e.g. EXP-0001, FIND-0001, DIR-001, PROJ-001)"),
       },
       async (args) => {
         const flags = ["artifact", "list", args.parent_id, "--json"];

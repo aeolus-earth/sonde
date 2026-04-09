@@ -25,6 +25,7 @@ _TYPE_MAP = {
     ".log": "log",
     ".txt": "log",
     ".md": "log",
+    ".tex": "report",
 }
 
 TEXT_EXTENSIONS = {
@@ -33,6 +34,7 @@ TEXT_EXTENSIONS = {
     ".log",
     ".md",
     ".toml",
+    ".tex",
     ".tsv",
     ".txt",
     ".yaml",

@@ -1,0 +1,173 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{textcomp}
+\usepackage[dvipsnames]{xcolor}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{longtable}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{array}
+
+\definecolor{SondeOrange}{HTML}{E07B39}
+\definecolor{SondeSlate}{HTML}{374151}
+\definecolor{SondeMuted}{HTML}{6B7280}
+\definecolor{SondeBorder}{HTML}{E5E7EB}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=SondeOrange,
+  urlcolor=SondeOrange,
+  citecolor=SondeOrange,
+  pdftitle={__PROJECT_NAME__}
+}
+
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.7em}
+\setlist[itemize]{leftmargin=1.5em, itemsep=0.25em, topsep=0.25em}
+
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{\textcolor{SondeMuted}{__PROJECT_ID__}}
+\rhead{\textcolor{SondeMuted}{__PROJECT_NAME__}}
+\cfoot{\textcolor{SondeMuted}{\thepage}}
+
+\titleformat{\section}
+  {\Large\bfseries\color{SondeOrange}}
+  {\thesection}
+  {0.5em}
+  {}
+\titleformat{\subsection}
+  {\large\bfseries\color{SondeSlate}}
+  {\thesubsection}
+  {0.5em}
+  {}
+
+\newcommand{\placeholder}[1]{\textcolor{SondeMuted}{#1}}
+\newcommand{\evidence}[1]{\texttt{#1}}
+\newcommand{\decision}[1]{\textbf{#1}}
+
+\begin{document}
+
+\begin{titlepage}
+\raggedright
+{\fontsize{26}{30}\selectfont\bfseries\color{SondeOrange} __PROJECT_NAME__ \par}
+\vspace{0.5em}
+{\Large\color{SondeSlate} Final Project Report\par}
+\vspace{2em}
+
+\begin{tabularx}{\textwidth}{>{\bfseries\arraybackslash}p{0.24\textwidth} X}
+Project ID & __PROJECT_ID__ \\
+Program & __PROGRAM__ \\
+Status at report time & __PROJECT_STATUS__ \\
+Report date & __REPORT_DATE__ \\
+Canonical review command & \texttt{sonde project show __PROJECT_ID__} \\
+\end{tabularx}
+
+\vfill
+
+{\large\bfseries Objective\par}
+__OBJECTIVE__
+
+\vspace{1.5em}
+\fcolorbox{SondeBorder}{white}{
+  \parbox{0.94\textwidth}{
+    \textbf{How to use this report.} Start with the executive summary and conclusions.
+    Every major claim in the final version should cite the Sonde records or artifacts
+    that support it, for example \evidence{EXP-0042} or \evidence{FIND-0007}.
+  }
+}
+
+\end{titlepage}
+
+\section*{Executive Summary}
+\decision{Final answer.} \placeholder{Replace this sentence with the one conclusion a future teammate should remember without opening any experiment logs.}
+
+\decision{Why it matters.} \placeholder{State the operational, scientific, or product decision this project informs.}
+
+\decision{Major caveats.} \placeholder{State the top uncertainties, assumptions, and scope limits in plain language.}
+
+\decision{Recommended next action.} \placeholder{Name the next experiment, deployment decision, or research direction this report enables.}
+
+\section{Project Objective and Scope}
+\subsection*{Original Objective}
+__OBJECTIVE__
+
+\subsection*{Background and Scope Boundaries}
+__DESCRIPTION__
+
+\subsection*{Project Takeaway Snapshot}
+__TAKEAWAYS__
+
+\section{Research Map}
+\subsection*{Directions and Investigation Threads}
+__DIRECTIONS_BLOCK__
+
+\subsection*{Current Sonde Coverage}
+__EXPERIMENT_STATS__
+
+\subsection*{Key Findings Already Promoted}
+__FINDINGS_BLOCK__
+
+\section{Methods and Provenance}
+\placeholder{Document the datasets, models, environments, validation methods, and key command / commit provenance here.}
+
+\begin{itemize}
+  \item Record the repo, branch, and commit used for the final analysis build.
+  \item State the data sources, time bounds, units, and geographic domain.
+  \item Note any calibration, filtering, or validation rules that materially changed the conclusions.
+\end{itemize}
+
+\section{Curated Results}
+\placeholder{Use claim-first subsections. Each subsection should open with the claim, then show the evidence, then state the implication.}
+
+\subsection*{Suggested high-signal experiments to synthesize}
+__EXPERIMENTS_BLOCK__
+
+\subsection*{Figures and Tables}
+\placeholder{Insert the figures and tables that carry the narrative. Every caption should state the takeaway, not just describe the image.}
+
+\section{Negative Results and Failure Modes}
+\placeholder{Capture dead ends, invalid assumptions, and failed runs that changed how the project should be interpreted or continued.}
+
+\begin{itemize}
+  \item \placeholder{What did not work, and why?}
+  \item \placeholder{Which assumptions were disproven?}
+  \item \placeholder{What should the next scientist avoid repeating?}
+\end{itemize}
+
+\section{Conclusions and Recommendations}
+\placeholder{Summarize what is now known, what should be operationalized, and what should remain open.}
+
+\begin{itemize}
+  \item \decision{What we know now.} \placeholder{Add the stable conclusion.}
+  \item \decision{What remains uncertain.} \placeholder{Add the open uncertainty that still matters.}
+  \item \decision{Recommended follow-up.} \placeholder{Point to the next direction, project, or experiment family.}
+\end{itemize}
+
+\appendix
+
+\section{Reproducibility Appendix}
+\subsection*{Suggested appendix checklist}
+\begin{itemize}
+  \item \texttt{sonde project brief __PROJECT_ID__ --json}
+  \item \texttt{sonde project show __PROJECT_ID__ --json}
+  \item \texttt{sonde artifact list __PROJECT_ID__ --json}
+  \item \placeholder{Final build command, environment notes, and artifact inventory}
+\end{itemize}
+
+\subsection*{Supporting Notes}
+__NOTES_BLOCK__
+
+\section{References}
+\placeholder{List papers, internal docs, datasets, dashboards, and external URLs here.}
+
+\end{document}

@@ -80,6 +80,20 @@ function sleep(ms: number): Promise<void> {
   });
 }
 
+function ensureAssistantMessage(storeApi: ChatStoreApi, tabId: string) {
+  const s = storeApi.getState();
+  const tab = s.tabs.find((t) => t.id === tabId);
+  const last = tab?.messages[tab.messages.length - 1];
+  if (last?.role === "assistant") return;
+  s.addMessage(tabId, {
+    id: crypto.randomUUID(),
+    role: "assistant",
+    content: "",
+    timestamp: Date.now(),
+    toolUses: [],
+  });
+}
+
 function handleServerMessage(msg: ServerMessage, storeApi: ChatStoreApi) {
   const s = storeApi.getState();
 
@@ -95,6 +109,15 @@ function handleServerMessage(msg: ServerMessage, storeApi: ChatStoreApi) {
 
     case "model_info":
       s.setAgentModel(msg.model);
+      break;
+
+    case "runtime_info":
+      s.setAgentRuntime({
+        backend: msg.backend,
+        label: msg.label,
+        traces: msg.traces,
+        workspaceDir: msg.workspaceDir,
+      });
       break;
 
     case "text_delta": {
@@ -153,15 +176,9 @@ function handleServerMessage(msg: ServerMessage, storeApi: ChatStoreApi) {
     case "tool_use_start": {
       const tabId = resolveTargetTabId(storeApi);
       if (!s.isStreaming) {
-        s.addMessage(tabId, {
-          id: crypto.randomUUID(),
-          role: "assistant",
-          content: "",
-          timestamp: Date.now(),
-          toolUses: [],
-        });
         s.setStreaming(true);
       }
+      ensureAssistantMessage(storeApi, tabId);
       s.addToolUseToLastMessage(tabId, {
         id: msg.id,
         tool: msg.tool,
@@ -173,16 +190,33 @@ function handleServerMessage(msg: ServerMessage, storeApi: ChatStoreApi) {
 
     case "tool_approval_required": {
       const tabId = resolveTargetTabId(storeApi);
+      ensureAssistantMessage(storeApi, tabId);
+      s.addToolUseToLastMessage(tabId, {
+        id: msg.toolUseID,
+        tool: msg.tool,
+        input: msg.input,
+        status: "awaiting_approval",
+      });
       s.addPendingToolApproval(tabId, {
         approvalId: msg.approvalId,
         toolUseID: msg.toolUseID,
         tool: msg.tool,
         input: msg.input,
         destructive: msg.destructive,
+        kind: msg.kind,
       });
       s.updateToolUse(tabId, msg.toolUseID, {
         status: "awaiting_approval",
         input: msg.input,
+      });
+      break;
+    }
+
+    case "tool_use_error": {
+      const tabId = resolveTargetTabId(storeApi);
+      s.updateToolUse(tabId, msg.id, {
+        output: msg.error,
+        status: "error",
       });
       break;
     }
@@ -228,7 +262,6 @@ function handleServerMessage(msg: ServerMessage, storeApi: ChatStoreApi) {
 
     case "done": {
       const tabId = resolveTargetTabId(storeApi);
-      s.promoteThinkingToContentIfNeeded(tabId);
       s.setStreaming(false);
       s.setStreamingTabId(null);
       s.clearPendingToolApprovals(tabId);
@@ -255,6 +288,7 @@ export function useChat() {
     return t?.tasks ?? [];
   });
   const agentModel = useScopedChatStore((s) => s.agentModel);
+  const agentRuntime = useScopedChatStore((s) => s.agentRuntime);
   const isStreaming = useScopedChatStore((s) => s.isStreaming);
   const connectionStatus = useScopedChatStore((s) => s.connectionStatus);
   const clearConversation = useScopedChatStore((s) => s.clearConversation);
@@ -399,6 +433,11 @@ export function useChat() {
         chatDebug("ws:session", { sessionId: msg.sessionId });
       } else if (msg.type === "model_info") {
         chatDebug("ws:model", { model: msg.model });
+      } else if (msg.type === "runtime_info") {
+        chatDebug("ws:runtime", {
+          backend: msg.backend,
+          workspaceDir: msg.workspaceDir ?? null,
+        });
       } else if (msg.type === "error") {
         chatDebug("ws:error", { message: msg.message });
       } else if (msg.type === "done") {
@@ -606,6 +645,7 @@ export function useChat() {
     messages,
     tasks,
     agentModel,
+    agentRuntime,
     isStreaming,
     isConnected: connectionStatus === "connected",
     connectionStatus,

@@ -66,6 +66,9 @@ export interface Project {
   description: string | null;
   status: ProjectStatus;
   source: string;
+  report_pdf_artifact_id: string | null;
+  report_tex_artifact_id: string | null;
+  report_updated_at: string | null;
   created_at: string;
   updated_at: string;
 }

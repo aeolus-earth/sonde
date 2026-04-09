@@ -44,6 +44,13 @@ export interface ChatMessageData {
 
 export type ConnectionStatus = "connecting" | "connected" | "disconnected";
 
+export interface AgentRuntimeInfo {
+  backend: "sandbox" | "direct";
+  label: string;
+  traces: boolean;
+  workspaceDir?: string;
+}
+
 // -- WebSocket protocol: Client -> Server --
 
 export interface PageContextExperiment {
@@ -125,6 +132,14 @@ export interface ServerModelInfo {
   model: string;
 }
 
+export interface ServerRuntimeInfo {
+  type: "runtime_info";
+  backend: "sandbox" | "direct";
+  label: string;
+  traces: boolean;
+  workspaceDir?: string;
+}
+
 export interface ServerTextDelta {
   type: "text_delta";
   content: string;
@@ -154,6 +169,19 @@ export interface ServerToolUseEnd {
   output: string;
 }
 
+export interface ServerToolUseError {
+  type: "tool_use_error";
+  id: string;
+  error: string;
+}
+
+export type ToolApprovalKind =
+  | "sonde_write"
+  | "sandbox_mutate"
+  | "sandbox_destructive"
+  | "sandbox_sensitive"
+  | "external_tool";
+
 export interface ServerToolApprovalRequired {
   type: "tool_approval_required";
   approvalId: string;
@@ -161,6 +189,7 @@ export interface ServerToolApprovalRequired {
   tool: string;
   input: Record<string, unknown>;
   destructive?: boolean;
+  kind?: ToolApprovalKind;
 }
 
 export interface ServerTasks {
@@ -185,11 +214,13 @@ export type ServerMessage =
   | ServerAuthOk
   | ServerSession
   | ServerModelInfo
+  | ServerRuntimeInfo
   | ServerTextDelta
   | ServerThinkingDelta
   | ServerTextDone
   | ServerToolUseStart
   | ServerToolUseEnd
+  | ServerToolUseError
   | ServerToolApprovalRequired
   | ServerTasks
   | ServerError
@@ -202,4 +233,5 @@ export interface PendingToolApproval {
   tool: string;
   input: Record<string, unknown>;
   destructive?: boolean;
+  kind?: ToolApprovalKind;
 }

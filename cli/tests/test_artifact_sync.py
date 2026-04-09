@@ -12,6 +12,7 @@ import pytest
 
 from sonde.artifact_sync import SyncCandidate, SyncJournal, build_fingerprint, build_plan
 from sonde.cli import cli
+from sonde.commands.pull import _planned_project_pull_target
 from sonde.db.artifacts import (
     ArtifactTooLargeError,
     UnsupportedArtifactTypeError,
@@ -50,6 +51,7 @@ class TestArtifactHelpers:
     def test_is_text_artifact(self):
         assert is_text_artifact("notes.md")
         assert is_text_artifact("summary.csv")
+        assert is_text_artifact("project-report.tex")
         assert not is_text_artifact("plot.png", "image/png")
 
     def test_finalize_deleted_artifacts_without_service_role(self):
@@ -162,6 +164,20 @@ class TestArtifactHelpers:
         assert resumed.resume.resumed is True
         assert resumed.resume.completed_files == 1
         assert resumed.resume.completed_bytes == 12
+
+    def test_project_pull_target_uses_project_relative_storage_path(self, tmp_path: Path):
+        project_dir = tmp_path / ".sonde" / "projects" / "PROJ-001"
+        artifact = {
+            "project_id": "PROJ-001",
+            "filename": "main.tex",
+            "storage_path": "PROJ-001/reports/project-report.tex",
+            "size_bytes": 12,
+        }
+
+        target, action = _planned_project_pull_target(project_dir, artifact)
+
+        assert target == project_dir / "reports" / "project-report.tex"
+        assert action == "download"
 
     def test_build_plan_tracks_transfer_update_skip_and_oversized(self):
         plan = build_plan(

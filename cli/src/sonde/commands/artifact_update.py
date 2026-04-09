@@ -8,7 +8,8 @@ from sonde.cli_options import pass_output_options
 from sonde.commands._context import use_json
 from sonde.db import rows as to_rows
 from sonde.db.client import get_client
-from sonde.output import print_error, print_json, print_success
+from sonde.git import provenance_hygiene_nudge
+from sonde.output import print_error, print_json, print_nudge, print_success
 
 
 @click.command("update")
@@ -58,3 +59,6 @@ def artifact_update(
             f"Updated {aid}",
             details=[f"Description: {description}"],
         )
+        provenance_nudge = provenance_hygiene_nudge("artifact metadata update")
+        if provenance_nudge:
+            print_nudge(*provenance_nudge)

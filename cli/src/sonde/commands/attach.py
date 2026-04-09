@@ -20,8 +20,9 @@ from sonde.db.artifacts import (
     find_by_storage_path,
     upload_file,
 )
+from sonde.git import provenance_hygiene_nudge
 from sonde.local import ensure_subdir, find_sonde_dir
-from sonde.output import err, print_error, print_json, print_success
+from sonde.output import err, print_error, print_json, print_nudge, print_success
 
 
 @dataclass
@@ -253,6 +254,9 @@ def attach(
             if record_type == "experiment"
             else [],
         )
+        provenance_nudge = provenance_hygiene_nudge(f"{record_type} artifact upload")
+        if provenance_nudge:
+            print_nudge(*provenance_nudge)
 
     if failures:
         raise SystemExit(1)
