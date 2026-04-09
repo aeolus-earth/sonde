@@ -66,19 +66,20 @@ jobs:
             echo "Smoke testing agent: $AGENT_URL"
           fi
 
-      - name: Resolve staging schema version
+      - name: Resolve expected staging schema version
         id: schema
-        if: ${{ vars.SUPABASE_STAGING_PROJECT_REF != '' && vars.SUPABASE_STAGING_ANON_KEY != '' }}
         run: |
-          if VERSION=$(curl -sf \
-            -H "apikey: ${{ vars.SUPABASE_STAGING_ANON_KEY }}" \
-            -H "Authorization: Bearer ${{ vars.SUPABASE_STAGING_ANON_KEY }}" \
-            "https://${{ vars.SUPABASE_STAGING_PROJECT_REF }}.supabase.co/rest/v1/rpc/get_schema_version" | tr -d '"'); then
-            :
-          else
-            echo "::notice::Falling back to unknown schema version because staging publishable-key RPC verification is unavailable"
-            VERSION="unknown"
-          fi
+          VERSION="$(node - <<'NODE'
+          const fs = require("node:fs");
+          const text = fs.readFileSync("../cli/src/sonde/db/compat.py", "utf8");
+          const match = text.match(/MINIMUM_SCHEMA_VERSION = (\d+)/);
+          if (!match) {
+            console.error("Could not determine MINIMUM_SCHEMA_VERSION from cli/src/sonde/db/compat.py");
+            process.exit(1);
+          }
+          process.stdout.write(match[1]);
+          NODE
+          )"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Wait for staging UI
@@ -147,6 +148,7 @@ jobs:
         env:
           CHAT_PREWARM_HTTP_BASE: ${{ steps.targets.outputs.agent_url }}
           CHAT_PREWARM_TIMEOUT_MS: "300000"
+          CHAT_PREWARM_RETRY_INTERVAL_MS: "10000"
           CHAT_SMOKE_HTTP_BASE: ${{ steps.targets.outputs.agent_url }}
           CHAT_SMOKE_PROMPT: "Use Sonde tools to list one accessible program id, then reply with SONDE_SMOKE_OK."
           CHAT_SMOKE_STALE_SESSION: "1"

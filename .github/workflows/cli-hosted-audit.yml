@@ -59,6 +59,8 @@ jobs:
           CLI_AUDIT_ALLOW_WRITE: "1"
           CLI_AUDIT_PROGRAM: shared
           CLI_AUDIT_EXPECT_EXPERIMENT_ID: EXP-9001
+          CLI_AUDIT_WAIT_TIMEOUT_MS: "600000"
+          CLI_AUDIT_WAIT_INTERVAL_MS: "10000"
         run: node scripts/run-cli-hosted-audit.mjs
 
   production-cli-audit:
@@ -100,4 +102,6 @@ jobs:
           CLI_AUDIT_ENV: production
           CLI_AUDIT_PROGRAM: shared
           CLI_AUDIT_EXPECT_EXPERIMENT_ID: EXP-0128
+          CLI_AUDIT_WAIT_TIMEOUT_MS: "600000"
+          CLI_AUDIT_WAIT_INTERVAL_MS: "10000"
         run: node scripts/run-cli-hosted-audit.mjs

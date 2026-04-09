@@ -67,26 +67,20 @@ jobs:
             echo "Smoke testing agent: $AGENT_URL"
           fi
 
-      - name: Resolve production schema version
+      - name: Resolve expected production schema version
         id: schema
-        env:
-          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
-          SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
         run: |
-          if [ -z "$SUPABASE_PROJECT_REF" ] || [ -z "$SUPABASE_ANON_KEY" ]; then
-            echo "::notice::Skipping production schema lookup because SUPABASE_PROJECT_REF or SUPABASE_ANON_KEY is not configured"
-            echo "version=unknown" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if VERSION=$(curl -sf \
-            -H "apikey: $SUPABASE_ANON_KEY" \
-            -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
-            "https://${SUPABASE_PROJECT_REF}.supabase.co/rest/v1/rpc/get_schema_version" | tr -d '"'); then
-            :
-          else
-            echo "::notice::Falling back to unknown schema version because production publishable-key RPC verification is unavailable"
-            VERSION="unknown"
-          fi
+          VERSION="$(node - <<'NODE'
+          const fs = require("node:fs");
+          const text = fs.readFileSync("../cli/src/sonde/db/compat.py", "utf8");
+          const match = text.match(/MINIMUM_SCHEMA_VERSION = (\d+)/);
+          if (!match) {
+            console.error("Could not determine MINIMUM_SCHEMA_VERSION from cli/src/sonde/db/compat.py");
+            process.exit(1);
+          }
+          process.stdout.write(match[1]);
+          NODE
+          )"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Wait for production UI
@@ -155,6 +149,7 @@ jobs:
         env:
           CHAT_PREWARM_HTTP_BASE: ${{ steps.targets.outputs.agent_url }}
           CHAT_PREWARM_TIMEOUT_MS: "300000"
+          CHAT_PREWARM_RETRY_INTERVAL_MS: "10000"
           CHAT_SMOKE_HTTP_BASE: ${{ steps.targets.outputs.agent_url }}
           CHAT_SMOKE_PROMPT: "Use Sonde tools to list one accessible program id, then reply with SONDE_SMOKE_OK."
           CHAT_SMOKE_STALE_SESSION: "1"
