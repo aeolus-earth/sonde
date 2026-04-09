@@ -131,6 +131,7 @@ export const ChatToolChain = memo(function ChatToolChain({
 
   return (
     <div
+      data-chat-tool-chain
       className={cn(
         "my-1 overflow-hidden rounded-[12px] border border-border-subtle text-[12px]",
         "bg-surface/85 shadow-[0_1px_0_rgba(0,0,0,0.03)] backdrop-blur-md",

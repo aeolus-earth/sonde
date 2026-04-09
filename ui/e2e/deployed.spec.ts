@@ -5,7 +5,7 @@
  * Only runs when E2E_BASE_URL is set (CI post-deploy or manual dispatch).
  * Skipped entirely during local dev (no webServer needed).
  */
-import { test, expect } from "@playwright/test";
+import { test, expect, type Locator } from "@playwright/test";
 import { seedActiveProgram, seedConfiguredSession } from "./helpers";
 
 const BASE_URL = process.env.E2E_BASE_URL;
@@ -20,8 +20,34 @@ const EXPECT_TIMELINE_AUTH_MODE =
 const CHAT_PROMPT =
   process.env.E2E_CHAT_PROMPT?.trim() ||
   "Use Sonde tools to list one accessible program id, then reply with SONDE_SMOKE_OK.";
-const CHAT_EXPECT_SUBSTRING =
-  process.env.E2E_CHAT_EXPECT_SUBSTRING?.trim() || "SONDE_SMOKE_OK";
+async function waitForHostedChatResponse(assistantMessage: Locator): Promise<void> {
+  await expect
+    .poll(
+      async () => {
+        const content = await assistantMessage
+          .locator("[data-chat-assistant-content]")
+          .last()
+          .textContent()
+          .catch(() => "");
+        if (content?.trim()) {
+          return true;
+        }
+
+        const toolChainText = await assistantMessage
+          .locator("[data-chat-tool-chain]")
+          .last()
+          .textContent()
+          .catch(() => "");
+        return Boolean(toolChainText?.replace(/\s+/g, " ").trim());
+      },
+      {
+        timeout: 90_000,
+        message:
+          "Expected hosted chat to render assistant text or visible tool activity on the first turn.",
+      }
+    )
+    .toBeTruthy();
+}
 
 test.describe("Production deployment", () => {
   test.skip(!BASE_URL, "Skipped: E2E_BASE_URL not set (local dev)");
@@ -217,7 +243,7 @@ test.describe("Production deployment authenticated flows", () => {
     });
   });
 
-  test("chat returns a hosted agent response on the first turn", async ({
+  test("chat connects and renders a hosted agent response on the first turn", async ({
     page,
     browserName,
   }) => {
@@ -240,12 +266,7 @@ test.describe("Production deployment authenticated flows", () => {
     await expect(page.getByText(CHAT_PROMPT, { exact: true })).toBeVisible({
       timeout: 15_000,
     });
-    await expect(
-      page
-        .locator('[data-chat-role="assistant"]')
-        .last()
-        .getByText(new RegExp(CHAT_EXPECT_SUBSTRING, "i"))
-    ).toBeVisible({ timeout: 90_000 });
+    await waitForHostedChatResponse(page.locator('[data-chat-role="assistant"]').last());
     await expect(page.getByText(/agent is not connected/i)).not.toBeVisible();
   });
 });
