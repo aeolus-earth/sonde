@@ -20,10 +20,19 @@ const EXPECT_TIMELINE_AUTH_MODE =
 const CHAT_PROMPT =
   process.env.E2E_CHAT_PROMPT?.trim() ||
   "Use Sonde tools to list one accessible program id, then reply with SONDE_SMOKE_OK.";
-async function waitForHostedChatResponse(assistantMessage: Locator): Promise<void> {
+async function waitForHostedChatResponse(
+  assistantMessage: Locator,
+  approveButton: Locator
+): Promise<void> {
   await expect
     .poll(
       async () => {
+        const needsApproval = await approveButton.isVisible().catch(() => false);
+        if (needsApproval) {
+          await approveButton.click();
+          return false;
+        }
+
         const content = await assistantMessage
           .locator("[data-chat-assistant-content]")
           .last()
@@ -266,7 +275,10 @@ test.describe("Production deployment authenticated flows", () => {
     await expect(page.getByText(CHAT_PROMPT, { exact: true })).toBeVisible({
       timeout: 15_000,
     });
-    await waitForHostedChatResponse(page.locator('[data-chat-role="assistant"]').last());
+    await waitForHostedChatResponse(
+      page.locator('[data-chat-role="assistant"]').last(),
+      page.getByRole("button", { name: "Approve" }).first()
+    );
     await expect(page.getByText(/agent is not connected/i)).not.toBeVisible();
   });
 });
