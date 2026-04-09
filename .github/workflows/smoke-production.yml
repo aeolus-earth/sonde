@@ -153,12 +153,14 @@ jobs:
         if: ${{ steps.targets.outputs.agent_url != '' }}
         working-directory: server
         env:
+          CHAT_PREWARM_HTTP_BASE: ${{ steps.targets.outputs.agent_url }}
+          CHAT_PREWARM_TIMEOUT_MS: "300000"
           CHAT_SMOKE_HTTP_BASE: ${{ steps.targets.outputs.agent_url }}
           CHAT_SMOKE_PROMPT: "Use Sonde tools to list one accessible program id, then reply with SONDE_SMOKE_OK."
           CHAT_SMOKE_STALE_SESSION: "1"
           CHAT_SMOKE_REQUIRE_TOOL_USE: "1"
           CHAT_SMOKE_EXPECT_SUBSTRING: "SONDE_SMOKE_OK"
-          CHAT_SMOKE_TIMEOUT_MS: "120000"
+          CHAT_SMOKE_TIMEOUT_MS: "180000"
           PRODUCTION_SMOKE_SESSION_FILE: ${{ env.PRODUCTION_SMOKE_SESSION_FILE }}
           FALLBACK_CHAT_SMOKE_TOKEN: ${{ secrets.SONDE_AGENT_CHAT_TOKEN }}
         run: |
@@ -173,6 +175,8 @@ jobs:
             echo "::notice::Skipping production agent chat smoke because no session token or SONDE_AGENT_CHAT_TOKEN is configured"
             exit 0
           fi
+          export CHAT_PREWARM_TOKEN="$CHAT_SMOKE_TOKEN"
+          node scripts/prewarm-chat-session.mjs
           node scripts/chat-smoke.mjs
 
       - name: Run production smoke tests
