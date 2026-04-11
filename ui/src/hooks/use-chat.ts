@@ -250,6 +250,15 @@ function handleServerMessage(msg: ServerMessage, storeApi: ChatStoreApi) {
       s.setTasks(resolveTargetTabId(storeApi), msg.tasks);
       break;
 
+    case "cost_alert":
+      s.addMessage(resolveTargetTabId(storeApi), {
+        id: crypto.randomUUID(),
+        role: "system",
+        content: msg.message,
+        timestamp: Date.now(),
+      });
+      break;
+
     case "error":
       if (msg.message.includes("Claude Code process exited with code 1")) {
         s.setTabAgentSessionId(resolveTargetTabId(storeApi), null);

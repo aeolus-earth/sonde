@@ -207,6 +207,14 @@ export interface ServerTasks {
   tasks: AgentTask[];
 }
 
+export interface ServerCostAlert {
+  type: "cost_alert";
+  severity: "warn" | "critical";
+  sessionId: string;
+  estimatedTotalUsd: number;
+  message: string;
+}
+
 export interface ServerError {
   type: "error";
   message: string;
@@ -233,6 +241,7 @@ export type ServerMessage =
   | ServerToolUseError
   | ServerToolApprovalRequired
   | ServerTasks
+  | ServerCostAlert
   | ServerError
   | ServerDone
   | ServerPing;

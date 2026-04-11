@@ -8,11 +8,19 @@ import {
   useDbSnapshots,
   useCaptureDbSnapshot,
   useAuthEvents,
+  useManagedSessions,
+  useManagedSessionCostSamples,
+  useManagedSessionEvents,
+  useAnthropicCostSyncRuns,
+  useAnthropicCostBuckets,
+  useAdminRuntimeMetadata,
+  useReconcileManagedCosts,
 } from "@/hooks/use-admin";
 import { useGlobalActivity } from "@/hooks/use-activity";
 import { useRealtimeInvalidation } from "@/hooks/use-realtime";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
 import { RecordLink } from "@/components/shared/record-link";
 import { UsageChart } from "@/components/visualizations/usage-chart";
 import {
@@ -24,7 +32,7 @@ import { formatBytes } from "@/lib/format";
 import { DbGrowthChart } from "@/components/visualizations/db-growth-chart";
 import { formatDateTimeShort, cn } from "@/lib/utils";
 import { Link } from "@tanstack/react-router";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, RefreshCw } from "lucide-react";
 
 const cardClass =
   "rounded-[8px] border border-border bg-surface p-3";
@@ -88,8 +96,37 @@ function usageRangeLabel(days: number): string {
   return `${from.toLocaleDateString(undefined, opts)} – ${to.toLocaleDateString(undefined, opts)}`;
 }
 
+function formatUsd(value: number): string {
+  return new Intl.NumberFormat(undefined, {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: value < 10 ? 2 : 0,
+    maximumFractionDigits: value < 10 ? 2 : 0,
+  }).format(value);
+}
+
+function managedStatusVariant(
+  status: string,
+): "complete" | "failed" | "open" | "running" | "tag" {
+  switch (status) {
+    case "active":
+      return "running";
+    case "awaiting_approval":
+      return "open";
+    case "idle":
+    case "prewarmed":
+      return "tag";
+    case "archived":
+    case "deleted":
+      return "complete";
+    default:
+      return "failed";
+  }
+}
+
 export default function AdminDashboard() {
   const [usageDays, setUsageDays] = useState(30);
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
 
   const { data: stats, isLoading: statsLoading } = useAdminStats();
   const { data: activity } = useGlobalActivity(50);
@@ -99,13 +136,59 @@ export default function AdminDashboard() {
   const { data: dbSizes, isLoading: dbSizesLoading } = useDbSizes();
   const { data: dbSnapshots, isLoading: dbSnapshotsLoading } = useDbSnapshots(30);
   const { data: authEvents } = useAuthEvents(50);
+  const { data: managedSessions, isLoading: managedSessionsLoading } = useManagedSessions(30);
+  const { data: managedSyncRuns } = useAnthropicCostSyncRuns(10);
+  const { data: anthropicCostBuckets } = useAnthropicCostBuckets(30);
+  const { data: runtimeMetadata } = useAdminRuntimeMetadata();
+  const reconcileManagedCosts = useReconcileManagedCosts();
+  const { data: selectedSessionSamples } = useManagedSessionCostSamples(selectedSessionId);
+  const { data: selectedSessionEvents } = useManagedSessionEvents(selectedSessionId);
 
   useCaptureDbSnapshot(); // fire-and-forget, rate-limited to 1/hour server-side
 
   const usageRowCount = useMemo(() => usageRows?.length ?? 0, [usageRows]);
+  const selectedSession = useMemo(
+    () => (managedSessions ?? []).find((session) => session.session_id === selectedSessionId) ?? null,
+    [managedSessions, selectedSessionId]
+  );
+  const managedSummary = useMemo(() => {
+    const sessions = managedSessions ?? [];
+    const now = Date.now();
+    const todayCutoff = now - 86400000;
+    const weekCutoff = now - 7 * 86400000;
+    const estimatedToday = sessions
+      .filter((session) => new Date(session.created_at).getTime() >= todayCutoff)
+      .reduce((sum, session) => sum + (session.estimated_total_cost_usd ?? 0), 0);
+    const estimatedSevenDays = sessions
+      .filter((session) => new Date(session.created_at).getTime() >= weekCutoff)
+      .reduce((sum, session) => sum + (session.estimated_total_cost_usd ?? 0), 0);
+    const providerSevenDays = (anthropicCostBuckets ?? [])
+      .filter((bucket) => new Date(bucket.bucket_start).getTime() >= weekCutoff)
+      .reduce((sum, bucket) => sum + (bucket.amount_usd ?? 0), 0);
+    const activeSessions = sessions.filter(
+      (session) =>
+        session.status === "active" ||
+        session.status === "idle" ||
+        session.status === "awaiting_approval" ||
+        session.status === "prewarmed"
+    ).length;
+    return {
+      estimatedToday,
+      estimatedSevenDays,
+      providerSevenDays,
+      activeSessions,
+      unallocatedProviderCharges: Math.max(providerSevenDays - estimatedSevenDays, 0),
+    };
+  }, [anthropicCostBuckets, managedSessions]);
+  const latestSyncRun = managedSyncRuns?.[0] ?? null;
 
   useRealtimeInvalidation("activity_log", ["admin"]);
   useRealtimeInvalidation("activity_log", ["activity", "global"]);
+  useRealtimeInvalidation("managed_sessions", ["admin"]);
+  useRealtimeInvalidation("managed_session_events", ["admin"]);
+  useRealtimeInvalidation("managed_session_cost_samples", ["admin"]);
+  useRealtimeInvalidation("anthropic_cost_sync_runs", ["admin"]);
+  useRealtimeInvalidation("anthropic_cost_buckets", ["admin"]);
 
   return (
     <div className="mx-auto max-w-[1100px] space-y-6 px-4 py-6">
@@ -142,6 +225,328 @@ export default function AdminDashboard() {
           loading={statsLoading}
         />
       </div>
+
+      {/* Managed cost hygiene */}
+      <section className="space-y-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 className="text-[13px] font-medium text-text-secondary">
+              Managed session costs
+            </h2>
+            <p className="mt-0.5 text-[11px] text-text-quaternary">
+              Session-first estimates with Anthropic provider reconciliation when available.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => reconcileManagedCosts.mutate({ days: 7 })}
+              disabled={reconcileManagedCosts.isPending}
+            >
+              <RefreshCw
+                size={14}
+                className={cn(reconcileManagedCosts.isPending && "animate-spin")}
+              />
+              Reconcile provider costs
+            </Button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <StatCard
+            value={formatUsd(managedSummary.estimatedToday)}
+            label="Estimated spend today"
+            loading={managedSessionsLoading}
+          />
+          <StatCard
+            value={formatUsd(managedSummary.estimatedSevenDays)}
+            label="Estimated spend (7d)"
+            loading={managedSessionsLoading}
+          />
+          <StatCard
+            value={formatUsd(managedSummary.providerSevenDays)}
+            label="Provider spend (7d)"
+            loading={managedSessionsLoading}
+          />
+          <StatCard
+            value={managedSummary.activeSessions}
+            label="Active managed sessions"
+            loading={managedSessionsLoading}
+          />
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
+          <div className={cardClass}>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-[12px] font-medium text-text">Runtime diagnostics</p>
+                <p className="mt-1 text-[11px] text-text-quaternary">
+                  Live spend should only be enabled when managed sessions, telemetry, and cleanup are all wired.
+                </p>
+              </div>
+              <Badge
+                variant={runtimeMetadata?.liveSpendEnabled ? "running" : "tag"}
+              >
+                {runtimeMetadata?.liveSpendEnabled ? "live spend enabled" : "live spend disabled"}
+              </Badge>
+            </div>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              <div className="rounded-[8px] border border-border-subtle bg-surface-raised px-3 py-2 text-[12px]">
+                <p className="text-text-tertiary">Anthropic runtime</p>
+                <p className="mt-1 font-medium text-text">
+                  {runtimeMetadata?.managedConfigured ? "Configured" : "Missing managed config"}
+                </p>
+              </div>
+              <div className="rounded-[8px] border border-border-subtle bg-surface-raised px-3 py-2 text-[12px]">
+                <p className="text-text-tertiary">Admin reconciliation</p>
+                <p className="mt-1 font-medium text-text">
+                  {runtimeMetadata?.anthropicAdminConfigured ? "Provider-backed" : "Estimated only"}
+                </p>
+              </div>
+              <div className="rounded-[8px] border border-border-subtle bg-surface-raised px-3 py-2 text-[12px]">
+                <p className="text-text-tertiary">Telemetry writes</p>
+                <p className="mt-1 font-medium text-text">
+                  {runtimeMetadata?.costTelemetryConfigured ? "Configured" : "Missing Supabase telemetry config"}
+                </p>
+              </div>
+              <div className="rounded-[8px] border border-border-subtle bg-surface-raised px-3 py-2 text-[12px]">
+                <p className="text-text-tertiary">Unallocated provider charges</p>
+                <p className="mt-1 font-medium text-text">
+                  {formatUsd(managedSummary.unallocatedProviderCharges)}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className={cardClass}>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[12px] font-medium text-text">Last reconciliation</p>
+                <p className="mt-1 text-[11px] text-text-quaternary">
+                  Sync provider buckets so session estimates have an external reference point.
+                </p>
+              </div>
+              {latestSyncRun && (
+                <Badge variant={latestSyncRun.success ? "complete" : "failed"}>
+                  {latestSyncRun.mode === "provider" ? "provider" : "estimated-only"}
+                </Badge>
+              )}
+            </div>
+            {latestSyncRun ? (
+              <div className="mt-3 space-y-2 text-[12px] text-text-secondary">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-text-tertiary">Completed</span>
+                  <span>{formatDateTimeShort(latestSyncRun.completed_at ?? latestSyncRun.created_at)}</span>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-text-tertiary">Bucket count</span>
+                  <span>{latestSyncRun.bucket_count}</span>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-text-tertiary">Provider total</span>
+                  <span>{formatUsd(latestSyncRun.total_cost_usd ?? 0)}</span>
+                </div>
+                {latestSyncRun.error_message && (
+                  <p className="rounded-[8px] border border-status-failed/20 bg-status-failed/5 px-3 py-2 text-[11px] text-status-failed">
+                    {latestSyncRun.error_message}
+                  </p>
+                )}
+              </div>
+            ) : (
+              <p className="mt-3 text-[12px] text-text-quaternary">
+                No reconciliation runs yet.
+              </p>
+            )}
+          </div>
+        </div>
+
+        <div className={cn(cardClass, "p-0 overflow-hidden")}>
+          <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-2">
+            <div>
+              <h3 className="text-[12px] font-medium text-text">Managed sessions</h3>
+              <p className="mt-0.5 text-[11px] text-text-quaternary">
+                Click a row to inspect lifecycle diagnostics, samples, and last errors.
+              </p>
+            </div>
+          </div>
+          {managedSessionsLoading ? (
+            <div className="space-y-2 px-3 py-3">
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-full" />
+            </div>
+          ) : (managedSessions ?? []).length === 0 ? (
+            <p className="px-3 py-4 text-[12px] text-text-quaternary">
+              No managed session telemetry yet.
+            </p>
+          ) : (
+            (managedSessions ?? []).map((session) => (
+              <button
+                key={session.session_id}
+                type="button"
+                onClick={() => setSelectedSessionId(session.session_id)}
+                className={cn(
+                  rowClass,
+                  "grid w-full grid-cols-[140px_1.4fr_120px_90px_90px_110px] items-center gap-3 text-left text-[12px]",
+                  selectedSessionId === session.session_id && "bg-surface-hover"
+                )}
+              >
+                <span className="truncate text-text-quaternary">
+                  {formatDateTimeShort(session.created_at)}
+                </span>
+                <div className="min-w-0">
+                  <p className="truncate font-medium text-text">
+                    {session.user_email ?? session.user_id}
+                  </p>
+                  <p className="truncate text-[11px] text-text-quaternary">
+                    {session.session_id}
+                  </p>
+                </div>
+                <Badge variant={managedStatusVariant(session.status)}>
+                  {session.status}
+                </Badge>
+                <span className="text-text-tertiary">
+                  {session.turn_count} turn{session.turn_count !== 1 && "s"}
+                </span>
+                <span className="text-text-tertiary">
+                  {session.tool_call_count} tool{session.tool_call_count !== 1 && "s"}
+                </span>
+                <span className="font-medium text-text">
+                  {formatUsd(session.estimated_total_cost_usd ?? 0)}
+                </span>
+              </button>
+            ))
+          )}
+        </div>
+
+        {selectedSession && (
+          <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
+            <div className={cardClass}>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-[12px] font-medium text-text">Session detail</h3>
+                  <p className="mt-1 text-[11px] text-text-quaternary">
+                    {selectedSession.session_id}
+                  </p>
+                </div>
+                <Badge variant={managedStatusVariant(selectedSession.status)}>
+                  {selectedSession.status}
+                </Badge>
+              </div>
+              <div className="mt-3 grid gap-2 text-[12px] text-text-secondary">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-text-tertiary">User</span>
+                  <span>{selectedSession.user_email ?? selectedSession.user_id}</span>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-text-tertiary">Environment</span>
+                  <span>{selectedSession.environment}</span>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-text-tertiary">Model</span>
+                  <span>{selectedSession.model ?? "unknown"}</span>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-text-tertiary">Runtime</span>
+                  <span>{selectedSession.runtime_seconds?.toFixed(1)}s</span>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-text-tertiary">Estimated token cost</span>
+                  <span>{formatUsd(selectedSession.estimated_token_cost_usd ?? 0)}</span>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-text-tertiary">Estimated total cost</span>
+                  <span>{formatUsd(selectedSession.estimated_total_cost_usd ?? 0)}</span>
+                </div>
+              </div>
+              {selectedSession.last_error_message && (
+                <div className="mt-3 rounded-[8px] border border-status-failed/20 bg-status-failed/5 px-3 py-2 text-[11px] text-status-failed">
+                  {selectedSession.last_error_message}
+                </div>
+              )}
+            </div>
+
+            <div className={cardClass}>
+              <h3 className="text-[12px] font-medium text-text">Cost samples</h3>
+              {(selectedSessionSamples ?? []).length === 0 ? (
+                <p className="mt-3 text-[12px] text-text-quaternary">
+                  No cost samples recorded for this session yet.
+                </p>
+              ) : (
+                <div className="mt-3 space-y-2">
+                  {(selectedSessionSamples ?? []).slice(0, 8).map((sample) => (
+                    <div
+                      key={sample.id}
+                      className="rounded-[8px] border border-border-subtle bg-surface-raised px-3 py-2 text-[12px]"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <Badge variant="tag">{sample.sample_type}</Badge>
+                        <span className="text-text-quaternary">
+                          {formatDateTimeShort(sample.sampled_at)}
+                        </span>
+                      </div>
+                      <div className="mt-2 flex items-center justify-between gap-3">
+                        <span className="text-text-tertiary">{sample.status}</span>
+                        <span className="font-medium text-text">
+                          {formatUsd(sample.estimated_total_cost_usd ?? 0)}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {selectedSession && (
+          <div className={cardClass}>
+            <h3 className="text-[12px] font-medium text-text">Lifecycle timeline</h3>
+            {(selectedSessionEvents ?? []).length === 0 ? (
+              <p className="mt-3 text-[12px] text-text-quaternary">
+                No metadata events recorded for this session yet.
+              </p>
+            ) : (
+              <div className="mt-3 space-y-2">
+                {(selectedSessionEvents ?? []).slice(0, 12).map((event) => (
+                  <div
+                    key={event.id}
+                    className="rounded-[8px] border border-border-subtle bg-surface-raised px-3 py-2 text-[12px]"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2">
+                        <Badge
+                          variant={
+                            event.severity === "error"
+                              ? "failed"
+                              : event.severity === "warn"
+                                ? "open"
+                                : "tag"
+                          }
+                        >
+                          {event.event_type}
+                        </Badge>
+                        {event.tool_name && (
+                          <span className="text-text-tertiary">{event.tool_name}</span>
+                        )}
+                      </div>
+                      <span className="text-text-quaternary">
+                        {formatDateTimeShort(event.created_at)}
+                      </span>
+                    </div>
+                    {event.error_message && (
+                      <p className="mt-2 text-[11px] text-status-failed">
+                        {event.error_message}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </section>
 
       {/* Usage charts */}
       <section className="space-y-3">

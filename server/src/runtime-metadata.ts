@@ -4,6 +4,7 @@ import {
   isSharedRateLimitRequired,
 } from "./security-config.js";
 import { hasGitHubAccess } from "./github.js";
+import { hasSupabaseTelemetryConfig } from "./supabase.js";
 
 export interface RuntimeMetadata {
   status: "ok";
@@ -15,6 +16,9 @@ export interface RuntimeMetadata {
   sondeMcpConfigured: boolean;
   githubConfigured: boolean;
   anthropicConfigured: boolean;
+  anthropicAdminConfigured: boolean;
+  costTelemetryConfigured: boolean;
+  liveSpendEnabled: boolean;
   cliGitRef: string | null;
   supabaseProjectRef: string | null;
   sharedRateLimitConfigured: boolean;
@@ -67,6 +71,9 @@ export function getRuntimeMetadata(
       true,
     githubConfigured: hasGitHubAccess(env),
     anthropicConfigured: Boolean(env.ANTHROPIC_API_KEY?.trim()),
+    anthropicAdminConfigured: Boolean(env.ANTHROPIC_ADMIN_API_KEY?.trim()),
+    costTelemetryConfigured: hasSupabaseTelemetryConfig(env),
+    liveSpendEnabled: Boolean(env.ANTHROPIC_API_KEY?.trim()) && managedConfigured,
     cliGitRef: env.SONDE_CLI_GIT_REF?.trim() || null,
     supabaseProjectRef: getSupabaseProjectRef(env),
     sharedRateLimitConfigured: hasSharedRateLimitConfig(env),

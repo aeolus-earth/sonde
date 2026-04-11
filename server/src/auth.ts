@@ -4,6 +4,7 @@ export interface VerifiedUser {
   id: string;
   email?: string;
   name?: string;
+  isAdmin?: boolean;
 }
 
 let supabaseClient: ReturnType<typeof createClient> | null = null;
@@ -42,6 +43,7 @@ export async function verifyToken(
       id: "e2e-user",
       email: "ci-smoke@aeolus.earth",
       name: "CI Smoke",
+      isAdmin: true,
     };
   }
 
@@ -61,6 +63,9 @@ export async function verifyToken(
       name:
         (data.user.user_metadata?.full_name as string | undefined) ??
         data.user.email,
+      isAdmin:
+        data.user.app_metadata?.is_admin === true ||
+        data.user.app_metadata?.isAdmin === true,
     };
   } catch (err) {
     if (process.env.NODE_ENV !== "production") {

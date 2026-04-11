@@ -42,6 +42,45 @@ interface ManagedSessionResponse {
   id: string;
 }
 
+export interface ManagedSessionResource {
+  id: string;
+  title?: string | null;
+  model?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  archived_at?: string | null;
+  environment_id?: string | null;
+  usage?: Record<string, unknown> | null;
+  agent?: { id?: string | null } | string | null;
+  workspace_id?: string | null;
+}
+
+export interface ManagedDeletedSession {
+  id: string;
+  type: string;
+}
+
+interface AnthropicCostBucketResult {
+  amount?: string | number;
+  amount_cents?: string | number;
+  amount_usd?: string | number;
+  workspace_id?: string | null;
+  description?: string | null;
+  [key: string]: unknown;
+}
+
+interface AnthropicCostBucket {
+  starting_at: string;
+  ending_at: string;
+  results?: AnthropicCostBucketResult[];
+}
+
+export interface AnthropicCostReportResponse {
+  data?: AnthropicCostBucket[];
+  has_more?: boolean;
+  next_page?: string | null;
+}
+
 let ephemeralAgentIdPromise: Promise<string> | null = null;
 const mockManagedPrompts = new Map<string, string>();
 
@@ -61,11 +100,27 @@ function getAnthropicApiKey(env: NodeJS.ProcessEnv = process.env): string {
   return apiKey;
 }
 
+function getAnthropicAdminApiKey(env: NodeJS.ProcessEnv = process.env): string {
+  const apiKey = env.ANTHROPIC_ADMIN_API_KEY?.trim();
+  if (!apiKey) {
+    throw new Error("Managed cost reconciliation requires ANTHROPIC_ADMIN_API_KEY.");
+  }
+  return apiKey;
+}
+
 function managedHeaders(beta: string = MANAGED_AGENTS_BETA): Record<string, string> {
   return {
     "x-api-key": getAnthropicApiKey(),
     "anthropic-version": ANTHROPIC_VERSION,
     "anthropic-beta": beta,
+    "content-type": "application/json",
+  };
+}
+
+function adminHeaders(): Record<string, string> {
+  return {
+    "x-api-key": getAnthropicAdminApiKey(),
+    "anthropic-version": ANTHROPIC_VERSION,
     "content-type": "application/json",
   };
 }
@@ -108,6 +163,30 @@ async function fetchManagedJson<T>(
   if (!response.ok) {
     throw new Error(
       `Managed Agents request failed (${response.status}) for ${path}: ${bodyText.slice(0, 400)}`
+    );
+  }
+  if (!bodyText.trim()) {
+    return {} as T;
+  }
+  return JSON.parse(bodyText) as T;
+}
+
+async function fetchAnthropicAdminJson<T>(
+  path: string,
+  init: RequestInit = {}
+): Promise<T> {
+  const response = await fetch(`${getAnthropicBaseUrl()}${path}`, {
+    ...init,
+    headers: {
+      ...adminHeaders(),
+      "user-agent": "sonde-managed-costs/1.0",
+      ...(init.headers ?? {}),
+    },
+  });
+  const bodyText = await response.text();
+  if (!response.ok) {
+    throw new Error(
+      `Anthropic Admin API request failed (${response.status}) for ${path}: ${bodyText.slice(0, 400)}`
     );
   }
   if (!bodyText.trim()) {
@@ -357,6 +436,51 @@ export async function interruptManagedSession(sessionId: string): Promise<void> 
   await sendManagedEvents(sessionId, [{ type: "user.interrupt" }]);
 }
 
+export async function getManagedSession(
+  sessionId: string
+): Promise<ManagedSessionResource> {
+  if (isMockManagedMode()) {
+    return {
+      id: sessionId,
+      model: resolveAgentModel(),
+      environment_id: process.env.SONDE_MANAGED_ENVIRONMENT_ID?.trim() || null,
+      usage: {
+        input_tokens: 250,
+        output_tokens: 120,
+      },
+    };
+  }
+  return fetchManagedJson<ManagedSessionResource>(`/v1/sessions/${sessionId}?beta=true`);
+}
+
+export async function archiveManagedSession(
+  sessionId: string
+): Promise<ManagedSessionResource> {
+  if (isMockManagedMode()) {
+    return {
+      id: sessionId,
+      archived_at: new Date().toISOString(),
+      model: resolveAgentModel(),
+      environment_id: process.env.SONDE_MANAGED_ENVIRONMENT_ID?.trim() || null,
+    };
+  }
+  return fetchManagedJson<ManagedSessionResource>(`/v1/sessions/${sessionId}/archive?beta=true`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+export async function deleteManagedSession(
+  sessionId: string
+): Promise<ManagedDeletedSession> {
+  if (isMockManagedMode()) {
+    return { id: sessionId, type: "session_deleted" };
+  }
+  return fetchManagedJson<ManagedDeletedSession>(`/v1/sessions/${sessionId}?beta=true`, {
+    method: "DELETE",
+  });
+}
+
 export async function listManagedSessionEvents(
   sessionId: string
 ): Promise<ManagedSessionEvent[]> {
@@ -367,6 +491,26 @@ export async function listManagedSessionEvents(
     `/v1/sessions/${sessionId}/events`
   );
   return (response.data ?? []).map((event) => normalizeManagedSessionEvent(event));
+}
+
+export async function getAnthropicCostReport(options: {
+  startingAt: string;
+  endingAt: string;
+  page?: string | null;
+}): Promise<AnthropicCostReportResponse> {
+  const query = new URLSearchParams({
+    starting_at: options.startingAt,
+    ending_at: options.endingAt,
+  });
+  query.append("group_by[]", "workspace_id");
+  query.append("group_by[]", "description");
+  query.set("bucket_width", "1d");
+  if (options.page) {
+    query.set("page", options.page);
+  }
+  return fetchAnthropicAdminJson<AnthropicCostReportResponse>(
+    `/v1/organizations/cost_report?${query.toString()}`
+  );
 }
 
 function parseSseData(buffer: string): { events: string[]; rest: string } {

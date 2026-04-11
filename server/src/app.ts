@@ -10,6 +10,7 @@ import { issueWsSessionToken, verifyWsSessionToken } from "./ws-session-token.js
 import { checkUserRateLimit } from "./request-guard.js";
 import { handleSondeMcpRequest } from "./mcp/http-server.js";
 import { getAgentBackend } from "./runtime-mode.js";
+import { reconcileManagedCostBuckets } from "./managed/cost-reconcile.js";
 
 const LOCAL_UI_ORIGINS = [
   "http://localhost:5173",
@@ -36,6 +37,13 @@ function getClientAddress(c: Context): string {
     c.req.header("x-real-ip")?.trim() ||
     "unknown"
   );
+}
+
+function getBearerToken(c: Context): string {
+  const authHeader = c.req.header("Authorization") ?? "";
+  return authHeader.startsWith("Bearer ")
+    ? authHeader.slice("Bearer ".length).trim()
+    : "";
 }
 
 export function getAllowedOrigins(
@@ -139,11 +147,75 @@ export function createApp(): Hono {
   app.get("/health", (c) => c.json({ status: "ok" }));
   app.get("/health/runtime", (c) => c.json(getRuntimeMetadata()));
 
+  app.get("/admin/runtime", async (c) => {
+    const accessToken = getBearerToken(c);
+    if (!accessToken) {
+      return c.json(
+        {
+          error: {
+            type: "unauthorized",
+            message: "Missing or invalid Sonde session token",
+          },
+        },
+        401,
+      );
+    }
+
+    const user = await verifyToken(accessToken);
+    if (!user?.isAdmin) {
+      return c.json(
+        {
+          error: {
+            type: "forbidden",
+            message: "Admin access required",
+          },
+        },
+        403,
+      );
+    }
+
+    return c.json(getRuntimeMetadata());
+  });
+
+  app.post("/admin/managed-costs/reconcile", async (c) => {
+    const accessToken = getBearerToken(c);
+    if (!accessToken) {
+      return c.json(
+        {
+          error: {
+            type: "unauthorized",
+            message: "Missing or invalid Sonde session token",
+          },
+        },
+        401,
+      );
+    }
+
+    const user = await verifyToken(accessToken);
+    if (!user?.isAdmin) {
+      return c.json(
+        {
+          error: {
+            type: "forbidden",
+            message: "Admin access required",
+          },
+        },
+        403,
+      );
+    }
+
+    const body = await c.req.json().catch(() => ({}));
+    const days = typeof body?.days === "number" ? body.days : undefined;
+    const result = await reconcileManagedCostBuckets({
+      user,
+      accessToken,
+      days,
+    });
+    return c.json(result);
+  });
+
   app.all("/mcp/sonde", async (c) => {
-    const authHeader = c.req.header("Authorization") ?? "";
-    const accessToken = authHeader.startsWith("Bearer ")
-      ? authHeader.slice("Bearer ".length).trim()
-      : "";
+    const accessToken = getBearerToken(c);
     if (!accessToken) {
       return c.json(
         {
@@ -173,10 +245,7 @@ export function createApp(): Hono {
   });
 
   app.post("/chat/session-token", async (c) => {
-    const authHeader = c.req.header("Authorization") ?? "";
-    const accessToken = authHeader.startsWith("Bearer ")
-      ? authHeader.slice("Bearer ".length).trim()
-      : "";
+    const accessToken = getBearerToken(c);
     if (!accessToken) {
       return c.json(
         {
@@ -209,10 +278,7 @@ export function createApp(): Hono {
   });
 
   app.post("/chat/prewarm", async (c) => {
-    const authHeader = c.req.header("Authorization") ?? "";
-    const accessToken = authHeader.startsWith("Bearer ")
-      ? authHeader.slice("Bearer ".length).trim()
-      : "";
+    const accessToken = getBearerToken(c);
     if (!accessToken) {
       return c.json(
         {

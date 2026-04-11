@@ -85,6 +85,9 @@ describe("createApp", () => {
       sondeMcpConfigured: boolean;
       githubConfigured: boolean;
       anthropicConfigured: boolean;
+      anthropicAdminConfigured: boolean;
+      costTelemetryConfigured: boolean;
+      liveSpendEnabled: boolean;
       cliGitRef: string | null;
       supabaseProjectRef: string | null;
       sharedRateLimitConfigured: boolean;
@@ -101,6 +104,9 @@ describe("createApp", () => {
       sondeMcpConfigured: true,
       githubConfigured: false,
       anthropicConfigured: true,
+      anthropicAdminConfigured: false,
+      costTelemetryConfigured: false,
+      liveSpendEnabled: false,
       cliGitRef: "refs/heads/staging",
       supabaseProjectRef: "oxajsxoedrmvrcatqser",
       sharedRateLimitConfigured: false,
