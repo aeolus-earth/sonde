@@ -49,6 +49,7 @@ jobs:
               - '.dockerignore'
               - 'cli/**'
               - 'server/**'
+              - '.github/workflows/deploy.yml'
 
   push-migrations:
     runs-on: ubuntu-latest
@@ -194,6 +195,7 @@ jobs:
             VITE_SUPABASE_ANON_KEY="${{ vars.SUPABASE_ANON_KEY }}" \
             SONDE_AGENT_BACKEND="managed" \
             SONDE_MANAGED_ENVIRONMENT_ID="${SONDE_MANAGED_ENVIRONMENT_ID}" \
+            SONDE_MANAGED_AGENT_ID=" " \
             SONDE_MANAGED_ALLOW_EPHEMERAL_AGENT="1" \
             SONDE_ALLOWED_ORIGINS="${{ vars.SONDE_UI_URL }}" \
             SONDE_ENVIRONMENT="production" \
