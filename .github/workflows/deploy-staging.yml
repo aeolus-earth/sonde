@@ -222,6 +222,7 @@ jobs:
             --skip-deploys \
             VITE_SUPABASE_URL="https://${{ vars.SUPABASE_STAGING_PROJECT_REF }}.supabase.co" \
             VITE_SUPABASE_ANON_KEY="${{ vars.SUPABASE_STAGING_ANON_KEY }}" \
+            SONDE_AGENT_BACKEND="managed" \
             SONDE_ALLOWED_ORIGINS="${{ vars.SONDE_STAGING_UI_URL }}" \
             SONDE_ENVIRONMENT="staging" \
             SONDE_COMMIT_SHA="${GITHUB_SHA}" \
