@@ -1,6 +1,25 @@
-import { describe, it } from "node:test";
+import { afterEach, beforeEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { normalizeManagedSessionEvent } from "./client.js";
+import { createManagedSession, normalizeManagedSessionEvent } from "./client.js";
+
+const originalEnv = { ...process.env };
+const originalFetch = globalThis.fetch;
+
+beforeEach(() => {
+  process.env = {
+    ...originalEnv,
+    NODE_ENV: "test",
+    ANTHROPIC_API_KEY: "test-key",
+    SONDE_MANAGED_ENVIRONMENT_ID: "env_test_managed",
+    SONDE_MANAGED_ALLOW_EPHEMERAL_AGENT: "1",
+  };
+  globalThis.fetch = originalFetch;
+});
+
+afterEach(() => {
+  process.env = { ...originalEnv };
+  globalThis.fetch = originalFetch;
+});
 
 describe("normalizeManagedSessionEvent", () => {
   it("maps streamed Sonde tool_use events onto the custom-tool shape", () => {
@@ -28,5 +47,66 @@ describe("normalizeManagedSessionEvent", () => {
     assert.equal(normalized.type, "agent.tool_use");
     assert.equal(normalized.name, "bash");
     assert.equal(normalized.id, "tool_456");
+  });
+
+  it("retries session creation without the repo resource when the rich payload is rejected", async () => {
+    process.env.SONDE_GITHUB_TOKEN = "github-test-token";
+    process.env.SONDE_MANAGED_DEFAULT_GITHUB_REPO_URL = "https://github.com/aeolus-earth/sonde";
+
+    const sessionBodies: Array<Record<string, unknown>> = [];
+    globalThis.fetch = async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === "string"
+        ? new URL(input)
+        : input instanceof URL
+          ? input
+          : new URL(input.url);
+
+      if (url.pathname === "/v1/agents") {
+        return new Response(JSON.stringify({ id: "agent_test_managed" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+
+      if (url.pathname === "/v1/sessions") {
+        const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+        sessionBodies.push(body);
+        if (sessionBodies.length === 1) {
+          return new Response(
+            JSON.stringify({
+              type: "error",
+              error: {
+                type: "invalid_request_error",
+                message: "github repository resource rejected",
+              },
+            }),
+            {
+              status: 400,
+              headers: { "content-type": "application/json" },
+            }
+          );
+        }
+        return new Response(JSON.stringify({ id: "sesn_test_retry_without_repo" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+
+      throw new Error(`Unexpected fetch: ${url.toString()}`);
+    };
+
+    const sessionId = await createManagedSession({
+      user: {
+        id: "user-1",
+        email: "ci-smoke@aeolus.earth",
+        name: "CI Smoke",
+      },
+      sondeToken: "sonde-token",
+    });
+
+    assert.equal(sessionId, "sesn_test_retry_without_repo");
+    assert.equal(sessionBodies.length, 2);
+    assert.equal(Array.isArray(sessionBodies[0]?.resources), true);
+    assert.equal("resources" in sessionBodies[1]!, false);
   });
 });

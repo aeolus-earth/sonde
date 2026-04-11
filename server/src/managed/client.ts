@@ -291,20 +291,38 @@ export async function createManagedSession(
     options.mentions
   );
 
-  const payload: Record<string, unknown> = {
-    agent: agentId,
-    environment_id: environmentId,
-    title: `Sonde chat · ${options.user.name ?? options.user.email ?? options.user.id}`,
+  const buildPayload = (includeRepoResource: boolean): Record<string, unknown> => {
+    const payload: Record<string, unknown> = {
+      agent: agentId,
+      environment_id: environmentId,
+      title: `Sonde chat · ${options.user.name ?? options.user.email ?? options.user.id}`,
+    };
+    if (includeRepoResource && repoResource) {
+      payload.resources = [repoResource];
+    }
+    return payload;
   };
-  if (repoResource) {
-    payload.resources = [repoResource];
-  }
 
-  const response = await fetchManagedJson<ManagedSessionResponse>("/v1/sessions?beta=true", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-  return response.id;
+  try {
+    const response = await fetchManagedJson<ManagedSessionResponse>("/v1/sessions?beta=true", {
+      method: "POST",
+      body: JSON.stringify(buildPayload(true)),
+    });
+    return response.id;
+  } catch (error) {
+    if (!repoResource) {
+      throw error;
+    }
+    const message = error instanceof Error ? error.message : String(error ?? "");
+    console.warn(
+      `[managed] createManagedSession retrying without repo resource: ${message.slice(0, 200)}`
+    );
+    const response = await fetchManagedJson<ManagedSessionResponse>("/v1/sessions?beta=true", {
+      method: "POST",
+      body: JSON.stringify(buildPayload(false)),
+    });
+    return response.id;
+  }
 }
 
 export async function sendManagedEvents(
