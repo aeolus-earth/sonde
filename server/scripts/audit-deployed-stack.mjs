@@ -103,9 +103,6 @@ async function main() {
     process.env.AUDIT_EXPECT_SCHEMA_VERSION?.trim() || null;
   const expectedSupabaseProjectRef =
     process.env.AUDIT_EXPECT_SUPABASE_PROJECT_REF?.trim() || null;
-  const requireDaytona = parseBooleanFlag(
-    (process.env.AUDIT_REQUIRE_DAYTONA ?? "1").trim().toLowerCase()
-  );
   const requireAnthropic = parseBooleanFlag(
     (process.env.AUDIT_REQUIRE_ANTHROPIC ?? "1").trim().toLowerCase()
   );
@@ -157,6 +154,18 @@ async function main() {
       ensure(
         Object.prototype.hasOwnProperty.call(agentRuntime ?? {}, "schemaVersion"),
         "Agent runtime metadata is missing schemaVersion"
+      );
+      ensure(
+        Object.prototype.hasOwnProperty.call(agentRuntime ?? {}, "managedConfigured"),
+        "Agent runtime metadata is missing managedConfigured"
+      );
+      ensure(
+        Object.prototype.hasOwnProperty.call(agentRuntime ?? {}, "sondeMcpConfigured"),
+        "Agent runtime metadata is missing sondeMcpConfigured"
+      );
+      ensure(
+        Object.prototype.hasOwnProperty.call(agentRuntime ?? {}, "githubConfigured"),
+        "Agent runtime metadata is missing githubConfigured"
       );
       ensure(
         Object.prototype.hasOwnProperty.call(agentRuntime ?? {}, "cliGitRef"),
@@ -223,9 +232,10 @@ async function main() {
         );
       }
 
-      if (requireDaytona) {
-        ensure(agentRuntime.daytonaConfigured, "Agent is missing Daytona configuration");
-      }
+      ensure(
+        agentRuntime.agentBackend === "managed",
+        `Agent backend must be managed, got ${agentRuntime.agentBackend}`,
+      );
 
       if (requireAnthropic) {
         ensure(agentRuntime.anthropicConfigured, "Agent is missing Anthropic configuration");

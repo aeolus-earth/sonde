@@ -40,10 +40,9 @@ function actionSummary(pending: PendingToolApproval): string {
 
 function riskLabel(pending: PendingToolApproval): string {
   if (pending.kind === "sonde_write") return "Sonde write";
-  if (pending.kind === "external_tool") return "External tool";
-  if (pending.kind === "sandbox_destructive") return "Destructive";
-  if (pending.kind === "sandbox_sensitive") return "Sensitive";
-  if (pending.kind === "sandbox_mutate") return "Sandbox change";
+  if (pending.kind === "external_write") return "External write";
+  if (pending.kind === "destructive") return "Destructive";
+  if (pending.kind === "sensitive_access") return "Sensitive";
   return pending.destructive ? "Destructive" : "Approval needed";
 }
 
@@ -72,10 +71,10 @@ export const ChatToolApproval = memo(function ChatToolApproval({
             key={p.approvalId}
             className={cn(
               "relative overflow-hidden rounded-[18px] border p-3 shadow-[0_12px_38px_-18px_rgba(15,23,42,0.55)] backdrop-blur-2xl backdrop-saturate-[1.45]",
-              "before:pointer-events-none before:absolute before:inset-x-4 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/80 before:to-transparent",
+              "before:pointer-events-none before:absolute before:inset-x-4 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/55 before:to-transparent",
               glass
-                ? "border-white/35 bg-white/[0.42] dark:border-white/[0.12] dark:bg-black/45"
-                : "border-white/40 bg-surface-raised/95",
+                ? "border-border/80 bg-surface-raised/88 shadow-[0_18px_44px_-24px_rgba(15,23,42,0.42)] dark:border-white/[0.1] dark:bg-surface/86 dark:shadow-[0_24px_60px_-30px_rgba(0,0,0,0.72)]"
+                : "border-border-subtle bg-surface-raised/96 dark:border-white/[0.08] dark:bg-surface-raised/96",
             )}
           >
             <div className="flex items-start gap-3">
@@ -83,8 +82,8 @@ export const ChatToolApproval = memo(function ChatToolApproval({
                 className={cn(
                   "mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border shadow-sm",
                   p.destructive
-                    ? "border-status-failed/20 bg-status-failed/10 text-status-failed"
-                    : "border-accent/20 bg-accent/10 text-accent",
+                    ? "border-status-failed/30 bg-status-failed/12 text-status-failed dark:border-status-failed/35 dark:bg-status-failed/14"
+                    : "border-accent/30 bg-accent/12 text-accent dark:border-accent/35 dark:bg-accent/14",
                 )}
               >
                 {p.destructive ? (
@@ -95,32 +94,32 @@ export const ChatToolApproval = memo(function ChatToolApproval({
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="rounded-full border border-border-subtle bg-surface/70 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-text-quaternary dark:border-white/[0.1] dark:bg-white/[0.05]">
+                  <span className="rounded-full border border-border-subtle bg-surface-raised px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-text-secondary dark:border-white/[0.1] dark:bg-surface-raised/80 dark:text-text-secondary">
                     Approval
                   </span>
                   <span
                     className={cn(
-                      "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                      "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold",
                       p.destructive
-                        ? "bg-status-failed/12 text-status-failed"
-                        : "bg-accent/12 text-accent",
+                        ? "border-status-failed/20 bg-status-failed/12 text-status-failed dark:border-status-failed/30 dark:bg-status-failed/14"
+                        : "border-accent/20 bg-accent/12 text-accent dark:border-accent/30 dark:bg-accent/14",
                     )}
                   >
                     {p.destructive && <AlertTriangle className="h-3 w-3" />}
                     {riskLabel(p)}
                   </span>
-                  <span className="rounded-full bg-surface/70 px-2 py-0.5 text-[10px] font-medium text-text-tertiary dark:bg-white/[0.05]">
+                  <span className="rounded-full border border-border-subtle bg-surface px-2 py-0.5 text-[10px] font-medium text-text-secondary dark:border-white/[0.08] dark:bg-surface-raised/70 dark:text-text-secondary">
                     {toolDisplayName(p.tool)}
                   </span>
                 </div>
                 <p className="mt-2 text-[13px] font-semibold leading-snug text-text">
                   Approve this action?
                 </p>
-                <p className="mt-1 truncate font-mono text-[11px] leading-relaxed text-text-tertiary">
+                <p className="mt-1 truncate font-mono text-[11px] leading-relaxed text-text-secondary">
                   {action}
                 </p>
                 {summary ? (
-                  <pre className="mt-2 max-h-[150px] overflow-auto rounded-xl border border-border-subtle/80 bg-surface/75 p-2.5 font-mono text-[11px] leading-relaxed text-text-secondary shadow-inner dark:border-white/[0.08] dark:bg-black/25">
+                  <pre className="mt-2 max-h-[150px] overflow-auto rounded-xl border border-border-subtle bg-surface px-2.5 py-2 font-mono text-[11px] leading-relaxed text-text-secondary shadow-inner shadow-black/5 dark:border-white/[0.08] dark:bg-surface-raised/72 dark:shadow-black/20">
                     {summary}
                   </pre>
                 ) : null}
@@ -130,7 +129,7 @@ export const ChatToolApproval = memo(function ChatToolApproval({
               <button
                 type="button"
                 onClick={() => onDeny(p.approvalId)}
-                className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface/80 px-3.5 py-2 text-[12px] font-semibold text-text-secondary transition-all hover:-translate-y-0.5 hover:bg-surface-hover hover:text-text dark:border-white/[0.1] dark:bg-white/[0.05]"
+                className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-raised px-3.5 py-2 text-[12px] font-semibold text-text-secondary transition-all hover:-translate-y-0.5 hover:border-border hover:bg-surface-hover hover:text-text dark:border-white/[0.1] dark:bg-surface-raised/78 dark:hover:bg-surface-hover"
               >
                 <X className="h-3.5 w-3.5" />
                 Deny
@@ -138,7 +137,7 @@ export const ChatToolApproval = memo(function ChatToolApproval({
               <button
                 type="button"
                 onClick={() => onApprove(p.approvalId)}
-                className="inline-flex items-center gap-1.5 rounded-full bg-accent px-4 py-2 text-[12px] font-semibold text-on-accent shadow-[0_8px_20px_-10px_rgba(0,0,0,0.65)] transition-all hover:-translate-y-0.5 hover:bg-accent-hover"
+                className="inline-flex items-center gap-1.5 rounded-full border border-accent/35 bg-accent px-4 py-2 text-[12px] font-semibold text-on-accent shadow-[0_10px_24px_-12px_rgba(15,23,42,0.45)] transition-all hover:-translate-y-0.5 hover:border-accent/50 hover:bg-accent-hover dark:shadow-[0_12px_26px_-14px_rgba(0,0,0,0.72)]"
               >
                 <Check className="h-3.5 w-3.5" />
                 Approve

@@ -1,0 +1,643 @@
+\documentclass[8pt,twocolumn]{extarticle}
+
+\usepackage[
+  paperwidth=9.5in,
+  paperheight=11in,
+  top=1in,
+  bottom=1in,
+  left=0.35in,
+  right=0.35in,
+  includeheadfoot,
+  headsep=12pt
+]{geometry}
+
+\usepackage{lmodern}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+
+\usepackage{titlesec}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{adjustbox}
+\usepackage{lscape}
+\usepackage{siunitx}
+\usepackage{authblk}
+\usepackage{natbib}
+\usepackage{enumitem}
+\usepackage{xurl}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{dblfloatfix}
+\hypersetup{hidelinks}
+
+\graphicspath{{./}{../../outputs/plots/}}
+
+\titleformat{\section}{\bfseries\large\centering}{}{0em}{}
+\titleformat{\subsection}{\bfseries\normalsize\centering}{}{0em}{}
+
+\setlength{\columnsep}{15pt}
+\linespread{0.96}
+
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{\small Aeolus Hurricane Intervention Aircraft-Seeding White Paper (Draft)}
+\rhead{\small \thepage}
+\cfoot{}
+
+\begin{document}
+
+\hypersetup{pageanchor=false}
+\begin{titlepage}
+  \thispagestyle{empty}
+  \begin{center}
+    \vspace*{1.2cm}
+
+    \includegraphics[width=0.36\textwidth]{logo.png}
+
+    \vspace{0.8cm}
+    \rule{0.7\textwidth}{0.5pt}
+    \vspace{0.8cm}
+
+    {\Huge Hurricane Intervention Aircraft-Seeding Scoping}\par
+    \vspace{1.2ex}
+    {\Large Diameter-Based NH$_4$Cl Payload, Aircraft Power, Fuel, and Tanker Support White Paper}\par
+    \vspace{2.0ex}
+
+    {\large Prepared for: Aeolus program team and technical leadership}\par
+    \vspace{0.5ex}
+    {\large Prepared by: Mason Lee}\par
+    \vspace{3.0ex}
+
+    {\normalsize April 2026}\par
+    \vspace{2.0ex}
+    \vfill
+
+    Draft internal technical white paper\par
+    \vspace{0.5em}
+    \small Confidential and proprietary. This document synthesizes internal modeling work and publicly available aircraft-reference material for program-scoping use.\par
+  \end{center}
+\end{titlepage}
+\hypersetup{pageanchor=true}
+
+\twocolumn
+\raggedright
+\par\vspace{0.5em}
+
+\section*{Executive Summary}
+
+This white paper documents the current Aeolus engineering analysis of an aircraft-seeded hurricane intervention concept using NH$_4$Cl aerosol generation. The central question is not whether aerosol intervention is atmospherically effective in the abstract; it is whether a physically specified intervention can be supplied by a plausible aircraft system once particle diameter, target number concentration, campaign duration, onboard power, onboard fuel, tanker support, and direct airborne mission cost are all treated together. This paper answers that systems question with a diameter-based payload model, a top-down molten-salt process-power model, a stock-C-130 fuel-budget model, an aerial-refueling support model, and a flight-hour cost model tied to public aircraft references and explicitly labeled engineering assumptions \citep{AeolusPayloadMethods,AeolusPowerNote,AeolusFuelNote,AeolusCostNote,AeolusSourceLog}.
+
+\vspace{0.25em}
+With spherical NH$_4$Cl particles, required mass scales as $d^3$, so particle diameter is a first-order driver of every downstream payload, power, and mission-support estimate. The treated storm region is modeled as an annulus rather than a surface-area surrogate, and the campaign requirement is treated as a \emph{continuous saturation problem} over \SI{48}{h}: an initial fill plus replenishment of advected air. Under the baseline geometry, replenishment dominates the one-shot fill term, which means the problem is fundamentally a sustained throughput problem, not an inventory-only problem \citep{AeolusPayloadMethods}.
+
+\vspace{0.25em}
+Three top-level results emerge. First, the aerosol burden moves extremely quickly with particle diameter: the full-ring, \SI{2000}{particles/cm^3}, \SI{20}{nm} case requires about \SI{85.7}{t} of NH$_4$Cl over \SI{48}{h}, while the \SI{50}{nm} case rises to about \SI{1339.8}{t}; by contrast, the \SIrange{5}{10}{nm} laboratory band is only about \SIrange{1.34}{10.72}{t} for the same concentration target. Second, once NH$_4$Cl throughput is translated into process power using the molten-salt basis of \SI{1.08}{kWh/kg}, the aircraft problem becomes an electrical-architecture problem as much as a chemistry problem: a \SI{100}{kg/h} aircraft module already implies roughly \SI{124}{kW} installed bus, while a \SI{500}{kg/h} module implies roughly \SI{621}{kW}. Third, for stock-aircraft concepts the first hard limits are \emph{electrical class and unsupported endurance}, not raw process-fuel mass. Process fuel is material, but it is modest compared with propulsion fuel on short sorties; long persistence pushes the concept into auxiliary cargo fuel, receiver-capable seeder assumptions, and tanker-support scaling \citep{AeolusPowerNote,AeolusFuelNote,AeolusAircraftPower}. Fourth, when the same \SI{48}{h} mission architecture is priced using official FY2026 DoD flight-hour rates, the cost swing is dominated by particle diameter rather than by small differences in public C-130 variant hourly rates: the \SI{20}{nm}, \SI{2000}{particles/cm^3} full-ring case is about \SI{4.81}{MUSD} at a \SI{500}{nmi} radius mission, while the \SI{50}{nm} full-ring case is about \SI{74.85}{MUSD} under the same pricing basis \citep{AeolusCostNote,DoDFY2026Rates}.
+
+\vspace{0.25em}
+The paper therefore reaches a clear scoping conclusion. A stock or modestly upgraded C-130-family concept looks naturally aligned with the roadmap per-aircraft regime of roughly \SIrange{20}{60}{kg/h}. Once the concept moves into the \SIrange{100}{500}{kg/h} single-aircraft regime, the public references no longer support a stock-C-130-APU interpretation; the relevant analogs become dedicated \SI{200}{kW}, \SI{250}{kW}, and ultimately \SI{1}{MW} mission-power hardware, plus the integration burden that comes with them. The full-ring, \SI{48}{h} intervention problem is therefore best understood as a fleet-architecture and mission-support problem, not simply a question of carrying aerosol mass.
+
+\section*{Motivation and Program Question}
+
+If aerosol-based hurricane intervention is to be taken seriously as an engineering concept, the first requirement is to replace vague statements about ``seeding a storm'' with a reproducible mass-and-mission model. The intervention concept only becomes decision-useful when the team can answer six linked questions with the same set of assumptions:
+\begin{enumerate}[leftmargin=1.1em,itemsep=0.1em]
+\item What number concentration must be sustained in the storm control volume?
+\item How does required mass shift as particle diameter changes?
+\item How much aircraft throughput is implied over a \SI{48}{h} campaign?
+\item What onboard process power is required to generate that throughput?
+\item Can a stock C-130-family aircraft support that burden, or is missionized power hardware required?
+\item If the campaign demands long airborne persistence, what tanker support follows?
+\end{enumerate}
+
+\vspace{0.25em}
+This paper focuses on that chain. It does \emph{not} claim atmospheric efficacy of the intervention itself, nor does it address operational policy, weather-modification governance, or tactical employment doctrine. Instead, it addresses a narrower and more tractable problem: whether the aircraft-side architecture implied by the NH$_4$Cl seeding concept closes physically under transparent assumptions.
+
+\vspace{0.25em}
+The project context also matters. The current program discussion highlights two particle-size bands of practical interest: a laboratory-scale band near \SIrange{5}{10}{nm}, and a broader operational study band near \SIrange{20}{50}{nm}. Because the payload law is cubic in diameter, these bands are not incremental variations of the same problem; they represent qualitatively different aircraft burdens. The methods and figures below are therefore structured to make those regime changes visually obvious.
+
+\section*{System Framing and Objectives}
+
+The system objective used throughout this analysis is to sustain a target aerosol number concentration in a treated storm annulus for \SI{48}{h}. The baseline annulus assumptions are:
+\begin{itemize}[leftmargin=1.1em,itemsep=0.1em]
+\item storm-ring radius $R = \SI{300}{km}$,
+\item treated radial width $W = \SI{50}{km}$,
+\item treated-layer depth $H = \SI{2}{km}$,
+\item mean radial inflow speed $u = \SI{10}{m/s}$,
+\item azimuthal coverage fraction $f = 1.0$ for full circumference and $f = 0.25$ for one quadrant \citep{AeolusPayloadMethods}.
+\end{itemize}
+
+\vspace{0.25em}
+The scenario space swept in this analysis is:
+\begin{itemize}[leftmargin=1.1em,itemsep=0.1em]
+\item target concentrations of \SIlist{200;300;500;1000;2000}{particles/cm^3},
+\item particle diameters from \SIrange{5}{100}{nm}, with emphasis on \SIrange{5}{10}{nm} and \SIrange{20}{50}{nm},
+\item both full-circumference and one-quadrant coverage,
+\item aircraft dispersal rates of \SIlist{100;300;500}{kg/h per plane},
+\item a stock-C-130 unsupported-sortie interpretation and a receiver-capable seeder interpretation for tanker-supported cases.
+\end{itemize}
+
+\vspace{0.25em}
+To keep terminology precise, this paper uses four definitions consistently:
+\begin{enumerate}[leftmargin=1.1em,itemsep=0.1em]
+\item \textbf{C-130 20 t load equivalent}: total NH$_4$Cl mass divided by a \SI{20}{t} aerosol payload anchor. This is \emph{not} an aircraft count.
+\item \textbf{Concurrent seeders}: the number of aircraft required simultaneously to sustain the mean campaign mass rate at a given per-aircraft dispersal rate.
+\item \textbf{Stock internal-fuel proxy}: a planning fuel budget derived from public loaded range and cruise-speed data for the C-130J-30, not a claimed certified tank-capacity number.
+\item \textbf{Missionized power hardware}: dedicated airborne generation hardware such as quarter-megawatt generators or megawatt-class turbogenerators, distinct from a stock aircraft APU.
+\end{enumerate}
+
+\section*{Methods}
+
+\subsection*{Diameter-based NH$_4$Cl payload model}
+
+For monodisperse spherical NH$_4$Cl particles with diameter $d$ and density $\rho = \SI{1527}{kg/m^3}$, the mass of one particle is
+\begin{equation}
+m_p = \rho \frac{\pi}{6} d^3 .
+\end{equation}
+This particle-mass expression is used throughout the payload, power, fuel, tanker-support, and cost models.
+
+\vspace{0.25em}
+The treated control volume is a storm annulus,
+\begin{equation}
+V = f \, 2 \pi R W H ,
+\end{equation}
+and the volumetric inflow of fresh air through the outer storm boundary is
+\begin{equation}
+Q = f \, 2 \pi R H u .
+\end{equation}
+For a target number concentration $C_{\mathrm{cc}}$ in particles per cubic centimeter,
+\begin{equation}
+C_{\mathrm{m^3}} = 10^6 C_{\mathrm{cc}} .
+\end{equation}
+
+\vspace{0.25em}
+Over a \SI{48}{h} campaign of duration $T$, total required particle count is the sum of initial fill plus replenishment:
+\begin{equation}
+N_{\mathrm{total}} = C_{\mathrm{m^3}} (V + QT) .
+\end{equation}
+The resulting total NH$_4$Cl mass is
+\begin{equation}
+M_{\mathrm{total}}
+= C_{\mathrm{m^3}} \rho \frac{\pi}{6} d^3 f 2 \pi R H (W + uT) .
+\end{equation}
+This makes the scaling transparent: linear in concentration, coverage fraction, storm radius, and treated-layer depth; cubic in particle diameter; and approximately linear in inflow speed for long campaigns \citep{AeolusPayloadMethods}.
+
+\vspace{0.25em}
+The residence time is simply
+\begin{equation}
+\tau = \frac{V}{Q} = \frac{W}{u} ,
+\end{equation}
+which is about \SI{1.39}{h} in the baseline case. Because $uT = \SI{1728}{km}$ is much larger than $W = \SI{50}{km}$, replenishment dominates the campaign mass requirement. That is why the figures show much larger continuous-\SI{48}{h} burdens than one-shot fill burdens.
+
+\subsection*{Aircraft interpretation}
+
+The payload model is translated into aircraft terms in two ways. First, the C-130 load-equivalent metric is
+\begin{equation}
+L_{\mathrm{C130}} = \frac{M_{\mathrm{total}}}{\SI{20000}{kg}} .
+\end{equation}
+Second, if the mean required campaign mass rate is $\dot{M}$ and each aircraft can disperse at rate $r_{\mathrm{plane}}$, then the number of simultaneous seeders is
+\begin{equation}
+N_{\mathrm{seeders}} = \left\lceil \frac{\dot{M}}{r_{\mathrm{plane}}} \right\rceil .
+\end{equation}
+This analysis evaluates $r_{\mathrm{plane}} = \SIlist{100;300;500}{kg/h}$ to show how the same atmospheric requirement maps into very different fleet architectures.
+
+\subsection*{Process power model}
+
+The process-power model is intentionally top-down because the detailed molten-salt process electrical architecture is not yet designed. From the process proposal, the molten-salt basis is taken as a constant specific energy of
+\begin{equation}
+e = \SI{1.08}{kWh/kg} .
+\end{equation}
+If the NH$_4$Cl throughput is $\dot{m}$ in \si{kg/h}, the net process electrical load is
+\begin{equation}
+P_{\mathrm{process}} = e \dot{m} .
+\end{equation}
+The installed aircraft bus is then modeled with a \SI{15}{\percent} integration margin,
+\begin{equation}
+P_{\mathrm{bus}} = 1.15 P_{\mathrm{process}} ,
+\end{equation}
+and the corresponding prime-power thermal input is
+\begin{equation}
+P_{\mathrm{thermal}} = \frac{P_{\mathrm{bus}}}{0.35} .
+\end{equation}
+The \SI{15}{\percent} bus margin and \SI{35}{\percent} net electrical efficiency are explicit engineering assumptions, not values quoted from an aircraft OEM source \citep{AeolusPowerNote}.
+
+\subsection*{Stock-C-130 fuel-budget model}
+
+To avoid claiming exact stock C-130 internal fuel capacity without a primary source, the fuel-budget analysis uses a stock unsupported-sortie planning proxy derived from public C-130J-30 performance data. With cruise speed $v = \SI{356}{ktas}$ and range at maximum normal payload $R_{\mathrm{loaded}} = \SI{2100}{nmi}$, the loaded-endurance proxy is
+\begin{equation}
+t_{\mathrm{loaded}} = \frac{R_{\mathrm{loaded}}}{v} = \SI{5.90}{h} .
+\end{equation}
+This endurance is combined with a propulsion-fuel-burn uncertainty band of \SIlist{2.8;3.5;4.2}{t/h} to define a stock internal-fuel planning proxy \citep{AeolusFuelNote,LockheedC130J30}.
+
+\vspace{0.25em}
+Process fuel is derived from installed bus and jet-fuel lower heating value:
+\begin{equation}
+\dot{m}_{\mathrm{fuel,process}} = \frac{P_{\mathrm{bus}}}{\eta_{\mathrm{gen}} \,\mathrm{LHV}_{\mathrm{fuel}}} ,
+\end{equation}
+with $\eta_{\mathrm{gen}} = 0.25/0.35/0.45$ and $\mathrm{LHV}_{\mathrm{fuel}} = \SI{43}{MJ/kg} = \SI{11.94}{kWh/kg}$ \citep{AeolusFuelNote}. Total mission fuel is then the sum of propulsion fuel and process fuel over a sortie duration, and auxiliary cargo-bay fuel is the deficit between that total and the stock internal-fuel proxy.
+
+\subsection*{Aerial-refueling support model}
+
+The advanced tanker-support model asks a different operational question: how much support is required to keep a receiver-capable C-130-family seeder airborne and spraying for a continuous \SI{48}{h} slot? For a storm at distance $D$ from the forward base, the airborne mission duration for one minimal-rotation slot is
+\begin{equation}
+t_{\mathrm{airborne}} = \SI{48}{h} + \frac{2D}{v_{\mathrm{seed}}} .
+\end{equation}
+The number of refuel contacts required for one seeder is
+\begin{equation}
+N_{\mathrm{refuels}} = \left\lceil \frac{t_{\mathrm{airborne}}}{T_{\mathrm{endurance}}} \right\rceil - 1 ,
+\end{equation}
+and aerial fuel offload required for that seeder is
+\begin{equation}
+F_{\mathrm{aerial}} = \max(0, t_{\mathrm{airborne}} - T_{\mathrm{endurance}})\,\dot{m}_{\mathrm{fuel,seeder}} .
+\end{equation}
+The tanker model then scales contacts and offload by the number of simultaneous seeder slots \citep{AeolusPayloadMethods,AeolusSourceLog}.
+
+\vspace{0.25em}
+One important caveat: no public primary source was found that imposes a hard maximum number of aerial refuels a C-130 can accept in one mission, so the model reports required contact counts rather than inventing a hard cap \citep{AeolusSourceLog}.
+
+\subsection*{Flight-hour cost model}
+
+The cost model is intentionally simple and tied directly to the seeder+tanker mission logic. It asks what the intervention costs if one prices only the airborne hours implied by the \SI{48}{h} campaign architecture. Using the official FY2026 DoD fixed-wing reimbursable-rate table, the base seeder hourly cost is taken as the Air Force C-130J Other DoD Component user rate and the tanker cost is taken as the KC-130J Other DoD Component user rate \citep{DoDFY2026Rates,AeolusCostNote}. Receiver-capable HC-130J and MC-130J rates are retained as a narrow seeder-cost sensitivity band.
+
+\vspace{0.25em}
+For one campaign scenario, seeder flight-hour cost is
+\begin{equation}
+Cost_{\mathrm{seeder}} =
+N_{\mathrm{seeders}} \,
+t_{\mathrm{airborne,seeder}} \,
+c_{\mathrm{seeder}} ,
+\end{equation}
+and tanker airborne hours per sortie are
+\begin{equation}
+t_{\mathrm{airborne,tanker}} =
+\frac{2D}{v_{\mathrm{tanker}}}
++
+\bar{N}_{\mathrm{contacts}} t_{\mathrm{contact}} .
+\end{equation}
+The tanker cost is then
+\begin{equation}
+Cost_{\mathrm{tanker}} =
+N_{\mathrm{tanker\,sorties}} \,
+t_{\mathrm{airborne,tanker}} \,
+c_{\mathrm{tanker}} ,
+\end{equation}
+so total campaign flight-hour cost is
+\begin{equation}
+Cost_{\mathrm{total}} = Cost_{\mathrm{seeder}} + Cost_{\mathrm{tanker}} .
+\end{equation}
+Ground turnaround time is excluded from this pricing layer because the purpose of the model is a \emph{flight-hour proxy}, not a whole-deployment cost estimate \citep{AeolusCostNote}.
+
+\begin{table*}[t]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\renewcommand{\arraystretch}{1.15}
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{p{0.28\textwidth} p{0.22\textwidth} p{0.43\textwidth}}
+\toprule
+\textbf{Quantity} & \textbf{Baseline value} & \textbf{Role in the model} \\
+\midrule
+Storm-ring radius $R$ & \SI{300}{km} & Sets treated circumference and inflow boundary length. \\
+Treated radial width $W$ & \SI{50}{km} & Sets annulus volume and residence time. \\
+Treated-layer depth $H$ & \SI{2}{km} & Sets treated control volume and inflow area. \\
+Mean radial inflow speed $u$ & \SI{10}{m/s} & Governs replenishment burden during continuous saturation. \\
+Campaign duration $T$ & \SI{48}{h} & Defines the sustained-treatment problem rather than a one-shot fill. \\
+Coverage fraction $f$ & $1.0$ full ring; $0.25$ quadrant & Separates full-circumference and one-quadrant treatment cases. \\
+NH$_4$Cl particle density $\rho$ & \SI{1527}{kg/m^3} & Converts particle diameter into single-particle mass. \\
+Target concentrations & \SIlist{200;300;500;1000;2000}{particles/cm^3} & State-space sweep for intervention burden. \\
+Diameter emphasis bands & \SIrange{5}{10}{nm} lab band; \SIrange{20}{50}{nm} study band & Highlights the cubic payload penalty of larger particles. \\
+C-130 load-equivalent anchor & \SI{20}{t} & Used only for the mass-normalized load-equivalent metric. \\
+Stock C-130J-30 payload anchor & \SI{19.958}{t} & Used in the stock-aircraft fuel/payload-trade model \citep{LockheedC130J30}. \\
+Seeder spray-rate cases & \SIlist{100;300;500}{kg/h} per plane & Converts campaign mass rate into concurrent aircraft count. \\
+Molten-salt specific energy & \SI{1.08}{kWh/kg} & Top-down basis for process-power sizing \citep{AeolusMoltenSaltProposal,AeolusPowerNote}. \\
+Installed-bus margin & \SI{15}{\percent} & Explicit aircraft-integration assumption. \\
+Generation-efficiency band & $0.25 / 0.35 / 0.45$ & Converts process electrical load into process-fuel burden. \\
+Jet-fuel lower heating value & \SI{43}{MJ/kg} & Fuel-to-power conversion for the stock-aircraft model. \\
+Baseline seeder interpretation & Receiver-capable C-130-family aircraft & Required for the aerial-refueling support model. \\
+Flight-hour cost basis & FY2026 DoD reimbursable rates for C-130J-family seeders and KC-130J tankers & Converts the seeder+tanker mission architecture into a direct airborne cost proxy. \\
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\caption{Modeling assumptions and symbols used throughout the paper. The atmospheric geometry is from the payload model; the process-energy, fuel, tanker, and cost assumptions are from the corresponding methods sections and internal technical notes \citep{AeolusPayloadMethods,AeolusPowerNote,AeolusFuelNote,AeolusCostNote}.}
+\label{tab:assumptions}
+\end{table*}
+
+\begin{table*}[t]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\renewcommand{\arraystretch}{1.15}
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{p{0.23\textwidth} p{0.21\textwidth} p{0.46\textwidth}}
+\toprule
+\textbf{Public source} & \textbf{Rating or capability} & \textbf{Why it matters in this study} \\
+\midrule
+Lockheed Martin C-130J-30 & \SI{44000}{lb} payload, \SI{2100}{nmi} range at max normal payload, \SI{356}{ktas} cruise & Anchors stock-aircraft payload and the unsupported-sortie endurance proxy used in the fuel model \citep{LockheedC130J30}. \\
+Honeywell C-130 platform page & APU upgrade expands generator capability from \SIrange{20}{40}{kVA} & Strongest public C-130-specific clue for stock auxiliary-power class; implies only about \SI{32}{kg/h} NH$_4$Cl support at the current bus basis \citep{HoneywellC130}. \\
+Honeywell APU overview brochure & HGT1700 start-generator system provides \SI{150}{kVA} electrical power & Shows that larger APU families can exceed the C-130-specific tens-of-kVA clue, but this is \emph{not} a stock-C-130-specific number \citep{HoneywellAPUBrochure}. \\
+Honeywell 200 kW generator & \SI{200}{kW}, compact continuous airborne generator & Public reference point for missionized quarter-megawatt-class aircraft power; corresponds to about \SI{161}{kg/h} NH$_4$Cl support \citep{Honeywell200kW}. \\
+Honeywell 250 kW generator & \SI{250}{kW}, aircraft power on ground and in flight & Public reference point for about \SI{201}{kg/h} NH$_4$Cl support; relevant once the concept exceeds stock-APU territory \citep{Honeywell250kW}. \\
+Honeywell 1 MW generator milestone & \SI{1.02}{MVA} tested, \SI{900}{kW} continuous, about \SI{280}{lb} & Demonstrates that megawatt-class airborne electric machines are physically plausible \citep{Honeywell1MWMilestone}. \\
+Honeywell high-power turbogenerator material & \SI{1}{MW} turbogenerator based on the HGT1700 power core + 1 MW generator & Best public analog for a dedicated mission-power package rather than a stock aircraft bus load \citep{HoneywellHAL}. \\
+Lockheed Martin KC-130J tanker page & \SI{61364}{lb} max fuel, \SI{4275}{nmi} max range & Anchors the tanker side of the aerial-refueling support model \citep{LockheedKC130J}. \\
+Lockheed Martin KC-130J performance release & \SI{57500}{lb} offload on a \SI{500}{nmi}-radius mission; optional \SI{24392}{lb} fuselage tank increment & Anchors the \SI{500}{nmi} tanker-offload point and documents cargo-bay auxiliary-fuel precedent \citep{LockheedKC130Offload}. \\
+HC-130J / MC-130J public references & Receiver-capable C-130-family variants exist & Supports the receiver-capable seeder interpretation used in the tanker-support model \citep{AF106HC130J,AFSOCMC130J}. \\
+DoD FY2026 reimbursable-rate table & `C-130J` = \$9,980/h; `HC-130J` = \$9,696/h; `MC-130J` = \$10,153/h; `KC-130J` = \$15,269/h & Converts modeled seeder and tanker flight hours into a source-backed campaign flight-hour cost proxy \citep{DoDFY2026Rates,AeolusCostNote}. \\
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\caption{Source-backed C-130, APU, generator, tanker, and flight-hour cost reference points used to interpret the intervention results. This table is the practical bridge between the modeled NH$_4$Cl burden and what public aircraft evidence does and does not support \citep{AeolusAircraftPower,AeolusCostNote,AeolusSourceLog}.}
+\label{tab:c130refs}
+\end{table*}
+
+\begin{table*}[t]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\renewcommand{\arraystretch}{1.15}
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{p{0.19\textwidth} >{\raggedleft\arraybackslash}p{0.10\textwidth} >{\raggedleft\arraybackslash}p{0.09\textwidth} >{\raggedleft\arraybackslash}p{0.09\textwidth} >{\raggedleft\arraybackslash}p{0.12\textwidth} p{0.22\textwidth}}
+\toprule
+\textbf{Scenario} & {\textbf{48 h mass (t)}} & {\textbf{C-130 loads}} & {\textbf{Seeders at 300 kg/h}} & {\textbf{Recommended bus (kW)}} & \textbf{Interpretation} \\
+\midrule
+\SI{20}{nm}, \SI{2000}{particles/cm^3}, full ring & 85.75 & 4.29 & 6 & 2219 & Full-ring baseline. Already a fleet-level power problem even before persistence support is counted. \\
+\SI{20}{nm}, \SI{2000}{particles/cm^3}, one quadrant & 21.44 & 1.07 & 2 & 555 & One-quadrant case is exactly one quarter of the full-ring burden and is much closer to a small-mission fleet architecture. \\
+\SI{50}{nm}, \SI{2000}{particles/cm^3}, full ring & 1339.80 & 66.99 & 94 & 34667 & Shows the cubic diameter penalty; operationally prohibitive without a radically different mission concept. \\
+\SIrange{5}{10}{nm}, \SI{2000}{particles/cm^3}, full ring & 1.34--10.72 & 0.07--0.54 & 1--1 & 35--277 & Laboratory-scale diameter band. This is the only band in the present study that stays comfortably below multi-aircraft mass burden at the same concentration target. \\
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\caption{Headline intervention scenarios. The table compresses the payload, fleet, and power implications into one view and makes the diameter penalty explicit.}
+\label{tab:headline}
+\end{table*}
+
+
+\section*{Results: Payload Scaling and State Space}
+
+Figure~\ref{fig:ccnsummary} is the most compact summary of the payload model. Panel (a) shows that full-ring \SI{48}{h} mass rises almost perfectly as the cube of particle diameter, so the difference between \SI{10}{nm}, \SI{20}{nm}, and \SI{50}{nm} is not a modest sensitivity but a regime change. Panel (b) shows why the full-ring continuous-\SI{48}{h} requirement sits far above the one-shot fill curves: under the baseline annulus assumptions, the campaign is replenishment-dominated. Panel (c) converts the same burden into mass-normalized C-130 load equivalents. Panel (d) makes the operational consequence explicit by converting mean campaign mass rate into concurrent aircraft count at \SIlist{100;300;500}{kg/h per plane}. The teal overlay highlights the diameter window where the full-ring, \SI{2000}{particles/cm^3}, \SI{300}{kg/h} case stays within roughly \SIrange{6}{12} simultaneous aircraft.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{hurricane_ccn_summary.png}
+\caption{\textbf{Diameter-based intervention summary.} Panel (a) shows total NH$_4$Cl campaign mass for full-circumference saturation over \SI{48}{h}; panel (b) compares full-ring and one-quadrant coverage for both continuous treatment and one-shot fill; panel (c) converts mass to C-130 \SI{20}{t} load equivalents; and panel (d) converts campaign mass rate to concurrent seeders for \SIlist{100;300;500}{kg/h per plane}. The baseline assumptions are the annulus geometry in Table~\ref{tab:assumptions}. \textbf{Takeaway:} the problem is cubic in particle diameter and replenishment-dominated, so diameter choice and required persistence control the aircraft burden more strongly than one-time fill volume.}
+\label{fig:ccnsummary}
+\end{figure*}
+
+\vspace{0.25em}
+Figure~\ref{fig:ccnstate} expands the same logic into a diameter-concentration state space. The two mass heat maps show how rapidly the burden climbs toward the upper-right corner of the design space; the load-equivalent panel shows the same state space in transport terms; and the seeder heat map shows the concurrency burden for the \SI{300}{kg/h} case. The white iso-lines are especially useful because they turn the heat maps into engineering decision charts: at fixed concentration, moving to larger diameter walks quickly across orders of magnitude of mass and aircraft burden. The one-quadrant case is exactly a factor of four below the full-ring case because coverage fraction enters linearly.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{hurricane_ccn_state_space.png}
+\caption{\textbf{Diameter-concentration state space.} Panels (a) and (b) show full-ring and one-quadrant \SI{48}{h} NH$_4$Cl mass requirements across the concentration-diameter state space; panel (c) converts the full-ring case to C-130 load equivalents; panel (d) converts the full-ring case to concurrent seeders at \SI{300}{kg/h per plane}. The vertical overlays highlight the \SIrange{20}{50}{nm} study band and the teal overlay marks the full-ring operability zone for roughly \SIrange{6}{12} concurrent aircraft. \textbf{Takeaway:} the state-space burden is smooth, strongly structured, and dominated by the combined effect of concentration and cubic diameter scaling; it is therefore appropriate to treat the intervention problem as a design-space sweep rather than a single-point estimate.}
+\label{fig:ccnstate}
+\end{figure*}
+
+\vspace{0.25em}
+The headline scenarios in Table~\ref{tab:headline} compress the practical implications. At \SI{20}{nm} and \SI{2000}{particles/cm^3}, the full-ring baseline requires \SI{85.75}{t} over \SI{48}{h}, equivalent to \num{4.29} C-130 load equivalents and \num{6} simultaneous aircraft at \SI{300}{kg/h}. The one-quadrant version requires only \SI{21.44}{t} and \num{2} aircraft. But the \SI{50}{nm} full-ring case explodes to \SI{1339.8}{t} and \num{94} simultaneous aircraft. This is the central mass-scaling result of the paper.
+
+\vspace{0.25em}
+Figure~\ref{fig:flowrate} translates these mass totals into the operational quantity that matters most for fleet planning: the mean NH$_4$Cl flow rate required to sustain target concentration continuously over \SI{48}{h}. Panel~(a) maps flow rate across the full diameter-concentration design space; panel~(b) then converts any flow rate into a concurrent aircraft count for per-plane dispersal rates spanning \SIrange{50}{1000}{kg/h}. The two panels are designed to be read together: identify the required fleet throughput from panel~(a), then read across to panel~(b) to determine fleet size at the per-aircraft capability under consideration. The dashed reference lines mark the two baseline scenarios from the paper---the full-ring and one-quadrant cases at \SI{20}{nm}, \SI{2000}{particles/cm^3}.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{hurricane_flowrate_requirement.png}
+\caption{\textbf{Flow-rate requirement and fleet sizing.} Panel~(a) shows the mean NH$_4$Cl mass flow rate required for continuous storm-annulus saturation across the diameter-concentration state space, with white iso-lines labeled in \si{kg/h} and \si{t/h}. Panel~(b) shows concurrent aircraft count as a function of total fleet flow rate for per-plane dispersal rates from \SIrange{50}{1000}{kg/h}; dashed vertical lines mark the full-ring (\SI{\sim 1786}{kg/h}) and one-quadrant (\SI{\sim 447}{kg/h}) baselines at \SI{20}{nm}, \SI{2000}{particles/cm^3}. Baseline annulus: $R = \SI{300}{km}$, $W = \SI{50}{km}$, $H = \SI{2}{km}$, $u = \SI{10}{m/s}$. \textbf{Takeaway:} flow rate is cubic in diameter and linear in concentration; fleet size is then set by the per-aircraft dispersal capability, making both particle size and per-plane throughput first-order design levers.}
+\label{fig:flowrate}
+\end{figure*}
+
+\section*{Results: Process Power and Aircraft Power Classes}
+
+Once the atmospheric burden is translated into NH$_4$Cl throughput, the next question is how large a process-power plant is implied on the aircraft. Figure~\ref{fig:powerreq} takes the constant \SI{1.08}{kWh/kg} molten-salt basis from the process proposal and translates it into net process electrical load, recommended installed bus, and prime-power thermal input. Panel (a) shows that \SIrange{100}{500}{kg/h} is a genuinely high-power aircraft integration problem, not a modest extension of the roadmap per-aircraft range. Panel (b) makes the process-basis sensitivity explicit. Panel (c) compares representative aircraft-scale and fleet-scale cases on a single installed-bus axis. Panel (d) shows how aircraft count falls as per-aircraft module size rises, which is why the power-plant question cannot be separated from the fleet-architecture question.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{hurricane_power_requirements.png}
+\caption{\textbf{Process-power sizing.} Panel (a) converts NH$_4$Cl throughput to process electrical load, installed bus, and prime-power thermal input under the constant \SI{1.08}{kWh/kg} molten-salt basis; panel (b) shows sensitivity to alternate specific-energy bases from the process documents; panel (c) compares installed-bus size across per-aircraft and fleet-scale cases; and panel (d) converts total fleet throughput targets into required aircraft count versus per-aircraft module size. \textbf{Takeaway:} the jump from the roadmap's tens-of-kg/h aircraft band into \SIrange{100}{500}{kg/h} per aircraft is a jump into several-hundred-kW mission-power architecture, not a small incremental scale-up.}
+\label{fig:powerreq}
+\end{figure*}
+
+\vspace{0.25em}
+The installed-bus implications are worth stating directly. A \SI{100}{kg/h} module implies about \SI{124}{kW} installed bus; \SI{200}{kg/h} implies \SI{248}{kW}; \SI{300}{kg/h} implies \SI{373}{kW}; \SI{500}{kg/h} implies \SI{621}{kW} \citep{AeolusPowerNote}. In the current storm model, the \SI{20}{nm}, \SI{2000}{particles/cm^3} full-ring case corresponds to about \SI{1786}{kg/h} fleet throughput, or about \SI{2.22}{MW} recommended bus across the fleet. That result makes clear why the paper repeatedly distinguishes \emph{stock-aircraft power} from \emph{dedicated mission-power hardware}.
+
+\section*{Results: Stock-C-130 Fuel and Payload Burden}
+
+The next issue is whether the onboard process materially changes aircraft fuel burden. Figure~\ref{fig:processfuel} shows that process fuel is real but not the first limiter on short stock sorties. Panel (a) converts NH$_4$Cl throughput into process fuel burn under the generation-efficiency uncertainty band; panel (b) shows that fuel consumed per kilogram of NH$_4$Cl remains throughput-independent under the current top-down model; panel (c) compares installed-bus requirement against public aircraft-power classes; and panel (d) aggregates \SI{48}{h} process-fuel burden for the roadmap and current storm cases.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{hurricane_process_fuel_sizing.png}
+\caption{\textbf{Process-fuel translation.} Panels (a) and (b) convert NH$_4$Cl throughput into process fuel burn and fuel intensity using the generation-efficiency band of $0.25/0.35/0.45$; panel (c) places the installed-bus requirement against public C-130/APU and dedicated-generator reference classes; panel (d) aggregates process-fuel burden over \SI{48}{h} for the roadmap and current intervention cases. \textbf{Takeaway:} process fuel is measurable but not the dominant short-sortie burden; the more immediate issue is that required bus power outruns public stock-aircraft power clues quickly.}
+\label{fig:processfuel}
+\end{figure*}
+
+\vspace{0.25em}
+The stock-aircraft burden is laid out in Figure~\ref{fig:c130fuel}. The internal-fuel-margin panel shows that, under the stock unsupported-sortie proxy, \SI{4}{h} sorties remain fuel-feasible across the requested throughput range, but \SI{8}{h} and especially \SI{12}{h} sorties require auxiliary fuel. The base-case \SI{4}{h} stacked bars make an important point: propulsion fuel dominates process fuel. Even at \SI{500}{kg/h}, process fuel over a \SI{4}{h} sortie is still small compared with normal aircraft fuel burn. The lower panels then show how auxiliary cargo-bay fuel and total payload demand grow once unsupported endurance is stretched. This is where the cargo-bay auxiliary-fuel precedent from the KC-130 family becomes operationally relevant \citep{AeolusFuelNote,AeolusInternalFuelNote}.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{hurricane_c130_fuel_budget.png}
+\caption{\textbf{Stock-C-130 fuel and payload trade.} Panel (a) shows internal fuel margin versus NH$_4$Cl throughput for \SIlist{4;8;12}{h} unsupported sorties using the public loaded-endurance proxy; panel (b) separates propulsion fuel and process fuel for a representative \SI{4}{h} sortie; panel (c) shows auxiliary cargo-bay fuel required once internal fuel is insufficient; panel (d) compares NH$_4$Cl mass plus auxiliary cargo fuel against the stock C-130J-30 payload anchor. \textbf{Takeaway:} for a stock-aircraft interpretation, unsupported endurance and payload trade become restrictive before process fuel itself becomes extraordinary.}
+\label{fig:c130fuel}
+\end{figure*}
+
+\vspace{0.25em}
+The base-case numbers are straightforward. At $\eta_{\mathrm{gen}} = 0.35$, process fuel burn is only about \SIlist{29.7;89.1;148.5}{kg/h} for \SIlist{100;300;500}{kg/h} of NH$_4$Cl throughput \citep{AeolusFuelNote}. For a \SI{4}{h} stock sortie, that is small relative to the propulsion term. But if the concept asks a stock aircraft to stay airborne \SI{8}{h} or \SI{12}{h} unsupported, the problem changes from ``Can the chemistry be powered?'' to ``How much auxiliary cargo fuel or tanker support is required, and when does payload margin disappear?''
+
+\section*{Results: Aerial Refueling and Mission Support}
+
+The aerial-refueling model addresses persistence rather than raw payload. Figure~\ref{fig:refuel} shows that at the baseline \SI{300}{kg/h} spray rate, one \SI{19.96}{t} C-130 aerosol load lasts about \SI{66.5}{h}; aerosol inventory is therefore \emph{not} the limiting factor for a \SI{48}{h} slot. The bottleneck shifts to endurance and tanker support. Panel (b) shows the per-slot tanker offload and refuel contacts required to keep one seeder airborne. Panel (c) shows how KC-130 sorties and aircraft pool grow with storm distance for the \SI{20}{nm}, \SI{2000}{particles/cm^3} full-ring case. Panel (d) expands that tanker burden across the diameter-concentration state space.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{hurricane_refueling_support.png}
+\caption{\textbf{Aerial-refueling support.} Panel (a) shows how long one \SI{19.96}{t} seeder aerosol load lasts as a function of dispersal rate; panel (b) converts a continuous \SI{48}{h} seeder slot into tanker offload and aerial-refuel contacts; panel (c) shows KC-130 sorties and tanker pool versus storm distance for the \SI{20}{nm}, \SI{2000}{particles/cm^3} baseline; panel (d) maps tanker sorties over the diameter-concentration state space at a \SI{500}{nmi} radius mission. \textbf{Takeaway:} once campaign persistence is enforced, the intervention problem becomes a tanker-support and mission-endurance problem long before aerosol inventory is exhausted.}
+\label{fig:refuel}
+\end{figure*}
+
+\vspace{0.25em}
+At the \SI{500}{nmi} baseline distance, the \SI{20}{nm}, \SI{2000}{particles/cm^3} full-ring case requires \num{6} seeders, about \num{8} aerial refuel contacts per seeder, roughly \SI{943}{t} of total KC-130 offload, \num{37} tanker sorties, and a tanker pool of \num{4}. The one-quadrant case falls to \num{2} seeders, \num{13} tanker sorties, and a tanker pool of \num{2}. The \SI{50}{nm} full-ring case explodes to \num{94} seeders and \num{567} tanker sorties, confirming the same diameter penalty already seen in the payload figures \citep{AeolusSourceLog}.
+
+\section*{Results: Campaign Flight-Hour Cost}
+
+The next question is what the intervention costs if the seeder and tanker burden is priced directly in airborne flight hours. Figure~\ref{fig:costbars} is the clearest side-by-side comparison view, and it belongs in the main body because it answers the obvious program questions directly: how much more expensive does the campaign become as particle diameter increases, how much does one quadrant save relative to a full ring, and how much does concentration matter at \SI{20}{nm} versus \SI{50}{nm}? The stacked bars separate seeder and KC-130 tanker contribution while the black total-cost line makes the total jump easy to read.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{hurricane_cost_bar_chart.png}
+\caption{\textbf{Bar-chart comparison of campaign flight-hour cost differences.} Panels (a) and (b) compare the full-circumference and one-quadrant \SI{2000}{particles/cm^3} cases across representative particle diameters from \SIlist{5;10;20;30;50}{nm}; panels (c) and (d) compare concentration sensitivity at \SI{20}{nm} and \SI{50}{nm} for the full-ring mission. Each bar is stacked into seeder and KC-130 tanker cost, and the overlaid black line marks total campaign flight-hour cost. The baseline mission is a \SI{48}{h} campaign at \SI{500}{nmi} storm radius with \SI{300}{kg/h per seeder}; pricing uses FY2026 DoD reimbursable rates for the Air Force C-130J and Navy KC-130J. \textbf{Takeaway:} the main cost differences are easy to read directly in bar form: the full-ring \SI{20}{nm}, \SI{2000}{particles/cm^3} case is about \SI{4.81}{MUSD}, the one-quadrant analog is about \SI{1.63}{MUSD}, and the full-ring \SI{50}{nm} case climbs to about \SI{74.85}{MUSD}.}
+\label{fig:costbars}
+\end{figure*}
+
+\vspace{0.25em}
+The first high-level conclusion from Figure~\ref{fig:costbars} is that the cost structure is smooth but highly nonlinear in particle diameter. At \SI{2000}{particles/cm^3}, moving from \SI{20}{nm} to \SI{50}{nm} increases the full-ring campaign price by about \num{15.6}x, while moving from a full ring to one quadrant at \SI{20}{nm} drops the campaign to roughly one third of the full-ring price. The second conclusion is that the tanker contribution is material but not dominant in these baseline cases; the bar segments show that the majority of direct flight-hour cost still sits on the seeder side.
+
+\vspace{0.25em}
+Figure~\ref{fig:costheadline} is the fast-reading diameter-sweep version of the same story. It shows cost as a direct function of particle diameter for the full-ring and one-quadrant cases across the requested concentration sweep, and then decomposes the \SI{2000}{particles/cm^3} case into seeder and tanker contributions. This presentation makes the central program point obvious: diameter is the dominant cost lever, and the difference between one quadrant and a full ring is large enough to change the mission class entirely.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{hurricane_cost_headline.png}
+\caption{\textbf{Headline campaign flight-hour cost figure.} Panels (a) and (b) show total \SI{48}{h} intervention cost versus particle diameter for the full-circumference and one-quadrant cases across \SIlist{200;300;500;1000;2000}{particles/cm^3}. Panel (c) shows the full-ring cost composition at \SI{2000}{particles/cm^3}, separating seeder and KC-130 tanker cost while overlaying the one-quadrant total for comparison. The baseline mission is a \SI{48}{h} campaign at \SI{500}{nmi} storm radius with \SI{300}{kg/h per seeder}; pricing uses the FY2026 DoD reimbursable rates for the Air Force C-130J and Navy KC-130J. \textbf{Takeaway:} the economic penalty tracks particle diameter so strongly that moving from \SI{20}{nm} to \SI{50}{nm} changes the mission from a several-million-dollar campaign to a tens-of-millions campaign even before material cost is included.}
+\label{fig:costheadline}
+\end{figure*}
+
+\vspace{0.25em}
+Figure~\ref{fig:coststate} then serves as the full design-space reference map. It places the same cost logic onto the diameter-concentration state space used for the payload analysis. Panels (a) and (b) show full-ring and one-quadrant total campaign flight-hour cost for the baseline \SI{48}{h}, \SI{500}{nmi}, \SI{300}{kg/h per seeder} mission. Panel (c) isolates the seeder cost contribution, while panel (d) isolates the KC-130 tanker contribution. The white iso-lines show that constant-cost contours bend smoothly across the design space in the same way as the underlying aircraft burden: there is no hidden threshold, just the cumulative effect of concentration and cubic diameter scaling.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{hurricane_cost_state_space.png}
+\caption{\textbf{Campaign flight-hour cost state space.} Panels (a) and (b) show total \SI{48}{h} intervention flight-hour cost for full-circumference and one-quadrant coverage using the baseline \SI{500}{nmi} radius mission, \SI{300}{kg/h per seeder}, Air Force C-130J seeder rate, and KC-130J tanker rate from the FY2026 DoD reimbursable-rate table. Panel (c) isolates the seeder flight-hour cost, while panel (d) isolates the KC-130 tanker flight-hour cost. White iso-lines mark constant dollar burden and the vertical overlays highlight the \SIrange{20}{50}{nm} study band. \textbf{Takeaway:} flight-hour cost inherits the same smooth concentration sensitivity and cubic diameter penalty as the payload model, so the major economic cliff is particle size and coverage requirement rather than small differences in public C-130 variant hourly rates.}
+\label{fig:coststate}
+\end{figure*}
+
+\vspace{0.25em}
+The headline campaign prices are already informative. At the \SI{500}{nmi} baseline distance, the \SI{20}{nm}, \SI{2000}{particles/cm^3} full-ring case costs about \SI{4.81}{MUSD} in base flight-hour pricing, with about \SI{3.04}{MUSD} from seeders and \SI{1.77}{MUSD} from tankers \citep{AeolusCostNote,DoDFY2026Rates}. The one-quadrant analog falls to about \SI{1.63}{MUSD}. The \SI{50}{nm}, \SI{2000}{particles/cm^3} full-ring case climbs to about \SI{74.85}{MUSD}, which is the same diameter penalty seen earlier, now expressed in direct mission dollars. One subtle but important point is that changing the seeder hourly-rate basis from the public HC-130J number to the MC-130J number shifts the \SI{20}{nm} full-ring total only from about \SI{4.73}{MUSD} to \SI{4.87}{MUSD}; the state-space cost variation is overwhelmingly driven by particle physics and mission architecture rather than by small differences in public C-130-family rate tables.
+
+\section*{C-130/APU Interpretation and Engineering Boundaries}
+
+The C-130 and APU evidence gathered for this analysis requires careful interpretation because several related Honeywell products are easy to conflate. A stock aircraft APU is an auxiliary gas turbine that supports engine start, pneumatic loads, and auxiliary electrical power. A generator is the electrical machine that converts shaft power into electricity. A turbogenerator is a dedicated package that couples a gas-turbine core with a high-power generator. These are related technologies, but they are not interchangeable aircraft architectures \citep{AeolusAircraftPower}.
+
+\vspace{0.25em}
+The strongest public C-130-specific clue found is Honeywell's statement that its C-130 APU offering expands generator capability from \SIrange{20}{40}{kVA} \citep{HoneywellC130}. Under the current installed-bus basis, that supports only about \SI{32}{kg/h} of NH$_4$Cl throughput. By contrast, Honeywell's APU overview brochure states that the larger HGT1700 APU family uses a start-generator system providing \SI{150}{kVA} of electrical power \citep{HoneywellAPUBrochure}, which corresponds to about \SI{121}{kg/h} under the same bus basis. The public \SI{250}{kW} generator corresponds to about \SI{201}{kg/h}, while the public \SI{1}{MW} turbogenerator corresponds to about \SI{805}{kg/h} \citep{Honeywell250kW,HoneywellHAL,Honeywell1MWMilestone}.
+
+\vspace{0.25em}
+This distinction resolves the apparent contradiction between ``the C-130 APU looks too small'' and ``Honeywell can generate huge electrical power.'' Both statements can be true. For a \emph{stock C-130} interpretation, the APU is a real limiter. For a \emph{missionized aircraft} carrying dedicated generation hardware, the APU is no longer the primary limiter; the relevant constraints become prime mover, fuel flow, high-voltage distribution, cooling, and certification. Public Honeywell material confirms that megawatt-class airborne generation is physically plausible, but it does \emph{not} imply that a stock C-130 electrical system can simply absorb or supply \SI{1}{MW}.
+
+\vspace{0.25em}
+The supporting notes on cargo-bay auxiliary fuel and long-endurance precedent reinforce the same systems conclusion. The KC-130 family provides real precedent for removable or palletized internal fuel storage in the cargo compartment and for integrating that fuel into the aircraft mission-fuel architecture \citep{AeolusInternalFuelNote,LockheedKC130Offload}. Public long-endurance C-130-family examples also show that with tanker support, fuel ceases to be the only limiting variable; crew endurance and mission risk tolerance become central \citep{AeolusRefuelEndurance}.
+
+\section*{Program Implications, Limitations, and Next Steps}
+
+The work documented here reduces the intervention concept to a clear design-space statement.
+\begin{enumerate}[leftmargin=1.1em,itemsep=0.15em]
+\item If the concept remains near the roadmap per-aircraft band of roughly \SIrange{20}{60}{kg/h}, then a stock-aircraft or modestly missionized C-130-family interpretation remains at least discussable using public-source evidence.
+\item If the concept moves into the \SIrange{100}{500}{kg/h} single-aircraft band, then the problem shifts into dedicated mission-power territory. In that regime, the relevant public references are quarter-megawatt generators and megawatt-class turbogenerators, not a stock C-130 APU.
+\item If the concept demands \SI{48}{h} continuous full-ring persistence at the higher concentration targets, then the burden rapidly becomes a fleet-size, tanker-support, and multi-million-dollar campaign problem even when aerosol payload per airplane is manageable.
+\end{enumerate}
+
+\vspace{0.25em}
+Several limitations remain explicit and should stay explicit. The paper does not include a bottom-up electrical load list for the molten-salt system; it uses the current top-down \SI{1.08}{kWh/kg} basis because the detailed reactor/process electrical design is not yet fixed. The stock-fuel model uses a public performance-derived proxy rather than a certified configuration fuel number. The refueling model includes engineering assumptions for seeder fuel burn, tanker contact time, and sortie-contact limits where public primary sources were not available. None of those are hidden in the paper; they are part of the reproducible record.
+
+\vspace{0.25em}
+The next engineering steps are now well defined. First, the program needs to decide whether it is pursuing a distributed low-rate architecture or a smaller number of higher-rate missionized aircraft, because that choice dominates the power-plant problem. Second, any higher-rate concept needs a dedicated mission-power architecture study rather than more discussion of stock-APU plausibility. Third, if persistent operations remain in scope, the tanker and crew-concept side of the mission needs to be treated as a first-class design variable rather than a late-stage logistics add-on.
+
+\section*{References}
+\begin{thebibliography}{20}
+
+\bibitem[Aeolus Labs(2026a)]{AeolusPayloadMethods}
+Aeolus Labs.
+\newblock \emph{Hurricane Intervention Methods}.
+\newblock Aeolus Labs internal technical note, April 2026.
+
+\bibitem[Aeolus Labs(2026b)]{AeolusPowerNote}
+Aeolus Labs.
+\newblock \emph{Hurricane Power Requirements}.
+\newblock Aeolus Labs internal technical note, April 2026.
+
+\bibitem[Aeolus Labs(2026c)]{AeolusFuelNote}
+Aeolus Labs.
+\newblock \emph{Stock-C-130 Fuel Budget for the NH$_4$Cl Molten-Salt Concept}.
+\newblock Aeolus Labs internal technical note, April 2026.
+
+\bibitem[Aeolus Labs(2026d)]{AeolusCostNote}
+Aeolus Labs.
+\newblock \emph{Hurricane Intervention Flight-Hour Cost Model}.
+\newblock Aeolus Labs internal technical note, April 2026.
+
+\bibitem[Aeolus Labs(2026e)]{AeolusAircraftPower}
+Aeolus Labs.
+\newblock \emph{Aircraft Power Sources for the NH$_4$Cl Molten-Salt System}.
+\newblock Aeolus Labs internal technical note, April 2026.
+
+\bibitem[Aeolus Labs(2026f)]{AeolusInternalFuelNote}
+Aeolus Labs.
+\newblock \emph{C-130 Cargo Bay Auxiliary Fuel: Operational Precedent}.
+\newblock Aeolus Labs internal technical note, April 2026.
+
+\bibitem[Aeolus Labs(2026g)]{AeolusRefuelEndurance}
+Aeolus Labs.
+\newblock \emph{C-130 Refueling and Endurance Scoping Note}.
+\newblock Aeolus Labs internal technical note, April 2026.
+
+\bibitem[Aeolus Labs(2026h)]{AeolusSourceLog}
+Aeolus Labs.
+\newblock \emph{Hurricane Model References}.
+\newblock Aeolus Labs internal reference log, April 2026.
+
+\bibitem[Aeolus Labs(2026i)]{AeolusMoltenSaltProposal}
+Aeolus Labs.
+\newblock \emph{NH$_4$Cl Molten Salt Process Proposal}.
+\newblock Aeolus Labs internal proposal document, April 2026.
+
+\bibitem[Aeolus Labs(2026j)]{AeolusRoadmap}
+Aeolus Labs.
+\newblock \emph{UAP Technical Roadmap}.
+\newblock Aeolus Labs internal program roadmap, April 2026.
+
+\bibitem[Lockheed Martin(2026a)]{LockheedC130J30}
+Lockheed Martin.
+\newblock \emph{C-130J-30 Super Hercules}.
+\newblock \url{https://www.lockheedmartin.com/en-us/products/c130/c-130j-30-super-hercules.html}.
+
+\bibitem[Department of Defense(2026)]{DoDFY2026Rates}
+Office of the Under Secretary of Defense (Comptroller).
+\newblock \emph{FY 2026 Reimbursable Rates: Fixed Wing and Helicopter Reimbursement Rates (Tabs B and C)}.
+\newblock \url{https://comptroller.war.gov/Portals/45/documents/rates/fy2026/2026_b_c.pdf}.
+
+\bibitem[Honeywell Aerospace(2026a)]{HoneywellC130}
+Honeywell Aerospace.
+\newblock \emph{Lockheed Martin C-130 Hercules}.
+\newblock \url{https://aerospace.honeywell.com/us/en/industry/defense/defense/c130}.
+
+\bibitem[Honeywell Aerospace(2026b)]{HoneywellAPUBrochure}
+Honeywell Aerospace.
+\newblock \emph{Auxiliary Power Unit Overview}.
+\newblock \url{https://prod-edam.honeywell.com/content/dam/honeywell-edam/aero/en-us/products/power-and-propulsion/auxiliary-power-units/common/documents/hon-aero-n61-1544-000-0001-honeywell-aerospace-apu-overview-brochure-en.pdf?download=false}.
+
+\bibitem[Honeywell Aerospace(2026c)]{Honeywell200kW}
+Honeywell Aerospace.
+\newblock \emph{200 kW Power Generation}.
+\newblock \url{https://aerospace.honeywell.com/us/en/products-and-services/products/power-and-propulsion/electric-power/200-kw-power-generator}.
+
+\bibitem[Honeywell Aerospace(2026d)]{Honeywell250kW}
+Honeywell Aerospace.
+\newblock \emph{250kW Generator}.
+\newblock \url{https://aerospace.honeywell.com/us/en/products-and-services/products/power-and-propulsion/electric-power/250kw-generator}.
+
+\bibitem[Honeywell Aerospace(2026e)]{Honeywell1MWMilestone}
+Honeywell Aerospace.
+\newblock \emph{Honeywell's 1-Megawatt Generator Achieves New Milestone}.
+\newblock \url{https://aerospace.honeywell.com/us/en/about-us/press-release/2022/05/honeywell-megawatt-generator-achieves-milestone}.
+
+\bibitem[Honeywell Aerospace(2026f)]{HoneywellHAL}
+Honeywell Aerospace.
+\newblock \emph{Honeywell, Hindustan Aeronautics Limited to Jointly Manufacture High-Power Turbogenerators}.
+\newblock \url{https://aerospace.honeywell.com/us/en/about-us/press-release/2022/09/honeywell-hindustan-aeronautics-jointly-manufacture-high-power-turbogenerators}.
+
+\bibitem[Lockheed Martin(2026b)]{LockheedKC130J}
+Lockheed Martin.
+\newblock \emph{KC-130J Tanker}.
+\newblock \url{https://www.lockheedmartin.com/en-us/products/c130/kc-130j-tanker.html}.
+
+\bibitem[Lockheed Martin(2026c)]{LockheedKC130Offload}
+Lockheed Martin.
+\newblock \emph{U.S. Marine Corps KC-130J Sets Record Performance Levels}.
+\newblock \url{https://investors.lockheedmartin.com/news-releases/news-release-details/us-marine-corps-kc-130j-sets-record-performance-levels/}.
+
+\bibitem[106th Rescue Wing(2026)]{AF106HC130J}
+106th Rescue Wing, New York Air National Guard.
+\newblock \emph{HC-130J Combat King II Fact Sheet}.
+\newblock \url{https://www.106rqw.ang.af.mil/About-Us/Fact-Sheets/Display/Article/2912120/hc-130j-combat-king-ii/}.
+
+\bibitem[AFSOC(2026)]{AFSOCMC130J}
+Air Force Special Operations Command.
+\newblock \emph{AFSOC Accepts Final MC-130J}.
+\newblock \url{https://www.afsoc.af.mil/News/Article-Display/Article/4022069/afsoc-accepts-final-mc-130j/}.
+
+\end{thebibliography}
+
+\end{document}

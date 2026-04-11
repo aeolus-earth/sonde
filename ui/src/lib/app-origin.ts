@@ -36,3 +36,15 @@ export function experimentDetailShareUrl(experimentId: string): string {
   const path = `/experiments/${encodeURIComponent(experimentId)}`;
   return origin ? `${origin}${path}` : path;
 }
+
+export function projectDetailShareUrl(projectId: string): string {
+  const origin = getShareableAppOrigin();
+  const path = `/projects/${encodeURIComponent(projectId)}`;
+  return origin ? `${origin}${path}` : path;
+}
+
+export function directionDetailShareUrl(directionId: string): string {
+  const origin = getShareableAppOrigin();
+  const path = `/directions/${encodeURIComponent(directionId)}`;
+  return origin ? `${origin}${path}` : path;
+}

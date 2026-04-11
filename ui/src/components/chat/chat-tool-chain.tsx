@@ -1,4 +1,4 @@
-import { lazy, memo, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, memo, Suspense, useState } from "react";
 import { Brain, CheckCircle2, ChevronDown, ChevronRight, Loader2, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ToolUseData } from "@/types/chat";
@@ -103,20 +103,7 @@ export const ChatToolChain = memo(function ChatToolChain({
   const toolBusy = toolUses.some(
     (tu) => tu.status === "running" || tu.status === "awaiting_approval",
   );
-  const shouldExpand = toolBusy || isStreamingLast;
-
-  const [expanded, setExpanded] = useState(() => shouldExpand);
-  const prevExpand = useRef(shouldExpand);
-
-  useEffect(() => {
-    if (shouldExpand) {
-      setExpanded(true);
-    }
-    if (prevExpand.current && !shouldExpand) {
-      setExpanded(false);
-    }
-    prevExpand.current = shouldExpand;
-  }, [shouldExpand]);
+  const [expanded, setExpanded] = useState(false);
 
   const hasThinking = Boolean(thinkingContent?.trim());
   if (toolUses.length === 0 && !hasThinking) return null;
@@ -136,6 +123,7 @@ export const ChatToolChain = memo(function ChatToolChain({
         "my-1 overflow-hidden rounded-[12px] border border-border-subtle text-[12px]",
         "bg-surface/85 shadow-[0_1px_0_rgba(0,0,0,0.03)] backdrop-blur-md",
         "dark:border-white/[0.09] dark:bg-surface/50 dark:shadow-none",
+        "motion-reduce:animate-none animate-tool-chain-enter",
       )}
     >
       {!expanded && (
@@ -192,6 +180,7 @@ export const ChatToolChain = memo(function ChatToolChain({
                   className={cn(
                     "relative flex gap-3 border-b border-dashed border-border-subtle/70 pb-3 pt-0.5 dark:border-white/[0.1]",
                     toolUses.length > 0 && "mb-0",
+                    "motion-reduce:animate-none animate-tool-chain-step-enter",
                   )}
                 >
                   <div className="relative z-[2] shrink-0 pt-0.5">
@@ -226,6 +215,7 @@ export const ChatToolChain = memo(function ChatToolChain({
                     key={tu.id}
                     className={cn(
                       "relative flex gap-3 py-2.5 pl-0",
+                      "motion-reduce:animate-none animate-tool-chain-step-enter",
                       i < toolUses.length - 1 &&
                         "border-b border-dashed border-border-subtle/70 dark:border-white/[0.1]",
                     )}

@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 import { useChatMentions } from "@/hooks/use-chat-mentions";
 import { ChatMentionPopover } from "./chat-mention-popover";
 import type { ConnectionStatus, MentionRef, PageContext } from "@/types/chat";
-import { ChatConnectionDot } from "./chat-connection-dot";
+import { ChatConnectionBanner } from "./chat-connection-banner";
 import {
   DEFEND_MY_EXISTENCE_COMMAND,
   getDefendMyExistenceCompletion,
@@ -383,42 +383,11 @@ export const ChatInput = memo(function ChatInput({
       )}
     >
       {showConnectionBanner && (
-        <div
-          className={cn(
-            "mb-3 flex items-center gap-2.5 rounded-2xl px-4 py-3",
-            "backdrop-blur-2xl shadow-lg",
-            "transition-all duration-500 ease-out",
-            connectionStatus === "disconnected"
-              ? cn(
-                  "border border-red-500/15 bg-red-500/8 text-text-secondary",
-                  "dark:border-red-400/20 dark:bg-red-500/10 dark:text-red-200/80",
-                )
-              : cn(
-                  "border border-amber-500/15 bg-amber-500/6 text-text-secondary",
-                  "dark:border-amber-400/20 dark:bg-amber-500/8 dark:text-amber-200/80",
-                ),
-          )}
-          role={connectionStatus === "disconnected" ? "alert" : "status"}
-        >
-          <span className="shrink-0">
-            <ChatConnectionDot connectionStatus={connectionStatus} />
-          </span>
-          <div className="min-w-0 flex-1">
-            <p className="text-[13px] font-medium leading-snug">
-              {connectionStatus === "disconnected"
-                ? "Agent not connected"
-                : "Connecting to agent…"}
-            </p>
-            {agentModel ? (
-              <p
-                className="mt-0.5 truncate font-mono text-[10px] opacity-50"
-                title={agentModel}
-              >
-                {agentModel}
-              </p>
-            ) : null}
-          </div>
-        </div>
+        <ChatConnectionBanner
+          connectionStatus={connectionStatus}
+          agentModel={agentModel}
+          glass={glass}
+        />
       )}
 
       <input
@@ -479,7 +448,7 @@ export const ChatInput = memo(function ChatInput({
               className={cn(
                 "group inline-flex max-w-full items-center gap-1 rounded-full border py-1 pl-2.5 pr-1 text-[11px]",
                 bubbleShell
-                  ? "border-white/15 bg-white/5 text-zinc-200"
+                  ? "border-border-subtle bg-bg/80 text-text-secondary dark:border-white/15 dark:bg-white/5 dark:text-zinc-200"
                   : "border-border-subtle bg-bg text-text-secondary",
               )}
             >
@@ -519,7 +488,7 @@ export const ChatInput = memo(function ChatInput({
             <span
               className={cn(
                 "text-sm font-medium",
-                bubbleShell ? "text-zinc-200" : "text-text-secondary",
+                bubbleShell ? "text-text-secondary dark:text-zinc-200" : "text-text-secondary",
               )}
             >
               Drop files to attach
@@ -556,7 +525,7 @@ export const ChatInput = memo(function ChatInput({
               className={cn(
                 "flex w-full min-w-0 items-center gap-1.5 border-b px-0.5 pb-1 text-[11px] leading-tight",
                 bubbleShell
-                  ? "border-white/15"
+                  ? "border-border-subtle/80 dark:border-white/15"
                   : "border-border-subtle/80",
               )}
             >
@@ -564,7 +533,7 @@ export const ChatInput = memo(function ChatInput({
                 className={cn(
                   "shrink-0 rounded-[2px] border px-1 py-px text-[10px]",
                   bubbleShell
-                    ? "border-white/20 text-zinc-400"
+                    ? "border-border text-text-tertiary dark:border-white/20 dark:text-zinc-400"
                     : "border-border text-text-tertiary",
                 )}
               >
@@ -574,13 +543,19 @@ export const ChatInput = memo(function ChatInput({
                 <span
                   className={cn(
                     "min-w-0 truncate font-mono",
-                    bubbleShell ? "text-zinc-300" : "text-text-secondary",
+                    bubbleShell ? "text-text-secondary dark:text-zinc-300" : "text-text-secondary",
                   )}
                 >
-                  <span className={bubbleShell ? "text-white" : "text-text"}>
+                  <span className={bubbleShell ? "text-text dark:text-white" : "text-text"}>
                     {value.slice(defendCompletion.start, defendCompletion.end)}
                   </span>
-                  <span className={bubbleShell ? "text-zinc-500" : "text-text-quaternary"}>
+                  <span
+                    className={
+                      bubbleShell
+                        ? "text-text-quaternary dark:text-zinc-500"
+                        : "text-text-quaternary"
+                    }
+                  >
                     {defendCompletion.ghostSuffix}
                   </span>
                 </span>
@@ -588,7 +563,7 @@ export const ChatInput = memo(function ChatInput({
                 <span
                   className={cn(
                     "truncate font-mono",
-                    bubbleShell ? "text-zinc-300" : "text-text-secondary",
+                    bubbleShell ? "text-text-secondary dark:text-zinc-300" : "text-text-secondary",
                   )}
                 >
                   → {DEFEND_MY_EXISTENCE_COMMAND}
@@ -610,7 +585,7 @@ export const ChatInput = memo(function ChatInput({
               "flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-text-tertiary transition-colors",
               "hover:text-text-secondary disabled:pointer-events-none disabled:opacity-40",
               bubbleShell && glass
-                ? "mb-0.5 text-zinc-400 hover:bg-white/10 hover:text-zinc-100"
+                ? "mb-0.5 text-text-tertiary hover:bg-surface-hover hover:text-text dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-zinc-100"
                 : glass
                   ? "hover:bg-surface-hover dark:hover:bg-white/10"
                   : "hover:bg-surface-hover",
@@ -626,7 +601,7 @@ export const ChatInput = memo(function ChatInput({
               <div
                 className={cn(
                   "pointer-events-none absolute inset-0 z-0 flex items-start justify-start overflow-hidden py-2.5 text-left text-[14px] leading-5 select-none",
-                  bubbleShell ? "text-zinc-400" : "text-text-tertiary",
+                  bubbleShell ? "text-text-tertiary dark:text-zinc-400" : "text-text-tertiary",
                 )}
                 aria-hidden
               >
@@ -658,7 +633,7 @@ export const ChatInput = memo(function ChatInput({
                 /* Hide native scrollbar (global styles draw a rounded gray thumb that reads as a stray bar). */
                 "[scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden",
                 bubbleShell
-                  ? "min-h-[5.5rem] text-white caret-white placeholder:text-zinc-400 sm:min-h-[6.5rem]"
+                  ? "min-h-[5.5rem] text-text placeholder:text-text-tertiary dark:text-white dark:caret-white dark:placeholder:text-zinc-400 sm:min-h-[6.5rem]"
                   : "min-h-10 text-text placeholder:text-text-tertiary",
               )}
               style={{ fieldSizing: "content" } as React.CSSProperties}
@@ -691,7 +666,7 @@ export const ChatInput = memo(function ChatInput({
                     : "bg-accent text-on-accent hover:bg-accent-hover"
                   : glass
                     ? bubbleShell
-                      ? "mb-0.5 bg-white/10 text-zinc-400"
+                      ? "mb-0.5 bg-surface-hover text-text-tertiary dark:bg-white/10 dark:text-zinc-400"
                       : "bg-surface-hover text-text-tertiary backdrop-blur-sm dark:bg-white/[0.08]"
                     : "bg-surface-raised text-text-quaternary",
               )}

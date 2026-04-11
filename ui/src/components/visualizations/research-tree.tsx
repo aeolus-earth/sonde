@@ -51,6 +51,58 @@ function buildChildMap(exps: ExperimentSummary[]): Map<string, ExperimentSummary
   return map;
 }
 
+function buildDirectionsByParent(
+  directions: DirectionSummary[]
+): Map<string, DirectionSummary[]> {
+  const map = new Map<string, DirectionSummary[]>();
+  for (const direction of directions) {
+    if (!direction.parent_direction_id) continue;
+    const list = map.get(direction.parent_direction_id) ?? [];
+    list.push(direction);
+    map.set(direction.parent_direction_id, list);
+  }
+  for (const list of map.values()) {
+    list.sort((a, b) => a.title.localeCompare(b.title));
+  }
+  return map;
+}
+
+function buildDirectionsBySpawnExperiment(
+  directions: DirectionSummary[]
+): Map<string, DirectionSummary[]> {
+  const map = new Map<string, DirectionSummary[]>();
+  for (const direction of directions) {
+    if (!direction.spawned_from_experiment_id) continue;
+    const list = map.get(direction.spawned_from_experiment_id) ?? [];
+    list.push(direction);
+    map.set(direction.spawned_from_experiment_id, list);
+  }
+  for (const list of map.values()) {
+    list.sort((a, b) => a.title.localeCompare(b.title));
+  }
+  return map;
+}
+
+function buildExperimentsByDirection(
+  experiments: ExperimentSummary[]
+): Map<string, ExperimentSummary[]> {
+  const map = new Map<string, ExperimentSummary[]>();
+  for (const experiment of experiments) {
+    if (!experiment.direction_id) continue;
+    const list = map.get(experiment.direction_id) ?? [];
+    list.push(experiment);
+    map.set(experiment.direction_id, list);
+  }
+  return map;
+}
+
+function rootExperimentsForGroup(experiments: ExperimentSummary[]): ExperimentSummary[] {
+  const ids = new Set(experiments.map((experiment) => experiment.id));
+  return experiments.filter(
+    (experiment) => !experiment.parent_id || !ids.has(experiment.parent_id)
+  );
+}
+
 function countDescendants(id: string, childMap: Map<string, ExperimentSummary[]>): number {
   const children = childMap.get(id) ?? [];
   let count = children.length;
@@ -186,7 +238,7 @@ type TreeRowData =
       rowKey: string;
       depth: number;
       dir: DirectionSummary;
-      parentDirId: string;
+      parentKind: "direction" | "experiment";
       expCount: number;
       statusCounts: Record<string, number>;
       toggleKey: string;
@@ -206,12 +258,16 @@ function addExperimentRows(
   childMap: Map<string, ExperimentSummary[]>,
   collapsed: Set<string>,
   findingsByExp: Map<string, Finding[]>,
+  directionsByParent: Map<string, DirectionSummary[]>,
+  directionsBySpawnExperiment: Map<string, DirectionSummary[]>,
+  experimentsByDirection: Map<string, ExperimentSummary[]>,
   rows: TreeRowData[]
 ) {
   const children = childMap.get(exp.id) ?? [];
-  const hasChildren = children.length > 0;
+  const spawnedDirections = directionsBySpawnExperiment.get(exp.id) ?? [];
+  const hasChildren = children.length > 0 || spawnedDirections.length > 0;
   const isCollapsed = collapsed.has(exp.id);
-  const childCount = countDescendants(exp.id, childMap);
+  const childCount = countDescendants(exp.id, childMap) + spawnedDirections.length;
 
   rows.push({
     kind: "experiment",
@@ -224,10 +280,97 @@ function addExperimentRows(
     findings: findingsByExp.get(exp.id) ?? [],
   });
 
+  if (!isCollapsed) {
+    for (const direction of spawnedDirections) {
+      addDirectionRows(
+        direction,
+        depth + 1,
+        "experiment",
+        childMap,
+        collapsed,
+        findingsByExp,
+        directionsByParent,
+        directionsBySpawnExperiment,
+        experimentsByDirection,
+        rows
+      );
+    }
+  }
+
   if (hasChildren && !isCollapsed) {
     for (const c of children) {
-      addExperimentRows(c, depth + 1, childMap, collapsed, findingsByExp, rows);
+      addExperimentRows(
+        c,
+        depth + 1,
+        childMap,
+        collapsed,
+        findingsByExp,
+        directionsByParent,
+        directionsBySpawnExperiment,
+        experimentsByDirection,
+        rows
+      );
     }
+  }
+}
+
+function addDirectionRows(
+  dir: DirectionSummary,
+  depth: number,
+  parentKind: "direction" | "experiment",
+  childMap: Map<string, ExperimentSummary[]>,
+  collapsed: Set<string>,
+  findingsByExp: Map<string, Finding[]>,
+  directionsByParent: Map<string, DirectionSummary[]>,
+  directionsBySpawnExperiment: Map<string, DirectionSummary[]>,
+  experimentsByDirection: Map<string, ExperimentSummary[]>,
+  rows: TreeRowData[]
+) {
+  const directionExperiments = experimentsByDirection.get(dir.id) ?? [];
+  const directionRoots = rootExperimentsForGroup(directionExperiments);
+  const toggleKey = `dir-${dir.id}`;
+
+  rows.push({
+    kind: "sub-direction",
+    rowKey: toggleKey,
+    depth,
+    dir,
+    parentKind,
+    expCount: directionExperiments.length,
+    statusCounts: countStatuses(directionExperiments),
+    toggleKey,
+  });
+
+  if (collapsed.has(toggleKey)) return;
+
+  for (const experiment of directionRoots) {
+    addExperimentRows(
+      experiment,
+      depth + 1,
+      childMap,
+      collapsed,
+      findingsByExp,
+      directionsByParent,
+      directionsBySpawnExperiment,
+      experimentsByDirection,
+      rows
+    );
+  }
+
+  const childDirections = directionsByParent.get(dir.id) ?? [];
+  for (const childDir of childDirections) {
+    addDirectionRows(
+      childDir,
+      depth + 1,
+      "direction",
+      childMap,
+      collapsed,
+      findingsByExp,
+      directionsByParent,
+      directionsBySpawnExperiment,
+      experimentsByDirection,
+      rows
+    );
   }
 }
 
@@ -264,6 +407,11 @@ export const ResearchTree = memo(function ResearchTree({
   );
 
   const findingsByExp = useMemo(() => buildFindingsByExperiment(findings), [findings]);
+  const directionsByParent = useMemo(() => buildDirectionsByParent(directions), [directions]);
+  const directionsBySpawnExperiment = useMemo(
+    () => buildDirectionsBySpawnExperiment(directions),
+    [directions]
+  );
 
   const experimentsForTree = useMemo(() => {
     const filtered = filterExperimentsForSearch(experiments, findings, search);
@@ -272,6 +420,10 @@ export const ResearchTree = memo(function ResearchTree({
 
   const childMapFiltered = useMemo(
     () => buildChildMap(experimentsForTree),
+    [experimentsForTree]
+  );
+  const experimentsByDirection = useMemo(
+    () => buildExperimentsByDirection(experimentsForTree),
     [experimentsForTree]
   );
 
@@ -332,7 +484,12 @@ export const ResearchTree = memo(function ResearchTree({
       const projCollapsed = collapsed.has(pid);
 
       const dirsInProj = directions
-        .filter((d) => bucketProjectId(d.project_id, knownProjectIds) === bucketId && !d.parent_direction_id)
+        .filter(
+          (d) =>
+            bucketProjectId(d.project_id, knownProjectIds) === bucketId &&
+            !d.parent_direction_id &&
+            (!d.spawned_from_experiment_id || !experimentIds.has(d.spawned_from_experiment_id))
+        )
         .sort((a, b) => a.title.localeCompare(b.title));
 
       const allInProject = experimentsForTree.filter(
@@ -358,10 +515,8 @@ export const ResearchTree = memo(function ResearchTree({
       for (const dir of dirsInProj) {
         const headerId = `dir-${dir.id}`;
         const dirCollapsed = collapsed.has(headerId);
-        const rootExps = experimentsForTree.filter(
-          (e) => isRoot(e) && e.direction_id === dir.id
-        );
-        const allInDirection = experimentsForTree.filter((e) => e.direction_id === dir.id);
+        const allInDirection = experimentsByDirection.get(dir.id) ?? [];
+        const rootExps = rootExperimentsForGroup(allInDirection);
 
         if (isFiltering && allInDirection.length === 0) continue;
 
@@ -378,35 +533,36 @@ export const ResearchTree = memo(function ResearchTree({
         if (dirCollapsed) continue;
 
         for (const exp of rootExps) {
-          addExperimentRows(exp, 2, childMapFiltered, collapsed, findingsByExp, rows);
+          addExperimentRows(
+            exp,
+            2,
+            childMapFiltered,
+            collapsed,
+            findingsByExp,
+            directionsByParent,
+            directionsBySpawnExperiment,
+            experimentsByDirection,
+            rows
+          );
         }
 
-        // Add child (sub) directions after the parent direction's experiments
-        const childDirs = directions.filter((d) => d.parent_direction_id === dir.id);
+        // Add child directions after the parent direction's experiments.
+        const childDirs = directionsByParent.get(dir.id) ?? [];
         for (const childDir of childDirs) {
-          const subHeaderId = `subdir-${childDir.id}`;
-          const subDirCollapsed = collapsed.has(subHeaderId);
-          const subDirExps = experimentsForTree.filter((e) => e.direction_id === childDir.id);
-          const subDirRootExps = subDirExps.filter((e) => isRoot(e));
-
+          const subDirExps = experimentsByDirection.get(childDir.id) ?? [];
           if (isFiltering && subDirExps.length === 0) continue;
-
-          rows.push({
-            kind: "sub-direction",
-            rowKey: subHeaderId,
-            depth: 2,
-            dir: childDir,
-            parentDirId: dir.id,
-            expCount: subDirExps.length,
-            statusCounts: countStatuses(subDirExps),
-            toggleKey: subHeaderId,
-          });
-
-          if (!subDirCollapsed) {
-            for (const exp of subDirRootExps) {
-              addExperimentRows(exp, 3, childMapFiltered, collapsed, findingsByExp, rows);
-            }
-          }
+          addDirectionRows(
+            childDir,
+            2,
+            "direction",
+            childMapFiltered,
+            collapsed,
+            findingsByExp,
+            directionsByParent,
+            directionsBySpawnExperiment,
+            experimentsByDirection,
+            rows
+          );
         }
       }
 
@@ -432,7 +588,17 @@ export const ResearchTree = memo(function ResearchTree({
 
         if (!nodirCollapsed) {
           for (const exp of noDirExps) {
-            addExperimentRows(exp, 2, childMapFiltered, collapsed, findingsByExp, rows);
+            addExperimentRows(
+              exp,
+              2,
+              childMapFiltered,
+              collapsed,
+              findingsByExp,
+              directionsByParent,
+              directionsBySpawnExperiment,
+              experimentsByDirection,
+              rows
+            );
           }
         }
       }
@@ -446,6 +612,10 @@ export const ResearchTree = memo(function ResearchTree({
     collapsed,
     childMapFiltered,
     findingsByExp,
+    directionsByParent,
+    directionsBySpawnExperiment,
+    experimentsByDirection,
+    experimentIds,
     knownProjectIds,
     isRoot,
     search,
@@ -694,6 +864,9 @@ export const ResearchTree = memo(function ResearchTree({
             <div className="truncate text-[12px] font-medium text-text">{row.dir.title}</div>
             <div className="mt-0.5 flex flex-wrap items-center gap-2">
               <span className="font-mono text-[10px] text-text-quaternary">{row.dir.id}</span>
+              {row.parentKind === "experiment" && (
+                <span className="text-[10px] text-text-quaternary">spawned from experiment</span>
+              )}
               <div className="flex items-center gap-1.5">
                 {Object.entries(row.statusCounts).map(([status, count]) => (
                   <span
@@ -873,6 +1046,30 @@ export const ResearchTree = memo(function ResearchTree({
         className="h-9 max-w-md rounded-[6px] border-border bg-surface text-[13px]"
         aria-label="Filter tree"
       />
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setCollapsed(new Set())}
+          className="inline-flex items-center rounded-[5.5px] border border-border-subtle bg-surface-raised px-2.5 py-1 text-[11px] font-medium text-text-secondary transition-colors hover:bg-surface-hover"
+        >
+          Expand all
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            const next = new Set<string>();
+            for (const row of flatRows) {
+              if (row.kind !== "experiment" || row.hasChildren) {
+                next.add(row.toggleKey);
+              }
+            }
+            setCollapsed(next);
+          }}
+          className="inline-flex items-center rounded-[5.5px] border border-border-subtle bg-surface-raised px-2.5 py-1 text-[11px] font-medium text-text-secondary transition-colors hover:bg-surface-hover"
+        >
+          Collapse all
+        </button>
+      </div>
       <div
         ref={scrollRef}
         className="min-h-0 flex-1 overflow-auto rounded-[8px] border border-border bg-bg"

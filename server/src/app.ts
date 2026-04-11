@@ -8,7 +8,8 @@ import { requireRuntimeAuditAuth } from "./runtime-audit.js";
 import { verifyToken } from "./auth.js";
 import { issueWsSessionToken, verifyWsSessionToken } from "./ws-session-token.js";
 import { checkUserRateLimit } from "./request-guard.js";
-import { isSandboxMode } from "./agent.js";
+import { handleSondeMcpRequest } from "./mcp/http-server.js";
+import { getAgentBackend } from "./runtime-mode.js";
 
 const LOCAL_UI_ORIGINS = [
   "http://localhost:5173",
@@ -58,6 +59,7 @@ export function createApp(): Hono {
   });
   app.use("/chat", chatCors);
   app.use("/chat/*", chatCors);
+  app.use("/mcp/*", chatCors);
 
   app.use(
     "/github/*",
@@ -137,6 +139,39 @@ export function createApp(): Hono {
   app.get("/health", (c) => c.json({ status: "ok" }));
   app.get("/health/runtime", (c) => c.json(getRuntimeMetadata()));
 
+  app.all("/mcp/sonde", async (c) => {
+    const authHeader = c.req.header("Authorization") ?? "";
+    const accessToken = authHeader.startsWith("Bearer ")
+      ? authHeader.slice("Bearer ".length).trim()
+      : "";
+    if (!accessToken) {
+      return c.json(
+        {
+          error: {
+            type: "unauthorized",
+            message: "Missing or invalid Sonde session token",
+          },
+        },
+        401,
+      );
+    }
+
+    const user = await verifyToken(accessToken);
+    if (!user) {
+      return c.json(
+        {
+          error: {
+            type: "unauthorized",
+            message: "Missing or invalid Sonde session token",
+          },
+        },
+        401,
+      );
+    }
+
+    return handleSondeMcpRequest(c.req.raw, accessToken);
+  });
+
   app.post("/chat/session-token", async (c) => {
     const authHeader = c.req.header("Authorization") ?? "";
     const accessToken = authHeader.startsWith("Bearer ")
@@ -167,22 +202,6 @@ export function createApp(): Hono {
       );
     }
 
-    if (isSandboxMode()) {
-      void import("./sandbox/user-sandbox-pool.js")
-        .then(({ prewarmUserSandbox }) =>
-          prewarmUserSandbox({
-            userId: user.id,
-            sondeToken: accessToken,
-            supabaseUrl: process.env.VITE_SUPABASE_URL,
-            supabaseKey: process.env.VITE_SUPABASE_ANON_KEY,
-          })
-        )
-        .catch((error) => {
-          const message = error instanceof Error ? error.message : "unknown error";
-          console.error("[sandbox] Background prewarm failed:", message);
-        });
-    }
-
     return c.json({
       token: issueWsSessionToken(accessToken, user),
       expires_at: new Date(Date.now() + 60_000).toISOString(),
@@ -190,10 +209,6 @@ export function createApp(): Hono {
   });
 
   app.post("/chat/prewarm", async (c) => {
-    if (!isSandboxMode()) {
-      return c.json({ status: "disabled", backend: "direct" });
-    }
-
     const authHeader = c.req.header("Authorization") ?? "";
     const accessToken = authHeader.startsWith("Bearer ")
       ? authHeader.slice("Bearer ".length).trim()
@@ -224,29 +239,17 @@ export function createApp(): Hono {
     }
 
     const startedAt = Date.now();
-    const { prewarmUserSandbox } = await import("./sandbox/user-sandbox-pool.js");
-    const result = await prewarmUserSandbox({
-      userId: user.id,
+    const { prewarmManagedSession } = await import("./managed/session-cache.js");
+    const result = await prewarmManagedSession({
+      user,
       sondeToken: accessToken,
-      supabaseUrl: process.env.VITE_SUPABASE_URL,
-      supabaseKey: process.env.VITE_SUPABASE_ANON_KEY,
     });
-    if (!result.ready) {
-      return c.json(
-        {
-          error: {
-            type: "service_unavailable",
-            message: "Chat sandbox is not ready",
-          },
-        },
-        503,
-      );
-    }
-
     return c.json({
       status: "ready",
+      backend: getAgentBackend(),
       reused: result.reused,
       duration_ms: Date.now() - startedAt,
+      session_id: result.sessionId,
     });
   });
 
