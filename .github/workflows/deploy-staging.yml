@@ -55,6 +55,7 @@ jobs:
               - '.dockerignore'
               - 'cli/**'
               - 'server/**'
+              - '.github/workflows/deploy-staging.yml'
             ui:
               - 'ui/**'
               - 'vercel.json'

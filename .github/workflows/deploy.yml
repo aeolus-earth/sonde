@@ -49,6 +49,7 @@ jobs:
               - '.dockerignore'
               - 'cli/**'
               - 'server/**'
+              - '.github/workflows/deploy.yml'
 
   push-migrations:
     runs-on: ubuntu-latest
