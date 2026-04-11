@@ -349,6 +349,12 @@ function isWaitingOnManagedResponsesError(error: unknown): boolean {
   );
 }
 
+function isInvalidManagedSessionError(error: unknown): boolean {
+  const message =
+    error instanceof Error ? error.message : String(error ?? "");
+  return message.includes("Invalid session ID");
+}
+
 async function reconcileManagedSessionHistory(options: {
   sessionId: string;
   sondeTools: Map<string, ReturnType<typeof createSondeToolDefinitions>[number]>;
@@ -459,6 +465,18 @@ export function createManagedAgentSession(
     createSondeToolDefinitions(options.sondeToken).map((tool) => [tool.name, tool])
   );
 
+  async function startFreshSession(): Promise<string> {
+    currentSessionId = await createManagedSession({
+      user: options.user,
+      sondeToken: options.sondeToken,
+      pageContext: options.pageContext,
+      mentions: options.mentions,
+    });
+    rememberManagedSession(currentSessionId);
+    announcedSessionId = false;
+    return currentSessionId;
+  }
+
   async function ensureSession(
     requestedSessionId?: string
   ): Promise<{ sessionId: string; created: boolean }> {
@@ -471,15 +489,41 @@ export function createManagedAgentSession(
     if (currentSessionId) {
       return { sessionId: currentSessionId, created: false };
     }
-    currentSessionId = await createManagedSession({
-      user: options.user,
-      sondeToken: options.sondeToken,
-      pageContext: options.pageContext,
-      mentions: options.mentions,
-    });
-    rememberManagedSession(currentSessionId);
-    announcedSessionId = false;
-    return { sessionId: currentSessionId, created: true };
+    return { sessionId: await startFreshSession(), created: true };
+  }
+
+  async function reconcileOrRefreshSession(
+    sessionId: string
+  ): Promise<{
+    sessionId: string;
+    recovery: ManagedHistorySyncResult;
+    createdFresh: boolean;
+  }> {
+    try {
+      return {
+        sessionId,
+        recovery: await reconcileManagedSessionHistory({
+          sessionId,
+          sondeTools,
+          approvalBridge: options.approvalBridge,
+        }),
+        createdFresh: false,
+      };
+    } catch (error) {
+      if (!isInvalidManagedSessionError(error)) {
+        throw error;
+      }
+      return {
+        sessionId: await startFreshSession(),
+        recovery: {
+          emitted: [],
+          continueStreaming: false,
+          blocked: false,
+          settled: false,
+        },
+        createdFresh: true,
+      };
+    }
   }
 
   async function* drainManagedSession(
@@ -523,18 +567,18 @@ export function createManagedAgentSession(
           return false;
         }
 
-                if (event.type === "session.status_idle") {
-                    sawIdleEvent = true;
-                    idleStopReasonType =
-                        typeof event.stop_reason?.type === "string"
-                            ? (event.stop_reason.type as string)
-                            : null;
-                    if (idleStopReasonType === null) {
-                        break;
-                    }
-                    if (idleStopReasonType !== "requires_action") {
-                        return true;
-                    }
+        if (event.type === "session.status_idle") {
+          sawIdleEvent = true;
+          idleStopReasonType =
+            typeof event.stop_reason?.type === "string"
+              ? (event.stop_reason.type as string)
+              : null;
+          if (idleStopReasonType === null) {
+            break;
+          }
+          if (idleStopReasonType !== "requires_action") {
+            return true;
+          }
 
           const blockingIds = eventActionIds(event);
           const blockingEvents = actionEvents.filter(
@@ -607,19 +651,25 @@ export function createManagedAgentSession(
     ): AsyncIterable<AgentEvent> {
       abortController = new AbortController();
       clearPendingTasks();
-      const { sessionId, created } = await ensureSession(queryOptions?.resumeSessionId);
+      let { sessionId, created } = await ensureSession(queryOptions?.resumeSessionId);
+      let recovery: ManagedHistorySyncResult | null = null;
+
+      if (!created) {
+        const reconciled = await reconcileOrRefreshSession(sessionId);
+        sessionId = reconciled.sessionId;
+        recovery = reconciled.recovery;
+        if (reconciled.createdFresh) {
+          created = true;
+        }
+      }
+
       if (created || queryOptions?.resumeSessionId || !announcedSessionId) {
         yield { type: "session", sessionId };
         announcedSessionId = true;
       }
       yield { type: "model_info", model: resolveAgentModel() };
 
-      if (!created) {
-        const recovery = await reconcileManagedSessionHistory({
-          sessionId,
-          sondeTools,
-          approvalBridge: options.approvalBridge,
-        });
+      if (recovery) {
         for (const event of recovery.emitted) {
           yield event;
         }
@@ -687,25 +737,21 @@ export function createManagedAgentSession(
 
     async *recover(sessionId: string): AsyncIterable<AgentEvent> {
       abortController = new AbortController();
-      currentSessionId = sessionId;
-      rememberManagedSession(sessionId);
+      const reconciled = await reconcileOrRefreshSession(sessionId);
+      currentSessionId = reconciled.sessionId;
+      rememberManagedSession(currentSessionId);
       announcedSessionId = true;
-      yield { type: "session", sessionId };
+      yield { type: "session", sessionId: currentSessionId };
       yield { type: "model_info", model: resolveAgentModel() };
 
-      const recovery = await reconcileManagedSessionHistory({
-        sessionId,
-        sondeTools,
-        approvalBridge: options.approvalBridge,
-      });
-      for (const event of recovery.emitted) {
+      for (const event of reconciled.recovery.emitted) {
         yield event;
       }
-      if (recovery.blocked) {
+      if (reconciled.recovery.blocked) {
         return;
       }
-      if (recovery.continueStreaming) {
-        const settled = yield* drainManagedSession(sessionId);
+      if (reconciled.recovery.continueStreaming) {
+        const settled = yield* drainManagedSession(currentSessionId);
         if (!settled) {
           return;
         }

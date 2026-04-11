@@ -14,6 +14,7 @@ interface ManagedMockScenario {
   sessionId: string;
   streamBodies: string[];
   eventLists?: Array<Array<Record<string, unknown>>>;
+  invalidSessionIds?: string[];
   onEvents?: (events: Array<Record<string, unknown>>) => void;
   onEventPost?: (events: Array<Record<string, unknown>>) => Response | null | undefined;
 }
@@ -34,6 +35,7 @@ function sseBody(events: Array<Record<string, unknown> | "[DONE]">): string {
 function createManagedMockFetch(scenario: ManagedMockScenario) {
   let nextStreamIndex = 0;
   let nextEventListIndex = 0;
+  const invalidSessionIds = new Set(scenario.invalidSessionIds ?? []);
   return async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
     const url = typeof input === "string"
       ? new URL(input)
@@ -47,6 +49,23 @@ function createManagedMockFetch(scenario: ManagedMockScenario) {
 
     if (url.pathname === "/v1/sessions") {
       return jsonResponse({ id: scenario.sessionId });
+    }
+
+    const sessionMatch = url.pathname.match(/^\/v1\/sessions\/([^/]+)\/(events|stream)$/);
+    if (sessionMatch && invalidSessionIds.has(sessionMatch[1] ?? "")) {
+      return new Response(
+        JSON.stringify({
+          type: "error",
+          error: {
+            type: "invalid_request_error",
+            message: `Invalid session ID: ${sessionMatch[1]}`,
+          },
+        }),
+        {
+          status: 400,
+          headers: { "content-type": "application/json" },
+        }
+      );
     }
 
     if (
@@ -1220,5 +1239,89 @@ describe("managed chat websocket", () => {
       ),
       false
     );
+  });
+
+  it("replaces a stale requested session id with a fresh managed session", async () => {
+    const sessionId = "sesn_test_fresh_after_stale";
+    globalThis.fetch = createManagedMockFetch({
+      sessionId,
+      invalidSessionIds: ["deadbeef-dead-beef-dead-beefdeadbeef"],
+      streamBodies: [
+        sseBody([
+          {
+            id: "msg-fresh-final",
+            type: "agent.message",
+            content: [{ type: "text", text: "Fresh session recovered." }],
+          },
+          {
+            id: "idle-fresh-final",
+            type: "session.status_idle",
+            stop_reason: { type: "end_turn" },
+          },
+          "[DONE]",
+        ]),
+      ],
+    });
+
+    const server = createWebSocketServer();
+    await once(server, "listening");
+    const address = server.address();
+    assert.ok(address && typeof address === "object");
+
+    const messages: Array<Record<string, unknown>> = [];
+    await new Promise<void>((resolve, reject) => {
+      const wsToken = issueWsSessionToken("playwright-smoke-token", {
+        id: "e2e-user",
+        email: "ci-smoke@aeolus.earth",
+        name: "CI Smoke",
+      });
+      const ws = new WebSocket(
+        `ws://127.0.0.1:${address.port}/chat?ws_token=${encodeURIComponent(wsToken)}`
+      );
+      const timeout = setTimeout(() => {
+        ws.close();
+        reject(new Error("Timed out waiting for managed stale-session recovery"));
+      }, 10_000);
+
+      ws.on("open", () => {
+        ws.send(
+          JSON.stringify({
+            type: "message",
+            content: "Say hello briefly.",
+            sessionId: "deadbeef-dead-beef-dead-beefdeadbeef",
+          })
+        );
+      });
+
+      ws.on("message", (data) => {
+        const message = JSON.parse(String(data)) as Record<string, unknown>;
+        messages.push(message);
+        if (message.type === "done") {
+          clearTimeout(timeout);
+          ws.close();
+          resolve();
+        }
+      });
+
+      ws.on("error", (error) => {
+        clearTimeout(timeout);
+        reject(error);
+      });
+    }).finally(() => {
+      server.close();
+    });
+
+    const errors = messages
+      .filter((message) => message.type === "error")
+      .map((message) => String(message.message ?? ""));
+    assert.equal(errors.length, 0);
+
+    const sessionEvent = messages.find((message) => message.type === "session");
+    assert.ok(sessionEvent);
+    assert.equal(sessionEvent.sessionId, sessionId);
+
+    const finalText = messages.find((message) => message.type === "text_done");
+    assert.ok(finalText);
+    assert.equal(finalText.content, "Fresh session recovered.");
   });
 });
