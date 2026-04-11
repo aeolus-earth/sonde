@@ -99,7 +99,9 @@ function handleServerMessage(msg: ServerMessage, storeApi: ChatStoreApi) {
 
   switch (msg.type) {
     case "auth_ok":
-      s.setConnectionStatus("connected");
+      if (s.connectionStatus !== "recovering") {
+        s.setConnectionStatus("connected");
+      }
       break;
 
     case "session":
@@ -298,6 +300,7 @@ export function useChat() {
   const reconnectDelay = useRef(RECONNECT_BASE_MS);
   const authFailureRef = useRef(false);
   const authErrorLoggedRef = useRef(false);
+  const recoveringSessionIdRef = useRef<string | null>(null);
   const connectRef = useRef<() => Promise<void>>(async () => {});
 
   const clearReconnectTimer = useCallback(() => {
@@ -310,6 +313,7 @@ export function useChat() {
   const scheduleReconnect = useCallback(() => {
     if (authFailureRef.current) return;
     if (reconnectTimer.current) return;
+    chatStoreApiRef.current.getState().setConnectionStatus("reconnecting");
     reconnectTimer.current = setTimeout(() => {
       reconnectTimer.current = null;
       reconnectDelay.current = Math.min(
@@ -427,8 +431,25 @@ export function useChat() {
         chatDebug("ws:ping");
         return;
       }
+      if (recoveringSessionIdRef.current && msg.type !== "auth_ok") {
+        chatStoreApiRef.current.getState().setConnectionStatus("connected");
+        recoveringSessionIdRef.current = null;
+      }
       if (msg.type === "auth_ok") {
         chatDebug("ws:auth-ok");
+        const store = chatStoreApiRef.current.getState();
+        const tabId = resolveTargetTabId(chatStoreApiRef.current);
+        const tab = store.tabs.find((item) => item.id === tabId);
+        const sessionId = tab?.agentSessionId?.trim() ?? "";
+        if (sessionId) {
+          recoveringSessionIdRef.current = sessionId;
+          store.setConnectionStatus("recovering");
+          const payload: ClientMessage = {
+            type: "resume_session",
+            sessionId,
+          };
+          ws.send(JSON.stringify(payload));
+        }
       } else if (msg.type === "session") {
         chatDebug("ws:session", { sessionId: msg.sessionId });
       } else if (msg.type === "model_info") {
@@ -453,11 +474,9 @@ export function useChat() {
       });
       wsRef.current = null;
       const st = chatStoreApiRef.current.getState();
-      const tabId = st.streamingTabId ?? st.activeTabId;
-      st.setConnectionStatus("disconnected");
+      st.setConnectionStatus(authFailureRef.current ? "disconnected" : "reconnecting");
       st.setStreaming(false);
       st.setStreamingTabId(null);
-      st.clearPendingToolApprovals(tabId);
 
       if (ev.code === WS_CLOSE_UNAUTHORIZED) {
         void (async () => {

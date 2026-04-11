@@ -102,11 +102,10 @@ export const CanvasBubble = memo(function CanvasBubble({
         <div
           className={cn(
             "relative w-full overflow-hidden rounded-[32px]",
-            /* Dark shell on cream canvas — text color is driven in ChatInput (white), not theme text. */
-            "border border-white/[0.1] bg-[#1c1c1e] text-zinc-100",
-            "shadow-[0_20px_48px_-16px_rgba(0,0,0,0.35),0_8px_20px_-8px_rgba(0,0,0,0.25)]",
-            "ring-1 ring-white/[0.06] backdrop-blur-2xl",
-            "dark:border-white/[0.12] dark:bg-[#141414]/95",
+            "border border-border bg-surface-raised/92 text-text",
+            "shadow-[0_20px_48px_-16px_rgba(0,0,0,0.16),0_8px_20px_-8px_rgba(0,0,0,0.12)]",
+            "ring-1 ring-black/[0.03] backdrop-blur-2xl",
+            "dark:border-white/[0.12] dark:bg-[#141414]/95 dark:text-zinc-100",
             "dark:shadow-[0_28px_72px_-16px_rgba(0,0,0,0.65),0_12px_24px_-12px_rgba(0,0,0,0.45)]",
             "dark:ring-white/[0.06]",
           )}

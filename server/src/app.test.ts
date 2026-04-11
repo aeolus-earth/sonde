@@ -81,7 +81,9 @@ describe("createApp", () => {
       commitSha: string | null;
       schemaVersion: string | null;
       agentBackend: string;
-      daytonaConfigured: boolean;
+      managedConfigured: boolean;
+      sondeMcpConfigured: boolean;
+      githubConfigured: boolean;
       anthropicConfigured: boolean;
       cliGitRef: string | null;
       supabaseProjectRef: string | null;
@@ -94,8 +96,10 @@ describe("createApp", () => {
       environment: "test",
       commitSha: "abc123",
       schemaVersion: "20260407000123",
-      agentBackend: "direct",
-      daytonaConfigured: false,
+      agentBackend: "managed",
+      managedConfigured: false,
+      sondeMcpConfigured: true,
+      githubConfigured: false,
       anthropicConfigured: true,
       cliGitRef: "refs/heads/staging",
       supabaseProjectRef: "oxajsxoedrmvrcatqser",
@@ -121,9 +125,35 @@ describe("createApp", () => {
     assert.ok(body.expires_at.length > 0);
   });
 
-  it("returns a disabled prewarm status outside sandbox mode", async () => {
-    process.env.SONDE_AGENT_BACKEND = "direct";
+  it("returns a managed prewarm status when managed mode is enabled", async () => {
+    process.env.ANTHROPIC_API_KEY = "test-key";
+    process.env.SONDE_MANAGED_ENVIRONMENT_ID = "env_123";
+    process.env.SONDE_MANAGED_ALLOW_EPHEMERAL_AGENT = "1";
+    globalThis.fetch = async (input: string | URL | Request) => {
+      const url = typeof input === "string"
+        ? new URL(input)
+        : input instanceof URL
+          ? input
+          : new URL(input.url);
+
+      if (url.pathname === "/v1/agents") {
+        return new Response(JSON.stringify({ id: "agent_test_prewarm" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+
+      if (url.pathname === "/v1/sessions") {
+        return new Response(JSON.stringify({ id: "sesn_test_prewarm" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+
+      throw new Error(`Unexpected fetch: ${url.toString()}`);
+    };
     const app = createApp();
+
     const response = await app.request("http://localhost/chat/prewarm", {
       method: "POST",
       headers: {
@@ -135,11 +165,11 @@ describe("createApp", () => {
     const body = (await response.json()) as {
       status: string;
       backend: string;
+      session_id: string;
     };
-    assert.deepEqual(body, {
-      status: "disabled",
-      backend: "direct",
-    });
+    assert.equal(body.status, "ready");
+    assert.equal(body.backend, "managed");
+    assert.equal(body.session_id, "sesn_test_prewarm");
   });
 
   it("rejects unauthenticated GitHub proxy requests", async () => {

@@ -174,7 +174,7 @@ test.describe("Production deployment", () => {
       commitSha: string | null;
       schemaVersion: string | null;
       agentBackend: string;
-      daytonaConfigured: boolean;
+      managedConfigured: boolean;
       anthropicConfigured: boolean;
       cliGitRef: string | null;
       supabaseProjectRef: string | null;
@@ -185,8 +185,8 @@ test.describe("Production deployment", () => {
     expect(body.status).toBe("ok");
     expect(body.environment).toBeTruthy();
     expect(body.commitSha ?? null).not.toBeUndefined();
-    expect(body.agentBackend).toBeTruthy();
-    expect(body.daytonaConfigured).toBeTruthy();
+    expect(body.agentBackend).toBe("managed");
+    expect(body.managedConfigured).toBeTruthy();
     expect(body.anthropicConfigured).toBeTruthy();
     expect(body.cliGitRef ?? null).not.toBeUndefined();
     expect(body.supabaseProjectRef ?? null).not.toBeUndefined();

@@ -13,10 +13,13 @@ beforeEach(() => {
   process.env = {
     ...originalEnv,
     NODE_ENV: "test",
-    SONDE_AGENT_BACKEND: "direct",
+    SONDE_AGENT_BACKEND: "managed",
     SONDE_TEST_AGENT_MOCK: "1",
     SONDE_TEST_AUTH_BYPASS_TOKEN: "playwright-smoke-token",
     SONDE_TEST_AUTH_DELAY_MS: "25",
+    ANTHROPIC_API_KEY: "test-key",
+    SONDE_MANAGED_ENVIRONMENT_ID: "env_test_managed",
+    SONDE_MANAGED_ALLOW_EPHEMERAL_AGENT: "1",
   };
 });
 
@@ -84,8 +87,8 @@ describe("chat websocket session recovery", () => {
       .filter((message) => message.type === "error")
       .map((message) => String(message.message ?? ""));
     assert.ok(
-      !errors.includes("Claude Code process exited with code 1"),
-      `Unexpected stale-resume error leaked to client: ${errors.join(", ")}`
+      errors.length === 0,
+      `Unexpected recovery error leaked to client: ${errors.join(", ")}`
     );
 
     const finalText = messages.find((message) => message.type === "text_done");

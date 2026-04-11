@@ -5,12 +5,16 @@ import type { ConnectionStatus } from "@/types/chat";
 const statusClass: Record<ConnectionStatus, string> = {
   connected: "bg-status-complete",
   connecting: "bg-status-running animate-pulse",
+  reconnecting: "bg-status-open animate-pulse",
+  recovering: "bg-accent animate-pulse",
   disconnected: "bg-status-failed",
 };
 
 const statusTitle: Record<ConnectionStatus, string> = {
   connected: "Connected",
   connecting: "Connecting…",
+  reconnecting: "Reconnecting…",
+  recovering: "Recovering session…",
   disconnected: "Disconnected",
 };
 

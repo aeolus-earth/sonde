@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import {
   ChevronDown,
@@ -21,11 +21,14 @@ import {
 } from "@/components/chat/chat-artifact-preview";
 
 export function toolDisplayName(tool: string): string {
-  // Sandbox tools get friendly names
-  if (tool === "sandbox_exec") return "shell";
-  if (tool === "sandbox_read") return "read file";
-  if (tool === "sandbox_write") return "write file";
-  if (tool === "sandbox_glob") return "find files";
+  if (tool === "bash") return "shell";
+  if (tool === "read") return "read file";
+  if (tool === "write") return "write file";
+  if (tool === "edit") return "edit file";
+  if (tool === "glob") return "find files";
+  if (tool === "grep") return "search files";
+  if (tool === "web_fetch") return "fetch web page";
+  if (tool === "web_search") return "web search";
   return tool
     .replace(/^mcp__sonde__/, "")
     .replace(/^sonde_/, "")
@@ -39,11 +42,18 @@ function normalizedToolName(tool: string): string {
 /** Short category for wireframe-style pills (Script / Sonde / File / …). */
 export function toolCategoryBadge(tool: string): string {
   const n = normalizedToolName(tool);
-  if (n === "sandbox_exec") return "Script";
-  if (n === "sandbox_read" || n === "sandbox_write" || n === "sandbox_glob") {
+  if (n === "bash") return "Script";
+  if (
+    n === "read" ||
+    n === "write" ||
+    n === "edit" ||
+    n === "glob" ||
+    n === "grep"
+  ) {
     return "File";
   }
   if (n.startsWith("sonde_") || tool.includes("sonde")) return "Sonde";
+  if (n === "web_fetch" || n === "web_search") return "Web";
   return "Tool";
 }
 
@@ -52,19 +62,22 @@ function chainModeTitle(toolUse: ToolUseData): string {
   const active =
     toolUse.status === "running" || toolUse.status === "awaiting_approval";
   if (active) {
-    if (toolUse.tool === "sandbox_exec") return "Running command";
+    if (toolUse.tool === "bash") {
+      return "Running command";
+    }
     if (toolUse.status === "awaiting_approval") return "Awaiting approval";
     return "Running";
   }
   return toolSummary(toolUse);
 }
 
-/** Extract the command string from sandbox_exec input for display. */
-function sandboxCommandLabel(toolUse: ToolUseData): string | null {
+/** Extract the command or path from a tool input for display. */
+function commandLabel(toolUse: ToolUseData): string | null {
   if (
-    toolUse.tool !== "sandbox_exec" &&
-    toolUse.tool !== "sandbox_read" &&
-    toolUse.tool !== "sandbox_glob"
+    toolUse.tool !== "bash" &&
+    toolUse.tool !== "read" &&
+    toolUse.tool !== "glob" &&
+    toolUse.tool !== "grep"
   ) {
     return null;
   }
@@ -92,25 +105,25 @@ export function toolSummary(toolUse: ToolUseData): string {
     if (id) return `Listed artifacts for ${id}`;
     return "Listed artifacts";
   }
-  if (toolNorm === "sandbox_exec") {
+  if (toolNorm === "bash") {
     const cmd = getStr("command");
     if (cmd) return `Ran ${cmd}`;
     return "Ran shell command";
   }
-  if (toolNorm === "sandbox_read") {
-    const path = getStr("path");
+  if (toolNorm === "read") {
+    const path = getStr("file_path");
     if (path) return `Read ${path}`;
     return "Read file";
   }
-  if (toolNorm === "sandbox_write") {
-    const path = getStr("path");
-    if (path) return `Wrote ${path}`;
-    return "Wrote file";
+  if (toolNorm === "write" || toolNorm === "edit") {
+    const path = getStr("file_path");
+    if (path) return `${toolNorm === "edit" ? "Edited" : "Wrote"} ${path}`;
+    return toolNorm === "edit" ? "Edited file" : "Wrote file";
   }
-  if (toolNorm === "sandbox_glob") {
+  if (toolNorm === "glob" || toolNorm === "grep") {
     const pattern = getStr("pattern");
-    if (pattern) return `Found files matching ${pattern}`;
-    return "Find files";
+    if (pattern) return `${toolNorm === "grep" ? "Searched" : "Matched"} ${pattern}`;
+    return toolNorm === "grep" ? "Searched files" : "Found files";
   }
   return toolDisplayName(toolUse.tool);
 }
@@ -157,23 +170,7 @@ export const ChatToolActivity = memo(function ChatToolActivity({
   toolUse,
   chainMode = false,
 }: ChatToolActivityProps) {
-  const [expanded, setExpanded] = useState(
-    () => toolUse.status === "running" || toolUse.status === "awaiting_approval",
-  );
-  const prevStatus = useRef(toolUse.status);
-
-  useEffect(() => {
-    if (toolUse.status === "running" || toolUse.status === "awaiting_approval") {
-      setExpanded(true);
-    }
-    if (
-      (prevStatus.current === "running" || prevStatus.current === "awaiting_approval") &&
-      (toolUse.status === "done" || toolUse.status === "error")
-    ) {
-      setExpanded(false);
-    }
-    prevStatus.current = toolUse.status;
-  }, [toolUse.status]);
+  const [expanded, setExpanded] = useState(false);
 
   const toolNorm = toolUse.tool.replace(/^mcp__sonde__/, "");
   const artifactParentId = artifactPreviewParentId(toolNorm, toolUse.input);
@@ -185,7 +182,7 @@ export const ChatToolActivity = memo(function ChatToolActivity({
         : null;
 
   const recordHref = extractRecordHref(toolUse);
-  const cmdLabel = sandboxCommandLabel(toolUse);
+  const cmdLabel = commandLabel(toolUse);
   const isActive = toolUse.status === "running" || toolUse.status === "awaiting_approval";
 
   if (chainMode) {

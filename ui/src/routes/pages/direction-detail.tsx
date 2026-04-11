@@ -9,8 +9,9 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton, DetailSectionSkeleton, ExperimentRowSkeleton } from "@/components/ui/skeleton";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { Section, DetailRow } from "@/components/shared/detail-layout";
+import { directionDetailShareUrl } from "@/lib/app-origin";
 import { formatDateTime, formatDateTimeShort } from "@/lib/utils";
-import { ArrowLeft, GitFork } from "lucide-react";
+import { ArrowLeft, Copy, GitFork } from "lucide-react";
 import type { ExperimentStatus } from "@/types/sonde";
 
 const routeApi = getRouteApi(ROUTE_API.authDirectionDetail);
@@ -18,12 +19,14 @@ const routeApi = getRouteApi(ROUTE_API.authDirectionDetail);
 export default function DirectionDetailPage() {
   const { id } = routeApi.useParams();
   const navigate = routeApi.useNavigate();
+  const [linkCopied, setLinkCopied] = useState(false);
   const { data: dir, isLoading: loadingDir } = useDirection(id);
   const { data: experiments, isLoading: loadingExps } = useExperimentsByDirection(id);
   const { data: activity } = useRecordActivity(id);
   const { data: childDirections } = useChildDirections(id);
   const { data: parentDir } = useParentDirection(dir?.parent_direction_id);
   const [statusFilter, setStatusFilter] = useState<ExperimentStatus | "all">("all");
+  const shareUrl = useMemo(() => directionDetailShareUrl(id), [id]);
   useHotkey("Escape", useCallback(() => navigate({ to: "/directions" }), [navigate]));
 
   const filtered = useMemo(() => {
@@ -37,6 +40,16 @@ export default function DirectionDetailPage() {
     [navigate]
   );
 
+  const copyShareLink = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setLinkCopied(true);
+      window.setTimeout(() => setLinkCopied(false), 2000);
+    } catch {
+      setLinkCopied(false);
+    }
+  }, [shareUrl]);
+
   if (loadingDir || !dir) {
     return (
       <div className="space-y-4">
@@ -45,8 +58,8 @@ export default function DirectionDetailPage() {
           <Skeleton className="h-5 w-28" />
           <Skeleton className="h-5 w-16" />
         </div>
-        <div className="grid gap-3 lg:grid-cols-[1fr_280px]">
-          <div className="space-y-3">
+        <div className="grid min-w-0 gap-3 lg:grid-cols-[minmax(0,1fr)_280px]">
+          <div className="min-w-0 space-y-3">
             <DetailSectionSkeleton />
             <div className="rounded-[8px] border border-border bg-surface">
               {Array.from({ length: 4 }).map((_, i) => (
@@ -54,7 +67,7 @@ export default function DirectionDetailPage() {
               ))}
             </div>
           </div>
-          <div className="space-y-3">
+          <div className="min-w-0 space-y-3">
             <DetailSectionSkeleton />
           </div>
         </div>
@@ -75,34 +88,48 @@ export default function DirectionDetailPage() {
           { label: dir.id },
         ]}
       />
-      <div className="flex items-center gap-2.5">
-        <Link
-          to="/directions"
-          className="rounded-[5.5px] p-1 text-text-tertiary transition-colors hover:bg-surface-hover hover:text-text-secondary"
-        >
-          <ArrowLeft className="h-4 w-4" />
-        </Link>
-        <div className="flex items-center gap-2">
-          <h1 className="font-mono text-[15px] font-semibold tracking-[-0.01em] text-text">
-            {dir.id}
-          </h1>
-          <Badge
-            variant={
-              dir.status === "active" ? "running" :
-              dir.status === "completed" ? "complete" :
-              dir.status === "abandoned" ? "failed" : "default"
-            }
+      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
+          <Link
+            to="/directions"
+            className="shrink-0 rounded-[5.5px] p-1 text-text-tertiary transition-colors hover:bg-surface-hover hover:text-text-secondary"
           >
-            {dir.status}
-          </Badge>
+            <ArrowLeft className="h-4 w-4" />
+          </Link>
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <h1 className="font-mono text-[15px] font-semibold tracking-[-0.01em] text-text">
+              {dir.id}
+            </h1>
+            <Badge
+              variant={
+                dir.status === "active" ? "running" :
+                dir.status === "completed" ? "complete" :
+                dir.status === "abandoned" ? "failed" : "default"
+              }
+            >
+              {dir.status}
+            </Badge>
+          </div>
+          <span className="text-[12px] text-text-quaternary" title={formatDateTime(dir.created_at)}>
+            {formatDateTimeShort(dir.created_at)}
+          </span>
         </div>
-        <span className="text-[12px] text-text-quaternary" title={formatDateTime(dir.created_at)}>
-          {formatDateTimeShort(dir.created_at)}
-        </span>
+        <div className="flex min-w-0 flex-1 justify-end">
+          <button
+            type="button"
+            onClick={() => void copyShareLink()}
+            title={shareUrl}
+            aria-label={linkCopied ? "Link copied" : `Copy link: ${shareUrl}`}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-[5.5px] border border-border-subtle bg-surface-raised px-2.5 py-1 text-[12px] font-medium text-text-secondary transition-colors hover:bg-surface-hover"
+          >
+            <Copy className="h-3.5 w-3.5 shrink-0 text-text-quaternary" aria-hidden />
+            {linkCopied ? "Copied" : "Copy link"}
+          </button>
+        </div>
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-[1fr_280px]">
-        <div className="space-y-3">
+      <div className="grid min-w-0 gap-3 lg:grid-cols-[minmax(0,1fr)_280px]">
+        <div className="min-w-0 space-y-3">
           <Section title="Research Question">
             {dir.spawned_from_experiment_id && (
               <div className="mb-2 flex items-center gap-1.5 text-[12px] text-text-tertiary">
@@ -130,10 +157,10 @@ export default function DirectionDetailPage() {
                   <div
                     key={child.id}
                     onClick={() => navigate({ to: "/directions/$id", params: { id: child.id } })}
-                    className="flex cursor-pointer items-center gap-3 px-3 py-2 transition-colors hover:bg-surface-hover"
+                    className="flex min-w-0 cursor-pointer items-center gap-3 px-3 py-2 transition-colors hover:bg-surface-hover"
                   >
                     <GitFork className="h-3.5 w-3.5 shrink-0 text-text-quaternary" />
-                    <span className="font-mono text-[12px] font-medium text-text">
+                    <span className="shrink-0 font-mono text-[12px] font-medium text-text">
                       {child.id}
                     </span>
                     <Badge
@@ -148,7 +175,7 @@ export default function DirectionDetailPage() {
                     <span className="min-w-0 flex-1 truncate text-[12px] text-text-tertiary">
                       {child.title}
                     </span>
-                    <div className="flex items-center gap-1.5 text-[11px]">
+                    <div className="flex shrink-0 items-center gap-1.5 text-[11px]">
                       <Badge variant="complete">{child.complete_count}</Badge>
                       <Badge variant="running">{child.running_count}</Badge>
                       <Badge variant="open">{child.open_count}</Badge>
@@ -193,16 +220,19 @@ export default function DirectionDetailPage() {
                   <div
                     key={exp.id}
                     onClick={() => handleExpClick(exp.id)}
-                    className="flex cursor-pointer items-center gap-3 border-b border-border-subtle px-3 py-2 transition-colors last:border-0 hover:bg-surface-hover"
+                    className="flex min-w-0 cursor-pointer items-center gap-3 border-b border-border-subtle px-3 py-2 transition-colors last:border-0 hover:bg-surface-hover"
                   >
-                    <span className="font-mono text-[12px] font-medium text-text">
+                    <span className="shrink-0 font-mono text-[12px] font-medium text-text">
                       {exp.id}
                     </span>
                     <Badge variant={exp.status}>{exp.status}</Badge>
                     <span className="min-w-0 flex-1 truncate text-[12px] text-text-tertiary">
                       {exp.finding ?? exp.hypothesis ?? "—"}
                     </span>
-                    <span className="text-[11px] text-text-quaternary" title={formatDateTime(exp.created_at)}>
+                    <span
+                      className="shrink-0 text-[11px] text-text-quaternary"
+                      title={formatDateTime(exp.created_at)}
+                    >
                       {formatDateTimeShort(exp.created_at)}
                     </span>
                   </div>
@@ -217,7 +247,7 @@ export default function DirectionDetailPage() {
           </div>
         </div>
 
-        <div className="space-y-3">
+        <div className="min-w-0 space-y-3">
           <Section title="Details">
             <div className="divide-y divide-border-subtle">
               <DetailRow label="Program">{dir.program}</DetailRow>

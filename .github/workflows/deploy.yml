@@ -171,18 +171,30 @@ jobs:
       - name: Pin deployed commit metadata
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_PRODUCTION_PROJECT_TOKEN }}
+          SONDE_MANAGED_ENVIRONMENT_ID: ${{ vars.SONDE_ANTHROPIC_MANAGED_ENVIRONMENT_ID }}
           SONDE_SCHEMA_VERSION: ${{ steps.schema.outputs.version }}
           SONDE_RUNTIME_AUDIT_TOKEN: ${{ secrets.SONDE_PRODUCTION_AGENT_RUNTIME_AUDIT_TOKEN }}
           SONDE_WS_TOKEN_SECRET: ${{ secrets.SONDE_PRODUCTION_WS_TOKEN_SECRET }}
           SONDE_GITHUB_ALLOWED_REPOS: ${{ vars.SONDE_GITHUB_ALLOWED_REPOS }}
         run: |
+          if [ -z "$SONDE_MANAGED_ENVIRONMENT_ID" ]; then
+            echo "::error::Missing SONDE_ANTHROPIC_MANAGED_ENVIRONMENT_ID repository variable"
+            exit 1
+          fi
           SCHEMA_VERSION="${SONDE_SCHEMA_VERSION:-unknown}"
+          railway variable delete \
+            -s "${{ vars.RAILWAY_PRODUCTION_SERVICE_NAME }}" \
+            -e production \
+            SONDE_MANAGED_AGENT_ID || true
           railway variable set \
             -s "${{ vars.RAILWAY_PRODUCTION_SERVICE_NAME }}" \
             -e production \
             --skip-deploys \
             VITE_SUPABASE_URL="https://${{ secrets.SUPABASE_PROJECT_REF }}.supabase.co" \
             VITE_SUPABASE_ANON_KEY="${{ vars.SUPABASE_ANON_KEY }}" \
+            SONDE_AGENT_BACKEND="managed" \
+            SONDE_MANAGED_ENVIRONMENT_ID="${SONDE_MANAGED_ENVIRONMENT_ID}" \
+            SONDE_MANAGED_ALLOW_EPHEMERAL_AGENT="1" \
             SONDE_ALLOWED_ORIGINS="${{ vars.SONDE_UI_URL }}" \
             SONDE_ENVIRONMENT="production" \
             SONDE_COMMIT_SHA="${GITHUB_SHA}" \

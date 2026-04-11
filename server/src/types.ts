@@ -1,3 +1,5 @@
+import type { AgentBackend } from "./runtime-mode.js";
+
 export type RecordType = "experiment" | "finding" | "question" | "direction";
 
 export interface MentionRef {
@@ -45,6 +47,11 @@ export interface ClientMessageChat {
   attachments?: ChatAttachmentPayload[];
 }
 
+export interface ClientMessageResumeSession {
+  type: "resume_session";
+  sessionId: string;
+}
+
 export interface ClientMessageApproveTasks {
   type: "approve_tasks";
 }
@@ -73,6 +80,7 @@ export interface ClientMessagePong {
 export type ClientMessage =
   | ClientMessageAuth
   | ClientMessageChat
+  | ClientMessageResumeSession
   | ClientMessageApproveTasks
   | ClientMessageCancel
   | ClientMessageApproveTool
@@ -98,7 +106,7 @@ export interface ServerModelInfo {
 
 export interface ServerRuntimeInfo {
   type: "runtime_info";
-  backend: "sandbox" | "direct";
+  backend: AgentBackend;
   label: string;
   traces: boolean;
   workspaceDir?: string;
@@ -142,10 +150,9 @@ export interface ServerToolUseError {
 
 export type ToolApprovalKind =
   | "sonde_write"
-  | "sandbox_mutate"
-  | "sandbox_destructive"
-  | "sandbox_sensitive"
-  | "external_tool";
+  | "external_write"
+  | "destructive"
+  | "sensitive_access";
 
 export interface ServerToolApprovalRequired {
   type: "tool_approval_required";
@@ -203,5 +210,14 @@ export type AgentEvent =
   | { type: "tool_use_start"; id: string; tool: string; input: Record<string, unknown> }
   | { type: "tool_use_end"; id: string; output: string }
   | { type: "tool_use_error"; id: string; error: string }
+  | {
+      type: "tool_approval_required";
+      approvalId: string;
+      toolUseID: string;
+      tool: string;
+      input: Record<string, unknown>;
+      destructive?: boolean;
+      kind?: ToolApprovalKind;
+    }
   | { type: "tasks"; tasks: AgentTask[] }
   | { type: "error"; message: string };

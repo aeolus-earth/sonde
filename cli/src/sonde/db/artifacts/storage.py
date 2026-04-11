@@ -20,6 +20,7 @@ from sonde.db.client import get_client
 from sonde.db.ids import create_with_retry
 
 SAFE_TEXT_EXTENSIONS = {
+    ".bib",
     ".cfg",
     ".conf",
     ".csv",
@@ -31,6 +32,8 @@ SAFE_TEXT_EXTENSIONS = {
     ".md",
     ".py",
     ".r",
+    ".sty",
+    ".tex",
     ".toml",
     ".tsv",
     ".txt",

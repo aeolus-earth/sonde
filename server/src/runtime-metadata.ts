@@ -1,16 +1,19 @@
-import { isSandboxMode } from "./agent.js";
+import { getAgentBackend } from "./runtime-mode.js";
 import {
   hasSharedRateLimitConfig,
   isSharedRateLimitRequired,
 } from "./security-config.js";
+import { hasGitHubAccess } from "./github.js";
 
 export interface RuntimeMetadata {
   status: "ok";
   environment: string;
   commitSha: string | null;
   schemaVersion: string | null;
-  agentBackend: "sandbox" | "direct";
-  daytonaConfigured: boolean;
+  agentBackend: "managed";
+  managedConfigured: boolean;
+  sondeMcpConfigured: boolean;
+  githubConfigured: boolean;
   anthropicConfigured: boolean;
   cliGitRef: string | null;
   supabaseProjectRef: string | null;
@@ -46,13 +49,23 @@ export function getSupabaseProjectRef(
 export function getRuntimeMetadata(
   env: NodeJS.ProcessEnv = process.env
 ): RuntimeMetadata {
+  const managedConfigured =
+    Boolean(env.ANTHROPIC_API_KEY?.trim()) &&
+    Boolean(env.SONDE_MANAGED_ENVIRONMENT_ID?.trim()) &&
+    (Boolean(env.SONDE_MANAGED_AGENT_ID?.trim()) ||
+      env.SONDE_MANAGED_ALLOW_EPHEMERAL_AGENT === "1");
   return {
     status: "ok",
     environment: getRuntimeEnvironment(env),
     commitSha: env.SONDE_COMMIT_SHA?.trim() || null,
     schemaVersion: env.SONDE_SCHEMA_VERSION?.trim() || null,
-    agentBackend: isSandboxMode() ? "sandbox" : "direct",
-    daytonaConfigured: Boolean(env.DAYTONA_API_KEY?.trim()),
+    agentBackend: getAgentBackend(env),
+    managedConfigured,
+    sondeMcpConfigured:
+      Boolean(env.SONDE_PUBLIC_AGENT_BASE_URL?.trim()) ||
+      Boolean(env.SONDE_MANAGED_SONDE_MCP_URL?.trim()) ||
+      true,
+    githubConfigured: hasGitHubAccess(env),
     anthropicConfigured: Boolean(env.ANTHROPIC_API_KEY?.trim()),
     cliGitRef: env.SONDE_CLI_GIT_REF?.trim() || null,
     supabaseProjectRef: getSupabaseProjectRef(env),

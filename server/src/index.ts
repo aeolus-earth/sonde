@@ -4,6 +4,8 @@ import { createNodeWebSocket } from "@hono/node-ws";
 import { createApp, handleWebSocket } from "./app.js";
 import { probeSondeCliEnvironment } from "./sonde-runner.js";
 import { assertSecurityConfig } from "./security-config.js";
+import { installAnthropicAbortGuard } from "./anthropic-abort-guard.js";
+import { getAgentBackend } from "./runtime-mode.js";
 
 const app = createApp();
 const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
@@ -17,6 +19,8 @@ if (!Number.isFinite(port) || port <= 0) {
   throw new Error(`Invalid server port: ${configuredPort}`);
 }
 
+installAnthropicAbortGuard();
+getAgentBackend();
 assertSecurityConfig();
 await probeSondeCliEnvironment();
 
@@ -25,40 +29,3 @@ const server = serve({ fetch: app.fetch, port }, (info) => {
 });
 
 injectWebSocket(server);
-
-// Daytona sandbox lifecycle management
-import { isSandboxMode } from "./agent.js";
-if (isSandboxMode()) {
-  // Clean up orphaned Daytona sandboxes on boot so a crashed server does not
-  // strand quota indefinitely.
-  import("./sandbox/daytona-client.js")
-    .then(({ cleanupStaleSandboxes }) => cleanupStaleSandboxes())
-    .catch((err) =>
-      console.error("[sandbox] Startup failed:", err.message)
-    );
-
-  const cleanupInterval = setInterval(() => {
-    import("./sandbox/user-sandbox-pool.js")
-      .then(({ cleanupExpiredUserSandboxes }) => cleanupExpiredUserSandboxes())
-      .catch(() => {});
-  }, 5 * 60_000);
-
-  // Clean up active user sandboxes + stale sandboxes on graceful shutdown
-  const shutdownCleanup = () => {
-    console.log("[sandbox] Server shutting down, cleaning up...");
-    clearInterval(cleanupInterval);
-    Promise.all([
-      import("./sandbox/user-sandbox-pool.js").then(({ disposeUserSandboxes }) =>
-        disposeUserSandboxes()
-      ),
-      import("./sandbox/daytona-client.js").then(({ cleanupStaleSandboxes }) =>
-        cleanupStaleSandboxes()
-      ),
-    ])
-      .catch(() => {})
-      .finally(() => process.exit(0));
-    setTimeout(() => process.exit(1), 10_000);
-  };
-  process.on("SIGINT", shutdownCleanup);
-  process.on("SIGTERM", shutdownCleanup);
-}

@@ -10,7 +10,7 @@ import type {
   PendingToolApproval,
 } from "@/types/chat";
 
-const PERSIST_VERSION = 3;
+const PERSIST_VERSION = 4;
 
 export interface ChatTab {
   id: string;
