@@ -183,6 +183,7 @@ jobs:
             --skip-deploys \
             VITE_SUPABASE_URL="https://${{ secrets.SUPABASE_PROJECT_REF }}.supabase.co" \
             VITE_SUPABASE_ANON_KEY="${{ vars.SUPABASE_ANON_KEY }}" \
+            SONDE_AGENT_BACKEND="managed" \
             SONDE_ALLOWED_ORIGINS="${{ vars.SONDE_UI_URL }}" \
             SONDE_ENVIRONMENT="production" \
             SONDE_COMMIT_SHA="${GITHUB_SHA}" \
