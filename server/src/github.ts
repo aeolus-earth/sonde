@@ -142,6 +142,22 @@ function getGitHubToken(): string | null {
   return token.length > 0 ? token : null;
 }
 
+export function hasGitHubAccess(
+  env: NodeJS.ProcessEnv = process.env
+): boolean {
+  const raw =
+    env.GITHUB_TOKEN ??
+    env.GH_TOKEN ??
+    env.SONDE_GITHUB_TOKEN ??
+    null;
+  const token = raw?.trim() ?? "";
+  return token.length > 0;
+}
+
+export function getServerGitHubToken(): string | null {
+  return getGitHubToken();
+}
+
 function getGitHubAuthMode(): GitHubAuthMode {
   return getGitHubToken() ? "server_token" : "unauthenticated";
 }

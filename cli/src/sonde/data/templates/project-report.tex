@@ -1,111 +1,142 @@
-\documentclass[10pt,twocolumn]{article}
+\documentclass[8pt,twocolumn]{extarticle}
 
-\usepackage[margin=0.72in]{geometry}
+\usepackage[
+  paperwidth=9.5in,
+  paperheight=11in,
+  top=1in,
+  bottom=1in,
+  left=0.35in,
+  right=0.35in,
+  includeheadfoot,
+  headsep=12pt
+]{geometry}
+
+\usepackage{lmodern}
 \usepackage[T1]{fontenc}
 \usepackage[utf8]{inputenc}
-\usepackage{lmodern}
 \usepackage{microtype}
 \usepackage{textcomp}
-\usepackage[dvipsnames]{xcolor}
+\usepackage{titlesec}
+\usepackage{amsmath,amssymb}
 \usepackage{graphicx}
 \usepackage{booktabs}
 \usepackage{tabularx}
 \usepackage{longtable}
-\usepackage{enumitem}
-\usepackage{hyperref}
-\usepackage{fancyhdr}
-\usepackage{titlesec}
 \usepackage{array}
-
-\definecolor{SondeOrange}{HTML}{E07B39}
-\definecolor{SondeSlate}{HTML}{1F2937}
-\definecolor{SondeMuted}{HTML}{6B7280}
-\definecolor{SondeBorder}{HTML}{D1D5DB}
-\definecolor{SondeWash}{HTML}{F8FAFC}
+\usepackage{adjustbox}
+\usepackage{lscape}
+\usepackage{siunitx}
+\usepackage{authblk}
+\usepackage{natbib}
+\usepackage{enumitem}
+\usepackage{xurl}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{dblfloatfix}
+\usepackage{fancyhdr}
 
 \hypersetup{
-  colorlinks=true,
-  linkcolor=SondeOrange,
-  urlcolor=SondeOrange,
-  citecolor=SondeOrange,
+  hidelinks,
   pdftitle={__PROJECT_NAME__}
 }
 
-\setlength{\columnsep}{0.24in}
-\setlength{\parindent}{1em}
-\setlength{\parskip}{0.35em}
-\setlength{\headheight}{14pt}
-\setlist[itemize]{leftmargin=1.25em, itemsep=0.2em, topsep=0.25em}
+\graphicspath{{./}}
+\titleformat{\section}{\bfseries\large\centering}{}{0em}{}
+\titleformat{\subsection}{\bfseries\normalsize\centering}{}{0em}{}
+\setlength{\columnsep}{15pt}
+\linespread{0.96}
+\setlist[itemize]{leftmargin=1.1em,itemsep=0.1em}
+
+\definecolor{SondeMuted}{HTML}{6B7280}
 
 \pagestyle{fancy}
 \fancyhf{}
-\lhead{\textcolor{SondeMuted}{\footnotesize\texttt{__PROJECT_ID__}}}
-\rhead{\textcolor{SondeMuted}{\footnotesize __PROGRAM__}}
-\cfoot{\textcolor{SondeMuted}{\footnotesize \thepage}}
-\renewcommand{\headrulewidth}{0.25pt}
-\renewcommand{\footrulewidth}{0pt}
-
-\titleformat{\section}
-  {\large\bfseries\color{SondeSlate}}
-  {\thesection.}
-  {0.5em}
-  {}
-\titleformat{\subsection}
-  {\normalsize\bfseries\color{SondeSlate}}
-  {\thesubsection}
-  {0.5em}
-  {}
+\lhead{\small Aeolus Project Technical White Paper}
+\rhead{\small \thepage}
+\cfoot{}
 
 \newcommand{\placeholder}[1]{\textcolor{SondeMuted}{#1}}
-\newcommand{\evidence}[1]{\texttt{#1}}
 \newcommand{\decision}[1]{\textbf{#1}}
 
 \begin{document}
 
-\twocolumn[
-\begin{@twocolumnfalse}
+\hypersetup{pageanchor=false}
+\begin{titlepage}
+  \thispagestyle{empty}
+  \begin{center}
+    \vspace*{1.2cm}
+
+    \includegraphics[width=0.36\textwidth]{logo.png}
+
+    \vspace{0.8cm}
+    \rule{0.7\textwidth}{0.5pt}
+    \vspace{0.8cm}
+
+    {\Huge __PROJECT_NAME__\par}
+    \vspace{1.2ex}
+    {\Large Aeolus Project Technical White Paper\par}
+    \vspace{2.0ex}
+
+    {\large Project: \texttt{__PROJECT_ID__}}\par
+    \vspace{0.5ex}
+    {\large Program: __PROGRAM__}\par
+    \vspace{0.5ex}
+    {\large Status: __PROJECT_STATUS__}\par
+    \vspace{3.0ex}
+
+    {\normalsize __REPORT_DATE__}\par
+    \vspace{2.0ex}
+    \vfill
+
+    Internal technical white paper\par
+    \vspace{0.5em}
+    \small Confidential and proprietary. Replace this line if the sharing scope changes.\par
+  \end{center}
+\end{titlepage}
+\hypersetup{pageanchor=true}
+
+\twocolumn
 \raggedright
-{\LARGE\bfseries\color{SondeOrange} __PROJECT_NAME__ \par}
+\par\vspace{0.5em}
+
+\section*{Executive Summary}
+
+__TAKEAWAYS__
+
 \vspace{0.35em}
-{\large\color{SondeSlate} Curated Final Project Report \par}
-\vspace{0.8em}
+\decision{Objective.} __OBJECTIVE__
 
-\noindent
-\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}llll}
-\textbf{Project} & \texttt{__PROJECT_ID__} & \textbf{Program} & __PROGRAM__ \\
-\textbf{Status} & __PROJECT_STATUS__ & \textbf{Report date} & __REPORT_DATE__ \\
-\end{tabular*}
+\vspace{0.35em}
+\decision{Evidence base.} __EXPERIMENT_STATS__
 
-\vspace{0.8em}
-\noindent
-\fcolorbox{SondeBorder}{SondeWash}{
-  \parbox{\dimexpr\textwidth-2\fboxsep-2\fboxrule\relax}{
-    \textbf{Abstract.} __TAKEAWAYS__
+\section*{Motivation and Program Question}
 
-    \textbf{Objective.} __OBJECTIVE__
-
-    \textbf{Evidence base.} __EXPERIMENT_STATS__
-  }
-}
-\vspace{1.1em}
-\end{@twocolumnfalse}
-]
-
-\section{Introduction}
-\subsection{Decision Context}
 __DESCRIPTION__
 
-\subsection{Project Objective}
+\vspace{0.35em}
+Frame the central scientific or operational decision in one paragraph. State what the team needed to know, what constraints shaped the work, and why this project existed.
+
+\section*{System Framing and Objectives}
+
 __OBJECTIVE__
 
-\section{Research Map}
-\subsection{Directions and Investigation Threads}
+\vspace{0.35em}
+\begin{itemize}
+  \item \placeholder{State the spatial, temporal, and program scope.}
+  \item \placeholder{State the success criterion or decision threshold.}
+  \item \placeholder{State the key assumptions that bounded the work.}
+\end{itemize}
+
+\section*{Research Map}
+
+\subsection*{Directions and Investigation Threads}
 __DIRECTIONS_BLOCK__
 
-\subsection{Promoted Findings Already Supported}
+\subsection*{Promoted Findings Already Supported}
 __FINDINGS_BLOCK__
 
-\section{Methods and Provenance}
+\section*{Methods and Provenance}
+
 \placeholder{Document the datasets, models, analysis environment, validation procedures, and key repo or command provenance needed to trust the results.}
 
 \begin{itemize}
@@ -114,14 +145,16 @@ __FINDINGS_BLOCK__
   \item Note any calibration, filtering, or validation rules that materially changed the conclusions.
 \end{itemize}
 
-\section{Results}
-\subsection{High-Signal Experiments to Synthesize}
+\section*{Results}
+
+\subsection*{High-Signal Experiments to Synthesize}
 __EXPERIMENTS_BLOCK__
 
-\subsection{Figures and Tables}
+\subsection*{Figures and Tables}
 \placeholder{Insert the core figures and tables here. Every caption should state the takeaway, not just describe the image.}
 
-\section{Negative Results and Failure Modes}
+\section*{Negative Results and Failure Modes}
+
 \placeholder{Capture dead ends, invalid assumptions, and failed runs that changed how the project should be interpreted or continued.}
 
 \begin{itemize}
@@ -130,14 +163,18 @@ __EXPERIMENTS_BLOCK__
   \item \placeholder{What should the next scientist avoid repeating?}
 \end{itemize}
 
-\section{Discussion}
+\section*{Discussion}
+
 \decision{Primary interpretation.} __TAKEAWAYS__
 
+\vspace{0.35em}
 \decision{Confidence and caveats.} \placeholder{State what evidence makes this conclusion trustworthy and what evidence would change it.}
 
+\vspace{0.35em}
 \decision{Operational or scientific implication.} \placeholder{Explain what this means for the next decision, deployment, or research cycle.}
 
-\section{Conclusions and Recommended Actions}
+\section*{Conclusions and Recommended Actions}
+
 \begin{itemize}
   \item \decision{What we know now.} \placeholder{Add the stable conclusion.}
   \item \decision{What remains uncertain.} \placeholder{Add the open uncertainty that still matters.}
@@ -146,8 +183,9 @@ __EXPERIMENTS_BLOCK__
 
 \appendix
 
-\section{Reproducibility Appendix}
-\subsection{Suggested Appendix Checklist}
+\section*{Reproducibility Appendix}
+
+\subsection*{Suggested Appendix Checklist}
 \begin{itemize}
   \item \texttt{sonde project brief __PROJECT_ID__ --json}
   \item \texttt{sonde project show __PROJECT_ID__ --json}
@@ -155,10 +193,10 @@ __EXPERIMENTS_BLOCK__
   \item \placeholder{Final build command, environment notes, and artifact inventory}
 \end{itemize}
 
-\subsection{Supporting Notes}
+\subsection*{Supporting Notes}
 __NOTES_BLOCK__
 
-\section{References}
+\section*{References}
 \placeholder{List papers, internal docs, datasets, dashboards, and external URLs here.}
 
 \end{document}

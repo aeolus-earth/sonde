@@ -113,6 +113,79 @@ class TestProjectReportCommands:
     def _auth(self, authenticated):
         """Project report commands are authenticated through the DB layer."""
 
+    def test_report_template_writes_white_paper_bundle(self, runner, tmp_path: Path):
+        brief = {
+            "project": {
+                "id": "PROJ-001",
+                "program": "weather-intervention",
+                "name": "Warm Rain Synthesis",
+                "status": "active",
+                "objective": "Understand the dominant warm-rain pathway.",
+                "description": "Summarize the scoped evidence and final technical answer.",
+            },
+            "takeaways": "Warm-rain onset is dominated by the resolved transport pathway.",
+            "directions": [
+                {
+                    "id": "DIR-010",
+                    "title": "Resolved transport closure",
+                    "status": "completed",
+                    "question": "Does resolved transport explain the residual?",
+                    "experiment_count": 3,
+                }
+            ],
+            "findings": [
+                {
+                    "id": "FIND-001",
+                    "finding": "Resolved transport explains most of the residual.",
+                    "confidence": "high",
+                    "topic": "transport",
+                }
+            ],
+            "experiments": {
+                "total": 4,
+                "by_status": {"complete": 3, "open": 1},
+                "recent": [
+                    {
+                        "id": "EXP-0042",
+                        "status": "complete",
+                        "direction_id": "DIR-010",
+                        "finding": "Transport closure matches the control residual.",
+                    }
+                ],
+            },
+            "notes": [{"id": "NOTE-001", "content": "Stakeholders want a white-paper summary."}],
+        }
+
+        output = tmp_path / "report" / "main.tex"
+        with patch(
+            "sonde.commands.project_report_template._build_project_brief",
+            return_value=brief,
+        ):
+            result = runner.invoke(
+                cli,
+                [
+                    "--json",
+                    "project",
+                    "report-template",
+                    "PROJ-001",
+                    "--output",
+                    str(output),
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert output.exists()
+        logo = output.parent / "logo.png"
+        assert logo.exists()
+
+        tex = output.read_text(encoding="utf-8")
+        assert "Aeolus Project Technical White Paper" in tex
+        assert r"\includegraphics[width=0.36\textwidth]{logo.png}" in tex
+        assert "Warm Rain Synthesis" in tex
+        assert '"template": "sonde-project-report-v2"' in result.output
+        assert '"logo_path":' in result.output
+        assert 'logo.png"' in result.output
+
     def test_report_registers_pdf_and_tex(self, runner, tmp_path: Path):
         pdf = tmp_path / "report.pdf"
         tex = tmp_path / "main.tex"

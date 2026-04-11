@@ -4,6 +4,11 @@ Use this skill when a project is ready for final synthesis, when creating or upd
 
 The project report is the curated endpoint of a project: it moves knowledge upward from experiments, findings, notes, artifacts, direction takeaways, and project takeaways into one stable PDF. Sonde stores the rendered PDF and the editable LaTeX entrypoint; the work repo builds them.
 
+`sonde project report-template` now scaffolds a complete starting bundle for agents:
+
+- `report/main.tex` — the standardized Aeolus project-report template
+- `report/logo.png` — the bundled Aeolus wordmark used on the title page
+
 ---
 
 ## Required workflow
@@ -22,7 +27,7 @@ sonde project pull PROJ-001 --artifacts all
 rg -n "project_id: PROJ-001|finding:|hypothesis:|direction_id:" \
   .sonde/experiments .sonde/directions .sonde/projects
 
-# 4. Scaffold the standard LaTeX entrypoint, then edit in the work repo.
+# 4. Scaffold the standard Aeolus white-paper entrypoint, then edit in the work repo.
 sonde project report-template PROJ-001
 
 # 5. Build locally. Sonde does not compile LaTeX.
@@ -103,25 +108,28 @@ configuration choice, failure mode, or surprising behavior.
 
 ## Standard report structure
 
-Default to a two-column scientific-paper layout unless the user gives a stronger project-specific template:
+Default to the bundled Aeolus internal white-paper layout unless the user gives a stronger project-specific template:
 
-1. **Paper header + abstract** — project name, `PROJ-*`, program, status/date metadata, then a compact abstract stating the final answer, objective, and evidence base.
-2. **Introduction** — project motivation, decision context, and scope.
-3. **Research map** — directions, experiment families, promoted findings, and the narrative arc of the investigation.
-4. **Methods and provenance** — datasets, model/config choices, important repo/commit/command provenance, validation methods, and units.
-5. **Results** — claim-first subsections with the most important experiments, figures, and tables.
-6. **Negative results and failure modes** — dead ends, abandoned hypotheses, known gotchas, failed runs that change how the next scientist should work.
-7. **Discussion** — synthesis, caveats, confidence, and the operational/scientific meaning of the results.
-8. **Conclusions and recommended actions** — what is now known, what should be operationalized, what is still unknown, and the next follow-up directions.
-9. **Reproducibility appendix** — complete run table, commands, repo snapshots, artifact inventory, data locations, and environment notes.
-10. **References** — papers, internal docs, datasets, and external URLs.
+1. **Branded title page** — keep the bundled Aeolus wordmark and white-paper framing.
+2. **Executive summary** — project name, `PROJ-*`, program, status/date metadata, then a compact final-answer summary, objective, and evidence base.
+3. **Motivation and program question** — project motivation, decision context, and scope.
+4. **System framing and objectives** — what exact problem was bounded and what success looked like.
+5. **Research map** — directions, experiment families, promoted findings, and the narrative arc of the investigation.
+6. **Methods and provenance** — datasets, model/config choices, important repo/commit/command provenance, validation methods, and units.
+7. **Results** — claim-first subsections with the most important experiments, figures, and tables.
+8. **Negative results and failure modes** — dead ends, abandoned hypotheses, known gotchas, failed runs that change how the next scientist should work.
+9. **Discussion** — synthesis, caveats, confidence, and the operational/scientific meaning of the results.
+10. **Conclusions and recommended actions** — what is now known, what should be operationalized, what is still unknown, and the next follow-up directions.
+11. **Reproducibility appendix** — complete run table, commands, repo snapshots, artifact inventory, data locations, and environment notes.
+12. **References** — papers, internal docs, datasets, and external URLs.
 
 ---
 
 ## LaTeX design rules
 
 - Keep a single entrypoint named like `report/main.tex` in the work repo.
-- Use a full-width paper header followed by a two-column body, like a compact scientific manuscript.
+- Keep the bundled `report/logo.png` next to the entrypoint and use it on the title page.
+- Use the Aeolus internal white-paper layout: branded title page, then a compact two-column body.
 - Make the abstract earn its space: it should state the final answer, objective, and evidence base immediately.
 - Prefer short sections with claim-first opening paragraphs.
 - Write in polished scientific prose, not in chatty lab-note voice.
@@ -133,6 +141,7 @@ Default to a two-column scientific-paper layout unless the user gives a stronger
 - Keep raw logs, exhaustive parameter dumps, and long experiment timelines in appendices.
 - Do not paste every experiment narrative into the report. Curate the conclusion; preserve detail by citing Sonde IDs.
 - Mark uncertain conclusions explicitly with confidence language and the evidence that would change the conclusion.
+- Treat the template as a strong default, not a straitjacket: keep the branded frame and section intent, but add subsections, tables, and figures as the project demands.
 - Never upload a first draft. Read the LaTeX source and the compiled PDF end to end before registering the report.
 
 ---

@@ -21,7 +21,7 @@ function isRetryablePrewarmFailure(status, bodyText) {
   if ([502, 503, 504].includes(status)) {
     return true;
   }
-  return /chat sandbox is not ready/i.test(bodyText);
+  return /chat runtime is not ready/i.test(bodyText);
 }
 
 async function main() {

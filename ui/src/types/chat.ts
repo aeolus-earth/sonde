@@ -42,10 +42,15 @@ export interface ChatMessageData {
   timestamp: number;
 }
 
-export type ConnectionStatus = "connecting" | "connected" | "disconnected";
+export type ConnectionStatus =
+  | "connecting"
+  | "connected"
+  | "reconnecting"
+  | "recovering"
+  | "disconnected";
 
 export interface AgentRuntimeInfo {
-  backend: "sandbox" | "direct";
+  backend: "managed";
   label: string;
   traces: boolean;
   workspaceDir?: string;
@@ -82,6 +87,11 @@ export interface ClientMessageChat {
   attachments?: ChatAttachmentPayload[];
 }
 
+export interface ClientMessageResumeSession {
+  type: "resume_session";
+  sessionId: string;
+}
+
 export interface ClientMessageApproveTasks {
   type: "approve_tasks";
 }
@@ -110,6 +120,7 @@ export interface ClientMessagePong {
 export type ClientMessage =
   | ClientMessageAuth
   | ClientMessageChat
+  | ClientMessageResumeSession
   | ClientMessageApproveTasks
   | ClientMessageCancel
   | ClientMessageApproveTool
@@ -134,7 +145,7 @@ export interface ServerModelInfo {
 
 export interface ServerRuntimeInfo {
   type: "runtime_info";
-  backend: "sandbox" | "direct";
+  backend: "managed";
   label: string;
   traces: boolean;
   workspaceDir?: string;
@@ -177,10 +188,9 @@ export interface ServerToolUseError {
 
 export type ToolApprovalKind =
   | "sonde_write"
-  | "sandbox_mutate"
-  | "sandbox_destructive"
-  | "sandbox_sensitive"
-  | "external_tool";
+  | "external_write"
+  | "destructive"
+  | "sensitive_access";
 
 export interface ServerToolApprovalRequired {
   type: "tool_approval_required";

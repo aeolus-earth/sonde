@@ -16,12 +16,20 @@ from sonde.output import print_error, print_json, print_success
 
 _TEMPLATE_PACKAGE = "sonde.data.templates"
 _TEMPLATE_NAME = "project-report.tex"
+_LOGO_PACKAGE = "sonde.assets"
+_LOGO_NAME = "logo.png"
 _DEFAULT_OUTPUT = "report/main.tex"
+_TEMPLATE_VERSION = "sonde-project-report-v2"
 
 
 def _load_template() -> str:
     """Read the bundled LaTeX report template."""
     return resources.files(_TEMPLATE_PACKAGE).joinpath(_TEMPLATE_NAME).read_text(encoding="utf-8")
+
+
+def _load_logo() -> bytes:
+    """Read the bundled Aeolus wordmark for the project report title page."""
+    return resources.files(_LOGO_PACKAGE).joinpath(_LOGO_NAME).read_bytes()
 
 
 def _escape_latex(text: str) -> str:
@@ -224,6 +232,22 @@ def _display_path(path: Path) -> str:
         return str(path)
 
 
+def _write_logo_asset(output_dir: Path, *, force: bool) -> Path:
+    """Write the bundled logo next to the report entrypoint when needed."""
+    target = output_dir / _LOGO_NAME
+    logo_bytes = _load_logo()
+    if target.exists() and not force:
+        try:
+            if target.read_bytes() == logo_bytes:
+                return target
+        except OSError:
+            pass
+        return target
+
+    target.write_bytes(logo_bytes)
+    return target
+
+
 @click.command("report-template")
 @click.argument("project_id")
 @click.option(
@@ -269,11 +293,13 @@ def project_report_template(
 
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(_render_report_template(brief), encoding="utf-8")
+    logo_target = _write_logo_asset(target.parent, force=force)
 
     payload = {
         "project_id": project_id,
         "path": _display_path(target),
-        "template": "sonde-project-report-v1",
+        "template": _TEMPLATE_VERSION,
+        "logo_path": _display_path(logo_target),
         "force": force,
     }
     if ctx.obj.get("json"):
@@ -284,9 +310,14 @@ def project_report_template(
         f"Wrote report scaffold for {project_id}",
         details=[
             f"Path: {_display_path(target)}",
-            "Template: sonde-project-report-v1",
+            f"Logo: {_display_path(logo_target)}",
+            f"Template: {_TEMPLATE_VERSION}",
         ],
         breadcrumbs=[
+            (
+                "Start from the bundled Aeolus white-paper template "
+                "and keep the logo on the title page."
+            ),
             (
                 "Build the PDF in your repo, then: "
                 f"sonde project report {project_id} --pdf build/project-report.pdf "

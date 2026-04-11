@@ -19,7 +19,7 @@ const SUPABASE_URL = process.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = process.env.VITE_SUPABASE_ANON_KEY;
 const SERVER_URL = "ws://localhost:3001/chat";
 const HTTP_BASE = "http://localhost:3001";
-const TIMEOUT_MS = 90_000; // 90s — sandbox init can take 15s + corpus pull
+const TIMEOUT_MS = 60_000;
 
 async function getToken() {
   if (process.argv[2] === "--token" && process.argv[3]) {
@@ -73,11 +73,11 @@ async function testChat(wsUrl) {
           authReady = true;
           if (!messageSent) {
             messageSent = true;
-            console.log("→ Sending: 'hello, confirm you have sandbox tools'");
+            console.log("→ Sending: 'hello, confirm you can use Sonde tools'");
             ws.send(
               JSON.stringify({
                 type: "message",
-                content: "hello, confirm you have sandbox tools and list them",
+                content: "hello, confirm you can use Sonde tools and tell me what runtime you are using",
                 mentions: [],
               })
             );

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import json
 from typing import Any, cast
 from unittest.mock import patch
 
@@ -9,6 +11,12 @@ from click.testing import CliRunner
 
 from sonde import auth
 from sonde.cli import cli
+
+
+def _fake_jwt(claims: dict[str, Any]) -> str:
+    header = base64.urlsafe_b64encode(b'{"alg":"none","typ":"JWT"}').decode().rstrip("=")
+    payload = base64.urlsafe_b64encode(json.dumps(claims).encode()).decode().rstrip("=")
+    return f"{header}.{payload}.sig"
 
 
 def test_whoami_when_authenticated(runner: CliRunner, authenticated: None):
@@ -58,6 +66,30 @@ def test_whoami_with_bot_token_bundle(runner: CliRunner, monkeypatch):
     assert "artifacts-smoke@aeolus.earth" in result.output
 
 
+def test_whoami_with_human_access_token_env(runner: CliRunner, monkeypatch):
+    token = _fake_jwt(
+        {
+            "sub": "fbc84b44-8847-4569-ab83-aab53772fff9",
+            "email": "mason@aeolus.earth",
+            "app_metadata": {
+                "is_admin": True,
+                "programs": ["shared"],
+            },
+            "user_metadata": {
+                "email": "mason@aeolus.earth",
+                "full_name": "Mason Lee",
+            },
+        }
+    )
+    monkeypatch.setenv("SONDE_TOKEN", token)
+
+    result = runner.invoke(cli, ["--json", "whoami"])
+
+    assert result.exit_code == 0
+    assert '"is_agent": false' in result.output
+    assert "mason@aeolus.earth" in result.output
+
+
 def test_get_token_signs_in_with_bot_token(monkeypatch):
     token = auth.encode_bot_token(
         {
@@ -96,6 +128,34 @@ def test_get_token_signs_in_with_bot_token(monkeypatch):
         assert auth.get_token() == "access-token"
 
     monkeypatch.delenv("SONDE_TOKEN", raising=False)
+
+
+def test_get_current_user_with_human_access_token_env(monkeypatch):
+    token = _fake_jwt(
+        {
+            "sub": "fbc84b44-8847-4569-ab83-aab53772fff9",
+            "email": "mason@aeolus.earth",
+            "app_metadata": {
+                "is_admin": True,
+                "programs": ["shared", "weather-intervention"],
+            },
+            "user_metadata": {
+                "email": "mason@aeolus.earth",
+                "full_name": "Mason Lee",
+            },
+        }
+    )
+    monkeypatch.setenv("SONDE_TOKEN", token)
+
+    user = auth.get_current_user()
+
+    assert user is not None
+    assert user.email == "mason@aeolus.earth"
+    assert user.user_id == "fbc84b44-8847-4569-ab83-aab53772fff9"
+    assert user.name == "Mason Lee"
+    assert user.is_agent is False
+    assert user.is_admin is True
+    assert user.programs == ["shared", "weather-intervention"]
 
 
 def test_refresh_session_updates_stored_session(monkeypatch):

@@ -12,8 +12,15 @@ import { RecordLink } from "@/components/shared/record-link";
 import { ArtifactGallery } from "@/components/artifacts/artifact-gallery";
 import { EmbeddedDocumentPreview } from "@/components/artifacts/embedded-document-preview";
 import { formatDateTime, formatDateTimeShort } from "@/lib/utils";
-import { ArrowLeft, Download, FileText } from "lucide-react";
-import type { Artifact, ExperimentStatus, ProjectSummary } from "@/types/sonde";
+import { projectDetailShareUrl } from "@/lib/app-origin";
+import { ArrowLeft, Copy, Download, FileText } from "lucide-react";
+import type {
+  Artifact,
+  DirectionSummary,
+  ExperimentStatus,
+  ExperimentSummary,
+  ProjectSummary,
+} from "@/types/sonde";
 
 export default function ProjectDetailPage() {
   const { id } = useParams({ strict: false }) as { id: string };
@@ -23,7 +30,9 @@ export default function ProjectDetailPage() {
   const { data: experiments, isLoading: loadingExps } = useExperimentsByProject(id);
   const { data: activity } = useRecordActivity(id);
   const { data: projectArtifacts, isLoading: loadingProjectArtifacts } = useArtifacts(id);
+  const [linkCopied, setLinkCopied] = useState(false);
   const [statusFilter, setStatusFilter] = useState<ExperimentStatus | "all">("all");
+  const shareUrl = useMemo(() => projectDetailShareUrl(id), [id]);
   useHotkey("Escape", useCallback(() => navigate({ to: "/projects" }), [navigate]));
 
   const filtered = useMemo(() => {
@@ -31,6 +40,37 @@ export default function ProjectDetailPage() {
     if (statusFilter === "all") return experiments;
     return experiments.filter((e) => e.status === statusFilter);
   }, [experiments, statusFilter]);
+
+  const experimentsByDirection = useMemo(() => {
+    const grouped = new Map<string, ExperimentSummary[]>();
+    const projectOnly: ExperimentSummary[] = [];
+    const knownDirectionIds = new Set((directions ?? []).map((direction) => direction.id));
+
+    for (const experiment of filtered) {
+      if (experiment.direction_id && knownDirectionIds.has(experiment.direction_id)) {
+        const existing = grouped.get(experiment.direction_id);
+        if (existing) {
+          existing.push(experiment);
+        } else {
+          grouped.set(experiment.direction_id, [experiment]);
+        }
+        continue;
+      }
+      projectOnly.push(experiment);
+    }
+
+    return { grouped, projectOnly };
+  }, [directions, filtered]);
+
+  const copyShareLink = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setLinkCopied(true);
+      window.setTimeout(() => setLinkCopied(false), 2000);
+    } catch {
+      setLinkCopied(false);
+    }
+  }, [shareUrl]);
 
   const reportPdf = useMemo(
     () => findProjectReportArtifact(projectArtifacts, proj?.report_pdf_artifact_id ?? null, "pdf"),
@@ -67,28 +107,44 @@ export default function ProjectDetailPage() {
   return (
     <div className="space-y-4">
       <Breadcrumb items={[{ label: "Projects", to: "/projects" }, { label: proj.id }]} />
-      <div className="flex items-center gap-2.5">
-        <Link
-          to="/projects"
-          className="rounded-[5.5px] p-1 text-text-tertiary transition-colors hover:bg-surface-hover hover:text-text-secondary"
-        >
-          <ArrowLeft className="h-4 w-4" />
-        </Link>
-        <div className="flex items-center gap-2">
-          <h1 className="font-mono text-[15px] font-semibold tracking-[-0.01em] text-text">{proj.id}</h1>
-          <Badge
-            variant={
-              proj.status === "active" ? "running" :
-              proj.status === "completed" ? "complete" :
-              proj.status === "archived" ? "superseded" : "default"
-            }
+      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
+          <Link
+            to="/projects"
+            className="shrink-0 rounded-[5.5px] p-1 text-text-tertiary transition-colors hover:bg-surface-hover hover:text-text-secondary"
           >
-            {proj.status}
-          </Badge>
+            <ArrowLeft className="h-4 w-4" />
+          </Link>
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <h1 className="font-mono text-[15px] font-semibold tracking-[-0.01em] text-text">
+              {proj.id}
+            </h1>
+            <Badge
+              variant={
+                proj.status === "active" ? "running" :
+                proj.status === "completed" ? "complete" :
+                proj.status === "archived" ? "superseded" : "default"
+              }
+            >
+              {proj.status}
+            </Badge>
+          </div>
+          <span className="text-[12px] text-text-quaternary" title={formatDateTime(proj.created_at)}>
+            {formatDateTimeShort(proj.created_at)}
+          </span>
         </div>
-        <span className="text-[12px] text-text-quaternary" title={formatDateTime(proj.created_at)}>
-          {formatDateTimeShort(proj.created_at)}
-        </span>
+        <div className="flex min-w-0 flex-1 justify-end">
+          <button
+            type="button"
+            onClick={() => void copyShareLink()}
+            title={shareUrl}
+            aria-label={linkCopied ? "Link copied" : `Copy link: ${shareUrl}`}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-[5.5px] border border-border-subtle bg-surface-raised px-2.5 py-1 text-[12px] font-medium text-text-secondary transition-colors hover:bg-surface-hover"
+          >
+            <Copy className="h-3.5 w-3.5 shrink-0 text-text-quaternary" aria-hidden />
+            {linkCopied ? "Copied" : "Copy link"}
+          </button>
+        </div>
       </div>
 
       <div className="grid min-w-0 gap-3 lg:grid-cols-[minmax(0,1fr)_280px]">
@@ -108,59 +164,14 @@ export default function ProjectDetailPage() {
             isLoading={loadingProjectArtifacts}
           />
 
-          {/* Directions — always shown so project scope is visible next to experiments */}
-          <Section
-            title="Directions"
-            count={
-              loadingDirections ? proj.direction_count : (directions?.length ?? 0)
-            }
-          >
-            {loadingDirections ? (
-              <div className="space-y-2">
-                <Skeleton className="h-12 w-full rounded-[6px]" />
-                <Skeleton className="h-12 w-full rounded-[6px]" />
-              </div>
-            ) : directions && directions.length > 0 ? (
-              <div className="space-y-2">
-                {directions.map((d) => (
-                  <div
-                    key={d.id}
-                    className="flex min-w-0 flex-col gap-2 border-b border-border-subtle pb-2 last:border-0 last:pb-0 sm:flex-row sm:items-start sm:justify-between"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="flex min-w-0 flex-wrap items-center gap-2">
-                        <RecordLink recordId={d.id} />
-                        <Badge
-                          variant={
-                            d.status === "active" ? "running" :
-                            d.status === "completed" ? "complete" : "default"
-                          }
-                        >
-                          {d.status}
-                        </Badge>
-                      </div>
-                      <p className="mt-0.5 break-words text-[12px] text-text">{d.title}</p>
-                    </div>
-                    <div className="flex shrink-0 flex-wrap gap-2 text-[11px]">
-                      <Badge variant="complete">{d.complete_count}</Badge>
-                      <Badge variant="running">{d.running_count}</Badge>
-                      <Badge variant="open">{d.open_count}</Badge>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-[13px] text-text-quaternary">
-                No directions scoped to this project yet. Link one with{" "}
-                <span className="font-mono text-[12px]">sonde direction update DIR-… --project …</span>.
-              </p>
-            )}
-          </Section>
-
-          {/* Experiments */}
           <div className="rounded-[8px] border border-border bg-surface">
             <div className="flex items-center justify-between border-b border-border px-3 py-2">
-              <h3 className="text-[13px] font-medium text-text-secondary">Experiments</h3>
+              <div className="flex items-center gap-2">
+                <h3 className="text-[13px] font-medium text-text-secondary">Research structure</h3>
+                <span className="text-[11px] text-text-quaternary">
+                  {loadingDirections ? proj.direction_count : (directions?.length ?? 0)} directions
+                </span>
+              </div>
               <div className="flex rounded-[5.5px] border border-border bg-bg">
                 {statuses.map((s) => (
                   <button
@@ -177,35 +188,60 @@ export default function ProjectDetailPage() {
                 ))}
               </div>
             </div>
-            {loadingExps ? (
+            {loadingExps || loadingDirections ? (
               <div>
                 {Array.from({ length: 3 }).map((_, i) => (
                   <ExperimentRowSkeleton key={i} />
                 ))}
               </div>
             ) : (
-              <div>
-                {filtered.map((exp) => (
-                  <div
-                    key={exp.id}
-                    onClick={() => navigate({ to: "/experiments/$id", params: { id: exp.id } })}
-                    className="flex cursor-pointer items-center gap-3 border-b border-border-subtle px-3 py-2 transition-colors last:border-0 hover:bg-surface-hover"
-                  >
-                    <span className="font-mono text-[12px] font-medium text-text">{exp.id}</span>
-                    <Badge variant={exp.status}>{exp.status}</Badge>
-                    <span className="min-w-0 flex-1 truncate text-[12px] text-text-tertiary">
-                      {exp.finding ?? exp.hypothesis ?? "—"}
-                    </span>
-                    <span className="text-[11px] text-text-quaternary" title={formatDateTime(exp.created_at)}>
-                      {formatDateTimeShort(exp.created_at)}
-                    </span>
-                  </div>
+              <div className="divide-y divide-border-subtle">
+                {(directions ?? []).map((direction) => (
+                  <ProjectDirectionGroup
+                    key={direction.id}
+                    direction={direction}
+                    experiments={experimentsByDirection.grouped.get(direction.id) ?? []}
+                    statusFilter={statusFilter}
+                    onExperimentClick={(expId) =>
+                      navigate({ to: "/experiments/$id", params: { id: expId } })
+                    }
+                  />
                 ))}
-                {filtered.length === 0 && (
+
+                {experimentsByDirection.projectOnly.length > 0 && (
+                  <div className="px-3 py-2.5">
+                    <div className="mb-2 flex flex-wrap items-center gap-2">
+                      <span className="font-mono text-[11px] text-text-quaternary">PROJECT</span>
+                      <Badge variant="default">unlinked</Badge>
+                      <span className="text-[12px] text-text-secondary">
+                        Experiments not attached to a direction yet
+                      </span>
+                    </div>
+                    <div className="overflow-hidden rounded-[7px] border border-dashed border-border-subtle">
+                      {experimentsByDirection.projectOnly.map((exp, index) => (
+                        <ProjectExperimentRow
+                          key={exp.id}
+                          experiment={exp}
+                          isLast={index === experimentsByDirection.projectOnly.length - 1}
+                          onClick={() => navigate({ to: "/experiments/$id", params: { id: exp.id } })}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {(directions?.length ?? 0) === 0 && filtered.length === 0 && (
+                  <div className="py-8 text-center text-[13px] text-text-quaternary">
+                    No directions or experiments under this project yet.
+                  </div>
+                )}
+
+                {(directions?.length ?? 0) > 0 && filtered.length === 0 && (
                   <div className="py-8 text-center text-[13px] text-text-quaternary">
                     No experiments {statusFilter !== "all" ? `with status "${statusFilter}"` : "under this project"}
                   </div>
                 )}
+
               </div>
             )}
           </div>
@@ -334,6 +370,90 @@ function ProjectReportSection({
         </p>
       )}
     </Section>
+  );
+}
+
+function ProjectDirectionGroup({
+  direction,
+  experiments,
+  statusFilter,
+  onExperimentClick,
+}: {
+  direction: DirectionSummary;
+  experiments: ExperimentSummary[];
+  statusFilter: ExperimentStatus | "all";
+  onExperimentClick: (experimentId: string) => void;
+}) {
+  return (
+    <div className="px-3 py-2.5">
+      <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <RecordLink recordId={direction.id} />
+            <Badge
+              variant={
+                direction.status === "active" ? "running" :
+                direction.status === "completed" ? "complete" : "default"
+              }
+            >
+              {direction.status}
+            </Badge>
+            <span className="text-[11px] text-text-quaternary">
+              {experiments.length} shown
+            </span>
+          </div>
+          <p className="mt-0.5 break-words text-[12px] text-text">{direction.title}</p>
+        </div>
+        <div className="flex shrink-0 flex-wrap gap-2 text-[11px]">
+          <Badge variant="complete">{direction.complete_count}</Badge>
+          <Badge variant="running">{direction.running_count}</Badge>
+          <Badge variant="open">{direction.open_count}</Badge>
+        </div>
+      </div>
+
+      {experiments.length > 0 ? (
+        <div className="mt-2 overflow-hidden rounded-[7px] border border-border-subtle">
+          {experiments.map((experiment, index) => (
+            <ProjectExperimentRow
+              key={experiment.id}
+              experiment={experiment}
+              isLast={index === experiments.length - 1}
+              onClick={() => onExperimentClick(experiment.id)}
+            />
+          ))}
+        </div>
+      ) : (
+        <p className="mt-2 pl-3 text-[12px] text-text-quaternary">
+          No experiments {statusFilter !== "all" ? `with status "${statusFilter}" ` : ""}in this direction.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function ProjectExperimentRow({
+  experiment,
+  isLast,
+  onClick,
+}: {
+  experiment: ExperimentSummary;
+  isLast: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <div
+      onClick={onClick}
+      className={`flex cursor-pointer items-center gap-3 px-3 py-2 transition-colors hover:bg-surface-hover ${isLast ? "" : "border-b border-border-subtle"}`}
+    >
+      <span className="font-mono text-[12px] font-medium text-text">{experiment.id}</span>
+      <Badge variant={experiment.status}>{experiment.status}</Badge>
+      <span className="min-w-0 flex-1 truncate text-[12px] text-text-tertiary">
+        {experiment.finding ?? experiment.hypothesis ?? "—"}
+      </span>
+      <span className="text-[11px] text-text-quaternary" title={formatDateTime(experiment.created_at)}>
+        {formatDateTimeShort(experiment.created_at)}
+      </span>
+    </div>
   );
 }
 

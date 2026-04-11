@@ -2,18 +2,13 @@ import type { Context } from "hono";
 import type { WSEvents, WSContext } from "hono/ws";
 import type { WebSocket } from "ws";
 import { verifyToken, type VerifiedUser } from "./auth.js";
-import {
-  createAgentSession,
-  createSandboxAgentSession,
-  isSandboxMode,
-  type AgentSession,
-} from "./agent.js";
+import type { AgentSession } from "./agent.js";
 import {
   checkUserRateLimit,
   tryStartUserOperation,
 } from "./request-guard.js";
-import type { UserSandboxLease } from "./sandbox/user-sandbox-pool.js";
 import { createToolApprovalBridge } from "./tool-approval-bridge.js";
+import { getAgentBackend } from "./runtime-mode.js";
 import type {
   AgentEvent,
   ChatAttachmentPayload,
@@ -44,7 +39,6 @@ interface ConnectionState {
   token: string | null;
   session: AgentSession | null;
   approvalBridge: ReturnType<typeof createToolApprovalBridge> | null;
-  sandboxLease: UserSandboxLease | null;
   initialized: boolean;
   authenticated: boolean;
   authTimer: NodeJS.Timeout | null;
@@ -53,6 +47,7 @@ interface ConnectionState {
   awaitingPong: boolean;
   closed: boolean;
   authenticating: Promise<boolean> | null;
+  queryActive: boolean;
 }
 
 interface PreAuthenticatedState {
@@ -108,27 +103,33 @@ function sendAgentTraceEvent(
       id: event.id,
       error: event.error,
     });
+  } else if (event.type === "tool_approval_required") {
+    send(ws, {
+      type: "tool_approval_required",
+      approvalId: event.approvalId,
+      toolUseID: event.toolUseID,
+      tool: event.tool,
+      input: event.input,
+      destructive: event.destructive,
+      kind: event.kind,
+    });
+  } else if (event.type === "error") {
+    send(ws, {
+      type: "error",
+      message: event.message,
+    });
   }
-}
-
-function runtimeBackend(state: ConnectionState): "sandbox" | "direct" {
-  if (state.initialized) {
-    return state.sandboxLease ? "sandbox" : "direct";
-  }
-  return isSandboxMode() ? "sandbox" : "direct";
 }
 
 function sendRuntimeInfo(
-  state: ConnectionState,
+  _state: ConnectionState,
   ws: WSContext<WebSocket>
 ): void {
-  const backend = runtimeBackend(state);
   send(ws, {
     type: "runtime_info",
-    backend,
-    label: backend === "sandbox" ? "Daytona sandbox" : "Direct Sonde MCP",
+    backend: getAgentBackend(),
+    label: "Claude Managed Agents",
     traces: true,
-    workspaceDir: state.sandboxLease?.sessionDir,
   });
 }
 
@@ -230,11 +231,6 @@ function formatPageContextLine(ctx: PageContext): string {
   return "";
 }
 
-function formatWorkspaceLine(workspaceDir: string | undefined): string {
-  if (!workspaceDir) return "";
-  return `Session workspace: use ${workspaceDir} for temporary files, scripts, and generated outputs during this conversation.`;
-}
-
 function formatAttachmentsForPrompt(
   attachments: ChatAttachmentPayload[] | undefined
 ): string {
@@ -259,22 +255,6 @@ function formatAttachmentsForPrompt(
     }
   }
   return lines.join("\n");
-}
-
-function referencedPrograms(
-  pageContext: PageContext | undefined,
-  mentions: MentionRef[]
-): string[] {
-  const programs = new Set<string>();
-  if (pageContext?.type === "experiment" && pageContext.program) {
-    programs.add(pageContext.program);
-  }
-  for (const mention of mentions) {
-    if (mention.type === "experiment" && mention.program) {
-      programs.add(mention.program);
-    }
-  }
-  return [...programs];
 }
 
 async function authenticateConnection(
@@ -316,10 +296,9 @@ async function authenticateConnection(
   state.token = trimmedToken;
   state.user = user;
   state.authenticated = true;
-  state.approvalBridge = createToolApprovalBridge(
-    ws,
-    () => state.sandboxLease?.sessionDir
-  );
+  state.approvalBridge = createToolApprovalBridge(ws, {
+    preservePendingOnDispose: true,
+  });
   startHeartbeat(state, ws);
   send(ws, { type: "auth_ok" });
   sendRuntimeInfo(state, ws);
@@ -346,10 +325,9 @@ function primeAuthenticatedConnection(
   state.token = authenticated.accessToken;
   state.user = authenticated.user;
   state.authenticated = true;
-  state.approvalBridge = createToolApprovalBridge(
-    ws,
-    () => state.sandboxLease?.sessionDir
-  );
+  state.approvalBridge = createToolApprovalBridge(ws, {
+    preservePendingOnDispose: true,
+  });
   startHeartbeat(state, ws);
   send(ws, { type: "auth_ok" });
   sendRuntimeInfo(state, ws);
@@ -373,45 +351,14 @@ async function ensureInitialized(
     return false;
   }
 
-  if (isSandboxMode()) {
-    const { getUserSandboxLease } = await import("./sandbox/user-sandbox-pool.js");
-    const sandboxLease = await getUserSandboxLease({
-      userId: user.id,
-      sessionId: state.connectionId,
-      sondeToken: token,
-      supabaseUrl: process.env.VITE_SUPABASE_URL,
-      supabaseKey: process.env.VITE_SUPABASE_ANON_KEY,
-    });
-    if (state.closed) {
-      await sandboxLease?.release().catch(() => {});
-      return false;
-    }
-    if (sandboxLease) {
-      chatLog(state, "sandbox_lease_acquired", {
-        userId: user.id,
-        sessionDir: sandboxLease.sessionDir,
-      });
-      for (const program of referencedPrograms(pageContext, mentions)) {
-        chatLog(state, "sandbox_pull_program", { program });
-        await sandboxLease.ensureProgram(program);
-        if (state.closed) {
-          await sandboxLease.release().catch(() => {});
-          return false;
-        }
-      }
-      state.sandboxLease = sandboxLease;
-      state.session = createSandboxAgentSession({
-        canUseTool: approvalBridge.canUseTool,
-        sandbox: sandboxLease.sandbox,
-        emitTrace: (event) => sendAgentTraceEvent(ws, event),
-      });
-    }
-  }
-
   if (!state.session) {
-    state.session = createAgentSession(token, {
-      canUseTool: approvalBridge.canUseTool,
-      emitTrace: (event) => sendAgentTraceEvent(ws, event),
+    const { createManagedAgentSession } = await import("./managed/session.js");
+    state.session = createManagedAgentSession({
+      sondeToken: token,
+      user,
+      pageContext,
+      mentions,
+      approvalBridge,
     });
   }
 
@@ -424,7 +371,7 @@ async function ensureInitialized(
   state.initialized = true;
   sendRuntimeInfo(state, ws);
   chatLog(state, "session_initialized", {
-    backend: isSandboxMode() ? "sandbox" : "direct",
+    backend: getAgentBackend(),
     sessionId: state.session.sessionId,
   });
   return true;
@@ -449,11 +396,6 @@ async function disposeConnectionState(state: ConnectionState): Promise<void> {
     state.session = null;
   }
 
-  if (state.sandboxLease) {
-    await state.sandboxLease.release().catch(() => {});
-    state.sandboxLease = null;
-  }
-
   chatLog(state, "connection_disposed", {
     userId: state.user?.id ?? null,
   });
@@ -469,7 +411,6 @@ export function handleWebSocket(
     token: null,
     session: null,
     approvalBridge: null,
-    sandboxLease: null,
     initialized: false,
     authenticated: false,
     authTimer: null,
@@ -478,6 +419,7 @@ export function handleWebSocket(
     awaitingPong: false,
     closed: false,
     authenticating: null,
+    queryActive: false,
   };
 
   return {
@@ -568,7 +510,56 @@ export function handleWebSocket(
       }
 
       switch (msg.type) {
+        case "resume_session": {
+          const initialized = await ensureInitialized(state, ws, undefined, []);
+          if (!initialized || !state.session?.recover) {
+            send(ws, {
+              type: "error",
+              message: "Chat session could not be resumed.",
+            });
+            return;
+          }
+
+          for await (const event of state.session.recover(msg.sessionId)) {
+            if (event.type === "session") {
+              send(ws, { type: "session", sessionId: event.sessionId });
+              continue;
+            }
+            if (event.type === "model_info") {
+              send(ws, { type: "model_info", model: event.model });
+              continue;
+            }
+            if (event.type === "text_delta") {
+              send(ws, { type: "text_delta", content: event.content });
+              continue;
+            }
+            if (event.type === "thinking_delta") {
+              send(ws, { type: "thinking_delta", content: event.content });
+              continue;
+            }
+            if (event.type === "text_done") {
+              send(ws, {
+                type: "text_done",
+                content: event.content,
+                messageId: event.messageId,
+              });
+              continue;
+            }
+            sendAgentTraceEvent(ws, event);
+          }
+          return;
+        }
+
         case "message": {
+          if (state.queryActive) {
+            chatLog(state, "message_rejected_query_active");
+            send(ws, {
+              type: "error",
+              message:
+                "The assistant is still working on your previous request. Wait for it to finish or resolve the pending approval first.",
+            });
+            return;
+          }
           chatLog(state, "user_message_received", {
             resumeSessionId: msg.sessionId ?? null,
             mentionCount: msg.mentions?.length ?? 0,
@@ -608,6 +599,7 @@ export function handleWebSocket(
           }
 
           try {
+            state.queryActive = true;
             const initialized = await ensureInitialized(
               state,
               ws,
@@ -630,10 +622,10 @@ export function handleWebSocket(
               msg.mentions ?? [],
               msg.pageContext,
               msg.attachments,
-              msg.sessionId,
-              state.sandboxLease?.sessionDir
+              msg.sessionId
             );
           } finally {
+            state.queryActive = false;
             await releaseOperation();
           }
           return;
@@ -675,11 +667,9 @@ async function handleUserMessage(
   mentions: MentionRef[],
   pageContext?: PageContext,
   attachments?: ChatAttachmentPayload[],
-  clientSessionId?: string,
-  workspaceDir?: string
+  clientSessionId?: string
 ) {
   const pageLine = pageContext ? formatPageContextLine(pageContext) : "";
-  const workspaceLine = formatWorkspaceLine(workspaceDir);
   const attachLine = formatAttachmentsForPrompt(attachments);
   const mentionContext = mentions
     .map((mention) => {
@@ -693,18 +683,10 @@ async function handleUserMessage(
   const body = mentionContext
     ? `${content}\n\nReferenced records: ${mentionContext}`
     : content;
-  const chunks = [pageLine, workspaceLine, attachLine, body].filter(
+  const chunks = [pageLine, attachLine, body].filter(
     (segment) => segment.length > 0
   );
   const prompt = chunks.join("\n\n");
-
-  const shouldRetryWithoutResume = (
-    message: string,
-    emittedOutput: boolean
-  ): boolean =>
-    Boolean(clientSessionId) &&
-    !emittedOutput &&
-    message.includes("Claude Code process exited with code 1");
 
   async function runQuery(
     resumeSessionId?: string,
@@ -812,13 +794,6 @@ async function handleUserMessage(
         emittedOutput,
         message,
       });
-
-      if (attempt === 1 && shouldRetryWithoutResume(message, emittedOutput)) {
-        chatLog(state, "agent_query_retry_without_resume", {
-          staleResumeSessionId: resumeSessionId,
-        });
-        return runQuery(undefined, 2);
-      }
 
       send(ws, { type: "error", message });
       return { completed: false, emittedOutput };

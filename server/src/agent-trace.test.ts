@@ -20,7 +20,7 @@ describe("agent tool trace hooks", () => {
       {
         ...base,
         hook_event_name: "PreToolUse",
-        tool_name: "sandbox_exec",
+        tool_name: "bash",
         tool_use_id: "tool-1",
         tool_input: { command: "rg CCN /home/daytona/.sonde" },
       },
@@ -32,7 +32,7 @@ describe("agent tool trace hooks", () => {
       {
         ...base,
         hook_event_name: "PostToolUse",
-        tool_name: "sandbox_exec",
+        tool_name: "bash",
         tool_use_id: "tool-1",
         tool_input: { command: "rg CCN /home/daytona/.sonde" },
         tool_response: {
@@ -47,7 +47,7 @@ describe("agent tool trace hooks", () => {
       {
         ...base,
         hook_event_name: "PostToolUseFailure",
-        tool_name: "sandbox_exec",
+        tool_name: "bash",
         tool_use_id: "tool-2",
         tool_input: { command: "sonde push" },
         error: "User denied tool execution.",
@@ -60,7 +60,7 @@ describe("agent tool trace hooks", () => {
       {
         type: "tool_use_start",
         id: "tool-1",
-        tool: "sandbox_exec",
+        tool: "bash",
         input: { command: "rg CCN /home/daytona/.sonde" },
       },
       {

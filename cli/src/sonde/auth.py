@@ -231,6 +231,16 @@ def get_current_user() -> UserInfo | None:
             claims = _token_claims(env_token.removeprefix(AGENT_TOKEN_PREFIX))
         except Exception:
             claims = {}
+        if not env_token.startswith(AGENT_TOKEN_PREFIX) and _looks_like_human_access_token(claims):
+            app_meta = claims.get("app_metadata", {})
+            return UserInfo(
+                email=_human_claim_email(claims),
+                user_id=str(claims.get("sub") or _human_claim_email(claims)),
+                name=_human_claim_name(claims),
+                is_agent=False,
+                is_admin=bool(app_meta.get("is_admin", False)),
+                programs=_claim_programs(claims),
+            )
         identity = _agent_identity(claims)
         app_meta = claims.get("app_metadata", {})
         return UserInfo(
@@ -444,6 +454,39 @@ def _claim_programs(claims: dict[str, Any]) -> list[str] | None:
     if isinstance(programs, list) and all(isinstance(program, str) for program in programs):
         return programs
     return None
+
+
+def _human_claim_email(claims: dict[str, Any]) -> str:
+    """Extract a user email from access-token claims when present."""
+    user_meta = claims.get("user_metadata", {})
+    for value in (
+        claims.get("email"),
+        user_meta.get("email") if isinstance(user_meta, dict) else None,
+    ):
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return "unknown"
+
+
+def _human_claim_name(claims: dict[str, Any]) -> str:
+    """Extract a human display name from access-token claims when present."""
+    user_meta = claims.get("user_metadata", {})
+    if isinstance(user_meta, dict):
+        for key in ("full_name", "name"):
+            value = user_meta.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    for value in (claims.get("name"), claims.get("email")):
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _looks_like_human_access_token(claims: dict[str, Any]) -> bool:
+    """Return True when claims resemble a Supabase user session token."""
+    if not isinstance(claims.get("sub"), str) or not claims["sub"].strip():
+        return False
+    return _human_claim_email(claims) != "unknown"
 
 
 def _agent_identity(claims: dict[str, Any]) -> str:

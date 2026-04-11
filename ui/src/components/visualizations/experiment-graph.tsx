@@ -9,23 +9,68 @@ import {
   type Node,
   type Edge,
   type NodeProps,
-  type NodeMouseHandler,
   Handle,
   Position,
 } from "@xyflow/react";
 import dagre from "@dagrejs/dagre";
 import "@xyflow/react/dist/style.css";
-import { Briefcase, ChevronRight, ChevronDown, GitFork } from "lucide-react";
+import { Briefcase, ChevronRight, ChevronDown, GitFork, Lightbulb } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useStatusChartColors, useThemeCssColors } from "@/hooks/use-theme-css-colors";
 import type {
   DirectionSummary,
   ExperimentSummary,
   ExperimentStatus,
+  Finding,
+  FindingConfidence,
   ProjectSummary,
 } from "@/types/sonde";
 
 type StatusColorMap = Record<ExperimentStatus, string>;
+type NodeAction = (() => void) | undefined;
+
+type ExperimentNodeData = ExperimentSummary & {
+  statusColors: StatusColorMap;
+  hasChildren: boolean;
+  childCount: number;
+  isExpanded: boolean;
+  depth: number;
+  onToggle?: NodeAction;
+  onOpen?: NodeAction;
+};
+
+type ProjectNodeData = {
+  label: string;
+  projectId: string | null;
+  count: number;
+  expanded: boolean;
+  directionCount: number;
+  onToggle?: NodeAction;
+  onOpen?: NodeAction;
+};
+
+type DirectionNodeData = {
+  label: string;
+  dirId: string;
+  count: number;
+  expanded: boolean;
+  statusCounts: Record<string, number>;
+  statusColors: StatusColorMap;
+  onToggle?: NodeAction;
+  onOpen?: NodeAction;
+};
+
+type UngroupedNodeData = {
+  count: number;
+  expanded: boolean;
+  statusCounts: Record<string, number>;
+  statusColors: StatusColorMap;
+  onToggle?: NodeAction;
+};
+
+type FindingNodeData = Finding & {
+  onOpen?: NodeAction;
+};
 
 // ── Node dimensions ────────────────────────────────────────────
 
@@ -35,17 +80,13 @@ const PROJ_W = 280;
 const PROJ_H = 56;
 const DIR_W = 260;
 const DIR_H = 52;
+const FIND_W = 220;
+const FIND_H = 70;
 
 // ── Custom nodes ───────────────────────────────────────────────
 
 function ExperimentNode({ data }: NodeProps) {
-  const d = data as unknown as ExperimentSummary & {
-    statusColors: StatusColorMap;
-    hasChildren: boolean;
-    childCount: number;
-    isExpanded: boolean;
-    depth: number;
-  };
+  const d = data as unknown as ExperimentNodeData;
   return (
     <div
       className="w-[220px] rounded-[8px] border border-border bg-surface transition-shadow hover:shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-accent)_30%,transparent)]"
@@ -53,37 +94,58 @@ function ExperimentNode({ data }: NodeProps) {
     >
       <Handle type="target" position={Position.Top} className="!h-1.5 !w-1.5 !bg-border" />
       <div className="px-2.5 py-2">
-        <div className="flex items-center justify-between gap-1">
-          <div className="flex items-center gap-1.5">
-            {d.hasChildren && (
-              <span className="text-text-quaternary">
-                {d.isExpanded ? (
-                  <ChevronDown className="h-3 w-3" />
-                ) : (
-                  <ChevronRight className="h-3 w-3" />
-                )}
-              </span>
+        <div className="flex items-start gap-2">
+          {d.hasChildren ? (
+            <button
+              type="button"
+              aria-label={d.isExpanded ? `Collapse ${d.id}` : `Expand ${d.id}`}
+              onClick={(event) => {
+                event.stopPropagation();
+                d.onToggle?.();
+              }}
+              className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] text-text-quaternary transition-colors hover:bg-surface-raised hover:text-text-secondary"
+            >
+              {d.isExpanded ? (
+                <ChevronDown className="h-3 w-3" />
+              ) : (
+                <ChevronRight className="h-3 w-3" />
+              )}
+            </button>
+          ) : (
+            <span className="mt-0.5 h-4 w-4 shrink-0" />
+          )}
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              d.onOpen?.();
+            }}
+            className="min-w-0 flex-1 text-left"
+          >
+            <div className="flex items-center justify-between gap-1">
+              <div className="min-w-0 flex items-center gap-1.5">
+                <span className="truncate font-mono text-[11px] font-medium text-text">{d.id}</span>
+              </div>
+              <Badge variant={d.status}>{d.status}</Badge>
+            </div>
+            {d.branch_type && (
+              <div className="mt-0.5 flex items-center gap-1 text-[9px] text-text-quaternary">
+                <GitFork className="h-2.5 w-2.5" />
+                {d.branch_type}
+              </div>
             )}
-            <span className="font-mono text-[11px] font-medium text-text">{d.id}</span>
-          </div>
-          <Badge variant={d.status}>{d.status}</Badge>
+            {(d.finding || d.hypothesis) && (
+              <p className="mt-1 line-clamp-2 text-[10px] leading-snug text-text-tertiary">
+                {d.finding ?? d.hypothesis}
+              </p>
+            )}
+            {!d.isExpanded && d.childCount > 0 && (
+              <p className="mt-1 text-[9px] text-text-quaternary">
+                {d.childCount} child{d.childCount !== 1 ? "ren" : ""}
+              </p>
+            )}
+          </button>
         </div>
-        {d.branch_type && (
-          <div className="mt-0.5 flex items-center gap-1 text-[9px] text-text-quaternary">
-            <GitFork className="h-2.5 w-2.5" />
-            {d.branch_type}
-          </div>
-        )}
-        {(d.finding || d.hypothesis) && (
-          <p className="mt-1 line-clamp-2 text-[10px] leading-snug text-text-tertiary">
-            {d.finding ?? d.hypothesis}
-          </p>
-        )}
-        {!d.isExpanded && d.childCount > 0 && (
-          <p className="mt-1 text-[9px] text-text-quaternary">
-            {d.childCount} child{d.childCount !== 1 ? "ren" : ""}
-          </p>
-        )}
       </div>
       <Handle type="source" position={Position.Bottom} className="!h-1.5 !w-1.5 !bg-border" />
     </div>
@@ -91,21 +153,22 @@ function ExperimentNode({ data }: NodeProps) {
 }
 
 function ProjectNode({ data }: NodeProps) {
-  const d = data as unknown as {
-    label: string;
-    projectId: string | null;
-    count: number;
-    expanded: boolean;
-    directionCount: number;
-  };
+  const d = data as unknown as ProjectNodeData;
   return (
     <div className="relative w-[280px] rounded-[8px] border-2 border-border bg-bg px-3 py-2.5 shadow-sm transition-colors hover:border-border-subtle">
       <Handle type="target" position={Position.Top} className="!h-1.5 !w-1.5 !bg-border" />
-      <div className="flex cursor-pointer items-center gap-2.5">
+      <div className="flex items-center gap-2.5">
         <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[4px] border border-border-subtle bg-surface-raised text-text-secondary">
           <Briefcase className="h-3.5 w-3.5" />
         </div>
-        <div className="min-w-0 flex-1">
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            d.onOpen?.();
+          }}
+          className="min-w-0 flex-1 text-left"
+        >
           <p className="truncate text-[12px] font-semibold text-text">{d.label}</p>
           <div className="mt-0.5 flex flex-wrap items-center gap-2">
             {d.projectId && (
@@ -117,13 +180,23 @@ function ProjectNode({ data }: NodeProps) {
               </span>
             )}
             {d.expanded && (
-              <span className="text-[10px] text-text-quaternary">{d.count} experiment{d.count !== 1 ? "s" : ""}</span>
+              <span className="text-[10px] text-text-quaternary">
+                {d.count} experiment{d.count !== 1 ? "s" : ""}
+              </span>
             )}
           </div>
-        </div>
-        <div className="shrink-0 text-text-quaternary">
+        </button>
+        <button
+          type="button"
+          aria-label={d.expanded ? `Collapse ${d.label}` : `Expand ${d.label}`}
+          onClick={(event) => {
+            event.stopPropagation();
+            d.onToggle?.();
+          }}
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[4px] text-text-quaternary transition-colors hover:bg-surface-raised hover:text-text-secondary"
+        >
           {d.expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-        </div>
+        </button>
       </div>
       <Handle type="source" position={Position.Bottom} className="!h-1.5 !w-1.5 !bg-border" />
     </div>
@@ -131,22 +204,30 @@ function ProjectNode({ data }: NodeProps) {
 }
 
 function DirectionNode({ data }: NodeProps) {
-  const d = data as unknown as {
-    label: string;
-    dirId: string;
-    count: number;
-    expanded: boolean;
-    statusCounts: Record<string, number>;
-    statusColors: StatusColorMap;
-  };
+  const d = data as unknown as DirectionNodeData;
   return (
-    <div className="flex w-[260px] cursor-pointer items-center gap-2.5 rounded-[8px] border border-accent/20 bg-accent/5 px-3 py-2.5 transition-colors hover:border-accent/40">
+    <div className="flex w-[260px] items-center gap-2.5 rounded-[8px] border border-accent/20 bg-accent/5 px-3 py-2.5 transition-colors hover:border-accent/40">
       <Handle type="target" position={Position.Top} className="!h-1.5 !w-1.5 !bg-accent" />
       <Handle type="source" position={Position.Bottom} className="!h-1.5 !w-1.5 !bg-accent" />
-      <div className="flex h-5 w-5 shrink-0 items-center justify-center text-accent">
+      <button
+        type="button"
+        aria-label={d.expanded ? `Collapse ${d.dirId}` : `Expand ${d.dirId}`}
+        onClick={(event) => {
+          event.stopPropagation();
+          d.onToggle?.();
+        }}
+        className="flex h-5 w-5 shrink-0 items-center justify-center rounded-[4px] text-accent transition-colors hover:bg-accent/10"
+      >
         {d.expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-      </div>
-      <div className="min-w-0 flex-1">
+      </button>
+      <button
+        type="button"
+        onClick={(event) => {
+          event.stopPropagation();
+          d.onOpen?.();
+        }}
+        className="min-w-0 flex-1 text-left"
+      >
         <p className="truncate text-[12px] font-medium text-text">{d.label}</p>
         <div className="mt-0.5 flex items-center gap-2">
           <span className="text-[10px] text-text-quaternary">{d.dirId}</span>
@@ -164,25 +245,28 @@ function DirectionNode({ data }: NodeProps) {
             <span className="text-[10px] text-text-quaternary">{d.count} exp{d.count !== 1 ? "s" : ""}</span>
           )}
         </div>
-      </div>
+      </button>
     </div>
   );
 }
 
 function UngroupedNode({ data }: NodeProps) {
-  const d = data as unknown as {
-    count: number;
-    expanded: boolean;
-    statusCounts: Record<string, number>;
-    statusColors: StatusColorMap;
-  };
+  const d = data as unknown as UngroupedNodeData;
   return (
-    <div className="flex w-[260px] cursor-pointer items-center gap-2.5 rounded-[8px] border border-border-subtle bg-surface-raised px-3 py-2.5 transition-colors hover:border-border">
+    <div className="flex w-[260px] items-center gap-2.5 rounded-[8px] border border-border-subtle bg-surface-raised px-3 py-2.5 transition-colors hover:border-border">
       <Handle type="target" position={Position.Top} className="!h-1.5 !w-1.5 !bg-border" />
       <Handle type="source" position={Position.Bottom} className="!h-1.5 !w-1.5 !bg-border" />
-      <div className="flex h-5 w-5 shrink-0 items-center justify-center text-text-tertiary">
+      <button
+        type="button"
+        aria-label={d.expanded ? "Collapse unlinked experiments" : "Expand unlinked experiments"}
+        onClick={(event) => {
+          event.stopPropagation();
+          d.onToggle?.();
+        }}
+        className="flex h-5 w-5 shrink-0 items-center justify-center rounded-[4px] text-text-tertiary transition-colors hover:bg-surface hover:text-text-secondary"
+      >
         {d.expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-      </div>
+      </button>
       <div className="min-w-0 flex-1">
         <p className="text-[12px] font-medium text-text-secondary">No direction</p>
         <div className="mt-0.5 flex items-center gap-2">
@@ -205,11 +289,49 @@ function UngroupedNode({ data }: NodeProps) {
   );
 }
 
+function confidenceVariant(confidence: FindingConfidence): "high" | "medium" | "low" {
+  return confidence;
+}
+
+function FindingNode({ data }: NodeProps) {
+  const d = data as unknown as FindingNodeData;
+  return (
+    <div className="w-[220px] rounded-[8px] border border-border-subtle bg-surface-raised transition-shadow hover:shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-accent)_22%,transparent)]">
+      <Handle type="target" position={Position.Top} className="!h-1.5 !w-1.5 !bg-border" />
+      <button
+        type="button"
+        onClick={(event) => {
+          event.stopPropagation();
+          d.onOpen?.();
+        }}
+        className="flex w-full items-start gap-2 px-2.5 py-2 text-left"
+      >
+        <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-[4px] border border-border-subtle bg-bg text-text-tertiary">
+          <Lightbulb className="h-3 w-3" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center justify-between gap-2">
+            <span className="truncate font-mono text-[11px] font-medium text-text">{d.id}</span>
+            <Badge variant={confidenceVariant(d.confidence)}>{d.confidence}</Badge>
+          </div>
+          <p className="mt-0.5 truncate text-[10px] font-medium text-text-secondary">
+            {d.topic}
+          </p>
+          <p className="mt-1 line-clamp-2 text-[10px] leading-snug text-text-tertiary">
+            {d.finding}
+          </p>
+        </div>
+      </button>
+    </div>
+  );
+}
+
 const nodeTypes = {
   experiment: memo(ExperimentNode),
   project: memo(ProjectNode),
   direction: memo(DirectionNode),
   ungrouped: memo(UngroupedNode),
+  finding: memo(FindingNode),
 };
 
 // ── Dagre layout ───────────────────────────────────────────────
@@ -217,6 +339,7 @@ const nodeTypes = {
 function nodeBox(type: string | undefined): { w: number; h: number } {
   if (type === "experiment") return { w: EXP_W, h: EXP_H };
   if (type === "project") return { w: PROJ_W, h: PROJ_H };
+  if (type === "finding") return { w: FIND_W, h: FIND_H };
   return { w: DIR_W, h: DIR_H };
 }
 
@@ -253,6 +376,21 @@ function countStatuses(exps: ExperimentSummary[]): Record<string, number> {
   return counts;
 }
 
+function buildFindingsByExperiment(findings: Finding[]): Map<string, Finding[]> {
+  const map = new Map<string, Finding[]>();
+  for (const finding of findings) {
+    for (const experimentId of finding.evidence) {
+      const list = map.get(experimentId) ?? [];
+      list.push(finding);
+      map.set(experimentId, list);
+    }
+  }
+  for (const list of map.values()) {
+    list.sort((a, b) => b.valid_from.localeCompare(a.valid_from));
+  }
+  return map;
+}
+
 function buildChildMap(exps: ExperimentSummary[]): Map<string, ExperimentSummary[]> {
   const map = new Map<string, ExperimentSummary[]>();
   for (const e of exps) {
@@ -262,6 +400,58 @@ function buildChildMap(exps: ExperimentSummary[]): Map<string, ExperimentSummary
     }
   }
   return map;
+}
+
+function buildDirectionsByParent(
+  directions: DirectionSummary[]
+): Map<string, DirectionSummary[]> {
+  const map = new Map<string, DirectionSummary[]>();
+  for (const direction of directions) {
+    if (!direction.parent_direction_id) continue;
+    const list = map.get(direction.parent_direction_id) ?? [];
+    list.push(direction);
+    map.set(direction.parent_direction_id, list);
+  }
+  for (const list of map.values()) {
+    list.sort((a, b) => a.title.localeCompare(b.title));
+  }
+  return map;
+}
+
+function buildDirectionsBySpawnExperiment(
+  directions: DirectionSummary[]
+): Map<string, DirectionSummary[]> {
+  const map = new Map<string, DirectionSummary[]>();
+  for (const direction of directions) {
+    if (!direction.spawned_from_experiment_id) continue;
+    const list = map.get(direction.spawned_from_experiment_id) ?? [];
+    list.push(direction);
+    map.set(direction.spawned_from_experiment_id, list);
+  }
+  for (const list of map.values()) {
+    list.sort((a, b) => a.title.localeCompare(b.title));
+  }
+  return map;
+}
+
+function buildExperimentsByDirection(
+  experiments: ExperimentSummary[]
+): Map<string, ExperimentSummary[]> {
+  const map = new Map<string, ExperimentSummary[]>();
+  for (const experiment of experiments) {
+    if (!experiment.direction_id) continue;
+    const list = map.get(experiment.direction_id) ?? [];
+    list.push(experiment);
+    map.set(experiment.direction_id, list);
+  }
+  return map;
+}
+
+function rootExperimentsForGroup(experiments: ExperimentSummary[]): ExperimentSummary[] {
+  const ids = new Set(experiments.map((experiment) => experiment.id));
+  return experiments.filter(
+    (experiment) => !experiment.parent_id || !ids.has(experiment.parent_id)
+  );
 }
 
 function countDescendants(id: string, childMap: Map<string, ExperimentSummary[]>): number {
@@ -277,13 +467,23 @@ function addExperimentSubtree(
   parentNodeId: string,
   childMap: Map<string, ExperimentSummary[]>,
   expandedNodes: Set<string>,
+  toggleNode: (key: string) => void,
   statusColor: StatusColorMap,
   borderColor: string,
+  directionsByParent: Map<string, DirectionSummary[]>,
+  directionsBySpawnExperiment: Map<string, DirectionSummary[]>,
+  experimentsByDirection: Map<string, ExperimentSummary[]>,
+  findingsByExperiment: Map<string, Finding[]>,
   nodes: Node[],
-  edges: Edge[]
+  edges: Edge[],
+  onExperimentOpen?: (id: string) => void,
+  onDirectionOpen?: (id: string) => void,
+  onFindingOpen?: (id: string) => void
 ) {
   const children = childMap.get(exp.id) ?? [];
-  const hasChildren = children.length > 0;
+  const spawnedDirections = directionsBySpawnExperiment.get(exp.id) ?? [];
+  const findings = findingsByExperiment.get(exp.id) ?? [];
+  const hasChildren = children.length > 0 || spawnedDirections.length > 0 || findings.length > 0;
   const isExpanded = expandedNodes.has(exp.id);
 
   nodes.push({
@@ -294,9 +494,11 @@ function addExperimentSubtree(
       ...exp,
       statusColors: statusColor,
       hasChildren,
-      childCount: countDescendants(exp.id, childMap),
+      childCount: countDescendants(exp.id, childMap) + spawnedDirections.length + findings.length,
       isExpanded,
       depth,
+      onToggle: hasChildren ? () => toggleNode(exp.id) : undefined,
+      onOpen: () => onExperimentOpen?.(exp.id),
     } as Record<string, unknown>,
     draggable: true,
   });
@@ -311,6 +513,49 @@ function addExperimentSubtree(
   });
 
   if (isExpanded) {
+    for (const finding of findings) {
+      const findingNodeId = `finding-${finding.id}-for-${exp.id}`;
+      nodes.push({
+        id: findingNodeId,
+        type: "finding",
+        position: { x: 0, y: 0 },
+        data: {
+          ...finding,
+          onOpen: () => onFindingOpen?.(finding.id),
+        } as Record<string, unknown>,
+        draggable: true,
+      });
+
+      edges.push({
+        id: `${exp.id}->${findingNodeId}`,
+        source: exp.id,
+        target: findingNodeId,
+        type: "smoothstep",
+        style: { stroke: borderColor, strokeWidth: 1, strokeDasharray: "3 3" },
+      });
+    }
+
+    for (const direction of spawnedDirections) {
+      addDirectionSubtree(
+        direction,
+        exp.id,
+        childMap,
+        expandedNodes,
+        toggleNode,
+        statusColor,
+        borderColor,
+        directionsByParent,
+        directionsBySpawnExperiment,
+        experimentsByDirection,
+        findingsByExperiment,
+        nodes,
+        edges,
+        onExperimentOpen,
+        onDirectionOpen,
+        onFindingOpen,
+      );
+    }
+
     for (const child of children) {
       addExperimentSubtree(
         child,
@@ -318,12 +563,115 @@ function addExperimentSubtree(
         exp.id,
         childMap,
         expandedNodes,
+        toggleNode,
         statusColor,
         borderColor,
+        directionsByParent,
+        directionsBySpawnExperiment,
+        experimentsByDirection,
+        findingsByExperiment,
         nodes,
-        edges
+        edges,
+        onExperimentOpen,
+        onDirectionOpen,
+        onFindingOpen,
       );
     }
+  }
+}
+
+function addDirectionSubtree(
+  direction: DirectionSummary,
+  parentNodeId: string,
+  childMap: Map<string, ExperimentSummary[]>,
+  expandedNodes: Set<string>,
+  toggleNode: (key: string) => void,
+  statusColor: StatusColorMap,
+  borderColor: string,
+  directionsByParent: Map<string, DirectionSummary[]>,
+  directionsBySpawnExperiment: Map<string, DirectionSummary[]>,
+  experimentsByDirection: Map<string, ExperimentSummary[]>,
+  findingsByExperiment: Map<string, Finding[]>,
+  nodes: Node[],
+  edges: Edge[],
+  onExperimentOpen?: (id: string) => void,
+  onDirectionOpen?: (id: string) => void,
+  onFindingOpen?: (id: string) => void
+) {
+  const headerId = `dir-${direction.id}`;
+  const isExpanded = expandedNodes.has(headerId);
+  const directionExperiments = experimentsByDirection.get(direction.id) ?? [];
+  const directionRoots = rootExperimentsForGroup(directionExperiments);
+
+  nodes.push({
+    id: headerId,
+    type: "direction",
+    position: { x: 0, y: 0 },
+    data: {
+      label: direction.title,
+      dirId: direction.id,
+      count: directionExperiments.length,
+      expanded: isExpanded,
+      statusCounts: countStatuses(directionExperiments),
+      statusColors: statusColor,
+      onToggle: () => toggleNode(headerId),
+      onOpen: () => onDirectionOpen?.(direction.id),
+    } as Record<string, unknown>,
+    draggable: true,
+  });
+
+  edges.push({
+    id: `${parentNodeId}->${headerId}`,
+    source: parentNodeId,
+    target: headerId,
+    type: "smoothstep",
+    style: { stroke: borderColor, strokeWidth: 1 },
+  });
+
+  if (!isExpanded) return;
+
+  for (const experiment of directionRoots) {
+    addExperimentSubtree(
+      experiment,
+      0,
+      headerId,
+      childMap,
+      expandedNodes,
+      toggleNode,
+      statusColor,
+      borderColor,
+      directionsByParent,
+      directionsBySpawnExperiment,
+      experimentsByDirection,
+      findingsByExperiment,
+      nodes,
+      edges,
+      onExperimentOpen,
+      onDirectionOpen,
+      onFindingOpen,
+    );
+  }
+
+  const childDirections = directionsByParent.get(direction.id) ?? [];
+  for (const childDirection of childDirections) {
+    addDirectionSubtree(
+      childDirection,
+      headerId,
+      childMap,
+      expandedNodes,
+      toggleNode,
+      statusColor,
+      borderColor,
+      directionsByParent,
+      directionsBySpawnExperiment,
+      experimentsByDirection,
+      findingsByExperiment,
+      nodes,
+      edges,
+      onExperimentOpen,
+      onDirectionOpen,
+      onFindingOpen,
+    );
   }
 }
 
@@ -346,23 +694,67 @@ interface ExperimentGraphProps {
   experiments: ExperimentSummary[];
   directions: DirectionSummary[];
   projects: ProjectSummary[];
+  findings: Finding[];
   onNodeClick?: (id: string) => void;
   onProjectNavigate?: (projectId: string) => void;
+  onDirectionNavigate?: (directionId: string) => void;
+  onFindingNavigate?: (findingId: string) => void;
 }
 
 export const ExperimentGraph = memo(function ExperimentGraph({
   experiments,
   directions,
   projects,
+  findings,
   onNodeClick,
   onProjectNavigate,
+  onDirectionNavigate,
+  onFindingNavigate,
 }: ExperimentGraphProps) {
   const colors = useThemeCssColors();
   const statusColor = useStatusChartColors();
+  const knownProjectIds = useMemo(() => new Set(projects.map((p) => p.id)), [projects]);
+  const findingsByExperiment = useMemo(() => buildFindingsByExperiment(findings), [findings]);
+  const expandAllKeys = useMemo(() => {
+    const keys = new Set<string>();
 
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+    const needsUnassigned =
+      directions.some((d) => bucketProjectId(d.project_id, knownProjectIds) === null) ||
+      experiments.some((e) => bucketProjectId(e.project_id, knownProjectIds) === null);
+
+    for (const project of projects) {
+      keys.add(projectNodeId(project.id));
+      keys.add(`nodir-${projectNodeId(project.id)}`);
+    }
+    if (needsUnassigned) {
+      keys.add(projectNodeId(null));
+      keys.add(`nodir-${projectNodeId(null)}`);
+    }
+    for (const direction of directions) {
+      keys.add(`dir-${direction.id}`);
+    }
+    for (const experiment of experiments) {
+      if (
+        experiments.some((candidate) => candidate.parent_id === experiment.id) ||
+        directions.some((direction) => direction.spawned_from_experiment_id === experiment.id) ||
+        (findingsByExperiment.get(experiment.id)?.length ?? 0) > 0
+      ) {
+        keys.add(experiment.id);
+      }
+    }
+    return keys;
+  }, [projects, directions, experiments, knownProjectIds, findingsByExperiment]);
+
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set(expandAllKeys));
+  const [hasUserAdjustedExpansion, setHasUserAdjustedExpansion] = useState(false);
+
+  useEffect(() => {
+    if (hasUserAdjustedExpansion) return;
+    setExpanded(new Set(expandAllKeys));
+  }, [expandAllKeys, hasUserAdjustedExpansion]);
 
   const toggle = useCallback((key: string) => {
+    setHasUserAdjustedExpansion(true);
     setExpanded((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
@@ -372,8 +764,16 @@ export const ExperimentGraph = memo(function ExperimentGraph({
   }, []);
 
   const childMap = useMemo(() => buildChildMap(experiments), [experiments]);
+  const directionsByParent = useMemo(() => buildDirectionsByParent(directions), [directions]);
+  const directionsBySpawnExperiment = useMemo(
+    () => buildDirectionsBySpawnExperiment(directions),
+    [directions]
+  );
+  const experimentsByDirection = useMemo(
+    () => buildExperimentsByDirection(experiments),
+    [experiments]
+  );
   const experimentIds = useMemo(() => new Set(experiments.map((e) => e.id)), [experiments]);
-  const knownProjectIds = useMemo(() => new Set(projects.map((p) => p.id)), [projects]);
 
   const isRoot = useCallback(
     (e: ExperimentSummary) => !e.parent_id || !experimentIds.has(e.parent_id),
@@ -401,6 +801,7 @@ export const ExperimentGraph = memo(function ExperimentGraph({
     }
 
     for (const p of entries) {
+      const projectId = p.id;
       const bucketId = bucketProjectId(p.id, knownProjectIds);
       const pid = projectNodeId(bucketId);
       const isProjExpanded = expanded.has(pid);
@@ -410,7 +811,12 @@ export const ExperimentGraph = memo(function ExperimentGraph({
       );
 
       const dirsInProj = directions
-        .filter((d) => bucketProjectId(d.project_id, knownProjectIds) === bucketId && !d.parent_direction_id)
+        .filter(
+          (d) =>
+            bucketProjectId(d.project_id, knownProjectIds) === bucketId &&
+            !d.parent_direction_id &&
+            (!d.spawned_from_experiment_id || !experimentIds.has(d.spawned_from_experiment_id))
+        )
         .sort((a, b) => a.title.localeCompare(b.title));
 
       rawNodes.push({
@@ -423,6 +829,8 @@ export const ExperimentGraph = memo(function ExperimentGraph({
           count: allInProject.length,
           directionCount: dirsInProj.length,
           expanded: isProjExpanded,
+          onToggle: () => toggle(pid),
+          onOpen: projectId === null ? undefined : () => onProjectNavigate?.(projectId),
         } as Record<string, unknown>,
         draggable: true,
       });
@@ -430,97 +838,24 @@ export const ExperimentGraph = memo(function ExperimentGraph({
       if (!isProjExpanded) continue;
 
       for (const dir of dirsInProj) {
-        const headerId = `dir-${dir.id}`;
-        const isDirExpanded = expanded.has(headerId);
-        const rootExps = experiments.filter((e) => isRoot(e) && e.direction_id === dir.id);
-        const allInDirection = experiments.filter((e) => e.direction_id === dir.id);
-
-        rawNodes.push({
-          id: headerId,
-          type: "direction",
-          position: { x: 0, y: 0 },
-          data: {
-            label: dir.title,
-            dirId: dir.id,
-            count: allInDirection.length,
-            expanded: isDirExpanded,
-            statusCounts: countStatuses(allInDirection),
-            statusColors: statusColor,
-          } as Record<string, unknown>,
-          draggable: true,
-        });
-
-        rawEdges.push({
-          id: `${pid}->${headerId}`,
-          source: pid,
-          target: headerId,
-          type: "smoothstep",
-          style: projEdgeStyle,
-        });
-
-        if (isDirExpanded) {
-          for (const exp of rootExps) {
-            addExperimentSubtree(
-              exp,
-              0,
-              headerId,
-              childMap,
-              expanded,
-              statusColor,
-              colors.border,
-              rawNodes,
-              rawEdges
-            );
-          }
-
-          // Add child (sub) directions under this parent direction
-          const childDirs = directions.filter((d) => d.parent_direction_id === dir.id);
-          for (const childDir of childDirs) {
-            const subHeaderId = `dir-${childDir.id}`;
-            const isSubDirExpanded = expanded.has(subHeaderId);
-            const subDirExps = experiments.filter((e) => e.direction_id === childDir.id);
-            const subDirRootExps = subDirExps.filter((e) => isRoot(e));
-
-            rawNodes.push({
-              id: subHeaderId,
-              type: "direction",
-              position: { x: 0, y: 0 },
-              data: {
-                label: childDir.title,
-                dirId: childDir.id,
-                count: subDirExps.length,
-                expanded: isSubDirExpanded,
-                statusCounts: countStatuses(subDirExps),
-                statusColors: statusColor,
-              } as Record<string, unknown>,
-              draggable: true,
-            });
-
-            rawEdges.push({
-              id: `${headerId}->${subHeaderId}`,
-              source: headerId,
-              target: subHeaderId,
-              type: "smoothstep",
-              style: projEdgeStyle,
-            });
-
-            if (isSubDirExpanded) {
-              for (const exp of subDirRootExps) {
-                addExperimentSubtree(
-                  exp,
-                  0,
-                  subHeaderId,
-                  childMap,
-                  expanded,
-                  statusColor,
-                  colors.border,
-                  rawNodes,
-                  rawEdges
-                );
-              }
-            }
-          }
-        }
+        addDirectionSubtree(
+          dir,
+          pid,
+          childMap,
+          expanded,
+          toggle,
+          statusColor,
+          colors.border,
+          directionsByParent,
+          directionsBySpawnExperiment,
+          experimentsByDirection,
+          findingsByExperiment,
+          rawNodes,
+          rawEdges,
+          onNodeClick,
+          onDirectionNavigate,
+          onFindingNavigate,
+        );
       }
 
       const noDirExps = experiments.filter(
@@ -543,6 +878,7 @@ export const ExperimentGraph = memo(function ExperimentGraph({
             expanded: isNodirExpanded,
             statusCounts: countStatuses(noDirExps),
             statusColors: statusColor,
+            onToggle: () => toggle(nodirId),
           } as Record<string, unknown>,
           draggable: true,
         });
@@ -563,10 +899,18 @@ export const ExperimentGraph = memo(function ExperimentGraph({
               nodirId,
               childMap,
               expanded,
+              toggle,
               statusColor,
               colors.border,
+              directionsByParent,
+              directionsBySpawnExperiment,
+              experimentsByDirection,
+              findingsByExperiment,
               rawNodes,
-              rawEdges
+              rawEdges,
+              onNodeClick,
+              onDirectionNavigate,
+              onFindingNavigate,
             );
           }
         }
@@ -580,11 +924,21 @@ export const ExperimentGraph = memo(function ExperimentGraph({
     experiments,
     expanded,
     childMap,
+    directionsByParent,
+    directionsBySpawnExperiment,
+    experimentsByDirection,
+    findingsByExperiment,
+    experimentIds,
     statusColor,
     colors.border,
     colors.textTertiary,
     knownProjectIds,
     isRoot,
+    onDirectionNavigate,
+    onFindingNavigate,
+    onNodeClick,
+    onProjectNavigate,
+    toggle,
   ]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
@@ -595,77 +949,68 @@ export const ExperimentGraph = memo(function ExperimentGraph({
     setEdges(initialEdges);
   }, [initialNodes, initialEdges, setNodes, setEdges]);
 
-  const handleNodeClick: NodeMouseHandler = useCallback(
-    (_event, node) => {
-      if (node.type === "project") {
-        toggle(node.id);
-      } else if (node.type === "direction" || node.type === "ungrouped") {
-        toggle(node.id);
-      } else if (node.type === "experiment") {
-        const d = node.data as unknown as { hasChildren: boolean };
-        if (d.hasChildren) {
-          toggle(node.id);
-        } else {
-          onNodeClick?.(node.id);
-        }
-      }
-    },
-    [toggle, onNodeClick]
-  );
-
-  const handleNodeDoubleClick: NodeMouseHandler = useCallback(
-    (_event, node) => {
-      if (node.type === "experiment") {
-        onNodeClick?.(node.id);
-      } else if (node.type === "project") {
-        const d = node.data as unknown as { projectId: string | null };
-        if (d.projectId && onProjectNavigate) {
-          onProjectNavigate(d.projectId);
-        }
-      }
-    },
-    [onNodeClick, onProjectNavigate]
-  );
-
   return (
-    <div className="h-full w-full rounded-[8px] border border-border bg-bg">
-      <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        nodeTypes={nodeTypes}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        onNodeClick={handleNodeClick}
-        onNodeDoubleClick={handleNodeDoubleClick}
-        onlyRenderVisibleElements
-        nodesDraggable
-        fitView
-        fitViewOptions={{ padding: 0.2, maxZoom: 1.2 }}
-        minZoom={0.05}
-        maxZoom={2}
-        proOptions={{ hideAttribution: true }}
-        defaultEdgeOptions={{
-          type: "smoothstep",
-          style: { stroke: colors.border, strokeWidth: 1 },
-        }}
-      >
-        <Background color={colors.surfaceHover} gap={24} size={1} />
-        <Controls
-          showInteractive={false}
-          className="!rounded-[5.5px] !border-border !bg-surface !shadow-none [&>button]:!rounded-[3px] [&>button]:!border-border [&>button]:!bg-surface-raised [&>button]:!fill-text-tertiary"
-        />
-        <MiniMap
-          nodeColor={(node) => {
-            if (node.type === "project") return colors.textTertiary;
-            if (node.type === "direction") return colors.accent;
-            if (node.type === "ungrouped") return colors.textQuaternary;
-            const exp = node.data as unknown as ExperimentSummary;
-            return statusColor[exp.status] ?? colors.textQuaternary;
+    <div className="flex h-full w-full min-h-0 flex-col gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() => {
+            setHasUserAdjustedExpansion(true);
+            setExpanded(new Set(expandAllKeys));
           }}
-          maskColor={colors.minimapMask}
-          className="!rounded-[8px] !border-border !bg-surface"
-        />
-      </ReactFlow>
+          className="inline-flex items-center rounded-[5.5px] border border-border-subtle bg-surface-raised px-2.5 py-1 text-[11px] font-medium text-text-secondary transition-colors hover:bg-surface-hover"
+        >
+          Expand all
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setHasUserAdjustedExpansion(true);
+            setExpanded(new Set());
+          }}
+          className="inline-flex items-center rounded-[5.5px] border border-border-subtle bg-surface-raised px-2.5 py-1 text-[11px] font-medium text-text-secondary transition-colors hover:bg-surface-hover"
+        >
+          Collapse all
+        </button>
+      </div>
+      <div className="h-full w-full min-h-0 rounded-[8px] border border-border bg-bg">
+        <ReactFlow
+          nodes={nodes}
+          edges={edges}
+          nodeTypes={nodeTypes}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onlyRenderVisibleElements
+          nodesDraggable
+          fitView
+          fitViewOptions={{ padding: 0.2, maxZoom: 1.2 }}
+          minZoom={0.05}
+          maxZoom={2}
+          proOptions={{ hideAttribution: true }}
+          defaultEdgeOptions={{
+            type: "smoothstep",
+            style: { stroke: colors.border, strokeWidth: 1 },
+          }}
+        >
+          <Background color={colors.surfaceHover} gap={24} size={1} />
+          <Controls
+            showInteractive={false}
+            className="!rounded-[5.5px] !border-border !bg-surface !shadow-none [&>button]:!rounded-[3px] [&>button]:!border-border [&>button]:!bg-surface-raised [&>button]:!fill-text-tertiary"
+          />
+          <MiniMap
+            nodeColor={(node) => {
+              if (node.type === "project") return colors.textTertiary;
+              if (node.type === "direction") return colors.accent;
+              if (node.type === "ungrouped") return colors.textQuaternary;
+              if (node.type === "finding") return colors.textTertiary;
+              const exp = node.data as unknown as ExperimentSummary;
+              return statusColor[exp.status] ?? colors.textQuaternary;
+            }}
+            maskColor={colors.minimapMask}
+            className="!rounded-[8px] !border-border !bg-surface"
+          />
+        </ReactFlow>
+      </div>
     </div>
   );
 });
