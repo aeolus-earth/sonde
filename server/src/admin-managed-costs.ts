@@ -326,7 +326,15 @@ export async function fetchManagedSessions(options: {
     if (userFilter.includes("@")) {
       query = query.ilike("user_email", `%${userFilter}%`);
     } else {
-      const escaped = userFilter.replace(/,/g, "\\,");
+      // Escape special characters for PostgREST .or() syntax and ILIKE patterns:
+      // 1. Backslashes must be escaped first (before other escapes add more backslashes)
+      // 2. Commas separate OR conditions in PostgREST, so must be escaped
+      // 3. % and _ are ILIKE wildcards, escape for literal matching
+      const escaped = userFilter
+        .replace(/\\/g, "\\\\")
+        .replace(/,/g, "\\,")
+        .replace(/%/g, "\\%")
+        .replace(/_/g, "\\_");
       query = query.or(`user_email.ilike.%${escaped}%,user_id.ilike.%${escaped}%`);
     }
   }
