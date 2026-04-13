@@ -1,11 +1,20 @@
 import { useState, useMemo, useCallback } from "react";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
-import { useProject, useExperimentsByProject, useDirectionsByProject } from "@/hooks/use-projects";
+import {
+  useProject,
+  useExperimentsByProject,
+  useDirectionsByProject,
+} from "@/hooks/use-projects";
+import { useQuestions } from "@/hooks/use-questions";
 import { useRecordActivity } from "@/hooks/use-activity";
 import { useArtifacts, useArtifactUrl } from "@/hooks/use-artifacts";
 import { useHotkey } from "@/hooks/use-keyboard";
 import { Badge } from "@/components/ui/badge";
-import { Skeleton, DetailSectionSkeleton, ExperimentRowSkeleton } from "@/components/ui/skeleton";
+import {
+  Skeleton,
+  DetailSectionSkeleton,
+  ExperimentRowSkeleton,
+} from "@/components/ui/skeleton";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { Section, DetailRow } from "@/components/shared/detail-layout";
 import { RecordLink } from "@/components/shared/record-link";
@@ -20,20 +29,30 @@ import type {
   ExperimentStatus,
   ExperimentSummary,
   ProjectSummary,
+  QuestionSummary,
 } from "@/types/sonde";
 
 export default function ProjectDetailPage() {
   const { id } = useParams({ strict: false }) as { id: string };
   const navigate = useNavigate();
   const { data: proj, isLoading: loadingProj } = useProject(id);
-  const { data: directions, isLoading: loadingDirections } = useDirectionsByProject(id, proj?.program);
-  const { data: experiments, isLoading: loadingExps } = useExperimentsByProject(id);
+  const { data: directions, isLoading: loadingDirections } =
+    useDirectionsByProject(id, proj?.program);
+  const { data: experiments, isLoading: loadingExps } =
+    useExperimentsByProject(id);
+  const { data: questions } = useQuestions();
   const { data: activity } = useRecordActivity(id);
-  const { data: projectArtifacts, isLoading: loadingProjectArtifacts } = useArtifacts(id);
+  const { data: projectArtifacts, isLoading: loadingProjectArtifacts } =
+    useArtifacts(id);
   const [linkCopied, setLinkCopied] = useState(false);
-  const [statusFilter, setStatusFilter] = useState<ExperimentStatus | "all">("all");
+  const [statusFilter, setStatusFilter] = useState<ExperimentStatus | "all">(
+    "all",
+  );
   const shareUrl = useMemo(() => projectDetailShareUrl(id), [id]);
-  useHotkey("Escape", useCallback(() => navigate({ to: "/projects" }), [navigate]));
+  useHotkey(
+    "Escape",
+    useCallback(() => navigate({ to: "/projects" }), [navigate]),
+  );
 
   const filtered = useMemo(() => {
     if (!experiments) return [];
@@ -44,10 +63,15 @@ export default function ProjectDetailPage() {
   const experimentsByDirection = useMemo(() => {
     const grouped = new Map<string, ExperimentSummary[]>();
     const projectOnly: ExperimentSummary[] = [];
-    const knownDirectionIds = new Set((directions ?? []).map((direction) => direction.id));
+    const knownDirectionIds = new Set(
+      (directions ?? []).map((direction) => direction.id),
+    );
 
     for (const experiment of filtered) {
-      if (experiment.direction_id && knownDirectionIds.has(experiment.direction_id)) {
+      if (
+        experiment.direction_id &&
+        knownDirectionIds.has(experiment.direction_id)
+      ) {
         const existing = grouped.get(experiment.direction_id);
         if (existing) {
           existing.push(experiment);
@@ -61,6 +85,20 @@ export default function ProjectDetailPage() {
 
     return { grouped, projectOnly };
   }, [directions, filtered]);
+  const questionsByDirection = useMemo(() => {
+    const grouped = new Map<string, QuestionSummary[]>();
+    const directionIds = new Set(
+      (directions ?? []).map((direction) => direction.id),
+    );
+    for (const question of questions ?? []) {
+      if (!question.direction_id || !directionIds.has(question.direction_id))
+        continue;
+      const existing = grouped.get(question.direction_id) ?? [];
+      existing.push(question);
+      grouped.set(question.direction_id, existing);
+    }
+    return grouped;
+  }, [directions, questions]);
 
   const copyShareLink = useCallback(async () => {
     try {
@@ -73,11 +111,21 @@ export default function ProjectDetailPage() {
   }, [shareUrl]);
 
   const reportPdf = useMemo(
-    () => findProjectReportArtifact(projectArtifacts, proj?.report_pdf_artifact_id ?? null, "pdf"),
+    () =>
+      findProjectReportArtifact(
+        projectArtifacts,
+        proj?.report_pdf_artifact_id ?? null,
+        "pdf",
+      ),
     [projectArtifacts, proj?.report_pdf_artifact_id],
   );
   const reportTex = useMemo(
-    () => findProjectReportArtifact(projectArtifacts, proj?.report_tex_artifact_id ?? null, "tex"),
+    () =>
+      findProjectReportArtifact(
+        projectArtifacts,
+        proj?.report_tex_artifact_id ?? null,
+        "tex",
+      ),
     [projectArtifacts, proj?.report_tex_artifact_id],
   );
 
@@ -102,11 +150,19 @@ export default function ProjectDetailPage() {
     );
   }
 
-  const statuses: (ExperimentStatus | "all")[] = ["all", "open", "running", "complete", "failed"];
+  const statuses: (ExperimentStatus | "all")[] = [
+    "all",
+    "open",
+    "running",
+    "complete",
+    "failed",
+  ];
 
   return (
     <div className="space-y-4">
-      <Breadcrumb items={[{ label: "Projects", to: "/projects" }, { label: proj.id }]} />
+      <Breadcrumb
+        items={[{ label: "Projects", to: "/projects" }, { label: proj.id }]}
+      />
       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
         <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
           <Link
@@ -121,15 +177,22 @@ export default function ProjectDetailPage() {
             </h1>
             <Badge
               variant={
-                proj.status === "active" ? "running" :
-                proj.status === "completed" ? "complete" :
-                proj.status === "archived" ? "superseded" : "default"
+                proj.status === "active"
+                  ? "running"
+                  : proj.status === "completed"
+                    ? "complete"
+                    : proj.status === "archived"
+                      ? "superseded"
+                      : "default"
               }
             >
               {proj.status}
             </Badge>
           </div>
-          <span className="text-[12px] text-text-quaternary" title={formatDateTime(proj.created_at)}>
+          <span
+            className="text-[12px] text-text-quaternary"
+            title={formatDateTime(proj.created_at)}
+          >
             {formatDateTimeShort(proj.created_at)}
           </span>
         </div>
@@ -141,7 +204,10 @@ export default function ProjectDetailPage() {
             aria-label={linkCopied ? "Link copied" : `Copy link: ${shareUrl}`}
             className="inline-flex shrink-0 items-center gap-1.5 rounded-[5.5px] border border-border-subtle bg-surface-raised px-2.5 py-1 text-[12px] font-medium text-text-secondary transition-colors hover:bg-surface-hover"
           >
-            <Copy className="h-3.5 w-3.5 shrink-0 text-text-quaternary" aria-hidden />
+            <Copy
+              className="h-3.5 w-3.5 shrink-0 text-text-quaternary"
+              aria-hidden
+            />
             {linkCopied ? "Copied" : "Copy link"}
           </button>
         </div>
@@ -153,7 +219,9 @@ export default function ProjectDetailPage() {
           <Section title="Project">
             <p className="text-[14px] font-medium text-text">{proj.name}</p>
             {proj.objective && (
-              <p className="mt-1 text-[13px] leading-relaxed text-text-secondary">{proj.objective}</p>
+              <p className="mt-1 text-[13px] leading-relaxed text-text-secondary">
+                {proj.objective}
+              </p>
             )}
           </Section>
 
@@ -164,12 +232,59 @@ export default function ProjectDetailPage() {
             isLoading={loadingProjectArtifacts}
           />
 
+          {(directions?.length ?? 0) > 0 && (
+            <Section
+              title="Questions"
+              count={Array.from(questionsByDirection.values()).reduce(
+                (total, items) => total + (items?.length ?? 0),
+                0,
+              )}
+            >
+              <div className="space-y-2">
+                {(directions ?? []).map((direction) => {
+                  const items = questionsByDirection.get(direction.id) ?? [];
+                  if (items.length === 0) return null;
+                  return (
+                    <div
+                      key={direction.id}
+                      className="rounded-[7px] border border-border-subtle"
+                    >
+                      <div className="border-b border-border-subtle px-3 py-2 text-[12px] font-medium text-text-secondary">
+                        {direction.id} {direction.title}
+                      </div>
+                      <div className="divide-y divide-border-subtle">
+                        {items.map((question) => (
+                          <Link
+                            key={question.id}
+                            to="/questions/$id"
+                            params={{ id: question.id }}
+                            className="block px-3 py-2 text-[12px] text-text-secondary transition-colors hover:bg-surface-hover hover:text-text"
+                          >
+                            <span className="mr-2 font-mono text-[11px] text-text-quaternary">
+                              {question.id}
+                            </span>
+                            {question.question}
+                          </Link>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </Section>
+          )}
+
           <div className="rounded-[8px] border border-border bg-surface">
             <div className="flex items-center justify-between border-b border-border px-3 py-2">
               <div className="flex items-center gap-2">
-                <h3 className="text-[13px] font-medium text-text-secondary">Research structure</h3>
+                <h3 className="text-[13px] font-medium text-text-secondary">
+                  Research structure
+                </h3>
                 <span className="text-[11px] text-text-quaternary">
-                  {loadingDirections ? proj.direction_count : (directions?.length ?? 0)} directions
+                  {loadingDirections
+                    ? proj.direction_count
+                    : (directions?.length ?? 0)}{" "}
+                  directions
                 </span>
               </div>
               <div className="flex rounded-[5.5px] border border-border bg-bg">
@@ -200,10 +315,15 @@ export default function ProjectDetailPage() {
                   <ProjectDirectionGroup
                     key={direction.id}
                     direction={direction}
-                    experiments={experimentsByDirection.grouped.get(direction.id) ?? []}
+                    experiments={
+                      experimentsByDirection.grouped.get(direction.id) ?? []
+                    }
                     statusFilter={statusFilter}
                     onExperimentClick={(expId) =>
-                      navigate({ to: "/experiments/$id", params: { id: expId } })
+                      navigate({
+                        to: "/experiments/$id",
+                        params: { id: expId },
+                      })
                     }
                   />
                 ))}
@@ -211,7 +331,9 @@ export default function ProjectDetailPage() {
                 {experimentsByDirection.projectOnly.length > 0 && (
                   <div className="px-3 py-2.5">
                     <div className="mb-2 flex flex-wrap items-center gap-2">
-                      <span className="font-mono text-[11px] text-text-quaternary">PROJECT</span>
+                      <span className="font-mono text-[11px] text-text-quaternary">
+                        PROJECT
+                      </span>
                       <Badge variant="default">unlinked</Badge>
                       <span className="text-[12px] text-text-secondary">
                         Experiments not attached to a direction yet
@@ -222,8 +344,16 @@ export default function ProjectDetailPage() {
                         <ProjectExperimentRow
                           key={exp.id}
                           experiment={exp}
-                          isLast={index === experimentsByDirection.projectOnly.length - 1}
-                          onClick={() => navigate({ to: "/experiments/$id", params: { id: exp.id } })}
+                          isLast={
+                            index ===
+                            experimentsByDirection.projectOnly.length - 1
+                          }
+                          onClick={() =>
+                            navigate({
+                              to: "/experiments/$id",
+                              params: { id: exp.id },
+                            })
+                          }
                         />
                       ))}
                     </div>
@@ -238,10 +368,12 @@ export default function ProjectDetailPage() {
 
                 {(directions?.length ?? 0) > 0 && filtered.length === 0 && (
                   <div className="py-8 text-center text-[13px] text-text-quaternary">
-                    No experiments {statusFilter !== "all" ? `with status "${statusFilter}"` : "under this project"}
+                    No experiments{" "}
+                    {statusFilter !== "all"
+                      ? `with status "${statusFilter}"`
+                      : "under this project"}
                   </div>
                 )}
-
               </div>
             )}
           </div>
@@ -259,8 +391,11 @@ export default function ProjectDetailPage() {
               <DetailRow label="Status">
                 <Badge
                   variant={
-                    proj.status === "active" ? "running" :
-                    proj.status === "completed" ? "complete" : "default"
+                    proj.status === "active"
+                      ? "running"
+                      : proj.status === "completed"
+                        ? "complete"
+                        : "default"
                   }
                 >
                   {proj.status}
@@ -315,7 +450,9 @@ function findProjectReportArtifact(
     if (exact) return exact;
   }
   const canonicalSuffix = `/reports/project-report.${extension}`;
-  return artifacts.find((a) => a.storage_path.endsWith(canonicalSuffix)) ?? null;
+  return (
+    artifacts.find((a) => a.storage_path.endsWith(canonicalSuffix)) ?? null
+  );
 }
 
 function ProjectReportSection({
@@ -346,12 +483,16 @@ function ProjectReportSection({
               <FileText className="h-4 w-4" />
             </div>
             <div className="min-w-0">
-              <p className="text-[13px] font-medium text-text-secondary">No final project report yet</p>
+              <p className="text-[13px] font-medium text-text-secondary">
+                No final project report yet
+              </p>
               <p className="mt-1 text-[12px] leading-relaxed text-text-quaternary">
-                Register the curated PDF + LaTeX source before closing this project.
+                Register the curated PDF + LaTeX source before closing this
+                project.
               </p>
               <code className="mt-3 block overflow-x-auto rounded-[6px] bg-bg px-2 py-1.5 font-mono text-[11px] text-text-tertiary">
-                sonde project report {project.id} --pdf build/report.pdf --tex report/main.tex
+                sonde project report {project.id} --pdf build/report.pdf --tex
+                report/main.tex
               </code>
             </div>
           </div>
@@ -365,7 +506,10 @@ function ProjectReportSection({
       <ProjectReportPdf artifact={pdf} />
       {tex && <ReportSourceLink artifact={tex} />}
       {project.report_updated_at && (
-        <p className="mt-2 text-[11px] text-text-quaternary" title={formatDateTime(project.report_updated_at)}>
+        <p
+          className="mt-2 text-[11px] text-text-quaternary"
+          title={formatDateTime(project.report_updated_at)}
+        >
           Report updated {formatDateTimeShort(project.report_updated_at)}
         </p>
       )}
@@ -392,8 +536,11 @@ function ProjectDirectionGroup({
             <RecordLink recordId={direction.id} />
             <Badge
               variant={
-                direction.status === "active" ? "running" :
-                direction.status === "completed" ? "complete" : "default"
+                direction.status === "active"
+                  ? "running"
+                  : direction.status === "completed"
+                    ? "complete"
+                    : "default"
               }
             >
               {direction.status}
@@ -402,7 +549,9 @@ function ProjectDirectionGroup({
               {experiments.length} shown
             </span>
           </div>
-          <p className="mt-0.5 break-words text-[12px] text-text">{direction.title}</p>
+          <p className="mt-0.5 break-words text-[12px] text-text">
+            {direction.title}
+          </p>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2 text-[11px]">
           <Badge variant="complete">{direction.complete_count}</Badge>
@@ -424,7 +573,9 @@ function ProjectDirectionGroup({
         </div>
       ) : (
         <p className="mt-2 pl-3 text-[12px] text-text-quaternary">
-          No experiments {statusFilter !== "all" ? `with status "${statusFilter}" ` : ""}in this direction.
+          No experiments{" "}
+          {statusFilter !== "all" ? `with status "${statusFilter}" ` : ""}in
+          this direction.
         </p>
       )}
     </div>
@@ -445,12 +596,17 @@ function ProjectExperimentRow({
       onClick={onClick}
       className={`flex cursor-pointer items-center gap-3 px-3 py-2 transition-colors hover:bg-surface-hover ${isLast ? "" : "border-b border-border-subtle"}`}
     >
-      <span className="font-mono text-[12px] font-medium text-text">{experiment.id}</span>
+      <span className="font-mono text-[12px] font-medium text-text">
+        {experiment.id}
+      </span>
       <Badge variant={experiment.status}>{experiment.status}</Badge>
       <span className="min-w-0 flex-1 truncate text-[12px] text-text-tertiary">
         {experiment.finding ?? experiment.hypothesis ?? "—"}
       </span>
-      <span className="text-[11px] text-text-quaternary" title={formatDateTime(experiment.created_at)}>
+      <span
+        className="text-[11px] text-text-quaternary"
+        title={formatDateTime(experiment.created_at)}
+      >
         {formatDateTimeShort(experiment.created_at)}
       </span>
     </div>

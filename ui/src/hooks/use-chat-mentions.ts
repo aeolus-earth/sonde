@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   useExperiments,
   useExperiment,
@@ -6,9 +7,12 @@ import {
 } from "@/hooks/use-experiments";
 import { useCurrentFindings } from "@/hooks/use-findings";
 import { useDirections } from "@/hooks/use-directions";
-import { usePrograms, useExperimentsForProgram } from "@/hooks/use-programs";
+import { useProjects } from "@/hooks/use-projects";
+import { usePrograms } from "@/hooks/use-programs";
 import { useExperimentNotesSearch } from "@/hooks/use-notes";
 import { fuzzyFilter } from "@/lib/fuzzy-match";
+import { normalizeExperimentHypothesis } from "@/lib/experiment-hypothesis";
+import { supabase } from "@/lib/supabase";
 import type { MentionRef, PageContext } from "@/types/chat";
 import type { RecordType } from "@/types/sonde";
 
@@ -23,8 +27,7 @@ export type MentionListItem =
     };
 
 export type MentionSelectResult =
-  | { action: "ref"; ref: MentionRef }
-  | { action: "drill_program"; programId: string; programName: string };
+  | { action: "ref"; ref: MentionRef };
 
 interface ProgramCandidate {
   id: string;
@@ -44,11 +47,32 @@ function sortScopedFirst(
   rows: RecordCandidate[],
   scopedIds: Set<string> | null
 ): RecordCandidate[] {
-  if (!scopedIds || scopedIds.size === 0) return rows;
+  const typeRank = (c: RecordCandidate) => {
+    switch (c.type) {
+      case "project":
+        return 0;
+      case "direction":
+        return 1;
+      case "experiment":
+        return 2;
+      case "finding":
+        return 3;
+      case "question":
+        return 4;
+      default:
+        return 5;
+    }
+  };
+
+  if (!scopedIds || scopedIds.size === 0) {
+    return [...rows].sort((a, b) => typeRank(a) - typeRank(b));
+  }
   return [...rows].sort((a, b) => {
-    const rank = (c: RecordCandidate) =>
+    const scopedRank = (c: RecordCandidate) =>
       c.type === "experiment" && scopedIds.has(c.id) ? 0 : 1;
-    return rank(a) - rank(b);
+    const scopeDiff = scopedRank(a) - scopedRank(b);
+    if (scopeDiff !== 0) return scopeDiff;
+    return typeRank(a) - typeRank(b);
   });
 }
 
@@ -66,9 +90,94 @@ export function useChatMentions(pageContext?: PageContext | null) {
   const { data: experiments } = useExperiments();
   const { data: findings } = useCurrentFindings();
   const { data: directions } = useDirections();
+  const { data: projects } = useProjects();
   const { data: programs } = usePrograms();
-  const { data: drillExperiments, isLoading: drillExperimentsLoading } =
-    useExperimentsForProgram(drillDownProgramId);
+  const {
+    data: drillProgramRecords,
+    isLoading: drillProgramRecordsLoading,
+  } = useQuery({
+    queryKey: ["chat-mentions", "program-drill", drillDownProgramId] as const,
+    queryFn: async (): Promise<RecordCandidate[]> => {
+      if (!drillDownProgramId) return [];
+
+      const [projectsResult, directionsResult, findingsResult, experimentsResult] =
+        await Promise.all([
+          supabase
+            .from("project_status")
+            .select("id,name,objective,description,program")
+            .eq("program", drillDownProgramId)
+            .order("updated_at", { ascending: false })
+            .limit(40),
+          supabase
+            .from("direction_status")
+            .select("id,title,question,program")
+            .eq("program", drillDownProgramId)
+            .order("updated_at", { ascending: false })
+            .limit(40),
+          supabase
+            .from("current_findings")
+            .select("id,topic,finding,program")
+            .eq("program", drillDownProgramId)
+            .limit(40),
+          supabase
+            .from("experiment_summary")
+            .select("*")
+            .eq("program", drillDownProgramId)
+            .order("created_at", { ascending: false })
+            .limit(80),
+        ]);
+
+      if (projectsResult.error) throw projectsResult.error;
+      if (directionsResult.error) throw directionsResult.error;
+      if (findingsResult.error) throw findingsResult.error;
+      if (experimentsResult.error) throw experimentsResult.error;
+
+      const projectRows: RecordCandidate[] = (projectsResult.data ?? []).map((project) => ({
+        id: project.id as string,
+        type: "project",
+        label: (project.name as string) ?? (project.id as string),
+        searchText: `${project.id ?? ""} ${project.name ?? ""} ${project.objective ?? ""} ${project.description ?? ""} ${project.program ?? ""}`,
+        program: project.program as string | undefined,
+      }));
+
+      const directionRows: RecordCandidate[] = (directionsResult.data ?? []).map(
+        (direction) => ({
+          id: direction.id as string,
+          type: "direction",
+          label: (direction.title as string) ?? (direction.id as string),
+          searchText: `${direction.id ?? ""} ${direction.title ?? ""} ${direction.question ?? ""} ${direction.program ?? ""}`,
+          program: direction.program as string | undefined,
+        }),
+      );
+
+      const findingRows: RecordCandidate[] = (findingsResult.data ?? []).map((finding) => ({
+        id: finding.id as string,
+        type: "finding",
+        label: (finding.topic as string) ?? (finding.id as string),
+        searchText: `${finding.id ?? ""} ${finding.topic ?? ""} ${finding.finding ?? ""} ${finding.program ?? ""}`,
+        program: finding.program as string | undefined,
+      }));
+
+      const experimentRows: RecordCandidate[] = (experimentsResult.data ?? [])
+        .map(normalizeExperimentHypothesis)
+        .map((experiment) => ({
+          id: experiment.id,
+          type: "experiment" as const,
+          label: experiment.hypothesis ?? experiment.finding ?? experiment.id,
+          searchText: `${experiment.id} ${experiment.hypothesis ?? ""} ${experiment.finding ?? ""} ${experiment.program}`,
+          program: experiment.program,
+        }));
+
+      return [
+        ...projectRows,
+        ...directionRows,
+        ...findingRows,
+        ...experimentRows,
+      ];
+    },
+    enabled: !!drillDownProgramId,
+    staleTime: 60_000,
+  });
 
   const ctxExpId =
     pageContext?.type === "experiment" ? pageContext.id : "";
@@ -118,6 +227,18 @@ export function useChatMentions(pageContext?: PageContext | null) {
       }
     }
 
+    if (projects) {
+      for (const p of projects.slice(0, 50)) {
+        items.push({
+          id: p.id,
+          type: "project",
+          label: p.name,
+          searchText: `${p.id} ${p.name} ${p.objective ?? ""} ${p.description ?? ""} ${p.program}`,
+          program: p.program,
+        });
+      }
+    }
+
     if (findings) {
       for (const f of findings.slice(0, 50)) {
         items.push({
@@ -160,6 +281,7 @@ export function useChatMentions(pageContext?: PageContext | null) {
     return items;
   }, [
     experiments,
+    projects,
     findings,
     directions,
     pageContext,
@@ -168,18 +290,11 @@ export function useChatMentions(pageContext?: PageContext | null) {
   ]);
 
   const results = useMemo<MentionListItem[]>(() => {
-    if (drillDownProgramId && drillExperiments) {
+    if (drillDownProgramId && drillProgramRecords) {
       const q = drillFilterQuery.trim();
-      const rows: RecordCandidate[] = drillExperiments.map((e) => ({
-        id: e.id,
-        type: "experiment" as const,
-        label: e.hypothesis ?? e.finding ?? e.id,
-        searchText: `${e.id} ${e.hypothesis ?? ""} ${e.finding ?? ""} ${e.program}`,
-        program: e.program,
-      }));
       const filtered = q
-        ? fuzzyFilter(q, rows, (c) => c.searchText).slice(0, 40)
-        : rows.slice(0, 40);
+        ? fuzzyFilter(q, drillProgramRecords, (c) => c.searchText).slice(0, 80)
+        : drillProgramRecords.slice(0, 80);
       return filtered.map((c) => ({
         kind: "record" as const,
         id: c.id,
@@ -226,7 +341,7 @@ export function useChatMentions(pageContext?: PageContext | null) {
     return out;
   }, [
     drillDownProgramId,
-    drillExperiments,
+    drillProgramRecords,
     drillFilterQuery,
     mentionQuery,
     programCandidates,
@@ -289,9 +404,12 @@ export function useChatMentions(pageContext?: PageContext | null) {
 
       if (item.kind === "program") {
         return {
-          action: "drill_program",
-          programId: item.programId,
-          programName: item.label,
+          action: "ref",
+          ref: {
+            id: item.programId,
+            type: "program",
+            label: item.label,
+          },
         };
       }
 
@@ -329,7 +447,7 @@ export function useChatMentions(pageContext?: PageContext | null) {
     drillDownProgramName,
     drillFilterQuery,
     setDrillFilterQuery: setDrillFilterQueryAndReset,
-    drillExperimentsLoading,
+    drillExperimentsLoading: drillProgramRecordsLoading,
     open,
     close,
     updateQuery,

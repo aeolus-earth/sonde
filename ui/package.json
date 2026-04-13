@@ -8,6 +8,9 @@
     "build": "tsc -b && vite build",
     "test": "vitest run",
     "test:e2e": "playwright test",
+    "test:e2e:regression": "playwright test e2e/auth.spec.ts e2e/navigation.spec.ts e2e/smoke.spec.ts --project=chromium",
+    "test:e2e:smoke": "playwright test e2e/ci-smoke.spec.ts --project=chromium --project=firefox",
+    "test:e2e:hosted": "playwright test e2e/hosted-smoke.spec.ts --project=chromium --project=firefox --reporter=github",
     "test:e2e:headed": "playwright test --headed",
     "lint": "eslint .",
     "preview": "vite preview"

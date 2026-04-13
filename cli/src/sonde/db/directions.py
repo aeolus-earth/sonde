@@ -20,7 +20,7 @@ def create(data: DirectionCreate) -> Direction:
 def get(direction_id: str) -> Direction | None:
     """Get a single direction by ID."""
     client = get_client()
-    result = client.table("directions").select("*").eq("id", direction_id).execute()
+    result = client.table("direction_status").select("*").eq("id", direction_id).execute()
     data = to_rows(result.data)
     return Direction(**data[0]) if data else None
 
@@ -40,7 +40,7 @@ def list_directions(
 ) -> list[Direction]:
     """List directions with optional filters."""
     client = get_client()
-    query = client.table("directions").select("*").order("created_at", desc=True)
+    query = client.table("direction_status").select("*").order("created_at", desc=True)
     query = query.range(offset, offset + limit - 1) if offset else query.limit(limit)
     if program:
         query = query.eq("program", program)
@@ -57,14 +57,16 @@ def update(direction_id: str, updates: dict[str, Any]) -> Direction | None:
     client = get_client()
     result = client.table("directions").update(updates).eq("id", direction_id).execute()
     data = to_rows(result.data)
-    return Direction(**data[0]) if data else None
+    if not data:
+        return None
+    return get(str(data[0]["id"]))
 
 
 def get_children(direction_id: str) -> list[Direction]:
     """Get child directions of a parent direction."""
     client = get_client()
     result = (
-        client.table("directions")
+        client.table("direction_status")
         .select("*")
         .eq("parent_direction_id", direction_id)
         .order("created_at")

@@ -125,6 +125,12 @@ async function mintSession(supabaseUrl, supabaseAnonKey, email, password) {
   });
 }
 
+function persistSession(configDir, session) {
+  fs.writeFileSync(path.join(configDir, "session.json"), JSON.stringify(session), {
+    mode: 0o600,
+  });
+}
+
 async function main() {
   const supabaseUrl = requiredEnv("SUPABASE_URL");
   const supabaseAnonKey = requiredEnv("SUPABASE_ANON_KEY");
@@ -159,11 +165,7 @@ async function main() {
     }
 
     const session = await mintSession(supabaseUrl, supabaseAnonKey, email, password);
-    fs.writeFileSync(
-      path.join(configDir, "session.json"),
-      JSON.stringify(session),
-      { mode: 0o600 }
-    );
+    persistSession(configDir, session);
   }
 
   await waitForCliReadiness({
@@ -227,11 +229,37 @@ async function main() {
   }
 
   if (allowWrite) {
-    const questionText = `CLI hosted audit ${new Date().toISOString()}`;
+    const stamp = new Date().toISOString();
+    const directionTitle = `CLI hosted audit ${stamp.slice(11, 19)}`;
+    const questionText = `CLI hosted audit ${stamp}`;
+    const createdDirection = parseJsonOutput(
+      runCli(
+        sondeExecutable,
+        [
+          "direction",
+          "create",
+          "--program",
+          auditProgram,
+          "--title",
+          directionTitle,
+          questionText,
+          "--json",
+        ],
+        cliEnv
+      ),
+      "direction create"
+    );
     const created = parseJsonOutput(
       runCli(
         sondeExecutable,
-        ["question", "create", "-p", auditProgram, questionText, "--json"],
+        [
+          "question",
+          "create",
+          "--direction",
+          createdDirection.id,
+          questionText,
+          "--json",
+        ],
         cliEnv
       ),
       "question create"
@@ -250,6 +278,7 @@ async function main() {
     }
 
     summary.createdQuestionId = created.id;
+    summary.createdDirectionId = createdDirection.id;
   } else {
     const recent = parseJsonOutput(
       runCli(sondeExecutable, ["recent", "--json"], cliEnv),

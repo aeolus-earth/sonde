@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
+from postgrest.exceptions import APIError
+
 # ---------------------------------------------------------------------------
 # Shared fixtures
 # ---------------------------------------------------------------------------
@@ -155,6 +157,67 @@ class TestQuestions:
         results = db.find_by_promoted_to("EXP-0001")
         assert len(results) == 1
         assert results[0].promoted_to_id == "EXP-0001"
+
+    def test_list_questions_falls_back_when_question_status_missing(self, patched_db: MagicMock):
+        status_table = MagicMock()
+        questions_table = MagicMock()
+        for table in (status_table, questions_table):
+            for method in (
+                "select",
+                "eq",
+                "order",
+                "limit",
+                "range",
+                "in_",
+                "contains",
+                "ilike",
+            ):
+                getattr(table, method).return_value = table
+
+        status_table.execute.side_effect = APIError(
+            {
+                "message": "Could not find the table 'public.question_status' in the schema cache",
+                "code": "PGRST205",
+                "details": None,
+                "hint": "Perhaps you meant the table 'public.questions'",
+            }
+        )
+        questions_table.execute.return_value = MagicMock(data=[_QUESTION_ROW])
+        patched_db.table.side_effect = lambda table_name: (
+            status_table if table_name == "question_status" else questions_table
+        )
+
+        from sonde.db import questions as db
+
+        results = db.list_questions(program="weather-intervention")
+        assert len(results) == 1
+        assert results[0].id == "Q-001"
+        patched_db.table.assert_any_call("question_status")
+        patched_db.table.assert_any_call("questions")
+
+    def test_count_questions_falls_back_when_question_status_missing(self, patched_db: MagicMock):
+        status_table = MagicMock()
+        questions_table = MagicMock()
+        for table in (status_table, questions_table):
+            for method in ("select", "eq", "in_", "contains", "ilike"):
+                getattr(table, method).return_value = table
+
+        status_table.execute.side_effect = APIError(
+            {
+                "message": "Could not find the table 'public.question_status' in the schema cache",
+                "code": "PGRST205",
+                "details": None,
+                "hint": "Perhaps you meant the table 'public.questions'",
+            }
+        )
+        questions_table.execute.return_value = MagicMock(data=[], count=3)
+        patched_db.table.side_effect = lambda table_name: (
+            status_table if table_name == "question_status" else questions_table
+        )
+
+        from sonde.db import questions as db
+
+        assert db.count_questions(program="weather-intervention") == 3
 
 
 # ---------------------------------------------------------------------------

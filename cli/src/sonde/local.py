@@ -40,6 +40,7 @@ _FRONTMATTER_KEYS = {
     "parent_id",
     "branch_type",
     # Directions
+    "primary_question_id",
     "parent_direction_id",
     "spawned_from_experiment_id",
     "claimed_by",
@@ -428,6 +429,7 @@ status: complete
 tags: []
 evidence: []
 confidence: medium
+importance: medium
 ---
 
 # Finding title

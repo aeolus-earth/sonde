@@ -6,7 +6,12 @@ type Table =
   | "findings"
   | "directions"
   | "questions"
-  | "activity_log";
+  | "activity_log"
+  | "managed_sessions"
+  | "managed_session_events"
+  | "managed_session_cost_samples"
+  | "anthropic_cost_sync_runs"
+  | "anthropic_cost_buckets";
 
 let channelCounter = 0;
 

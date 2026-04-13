@@ -4,15 +4,15 @@ import { classifyCommand } from "./command-approval-policy.js";
 
 describe("command-approval-policy", () => {
   it("classifies read-only shell commands", () => {
-    assert.equal(classifyCommand('rg "CCN" /home/daytona/.sonde/'), "read");
-    assert.equal(classifyCommand('grep -rl "CCN" /home/daytona/.sonde/'), "read");
+    assert.equal(classifyCommand('rg "CCN" /workspace/.sonde/'), "read");
+    assert.equal(classifyCommand('grep -rl "CCN" /workspace/.sonde/'), "read");
     assert.equal(classifyCommand('grep -C 5 "keyword" .sonde/EXP-001.md'), "read");
     assert.equal(
       classifyCommand('grep -rl "^status: complete" .sonde/ --include="*.md"'),
       "read",
     );
     assert.equal(classifyCommand("find .sonde/ -name '*.md' -type f"), "read");
-    assert.equal(classifyCommand("cat /home/daytona/.sonde/tree.md"), "read");
+    assert.equal(classifyCommand("cat /workspace/.sonde/tree.md"), "read");
     assert.equal(classifyCommand("cat .sonde/tree.md"), "read");
     assert.equal(classifyCommand("head -20 .sonde/experiments/EXP-001.md"), "read");
     assert.equal(classifyCommand("tail -5 .sonde/tree.md"), "read");
@@ -46,7 +46,7 @@ describe("command-approval-policy", () => {
 
   it("classifies destructive commands", () => {
     assert.equal(classifyCommand("sonde experiment delete EXP-001"), "destructive");
-    assert.equal(classifyCommand("rm -rf /home/daytona/.sonde/"), "destructive");
+    assert.equal(classifyCommand("rm -rf /workspace/.sonde/"), "destructive");
   });
 
   it("classifies session-local commands", () => {

@@ -139,6 +139,8 @@ jobs:
           AUDIT_EXPECT_COMMIT_SHA: ${{ github.sha }}
           AUDIT_EXPECT_SCHEMA_VERSION: ${{ steps.schema.outputs.version }}
           AUDIT_EXPECT_SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          AUDIT_REQUIRE_AGENT_COMMIT_MATCH: "0"
+          AUDIT_REQUIRE_FIRST_PARTY_AGENT: "0"
           AUDIT_WAIT_TIMEOUT_MS: "600000"
           AUDIT_WAIT_INTERVAL_MS: "10000"
         run: node scripts/audit-deployed-stack.mjs
@@ -177,6 +179,7 @@ jobs:
       - name: Run production smoke tests
         env:
           E2E_BASE_URL: ${{ steps.targets.outputs.ui_url }}
+          E2E_DEPLOY_ENVIRONMENT: production
           E2E_AGENT_HTTP_BASE: ${{ steps.targets.outputs.agent_url }}
           E2E_AGENT_RUNTIME_AUDIT_TOKEN: ${{ secrets.SONDE_PRODUCTION_AGENT_RUNTIME_AUDIT_TOKEN }}
           E2E_SUPABASE_URL: https://${{ secrets.SUPABASE_PROJECT_REF }}.supabase.co
@@ -189,7 +192,7 @@ jobs:
             E2E_AUTH_SESSION_JSON="$(cat "$PRODUCTION_SMOKE_SESSION_FILE")"
             export E2E_AUTH_SESSION_JSON
           fi
-          npx playwright test e2e/deployed.spec.ts --project=chromium --project=firefox --reporter=github
+          npm run test:e2e:hosted
 
       - name: Upload report on failure
         uses: actions/upload-artifact@v7

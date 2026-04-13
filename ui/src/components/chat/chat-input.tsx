@@ -1,5 +1,15 @@
 import { memo, useRef, useCallback, useState, useEffect, useMemo } from "react";
-import { Plus, ArrowUp, Square, X } from "lucide-react";
+import {
+  Compass,
+  FlaskConical,
+  Folder,
+  Lightbulb,
+  Plus,
+  ArrowUp,
+  Square,
+  X,
+  Boxes,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useChatMentions } from "@/hooks/use-chat-mentions";
 import { ChatMentionPopover } from "./chat-mention-popover";
@@ -11,6 +21,7 @@ import {
 } from "@/lib/defend-existence";
 import { CHAT_COMPOSER_PROMPTS } from "./chat-composer-prompts";
 import { useRotatingTypewriter } from "@/hooks/use-rotating-typewriter";
+import type { MentionTargetType } from "@/types/chat";
 
 const MAX_FILES = 12;
 
@@ -19,6 +30,60 @@ const TEXTAREA_MAX_HEIGHT_PX = 192;
 
 function isFileDragEvent(e: React.DragEvent): boolean {
   return e.dataTransfer.types.includes("Files");
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function mentionTokenExists(text: string, id: string): boolean {
+  return new RegExp(`(^|\\s)@${escapeRegExp(id)}(?=\\s|$)`).test(text);
+}
+
+function sameMention(a: MentionRef, b: MentionRef): boolean {
+  return a.id === b.id && a.type === b.type && a.program === b.program;
+}
+
+function dedupeMentions(items: MentionRef[]): MentionRef[] {
+  return items.filter(
+    (item, index, arr) => arr.findIndex((other) => sameMention(other, item)) === index
+  );
+}
+
+function mentionTypeLabel(type: MentionTargetType): string {
+  switch (type) {
+    case "program":
+      return "Program";
+    case "project":
+      return "Project";
+    case "direction":
+      return "Direction";
+    case "experiment":
+      return "Experiment";
+    case "finding":
+      return "Finding";
+    case "question":
+      return "Question";
+    default:
+      return "Record";
+  }
+}
+
+function mentionIcon(type: MentionTargetType) {
+  switch (type) {
+    case "program":
+      return Boxes;
+    case "project":
+      return Folder;
+    case "direction":
+      return Compass;
+    case "experiment":
+      return FlaskConical;
+    case "finding":
+      return Lightbulb;
+    default:
+      return FlaskConical;
+  }
 }
 
 interface ChatInputProps {
@@ -65,6 +130,10 @@ export const ChatInput = memo(function ChatInput({
   const [composerFocused, setComposerFocused] = useState(false);
   const fileDragDepthRef = useRef(0);
   const mentionState = useChatMentions(pageContext ?? null);
+  const activeMentions = useMemo(
+    () => dedupeMentions(mentions.filter((m) => mentionTokenExists(value, m.id))),
+    [mentions, value]
+  );
 
   const defendCompletion = useMemo(
     () => getDefendMyExistenceCompletion(value, cursorPos),
@@ -79,6 +148,38 @@ export const ChatInput = memo(function ChatInput({
   }, []);
 
   useEffect(autoResize, [value, autoResize]);
+
+  useEffect(() => {
+    if (!mentionState.isOpen) return;
+
+    const handleGlobalEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      if (mentionState.drillDownProgramId) {
+        mentionState.exitDrillDown();
+      } else {
+        mentionState.close();
+      }
+
+      requestAnimationFrame(() => {
+        textareaRef.current?.focus();
+      });
+    };
+
+    document.addEventListener("keydown", handleGlobalEscape, true);
+    return () => {
+      document.removeEventListener("keydown", handleGlobalEscape, true);
+    };
+  }, [
+    mentionState,
+    mentionState.isOpen,
+    mentionState.drillDownProgramId,
+    mentionState.exitDrillDown,
+    mentionState.close,
+  ]);
 
   const addFiles = useCallback((fileList: FileList | null) => {
     if (!fileList?.length) return;
@@ -157,12 +258,12 @@ export const ChatInput = memo(function ChatInput({
     const trimmed = value.trim();
     if ((!trimmed && pendingFiles.length === 0) || disabled) return;
     const text = trimmed || "See attached files.";
-    await onSend(text, mentions, pendingFiles);
+    await onSend(text, activeMentions, pendingFiles);
     setValue("");
     setPendingFiles([]);
     setMentions([]);
     mentionState.close();
-  }, [value, mentions, pendingFiles, disabled, onSend, mentionState]);
+  }, [value, activeMentions, pendingFiles, disabled, onSend, mentionState]);
 
   const insertMention = useCallback(
     (ref: MentionRef) => {
@@ -195,7 +296,7 @@ export const ChatInput = memo(function ChatInput({
       }
 
       setValue(newValue);
-      setMentions((prev) => [...prev, ref]);
+      setMentions((prev) => dedupeMentions([...prev, ref]));
 
       requestAnimationFrame(() => {
         el.setSelectionRange(newPos, newPos);
@@ -261,15 +362,22 @@ export const ChatInput = memo(function ChatInput({
           e.preventDefault();
           const selected = mentionState.select();
           if (!selected) return;
-          if (selected.action === "drill_program") {
-            stripMentionTrigger();
-            mentionState.enterProgramDrillDown(
-              selected.programId,
-              selected.programName
-            );
-            return;
-          }
           insertMention(selected.ref);
+          return;
+        }
+        if (
+          e.key === "ArrowRight" &&
+          !mentionState.drillDownProgramId &&
+          mentionState.results[mentionState.selectedIndex]?.kind === "program"
+        ) {
+          e.preventDefault();
+          const selectedProgram = mentionState.results[mentionState.selectedIndex];
+          if (selectedProgram?.kind !== "program") return;
+          stripMentionTrigger();
+          mentionState.enterProgramDrillDown(
+            selectedProgram.programId,
+            selectedProgram.label
+          );
           return;
         }
         if (e.key === "Escape") {
@@ -335,18 +443,25 @@ export const ChatInput = memo(function ChatInput({
     (index: number) => {
       const selected = mentionState.select(index);
       if (!selected) return;
-      if (selected.action === "drill_program") {
-        stripMentionTrigger();
-        mentionState.enterProgramDrillDown(
-          selected.programId,
-          selected.programName
-        );
-        return;
-      }
       insertMention(selected.ref);
     },
-    [mentionState, insertMention, stripMentionTrigger]
+    [mentionState, insertMention]
   );
+
+  const removeMention = useCallback((mention: MentionRef) => {
+    const el = textareaRef.current;
+    const nextValue = value
+      .replace(new RegExp(`(^|\\s)@${escapeRegExp(mention.id)}(?=\\s|$)`, "g"), "$1")
+      .replace(/[ \t]{2,}/g, " ")
+      .replace(/\n{3,}/g, "\n\n");
+    setValue(nextValue);
+    setMentions((prev) => prev.filter((m) => !sameMention(m, mention)));
+    requestAnimationFrame(() => {
+      el?.focus();
+      const pos = Math.min(el?.selectionStart ?? nextValue.length, nextValue.length);
+      el?.setSelectionRange(pos, pos);
+    });
+  }, [value]);
 
   const canSend =
     !disabled && (value.trim().length > 0 || pendingFiles.length > 0);
@@ -404,6 +519,10 @@ export const ChatInput = memo(function ChatInput({
           items={mentionState.results}
           selectedIndex={mentionState.selectedIndex}
           onSelect={handleMentionSelect}
+          onProgramDrill={(programId, programName) => {
+            stripMentionTrigger();
+            mentionState.enterProgramDrillDown(programId, programName);
+          }}
           position={{ top: 8, left: 0 }}
           drillDownProgramName={mentionState.drillDownProgramName}
           onBack={mentionState.exitDrillDown}
@@ -413,31 +532,45 @@ export const ChatInput = memo(function ChatInput({
         />
       )}
 
-      {mentions.length > 0 && (
-        <div className="mb-2 flex flex-wrap gap-1">
-          {mentions.map((m, idx) => (
-            <span
-              key={`${m.id}-${idx}`}
-              className="inline-flex max-w-[min(100%,240px)] items-center gap-0.5 truncate rounded-[3px] bg-accent/10 px-1.5 py-0.5 text-[10px] font-mono text-accent"
-              title={
-                m.type === "experiment" && m.program
-                  ? `${m.program}/${m.id}`
-                  : m.id
-              }
-            >
-              {m.type === "experiment" && m.program ? (
-                <>
-                  <span className="truncate text-[9px] text-text-tertiary">
-                    {m.program}/
-                  </span>
-                  {m.id}
-                </>
-              ) : (
-                <>@{m.id}</>
-              )}
-            </span>
-          ))}
+      {activeMentions.length > 0 && (
+        <div className="mb-2 flex flex-wrap gap-1.5">
+          {activeMentions.map((m, idx) => {
+            const Icon = mentionIcon(m.type);
+            return (
+              <span
+                key={`${m.id}-${idx}`}
+                className="inline-flex max-w-full items-center gap-1 rounded-full border border-border-subtle bg-surface-raised px-2 py-1 text-[10px] text-text-secondary shadow-sm"
+                title={
+                  m.type === "experiment" && m.program
+                    ? `${m.program}/${m.id}`
+                    : m.id
+                }
+              >
+                <Icon className="h-3 w-3 shrink-0 text-text-tertiary" />
+                <span className="shrink-0 uppercase tracking-[0.08em] text-text-quaternary">
+                  {mentionTypeLabel(m.type)}
+                </span>
+                <span className="min-w-0 truncate font-mono text-[10px] text-accent">
+                  {m.type === "experiment" && m.program ? `${m.program}/${m.id}` : `@${m.id}`}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => removeMention(m)}
+                  className="shrink-0 rounded-full p-0.5 text-text-quaternary transition-colors hover:bg-surface-hover hover:text-text-secondary"
+                  aria-label={`Remove ${m.id} mention`}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            );
+          })}
         </div>
+      )}
+
+      {mentionState.isOpen && !mentionState.drillDownProgramId && (
+        <p className="mb-2 text-[11px] text-text-quaternary">
+          Search projects, directions, experiments, and more. Press Enter to insert, Right Arrow to browse a program, or Esc to close.
+        </p>
       )}
 
       {pendingFiles.length > 0 && (

@@ -30,6 +30,15 @@ import {
   takePrewarmedManagedSession,
 } from "./session-cache.js";
 import { clearPendingTasks } from "../mcp/tools/tasks.js";
+import {
+  noteManagedApprovalResolved,
+  noteManagedSessionError,
+  noteManagedSessionSocketClosed,
+  noteManagedSessionTurnStarted,
+  noteManagedToolUse,
+  registerManagedSessionTelemetry,
+  syncManagedSessionUsage,
+} from "./telemetry.js";
 
 interface ManagedHistorySyncResult {
   emitted: AgentEvent[];
@@ -200,6 +209,13 @@ async function handleCustomToolUse(
   const emitted: AgentEvent[] = [
     { type: "tool_use_start", id, tool: normalizedTool, input },
   ];
+  await noteManagedToolUse({
+    sessionId,
+    toolName: normalizedTool,
+    toolUseId: id,
+    approvalRequired: !isReadTool(normalizedTool),
+    approvalId: !isReadTool(normalizedTool) ? id : undefined,
+  });
 
   let approved = true;
   let denyReason: string | undefined;
@@ -226,6 +242,13 @@ async function handleCustomToolUse(
     resolveManagedApproval(sessionId, id);
     approved = decision.approved;
     denyReason = decision.reason;
+    await noteManagedApprovalResolved({
+      sessionId,
+      toolName: normalizedTool,
+      toolUseId: id,
+      approvalId: id,
+      approved,
+    });
     if (!approved) {
       await sendManagedEvents(sessionId, [
         {
@@ -288,6 +311,13 @@ async function handleBuiltInToolApproval(
   ];
 
   const approval = managedToolApproval(tool, input);
+  await noteManagedToolUse({
+    sessionId,
+    toolName: tool,
+    toolUseId: id,
+    approvalRequired: approval.ask,
+    approvalId: approval.ask ? id : undefined,
+  });
   if (approval.ask) {
     rememberManagedApproval(sessionId, {
       approvalId: id,
@@ -309,6 +339,13 @@ async function handleBuiltInToolApproval(
       return emitted;
     }
     resolveManagedApproval(sessionId, id);
+    await noteManagedApprovalResolved({
+      sessionId,
+      toolName: tool,
+      toolUseId: id,
+      approvalId: id,
+      approved: decision.approved,
+    });
     if (!decision.approved) {
       await sendManagedEvents(sessionId, [
         {
@@ -454,6 +491,22 @@ async function reconcileManagedSessionHistory(options: {
   return { emitted, continueStreaming: true, blocked: false, settled: false };
 }
 
+async function* emitManagedCostAlert(options: {
+  sessionId: string;
+  status: "idle" | "awaiting_approval";
+  recordEventType: string;
+}): AsyncGenerator<AgentEvent, void, void> {
+  const alert = await syncManagedSessionUsage({
+    sessionId: options.sessionId,
+    sampleType: "idle",
+    status: options.status,
+    recordEventType: options.recordEventType,
+  });
+  if (alert) {
+    yield { type: "cost_alert", ...alert };
+  }
+}
+
 export function createManagedAgentSession(
   options: CreateManagedAgentSessionOptions
 ): AgentSession & { recover: (sessionId: string) => AsyncIterable<AgentEvent> } {
@@ -473,6 +526,13 @@ export function createManagedAgentSession(
       mentions: options.mentions,
     });
     rememberManagedSession(currentSessionId);
+    await registerManagedSessionTelemetry({
+      sessionId: currentSessionId,
+      user: options.user,
+      accessToken: options.sondeToken,
+      source: "chat",
+      repoMounted: Boolean(options.pageContext || options.mentions?.length),
+    });
     announcedSessionId = false;
     return currentSessionId;
   }
@@ -560,6 +620,11 @@ export function createManagedAgentSession(
         }
 
         if (event.type === "session.error") {
+          await noteManagedSessionError({
+            sessionId,
+            errorCode: event.error?.type ?? "managed_session_error",
+            message: event.error?.message ?? "Managed session failed.",
+          });
           yield {
             type: "error",
             message: event.error?.message ?? "Managed session failed.",
@@ -674,6 +739,11 @@ export function createManagedAgentSession(
           yield event;
         }
         if (recovery.blocked) {
+          yield* emitManagedCostAlert({
+            sessionId,
+            status: "awaiting_approval",
+            recordEventType: "approval_recovered",
+          });
           return;
         }
         if (recovery.continueStreaming) {
@@ -683,6 +753,13 @@ export function createManagedAgentSession(
           }
         }
       }
+
+      await noteManagedSessionTurnStarted({
+        sessionId,
+        user: options.user,
+        accessToken: options.sondeToken,
+        source: queryOptions?.resumeSessionId ? "resume" : "chat",
+      });
 
       let sentPrompt = false;
       for (let attempt = 1; attempt <= 2; attempt += 1) {
@@ -706,6 +783,11 @@ export function createManagedAgentSession(
               yield event;
             }
             if (recovery.blocked) {
+              yield* emitManagedCostAlert({
+                sessionId,
+                status: "awaiting_approval",
+                recordEventType: "approval_recovered",
+              });
               return;
             }
             if (recovery.continueStreaming) {
@@ -733,6 +815,11 @@ export function createManagedAgentSession(
       if (!settled) {
         return;
       }
+      yield* emitManagedCostAlert({
+        sessionId,
+        status: "idle",
+        recordEventType: "session_idle",
+      });
     },
 
     async *recover(sessionId: string): AsyncIterable<AgentEvent> {
@@ -748,6 +835,11 @@ export function createManagedAgentSession(
         yield event;
       }
       if (reconciled.recovery.blocked) {
+        yield* emitManagedCostAlert({
+          sessionId: currentSessionId,
+          status: "awaiting_approval",
+          recordEventType: "approval_recovered",
+        });
         return;
       }
       if (reconciled.recovery.continueStreaming) {
@@ -756,17 +848,26 @@ export function createManagedAgentSession(
           return;
         }
       }
+      yield* emitManagedCostAlert({
+        sessionId: currentSessionId,
+        status: "idle",
+        recordEventType: "session_idle",
+      });
     },
 
     abort() {
       abortController.abort();
       if (currentSessionId) {
         void interruptManagedSession(currentSessionId).catch(() => {});
+        void noteManagedSessionSocketClosed(currentSessionId).catch(() => {});
       }
     },
 
     close() {
       abortController.abort();
+      if (currentSessionId) {
+        void noteManagedSessionSocketClosed(currentSessionId).catch(() => {});
+      }
     },
   };
 }

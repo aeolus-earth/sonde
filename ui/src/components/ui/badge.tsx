@@ -12,9 +12,11 @@ const badgeVariants = cva(
         complete: "text-status-complete",
         failed: "text-status-failed",
         superseded: "text-text-quaternary",
+        very_high: "text-confidence-very-high",
         high: "text-confidence-high",
         medium: "text-confidence-medium",
         low: "text-confidence-low",
+        very_low: "text-confidence-very-low",
         tag: "rounded-[5px] border border-border-subtle bg-surface-raised/90 px-1.5 py-0.5 text-[10px] font-medium text-text-secondary",
       },
     },
@@ -32,9 +34,18 @@ export function Badge({ className, variant, dot = true, ...props }: BadgeProps) 
   const showDot =
     dot &&
     variant &&
-    ["open", "running", "complete", "failed", "superseded", "high", "medium", "low"].includes(
-      variant
-    );
+    [
+      "open",
+      "running",
+      "complete",
+      "failed",
+      "superseded",
+      "very_high",
+      "high",
+      "medium",
+      "low",
+      "very_low",
+    ].includes(variant);
 
   return (
     <span className={cn(badgeVariants({ variant }), className)} {...props}>

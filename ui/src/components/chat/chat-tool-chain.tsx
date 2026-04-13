@@ -1,8 +1,17 @@
-import { lazy, memo, Suspense, useState } from "react";
-import { Brain, CheckCircle2, ChevronDown, ChevronRight, Loader2, XCircle } from "lucide-react";
+import { lazy, memo, Suspense, useCallback, useState } from "react";
+import {
+  Brain,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  Copy,
+  Loader2,
+  XCircle,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ToolUseData } from "@/types/chat";
 import { ChatToolActivity, toolDisplayName, toolSummary } from "@/components/chat/chat-tool-activity";
+import { useAddToast } from "@/stores/toast";
 
 const AssistantMarkdown = lazy(() =>
   import("./assistant-markdown").then((m) => ({ default: m.AssistantMarkdown }))
@@ -87,6 +96,33 @@ function chainStatusIcon(
   return <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-status-complete" />;
 }
 
+function formatToolTrace(toolUses: ToolUseData[], thinkingContent?: string): string {
+  const sections: string[] = [];
+
+  const trimmedThinking = thinkingContent?.trim();
+  if (trimmedThinking) {
+    sections.push(["[reasoning]", trimmedThinking].join("\n"));
+  }
+
+  for (const [index, toolUse] of toolUses.entries()) {
+    const lines = [
+      `[${index + 1}] ${toolUse.tool}`,
+      `status: ${toolUse.status}`,
+      "input:",
+      JSON.stringify(toolUse.input, null, 2),
+    ];
+
+    if (toolUse.output) {
+      lines.push("output:");
+      lines.push(toolUse.output);
+    }
+
+    sections.push(lines.join("\n"));
+  }
+
+  return sections.join("\n\n");
+}
+
 interface ChatToolChainProps {
   toolUses: ToolUseData[];
   /** Native extended thinking (`thinking_delta` only), not assistant `text` blocks. */
@@ -104,8 +140,27 @@ export const ChatToolChain = memo(function ChatToolChain({
     (tu) => tu.status === "running" || tu.status === "awaiting_approval",
   );
   const [expanded, setExpanded] = useState(false);
+  const addToast = useAddToast();
 
   const hasThinking = Boolean(thinkingContent?.trim());
+
+  const handleCopyTrace = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(formatToolTrace(toolUses, thinkingContent));
+      addToast({
+        title: "Trace copied",
+        description: "Tool inputs and outputs are on your clipboard.",
+        variant: "success",
+      });
+    } catch {
+      addToast({
+        title: "Couldn't copy trace",
+        description: "Clipboard access failed. Try again in a focused browser tab.",
+        variant: "error",
+      });
+    }
+  }, [addToast, thinkingContent, toolUses]);
+
   if (toolUses.length === 0 && !hasThinking) return null;
 
   const stepCount = toolUses.length + (hasThinking ? 1 : 0);
@@ -146,32 +201,55 @@ export const ChatToolChain = memo(function ChatToolChain({
 
       {expanded && (
         <div className="relative">
-          <button
-            type="button"
-            onClick={() => setExpanded(false)}
-            aria-expanded
+          <div
             className={cn(
-              "flex w-full items-center gap-2 border-b border-border-subtle/80 px-3 py-2 text-left transition-colors",
-              "hover:bg-surface-hover/70 dark:border-white/[0.08] dark:hover:bg-white/[0.04]",
+              "flex items-center gap-2 border-b border-border-subtle/80 px-3 py-2",
+              "dark:border-white/[0.08]",
             )}
           >
-            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-text-quaternary" />
-            {chainStatusIcon(toolUses, isStreamingLast, thinkingContent)}
-            <span className="min-w-0 flex-1 text-[11px] font-medium uppercase tracking-[0.06em] text-text-quaternary">
-              {headerTitle}
-              <span className="ml-1.5 font-normal normal-case tracking-normal text-text-tertiary">
-                ({stepCount} {stepCount === 1 ? "step" : "steps"})
+            <button
+              type="button"
+              onClick={() => setExpanded(false)}
+              aria-expanded
+              className={cn(
+                "flex min-w-0 flex-1 items-center gap-2 text-left transition-colors",
+                "hover:text-text dark:hover:text-text-secondary",
+              )}
+            >
+              <ChevronDown className="h-3.5 w-3.5 shrink-0 text-text-quaternary" />
+              {chainStatusIcon(toolUses, isStreamingLast, thinkingContent)}
+              <span className="min-w-0 flex-1 text-[11px] font-medium uppercase tracking-[0.06em] text-text-quaternary">
+                {headerTitle}
+                <span className="ml-1.5 font-normal normal-case tracking-normal text-text-tertiary">
+                  ({stepCount} {stepCount === 1 ? "step" : "steps"})
+                </span>
               </span>
-            </span>
-          </button>
+            </button>
+            {(toolUses.length > 0 || hasThinking) && (
+              <button
+                type="button"
+                onClick={() => void handleCopyTrace()}
+                className={cn(
+                  "inline-flex shrink-0 items-center gap-1 rounded-[6px] border border-border-subtle bg-surface-raised px-2 py-1 text-[11px] font-medium normal-case tracking-normal text-text-secondary transition-colors",
+                  "hover:bg-surface-hover hover:text-text",
+                  "dark:border-white/[0.08] dark:bg-surface/80 dark:hover:bg-white/[0.06]",
+                )}
+                aria-label="Copy trace"
+                title="Copy trace"
+              >
+                <Copy className="h-3 w-3 shrink-0" />
+                Copy trace
+              </button>
+            )}
+          </div>
 
           <div className="relative px-2 pb-1.5 pt-1">
             <div
               aria-hidden
               className={cn(
-                "pointer-events-none absolute left-6 top-3 bottom-3 w-px",
-                "bg-gradient-to-b from-border-subtle via-border-subtle to-transparent",
-                "dark:from-white/[0.14] dark:via-white/[0.1]",
+                "pointer-events-none absolute bottom-3 left-6 top-3 z-0 w-[2px] -translate-x-1/2",
+                "bg-[repeating-linear-gradient(to_bottom,rgba(120,113,108,0.56)_0px,rgba(120,113,108,0.56)_18px,transparent_18px,transparent_30px)]",
+                "dark:bg-[repeating-linear-gradient(to_bottom,rgba(255,255,255,0.28)_0px,rgba(255,255,255,0.28)_18px,transparent_18px,transparent_30px)]",
               )}
             />
             <div className="relative z-[1] m-0 space-y-0 p-0">
@@ -184,6 +262,13 @@ export const ChatToolChain = memo(function ChatToolChain({
                   )}
                 >
                   <div className="relative z-[2] shrink-0 pt-0.5">
+                    <div
+                      aria-hidden
+                      className={cn(
+                        "pointer-events-none absolute left-[-10px] top-[1rem] h-px w-[10px]",
+                        "bg-stone-400/80 dark:bg-white/[0.22]",
+                      )}
+                    />
                     <ReasoningStepIcon />
                   </div>
                   <div className="min-w-0 flex-1">
@@ -221,6 +306,13 @@ export const ChatToolChain = memo(function ChatToolChain({
                     )}
                   >
                     <div className="relative z-[2] shrink-0 pt-0.5">
+                      <div
+                        aria-hidden
+                        className={cn(
+                          "pointer-events-none absolute left-[-10px] top-[1rem] h-px w-[10px]",
+                          "bg-stone-400/80 dark:bg-white/[0.22]",
+                        )}
+                      />
                       <TerminalStepIcon />
                     </div>
                     <div className="min-w-0 flex-1">

@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from "react";
 import { getRouteApi, Link } from "@tanstack/react-router";
 import { ROUTE_API } from "../route-ids";
 import { useExperiment } from "@/hooks/use-experiments";
+import { useQuestionsByExperiment } from "@/hooks/use-questions";
 import { useRecordActivity } from "@/hooks/use-activity";
 import { useExperimentNotes } from "@/hooks/use-notes";
 import { useExperimentReview } from "@/hooks/use-reviews";
@@ -28,7 +29,13 @@ import { GitProvenance } from "@/components/experiments/git-provenance";
 import { CodeContext } from "@/components/experiments/code-context";
 import { ChatPanel } from "@/components/chat/chat-panel";
 import { ChatPageProvider } from "@/contexts/chat-page-context";
-import { ArrowLeft, ChevronRight, Copy, MessageSquare, MessagesSquare } from "lucide-react";
+import {
+  ArrowLeft,
+  ChevronRight,
+  Copy,
+  MessageSquare,
+  MessagesSquare,
+} from "lucide-react";
 import { experimentDetailShareUrl } from "@/lib/app-origin";
 import {
   effectiveExperimentHypothesis,
@@ -49,12 +56,16 @@ export default function ExperimentDetailPage() {
   const shareUrl = useMemo(() => experimentDetailShareUrl(id), [id]);
   const nav = routeApi.useNavigate();
   const { data: exp, isLoading } = useExperiment(id);
+  const { data: linkedQuestions } = useQuestionsByExperiment(id);
   const { data: activity } = useRecordActivity(id);
   const { data: notes } = useExperimentNotes(id);
   const { data: review } = useExperimentReview(id);
   useRealtimeInvalidation("experiments", ["experiments"]);
   useRealtimeInvalidation("activity_log", ["activity"]);
-  useHotkey("Escape", useCallback(() => nav({ to: "/experiments" }), [nav]));
+  useHotkey(
+    "Escape",
+    useCallback(() => nav({ to: "/experiments" }), [nav]),
+  );
 
   const copyShareLink = useCallback(async () => {
     try {
@@ -108,7 +119,10 @@ export default function ExperimentDetailPage() {
             </h1>
             <Badge variant={exp.status}>{exp.status}</Badge>
             <AuthGate action="change status">
-              <StatusControls experimentId={exp.id} currentStatus={exp.status} />
+              <StatusControls
+                experimentId={exp.id}
+                currentStatus={exp.status}
+              />
             </AuthGate>
           </div>
           <span
@@ -127,7 +141,10 @@ export default function ExperimentDetailPage() {
             aria-label={linkCopied ? "Link copied" : `Copy link: ${shareUrl}`}
             className="inline-flex shrink-0 items-center gap-1.5 rounded-[5.5px] border border-border-subtle bg-surface-raised px-2.5 py-1 text-[12px] font-medium text-text-secondary transition-colors hover:bg-surface-hover"
           >
-            <Copy className="h-3.5 w-3.5 shrink-0 text-text-quaternary" aria-hidden />
+            <Copy
+              className="h-3.5 w-3.5 shrink-0 text-text-quaternary"
+              aria-hidden
+            />
             {linkCopied ? "Copied" : "Copy link"}
           </button>
           {!chatOpen && (
@@ -163,6 +180,21 @@ export default function ExperimentDetailPage() {
           {contentBody && (
             <Section title="Content">
               <MarkdownView content={contentBody} />
+            </Section>
+          )}
+
+          {linkedQuestions && linkedQuestions.length > 0 && (
+            <Section title="Questions" count={linkedQuestions.length}>
+              <div className="space-y-1">
+                {linkedQuestions.map((question) => (
+                  <div key={question.id} className="flex items-center gap-2">
+                    <RecordLink recordId={question.id} />
+                    {exp.primary_question_id === question.id && (
+                      <Badge variant="running">primary</Badge>
+                    )}
+                  </div>
+                ))}
+              </div>
             </Section>
           )}
 
@@ -231,7 +263,12 @@ export default function ExperimentDetailPage() {
 
           {/* Experiment review thread */}
           {review && review.entries.length > 0 && (
-            <Section id="review" title="Review" count={review.entries.length} collapsible>
+            <Section
+              id="review"
+              title="Review"
+              count={review.entries.length}
+              collapsible
+            >
               <div className="space-y-3">
                 {review.status === "resolved" && (
                   <div className="rounded-[5.5px] border border-border-subtle bg-surface-raised px-2.5 py-2">
@@ -322,9 +359,7 @@ export default function ExperimentDetailPage() {
                 </DetailRow>
               )}
               <DetailRow label="Artifacts">{exp.artifact_count}</DetailRow>
-              {notes && (
-                <DetailRow label="Notes">{notes.length}</DetailRow>
-              )}
+              {notes && <DetailRow label="Notes">{notes.length}</DetailRow>}
             </div>
           </Section>
 
@@ -392,7 +427,9 @@ export default function ExperimentDetailPage() {
             value={{
               type: "experiment",
               id: exp.id,
-              label: (exp.hypothesis ?? exp.finding ?? "").slice(0, 200) || undefined,
+              label:
+                (exp.hypothesis ?? exp.finding ?? "").slice(0, 200) ||
+                undefined,
               program: exp.program,
             }}
           >

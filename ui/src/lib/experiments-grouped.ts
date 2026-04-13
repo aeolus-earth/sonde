@@ -52,9 +52,35 @@ function compareCreatedAt(
 }
 
 export type BuildExperimentsProjectTreeOptions = {
+  /** Default `created`. */
+  sortField?: "created" | "closed";
   /** Default `desc` (newest first). */
-  createdSort?: "asc" | "desc";
+  sortOrder?: "asc" | "desc";
 };
+
+function isTerminalExperiment(exp: ExperimentSummary): boolean {
+  return (
+    exp.status === "complete" ||
+    exp.status === "failed" ||
+    exp.status === "superseded"
+  );
+}
+
+function compareClosedAt(
+  a: ExperimentSummary,
+  b: ExperimentSummary,
+  ascending: boolean
+): number {
+  const ta = isTerminalExperiment(a) ? new Date(a.updated_at).getTime() : null;
+  const tb = isTerminalExperiment(b) ? new Date(b.updated_at).getTime() : null;
+
+  if (ta === null && tb === null) {
+    return compareCreatedAt(a, b, ascending);
+  }
+  if (ta === null) return 1;
+  if (tb === null) return -1;
+  return ascending ? ta - tb : tb - ta;
+}
 
 /**
  * Build project → direction → experiments tree from already-filtered experiments.
@@ -66,7 +92,8 @@ export function buildExperimentsProjectTree(
   directions: DirectionSummary[],
   options?: BuildExperimentsProjectTreeOptions
 ): ProjectGroup[] {
-  const ascending = (options?.createdSort ?? "desc") === "asc";
+  const sortField = options?.sortField ?? "created";
+  const ascending = (options?.sortOrder ?? "desc") === "asc";
   const dirById = new Map(directions.map((d) => [d.id, d]));
   const projectById = new Map(projects.map((p) => [p.id, p]));
 
@@ -107,7 +134,11 @@ export function buildExperimentsProjectTree(
     for (const dk of dirKeys) {
       const list = dm.get(dk);
       if (!list?.length) continue;
-      list.sort((a, b) => compareCreatedAt(a, b, ascending));
+      list.sort((a, b) =>
+        sortField === "closed"
+          ? compareClosedAt(a, b, ascending)
+          : compareCreatedAt(a, b, ascending)
+      );
       const label =
         dk === NO_DIRECTION
           ? "No direction"

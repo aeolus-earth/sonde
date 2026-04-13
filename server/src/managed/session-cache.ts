@@ -1,6 +1,12 @@
 import type { VerifiedUser } from "../auth.js";
 import type { AgentEvent, MentionRef, PageContext, ToolApprovalKind } from "../types.js";
 import { createManagedSession } from "./client.js";
+import {
+  cancelManagedSessionArchive,
+  getManagedPrewarmArchiveDelayMs,
+  registerManagedSessionTelemetry,
+  scheduleManagedSessionArchive,
+} from "./telemetry.js";
 
 interface RecoveredApproval {
   approvalId: string;
@@ -19,6 +25,29 @@ interface SessionReplayState {
 const prewarmedSessions = new Map<string, string>();
 const knownSessions = new Map<string, SessionReplayState>();
 const prewarmInFlight = new Map<string, Promise<string>>();
+const prewarmTimers = new Map<string, NodeJS.Timeout>();
+
+function clearPrewarmTimer(userId: string): void {
+  const timer = prewarmTimers.get(userId);
+  if (timer) {
+    clearTimeout(timer);
+    prewarmTimers.delete(userId);
+  }
+}
+
+function schedulePrewarmExpiry(userId: string, sessionId: string): void {
+  clearPrewarmTimer(userId);
+  const timer = setTimeout(() => {
+    prewarmTimers.delete(userId);
+    const cached = prewarmedSessions.get(userId);
+    if (cached !== sessionId) {
+      return;
+    }
+    prewarmedSessions.delete(userId);
+  }, getManagedPrewarmArchiveDelayMs());
+  timer.unref?.();
+  prewarmTimers.set(userId, timer);
+}
 
 function getReplayState(sessionId: string): SessionReplayState {
   let state = knownSessions.get(sessionId);
@@ -94,6 +123,18 @@ export async function prewarmManagedSession(options: {
     const sessionId = await promise;
     prewarmedSessions.set(options.user.id, sessionId);
     getReplayState(sessionId);
+    await registerManagedSessionTelemetry({
+      sessionId,
+      user: options.user,
+      accessToken: options.sondeToken,
+      source: "prewarm",
+      repoMounted: Boolean(options.pageContext || options.mentions?.length),
+    });
+    scheduleManagedSessionArchive(sessionId, {
+      delayMs: getManagedPrewarmArchiveDelayMs(),
+      reason: "prewarm_expired",
+    });
+    schedulePrewarmExpiry(options.user.id, sessionId);
     return { sessionId, reused: false };
   } finally {
     prewarmInFlight.delete(options.user.id);
@@ -104,6 +145,8 @@ export function takePrewarmedManagedSession(userId: string): string | null {
   const sessionId = prewarmedSessions.get(userId) ?? null;
   if (sessionId) {
     prewarmedSessions.delete(userId);
+    clearPrewarmTimer(userId);
+    cancelManagedSessionArchive(sessionId);
   }
   return sessionId;
 }

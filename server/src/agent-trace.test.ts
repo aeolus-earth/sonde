@@ -13,7 +13,7 @@ describe("agent tool trace hooks", () => {
     const base = {
       session_id: "session-1",
       transcript_path: "/tmp/transcript.jsonl",
-      cwd: "/home/daytona/sessions/session-1",
+      cwd: "/workspace/sessions/session-1",
     };
 
     await hooks.PreToolUse![0]!.hooks[0]!(
@@ -22,7 +22,7 @@ describe("agent tool trace hooks", () => {
         hook_event_name: "PreToolUse",
         tool_name: "bash",
         tool_use_id: "tool-1",
-        tool_input: { command: "rg CCN /home/daytona/.sonde" },
+        tool_input: { command: "rg CCN /workspace/.sonde" },
       },
       "tool-1",
       { signal }
@@ -34,7 +34,7 @@ describe("agent tool trace hooks", () => {
         hook_event_name: "PostToolUse",
         tool_name: "bash",
         tool_use_id: "tool-1",
-        tool_input: { command: "rg CCN /home/daytona/.sonde" },
+        tool_input: { command: "rg CCN /workspace/.sonde" },
         tool_response: {
           content: [{ type: "text", text: "EXP-0001.md:CCN increased" }],
         },
@@ -61,7 +61,7 @@ describe("agent tool trace hooks", () => {
         type: "tool_use_start",
         id: "tool-1",
         tool: "bash",
-        input: { command: "rg CCN /home/daytona/.sonde" },
+        input: { command: "rg CCN /workspace/.sonde" },
       },
       {
         type: "tool_use_end",

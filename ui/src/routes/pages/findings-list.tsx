@@ -1,18 +1,42 @@
-import { useCallback } from "react";
+import { useCallback, useMemo, type ReactNode } from "react";
 import { getRouteApi } from "@tanstack/react-router";
 import { ROUTE_API } from "../route-ids";
+import type { FindingsSearch } from "../findings";
 import { useCurrentFindings } from "@/hooks/use-findings";
 import { useRealtimeInvalidation } from "@/hooks/use-realtime";
 import { useListKeyboardNav } from "@/hooks/use-keyboard";
-import { Badge } from "@/components/ui/badge";
+import { FindingConfidenceBadge } from "@/components/shared/finding-confidence-badge";
+import { FindingImportanceBadge } from "@/components/shared/finding-importance-badge";
 import { ListRowSkeleton } from "@/components/ui/skeleton";
-import { formatRelativeTime } from "@/lib/utils";
-import type { Finding } from "@/types/sonde";
+import {
+  FINDING_CONFIDENCE_LEVELS,
+  findingConfidenceLabel,
+  parseFindingConfidenceFilter,
+  serializeFindingConfidenceFilter,
+} from "@/lib/finding-confidence";
+import {
+  FINDING_IMPORTANCE_LEVELS,
+  findingImportanceLabel,
+  parseFindingImportanceFilter,
+  serializeFindingImportanceFilter,
+  sortFindingsByImportanceAndRecency,
+} from "@/lib/finding-importance";
+import { cn, formatRelativeTime } from "@/lib/utils";
+import type { Finding, FindingConfidence, FindingImportance } from "@/types/sonde";
 
 const routeApi = getRouteApi(ROUTE_API.authFindings);
 
+const confidenceDotStyles: Record<FindingConfidence, string> = {
+  very_low: "bg-confidence-very-low",
+  low: "bg-confidence-low",
+  medium: "bg-confidence-medium",
+  high: "bg-confidence-high",
+  very_high: "bg-confidence-very-high",
+};
+
 export default function FindingsListPage() {
   const navigate = routeApi.useNavigate();
+  const { confidence, importance } = routeApi.useSearch();
   const { data: findings, isLoading } = useCurrentFindings();
   useRealtimeInvalidation("findings", ["findings"]);
   const handleClick = useCallback(
@@ -23,8 +47,95 @@ export default function FindingsListPage() {
     (f: Finding) => handleClick(f.id),
     [handleClick]
   );
-  const items = findings ?? [];
+  const activeConfidence = useMemo(
+    () => parseFindingConfidenceFilter(confidence),
+    [confidence]
+  );
+  const activeConfidenceSet = useMemo(
+    () => new Set(activeConfidence),
+    [activeConfidence]
+  );
+  const activeImportance = useMemo(
+    () => parseFindingImportanceFilter(importance),
+    [importance]
+  );
+  const activeImportanceSet = useMemo(
+    () => new Set(activeImportance),
+    [activeImportance]
+  );
+  const items = useMemo(() => {
+    const source = sortFindingsByImportanceAndRecency(findings ?? []);
+    return source.filter((finding) => {
+      const confidenceMatch =
+        activeConfidenceSet.size === 0 ||
+        activeConfidenceSet.has(finding.confidence);
+      const importanceMatch =
+        activeImportanceSet.size === 0 ||
+        activeImportanceSet.has(finding.importance);
+      return confidenceMatch && importanceMatch;
+    });
+  }, [activeConfidenceSet, activeImportanceSet, findings]);
   const { focusedIndex } = useListKeyboardNav(items, handleSelect);
+
+  const toggleConfidence = useCallback(
+    (level: FindingConfidence) => {
+      const next = new Set(activeConfidence);
+      if (next.has(level)) {
+        next.delete(level);
+      } else {
+        next.add(level);
+      }
+
+      navigate({
+        search: (prev: FindingsSearch) => ({
+          ...prev,
+          confidence: serializeFindingConfidenceFilter(next),
+        }),
+        replace: true,
+      });
+    },
+    [activeConfidence, navigate]
+  );
+
+  const toggleImportance = useCallback(
+    (level: FindingImportance) => {
+      const next = new Set(activeImportance);
+      if (next.has(level)) {
+        next.delete(level);
+      } else {
+        next.add(level);
+      }
+
+      navigate({
+        search: (prev: FindingsSearch) => ({
+          ...prev,
+          importance: serializeFindingImportanceFilter(next),
+        }),
+        replace: true,
+      });
+    },
+    [activeImportance, navigate]
+  );
+
+  const clearConfidenceFilter = useCallback(() => {
+    navigate({
+      search: (prev: FindingsSearch) => ({
+        ...prev,
+        confidence: undefined,
+      }),
+      replace: true,
+    });
+  }, [navigate]);
+
+  const clearImportanceFilter = useCallback(() => {
+    navigate({
+      search: (prev: FindingsSearch) => ({
+        ...prev,
+        importance: undefined,
+      }),
+      replace: true,
+    });
+  }, [navigate]);
 
   if (isLoading) {
     return (
@@ -50,8 +161,54 @@ export default function FindingsListPage() {
           Findings
         </h1>
         <span className="text-[12px] text-text-quaternary">
-          {findings?.length ?? 0} current
+          {items.length}
+          {activeConfidence.length > 0 || activeImportance.length > 0
+            ? ` of ${findings?.length ?? 0}`
+            : ""}{" "}
+          current
         </span>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <FilterAxisBar
+          label="Confidence"
+          clearLabel="Any"
+          isClearActive={activeConfidence.length === 0}
+          onClear={clearConfidenceFilter}
+          options={FINDING_CONFIDENCE_LEVELS.map((level) => ({
+            key: level,
+            active: activeConfidenceSet.has(level),
+            onClick: () => toggleConfidence(level),
+            content: (
+              <span className="inline-flex items-center gap-1.5 text-inherit">
+                <span
+                  className={cn(
+                    "h-[6px] w-[6px] rounded-full",
+                    confidenceDotStyles[level],
+                  )}
+                />
+                <span>{findingConfidenceLabel(level)}</span>
+              </span>
+            ),
+          }))}
+        />
+        <FilterAxisBar
+          label="Importance"
+          clearLabel="Any"
+          isClearActive={activeImportance.length === 0}
+          onClear={clearImportanceFilter}
+          options={FINDING_IMPORTANCE_LEVELS.map((level) => ({
+            key: level,
+            active: activeImportanceSet.has(level),
+            onClick: () => toggleImportance(level),
+            content: (
+              <span className="inline-flex items-center gap-1.5 text-inherit">
+                <span className="h-[6px] w-[6px] rounded-full bg-current/70" />
+                <span>{findingImportanceLabel(level)}</span>
+              </span>
+            ),
+          }))}
+        />
       </div>
 
       <div className="rounded-[8px] border border-border bg-surface">
@@ -66,7 +223,8 @@ export default function FindingsListPage() {
                 <span className="font-mono text-[11px] text-text-quaternary">
                   {f.id}
                 </span>
-                <Badge variant={f.confidence}>{f.confidence}</Badge>
+                <FindingConfidenceBadge confidence={f.confidence} />
+                <FindingImportanceBadge importance={f.importance} />
               </div>
               <p className="mt-0.5 text-[13px] font-medium text-text">
                 {f.topic}
@@ -87,10 +245,80 @@ export default function FindingsListPage() {
         ))}
         {items.length === 0 && (
           <div className="py-10 text-center text-[13px] text-text-quaternary">
-            No current findings.
+            {activeConfidence.length > 0 || activeImportance.length > 0
+              ? "No findings match the selected confidence and importance filters."
+              : "No current findings."}
           </div>
         )}
       </div>
     </div>
+  );
+}
+
+function FilterAxisBar({
+  label,
+  clearLabel,
+  isClearActive,
+  onClear,
+  options,
+}: {
+  label: string;
+  clearLabel: string;
+  isClearActive: boolean;
+  onClear: () => void;
+  options: {
+    key: string;
+    active: boolean;
+    onClick: () => void;
+    content: ReactNode;
+  }[];
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="text-[12px] font-medium text-text-quaternary">{label}</span>
+      <div className="flex h-8 shrink-0 overflow-hidden rounded-[5.5px] border border-border bg-surface">
+        <SegmentButton
+          active={isClearActive}
+          onClick={onClear}
+          content={
+            <span className="text-[12px] font-medium text-inherit">{clearLabel}</span>
+          }
+        />
+        {options.map((option) => (
+          <SegmentButton
+            key={option.key}
+            active={option.active}
+            onClick={option.onClick}
+            content={option.content}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SegmentButton({
+  active,
+  onClick,
+  content,
+}: {
+  active: boolean;
+  onClick: () => void;
+  content: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        "flex h-full min-w-0 items-center justify-center px-2.5 text-[12px] leading-none transition-colors first:rounded-l-[5.5px] last:rounded-r-[5.5px] focus-visible:z-10 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent",
+        active
+          ? "bg-surface-hover text-text"
+          : "text-text-quaternary hover:text-text-tertiary",
+      )}
+    >
+      {content}
+    </button>
   );
 }

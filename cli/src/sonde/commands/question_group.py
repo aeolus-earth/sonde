@@ -11,13 +11,17 @@ from sonde.commands.pull import pull_question
 from sonde.commands.push import push_question
 from sonde.commands.questions import questions_cmd
 from sonde.commands.remove import remove_question
+from sonde.db import directions as dir_db
+from sonde.db import experiments as exp_db
+from sonde.db import findings as find_db
+from sonde.db import question_links as q_links
 from sonde.db import questions as db
 from sonde.db.activity import log_activity
 from sonde.models.question import QuestionCreate
-from sonde.output import err, print_error, print_json, print_success
+from sonde.output import err, print_error, print_json, print_nudge, print_success
 from sonde.services import WorkflowError
 from sonde.services.questions import delete_question as delete_question_record
-from sonde.services.questions import promote_question
+from sonde.services.questions import spawn_experiment_from_question
 
 
 @click.group(invoke_without_command=True)
@@ -29,8 +33,8 @@ def question(ctx: click.Context) -> None:
     Examples:
       sonde question list
       sonde question show Q-001
-      sonde question create -p weather-intervention "Does spectral bin change the CCN curve?"
-      sonde question promote Q-001
+      sonde question create --direction DIR-001 "Does spectral bin change the CCN curve?"
+      sonde question spawn-experiment Q-001
     """
     if ctx.invoked_subcommand is None:
         click.echo(ctx.get_help())
@@ -60,7 +64,8 @@ def question_show(ctx: click.Context, question_id: str) -> None:
 
 @question.command("create")
 @click.argument("question_text")
-@click.option("--program", "-p", required=True, help="Program namespace")
+@click.option("--direction", required=True, help="Home direction ID")
+@click.option("--primary", is_flag=True, help="Make this the direction's primary question")
 @click.option("--context", "context_text", help="Additional context for the question")
 @click.option("--tag", multiple=True, help="Tags (repeatable)")
 @click.option("--source", "-s", help="Who raised this (default: auto-detect)")
@@ -69,7 +74,8 @@ def question_show(ctx: click.Context, question_id: str) -> None:
 def question_create(
     ctx: click.Context,
     question_text: str,
-    program: str,
+    direction: str,
+    primary: bool,
     context_text: str | None,
     tag: tuple[str, ...],
     source: str | None,
@@ -78,72 +84,73 @@ def question_create(
 
     \b
     Examples:
-      sonde question create -p weather-intervention "Does spectral bin change the CCN curve?"
-      sonde question create -p weather-intervention "BL heating interaction?" --tag cloud-seeding
+      sonde question create --direction DIR-001 "Does spectral bin change the CCN curve?"
+      sonde question create --direction DIR-001 --primary "BL heating interaction?"
     """
+    direction = direction.upper()
+    home_direction = dir_db.get(direction)
+    if not home_direction:
+        print_error(
+            f"{direction} not found",
+            "Questions need a home direction.",
+            "List directions: sonde direction list",
+        )
+        raise SystemExit(1)
+
     resolved_source = source or resolve_source()
 
     data = QuestionCreate(
-        program=program,
+        program=home_direction.program,
         question=question_text,
+        direction_id=direction,
         context=context_text,
         source=resolved_source,
         tags=list(tag),
     )
     result = db.create(data)
+    if primary:
+        dir_db.update(direction, {"primary_question_id": result.id, "question": question_text})
     log_activity(result.id, "question", "created")
 
     if ctx.obj.get("json"):
         print_json(result.model_dump(mode="json"))
     else:
         print_success(
-            f"Created {result.id} ({program})",
-            details=[f"Question: {question_text}"],
+            f"Created {result.id} ({home_direction.program})",
+            details=[f"Direction: {direction}", f"Question: {question_text}"],
             breadcrumbs=[f"View: sonde question show {result.id}"],
         )
+        if not primary and not home_direction.primary_question_id:
+            print_nudge(
+                "This direction does not have a primary question yet.",
+                f'Set one with: sonde direction update {direction} --question "{question_text}"',
+            )
 
 
-@question.command("promote")
+@question.command("spawn-experiment")
 @click.argument("question_id")
-@click.option(
-    "--to",
-    "target_type",
-    type=click.Choice(["experiment", "direction"]),
-    default="experiment",
-    show_default=True,
-    help="What to create from the question",
-)
-@click.option("--program", "-p", help="Override program for the new experiment")
-@click.option("--title", "-t", help="Direction title (required when promoting to a direction)")
+@click.option("--direction", help="Override direction for the new experiment")
 @pass_output_options
 @click.pass_context
-def question_promote(
+def question_spawn_experiment(
     ctx: click.Context,
     question_id: str,
-    target_type: str,
-    program: str | None,
-    title: str | None,
+    direction: str | None,
 ) -> None:
-    """Promote a question to an open experiment.
-
-    Creates an open experiment from the question text and marks the
-    question as 'promoted'.
+    """Create an open experiment linked to a question.
 
     \b
     Examples:
-      sonde question promote Q-001
-      sonde question promote Q-001 --to direction -t "CCN sensitivity"
+      sonde question spawn-experiment Q-001
+      sonde question spawn-experiment Q-001 --direction DIR-014
     """
     question_id = question_id.upper()
     q = db.get(question_id)
     question_text = q.question if q else question_id
-    resolved_program = program or (q.program if q else None)
     try:
-        promoted = promote_question(
+        spawned = spawn_experiment_from_question(
             question_id=question_id,
-            target_type=target_type,
-            program=program,
-            title=title,
+            direction_id=direction.upper() if direction else None,
         )
     except WorkflowError as exc:
         print_error(exc.what, exc.why, exc.fix)
@@ -152,16 +159,15 @@ def question_promote(
     if ctx.obj.get("json"):
         print_json(
             {
-                "question_id": promoted.question_id,
-                "promoted_to_type": promoted.promoted_to_type,
-                "promoted_to_id": promoted.promoted_to_id,
+                "question_id": spawned.question_id,
+                "experiment_id": spawned.experiment_id,
             }
         )
     else:
         print_success(
-            f"Promoted {promoted.question_id} \u2192 {promoted.promoted_to_id}",
-            details=[f"Question: {question_text}", f"Program: {resolved_program}"],
-            breadcrumbs=[f"View: sonde show {promoted.promoted_to_id}"],
+            f"Spawned {spawned.question_id} \u2192 {spawned.experiment_id}",
+            details=[f"Question: {question_text}"],
+            breadcrumbs=[f"View: sonde show {spawned.experiment_id}"],
         )
 
 
@@ -169,13 +175,15 @@ def question_promote(
 @click.argument("question_id")
 @click.option(
     "--status",
-    type=click.Choice(["open", "investigating", "promoted", "dismissed"]),
+    type=click.Choice(["open", "investigating", "answered", "dismissed"]),
     help="Update status",
 )
 @click.option("--context", "context_text", help="Update context")
 @click.option("--question", "question_text", help="Update question text")
 @click.option("--tag", multiple=True, help="Set tags (replaces existing)")
 @click.option("--raised-by", help="Set who raised this question")
+@click.option("--direction", help="Move the question to a different home direction")
+@click.option("--primary", is_flag=True, help="Make this the direction's primary question")
 @pass_output_options
 @click.pass_context
 def question_update(
@@ -186,6 +194,8 @@ def question_update(
     question_text: str | None,
     tag: tuple[str, ...],
     raised_by: str | None,
+    direction: str | None,
+    primary: bool,
 ) -> None:
     """Update fields on an existing question.
 
@@ -218,21 +228,40 @@ def question_update(
         updates["tags"] = list(tag)
     if raised_by is not None:
         updates["raised_by"] = raised_by
+    if direction is not None:
+        direction = direction.upper()
+        home_direction = dir_db.get(direction)
+        if not home_direction:
+            print_error(
+                f"{direction} not found",
+                "Questions need a valid home direction.",
+                "List directions: sonde direction list",
+            )
+            raise SystemExit(1)
+        updates["direction_id"] = direction
 
-    if not updates:
+    if not updates and not primary:
         err.print("[sonde.muted]Nothing to update.[/]")
         return
 
-    updated = db.update(question_id, updates)
-    if not updated:
-        print_error(
-            f"Failed to update {question_id}",
-            "Update returned no data.",
-            f"Verify the question exists: sonde question show {question_id}",
-        )
-        raise SystemExit(1)
-
-    log_activity(question_id, "question", "updated", updates)
+    updated = q
+    if updates:
+        updated = db.update(question_id, updates)
+        if not updated:
+            print_error(
+                f"Failed to update {question_id}",
+                "Update returned no data.",
+                f"Verify the question exists: sonde question show {question_id}",
+            )
+            raise SystemExit(1)
+        log_activity(question_id, "question", "updated", updates)
+    if primary:
+        target_direction = direction or updated.direction_id
+        if target_direction:
+            dir_db.update(
+                target_direction,
+                {"primary_question_id": question_id, "question": updated.question},
+            )
 
     if ctx.obj.get("json"):
         print_json(updated.model_dump(mode="json"))
@@ -240,6 +269,107 @@ def question_update(
         print_success(f"Updated {question_id}", record_id=question_id)
         if "status" in updates:
             err.print(f"  Status: {updates['status']}")
+        if primary and updated.direction_id:
+            err.print(f"  Primary for: {updated.direction_id}")
+
+
+@question.command("link")
+@click.argument("question_id")
+@click.argument("record_id")
+@click.option("--primary", is_flag=True, help="Mark the experiment link as primary")
+@pass_output_options
+@click.pass_context
+def question_link(
+    ctx: click.Context,
+    question_id: str,
+    record_id: str,
+    primary: bool,
+) -> None:
+    """Link a question to an experiment or finding."""
+    question_id = question_id.upper()
+    record_id = record_id.upper()
+    q = db.get(question_id)
+    if not q:
+        print_error(
+            f"{question_id} not found",
+            "No question with this ID.",
+            "List questions: sonde question list --all",
+        )
+        raise SystemExit(1)
+
+    if record_id.startswith("EXP-"):
+        exp = exp_db.get(record_id)
+        if not exp:
+            print_error(
+                f"{record_id} not found",
+                "No experiment with this ID.",
+                "List experiments: sonde experiment list",
+            )
+            raise SystemExit(1)
+        q_links.link_experiment(question_id, record_id, is_primary=primary)
+        kind = "experiment"
+    elif record_id.startswith("FIND-"):
+        finding = find_db.get(record_id)
+        if not finding:
+            print_error(
+                f"{record_id} not found",
+                "No finding with this ID.",
+                "List findings: sonde finding list",
+            )
+            raise SystemExit(1)
+        q_links.link_finding(question_id, record_id)
+        kind = "finding"
+    else:
+        print_error(
+            f"Unsupported link target: {record_id}",
+            "Questions can link to experiments and findings.",
+            "Use an EXP-xxxx or FIND-xxxx record ID.",
+        )
+        raise SystemExit(1)
+
+    log_activity(question_id, "question", "linked", {"record_id": record_id})
+    if ctx.obj.get("json"):
+        print_json({"question_id": question_id, "record_id": record_id, "kind": kind})
+    else:
+        print_success(
+            f"Linked {question_id} \u2192 {record_id}",
+            details=[f"Type: {kind}"],
+            breadcrumbs=[f"View: sonde show {question_id}", f"View: sonde show {record_id}"],
+        )
+
+
+@question.command("unlink")
+@click.argument("question_id")
+@click.argument("record_id")
+@pass_output_options
+@click.pass_context
+def question_unlink(ctx: click.Context, question_id: str, record_id: str) -> None:
+    """Remove a question link from an experiment or finding."""
+    question_id = question_id.upper()
+    record_id = record_id.upper()
+
+    if record_id.startswith("EXP-"):
+        q_links.unlink_experiment(question_id, record_id)
+        kind = "experiment"
+    elif record_id.startswith("FIND-"):
+        q_links.unlink_finding(question_id, record_id)
+        kind = "finding"
+    else:
+        print_error(
+            f"Unsupported unlink target: {record_id}",
+            "Questions can unlink from experiments and findings.",
+            "Use an EXP-xxxx or FIND-xxxx record ID.",
+        )
+        raise SystemExit(1)
+
+    log_activity(question_id, "question", "unlinked", {"record_id": record_id})
+    if ctx.obj.get("json"):
+        print_json({"question_id": question_id, "record_id": record_id, "kind": kind})
+    else:
+        print_success(f"Unlinked {question_id} \u2190 {record_id}", record_id=question_id)
+
+
+question.add_command(question_spawn_experiment, "promote")
 
 
 @question.command("delete")

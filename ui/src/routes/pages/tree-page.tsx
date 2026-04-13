@@ -1,22 +1,39 @@
-import { useCallback, lazy, Suspense, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  lazy,
+  Suspense,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { getRouteApi } from "@tanstack/react-router";
 import { ROUTE_API } from "../route-ids";
 import { useAllExperimentsForTree } from "@/hooks/use-experiments";
 import { useDirections } from "@/hooks/use-directions";
+import { useQuestions } from "@/hooks/use-questions";
 import { useProjects } from "@/hooks/use-projects";
 import { usePrograms } from "@/hooks/use-programs";
 import { useFindings } from "@/hooks/use-findings";
 import { useActiveProgram } from "@/stores/program";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ResearchTree, type TreeNavigateTarget } from "@/components/visualizations/research-tree";
+import {
+  ResearchTree,
+  type TreeNavigateTarget,
+} from "@/components/visualizations/research-tree";
 import { formatDateTimeShort } from "@/lib/utils";
 import { Pause, Play } from "lucide-react";
-import type { DirectionSummary, ExperimentSummary, Finding, ProjectSummary } from "@/types/sonde";
+import type {
+  DirectionSummary,
+  ExperimentSummary,
+  Finding,
+  ProjectSummary,
+  QuestionSummary,
+} from "@/types/sonde";
 
 const ExperimentGraph = lazy(() =>
   import("@/components/visualizations/experiment-graph").then((m) => ({
     default: m.ExperimentGraph,
-  }))
+  })),
 );
 
 const routeApi = getRouteApi(ROUTE_API.authTree);
@@ -35,13 +52,15 @@ const TIMELINE_SPEEDS = [
 function buildTimelineEvents(
   projects: ProjectSummary[],
   directions: DirectionSummary[],
+  questions: QuestionSummary[],
   experiments: ExperimentSummary[],
-  findings: Finding[]
+  findings: Finding[],
 ): TimelineEvent[] {
   const seen = new Set<string>();
   const all = [
     ...projects.map((item) => item.created_at),
     ...directions.map((item) => item.created_at),
+    ...questions.map((item) => item.created_at),
     ...experiments.map((item) => item.created_at),
     ...findings.map((item) => item.created_at),
   ]
@@ -64,6 +83,7 @@ export default function TreePage() {
   const { data: experiments, isLoading: loadingExp } =
     useAllExperimentsForTree();
   const { data: directions, isLoading: loadingDir } = useDirections();
+  const { data: questions, isLoading: loadingQuestions } = useQuestions();
   const { data: projects, isLoading: loadingProj } = useProjects();
   const { data: findings, isLoading: loadingFindings } = useFindings();
   const { data: programs } = usePrograms();
@@ -78,8 +98,15 @@ export default function TreePage() {
     programs?.find((p) => p.id === activeProgram)?.name ?? activeProgram;
 
   const timelineEvents = useMemo(
-    () => buildTimelineEvents(projects ?? [], directions ?? [], experiments ?? [], findings ?? []),
-    [projects, directions, experiments, findings]
+    () =>
+      buildTimelineEvents(
+        projects ?? [],
+        directions ?? [],
+        questions ?? [],
+        experiments ?? [],
+        findings ?? [],
+      ),
+    [projects, directions, questions, experiments, findings],
   );
 
   useEffect(() => {
@@ -116,51 +143,78 @@ export default function TreePage() {
   }, [isPlaying, timelineEvents, timelineIndex, timelineSpeedIndex]);
 
   const timelineCutoff = timelineEvents[timelineIndex]?.at ?? null;
-  const timelineSpeed = TIMELINE_SPEEDS[timelineSpeedIndex] ?? TIMELINE_SPEEDS[1];
+  const timelineSpeed =
+    TIMELINE_SPEEDS[timelineSpeedIndex] ?? TIMELINE_SPEEDS[1];
 
   const visibleProjects = useMemo(
-    () => (projects ?? []).filter((item) => isVisibleAt(item.created_at, timelineCutoff)),
-    [projects, timelineCutoff]
+    () =>
+      (projects ?? []).filter((item) =>
+        isVisibleAt(item.created_at, timelineCutoff),
+      ),
+    [projects, timelineCutoff],
   );
   const visibleDirections = useMemo(
-    () => (directions ?? []).filter((item) => isVisibleAt(item.created_at, timelineCutoff)),
-    [directions, timelineCutoff]
+    () =>
+      (directions ?? []).filter((item) =>
+        isVisibleAt(item.created_at, timelineCutoff),
+      ),
+    [directions, timelineCutoff],
   );
   const visibleExperiments = useMemo(
-    () => (experiments ?? []).filter((item) => isVisibleAt(item.created_at, timelineCutoff)),
-    [experiments, timelineCutoff]
+    () =>
+      (experiments ?? []).filter((item) =>
+        isVisibleAt(item.created_at, timelineCutoff),
+      ),
+    [experiments, timelineCutoff],
+  );
+  const visibleQuestions = useMemo(
+    () =>
+      (questions ?? []).filter((item) =>
+        isVisibleAt(item.created_at, timelineCutoff),
+      ),
+    [questions, timelineCutoff],
   );
   const visibleFindings = useMemo(
-    () => (findings ?? []).filter((item) => isVisibleAt(item.created_at, timelineCutoff)),
-    [findings, timelineCutoff]
+    () =>
+      (findings ?? []).filter((item) =>
+        isVisibleAt(item.created_at, timelineCutoff),
+      ),
+    [findings, timelineCutoff],
   );
 
   const handleNodeClick = useCallback(
     (id: string) => {
       navigate({ to: "/experiments/$id", params: { id } });
     },
-    [navigate]
+    [navigate],
   );
 
   const handleProjectNavigate = useCallback(
     (projectId: string) => {
       navigate({ to: "/projects/$id", params: { id: projectId } });
     },
-    [navigate]
+    [navigate],
   );
 
   const handleDirectionNavigate = useCallback(
     (directionId: string) => {
       navigate({ to: "/directions/$id", params: { id: directionId } });
     },
-    [navigate]
+    [navigate],
+  );
+
+  const handleQuestionNavigate = useCallback(
+    (questionId: string) => {
+      navigate({ to: "/questions/$id", params: { id: questionId } });
+    },
+    [navigate],
   );
 
   const handleFindingNavigate = useCallback(
     (findingId: string) => {
       navigate({ to: "/findings/$id", params: { id: findingId } });
     },
-    [navigate]
+    [navigate],
   );
 
   const handleTreeNavigate = useCallback(
@@ -171,14 +225,21 @@ export default function TreePage() {
         navigate({ to: "/projects/$id", params: { id: target.id } });
       } else if (target.kind === "direction") {
         navigate({ to: "/directions/$id", params: { id: target.id } });
+      } else if (target.kind === "question") {
+        navigate({ to: "/questions/$id", params: { id: target.id } });
       } else {
         navigate({ to: "/findings/$id", params: { id: target.id } });
       }
     },
-    [navigate]
+    [navigate],
   );
 
-  const isLoading = loadingExp || loadingDir || loadingProj || loadingFindings;
+  const isLoading =
+    loadingExp ||
+    loadingDir ||
+    loadingQuestions ||
+    loadingProj ||
+    loadingFindings;
 
   const hasGraphData =
     (visibleExperiments.length ?? 0) > 0 ||
@@ -226,11 +287,14 @@ export default function TreePage() {
           </div>
         </div>
         <p className="mt-1 text-[12px] text-text-secondary">
-          Program → project → direction → experiment. Findings with evidence on an experiment appear
-          inline. Use Tree for a vertical list; Map for the canvas layout.
+          Program → project → direction → question → experiment. Findings stay
+          attached to the experiments that support them.
         </p>
         <p className="mt-1 text-[11px] text-text-quaternary">
-          Program: <span className="font-medium text-text-secondary">{programLabel}</span>
+          Program:{" "}
+          <span className="font-medium text-text-secondary">
+            {programLabel}
+          </span>
           <span className="mx-1.5 text-text-quaternary">·</span>
           <span className="text-text-quaternary">
             Legend: project → direction → experiment forks
@@ -242,7 +306,9 @@ export default function TreePage() {
         <div className="rounded-[8px] border border-border bg-surface px-3 py-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="min-w-0">
-              <p className="text-[12px] font-medium text-text-secondary">Knowledge timeline</p>
+              <p className="text-[12px] font-medium text-text-secondary">
+                Knowledge timeline
+              </p>
             </div>
             <div className="flex shrink-0 items-center gap-2">
               <button
@@ -260,12 +326,18 @@ export default function TreePage() {
                 ) : (
                   <Play className="h-3.5 w-3.5 shrink-0" />
                 )}
-                {isPlaying ? "Pause" : timelineIndex >= timelineEvents.length - 1 ? "Replay" : "Play"}
+                {isPlaying
+                  ? "Pause"
+                  : timelineIndex >= timelineEvents.length - 1
+                    ? "Replay"
+                    : "Play"}
               </button>
               <button
                 type="button"
                 onClick={() =>
-                  setTimelineSpeedIndex((prev) => (prev + 1) % TIMELINE_SPEEDS.length)
+                  setTimelineSpeedIndex(
+                    (prev) => (prev + 1) % TIMELINE_SPEEDS.length,
+                  )
                 }
                 className="inline-flex items-center gap-1.5 rounded-[5.5px] border border-border-subtle bg-surface-raised px-2.5 py-1 text-[12px] font-medium text-text-secondary transition-colors hover:bg-surface-hover"
               >
@@ -276,10 +348,15 @@ export default function TreePage() {
 
           <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5">
             <span className="text-[12px] text-text-secondary">
-              Visible through <span className="font-medium text-text">{timelineEvents[timelineIndex]?.label}</span>
+              Visible through{" "}
+              <span className="font-medium text-text">
+                {timelineEvents[timelineIndex]?.label}
+              </span>
             </span>
             <span className="text-[11px] text-text-quaternary">
-              {visibleProjects.length} proj · {visibleDirections.length} dir · {visibleExperiments.length} exp · {visibleFindings.length} findings
+              {visibleProjects.length} proj · {visibleDirections.length} dir ·{" "}
+              {visibleQuestions.length} questions · {visibleExperiments.length}{" "}
+              exp · {visibleFindings.length} findings
             </span>
           </div>
 
@@ -317,6 +394,7 @@ export default function TreePage() {
               directions={visibleDirections}
               projects={visibleProjects}
               findings={visibleFindings}
+              questions={visibleQuestions}
               onNavigate={handleTreeNavigate}
             />
           ) : (
@@ -332,7 +410,9 @@ export default function TreePage() {
                 directions={visibleDirections}
                 projects={visibleProjects}
                 findings={visibleFindings}
+                questions={visibleQuestions}
                 onNodeClick={handleNodeClick}
+                onQuestionNavigate={handleQuestionNavigate}
                 onProjectNavigate={handleProjectNavigate}
                 onDirectionNavigate={handleDirectionNavigate}
                 onFindingNavigate={handleFindingNavigate}

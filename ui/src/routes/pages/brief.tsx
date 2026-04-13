@@ -7,11 +7,14 @@ import { useProjects } from "@/hooks/use-projects";
 import { useProgramTakeaways } from "@/hooks/use-program-takeaways";
 import { useProjectTakeawaysInProgram } from "@/hooks/use-project-takeaways";
 import { useActiveProgram } from "@/stores/program";
+import { FindingConfidenceBadge } from "@/components/shared/finding-confidence-badge";
+import { FindingImportanceBadge } from "@/components/shared/finding-importance-badge";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { RecordLink } from "@/components/shared/record-link";
 import { Section } from "@/components/shared/detail-layout";
 import { MarkdownView } from "@/components/ui/markdown-view";
+import { sortFindingsByImportanceAndRecency } from "@/lib/finding-importance";
 import { cn, formatDateTimeShort, formatDateTime } from "@/lib/utils";
 import {
   AlertTriangle,
@@ -230,7 +233,10 @@ export default function BriefPage() {
     useProjectTakeawaysInProgram(program);
 
   const exps = experiments ?? [];
-  const finds = findings ?? [];
+  const finds = useMemo(
+    () => sortFindingsByImportanceAndRecency(findings ?? []),
+    [findings]
+  );
   const dirs = directions ?? [];
   const projs = projects ?? [];
 
@@ -549,7 +555,8 @@ export default function BriefPage() {
                     <div className="flex items-center gap-1.5">
                       <Lightbulb className="h-3 w-3 text-confidence-high" />
                       <RecordLink recordId={f.id} />
-                      <Badge variant={f.confidence}>{f.confidence}</Badge>
+                      <FindingConfidenceBadge confidence={f.confidence} />
+                      <FindingImportanceBadge importance={f.importance} />
                     </div>
                     <p className="mt-0.5 text-[12px] font-medium text-text">{f.topic}</p>
                     <p className="mt-0.5 line-clamp-2 text-[11px] text-text-tertiary">{f.finding}</p>

@@ -11,9 +11,29 @@ Typical triggers:
 
 ## Core principle: content first
 
-The `content` field (markdown body) is the primary vehicle for experiment records. It is what humans and agents read, what full-text search indexes, and what `sonde show` displays. Legacy structured fields (`hypothesis`, `parameters`, `results`, `finding`) still work and power specific search/filter axes, but the content body is where the real record lives.
+The `hypothesis` field is a first-class freeform field for what the experiment
+expects to happen. The `content` field (markdown body) is the primary vehicle
+for method, results, findings, and narrative analysis. Together they give Sonde
+both structured previews and a readable research record.
 
 Write content as if a colleague — or an agent six months from now — needs to reproduce or build on this work without asking you any questions.
+
+Use a higher bar for important work: the record should still make sense two
+years later. That means preserving the motivation, the exact method, the key
+numbers, the interpretation, and the reason the result mattered.
+
+If you are choosing between brevity and future clarity, favor future clarity.
+
+## Results-first artifact principle
+
+Sonde should primarily store interpretable results, not raw implementation
+debris.
+
+- Prefer polished PNGs, GIFs, PDFs, and concise CSV summaries.
+- Give every artifact a caption that states the takeaway.
+- Keep raw code/config/notebooks in git unless the file itself is the result
+  being reviewed.
+- If you attach a raw file, pair it with a readable summary artifact.
 
 ## The formatting workflow
 
@@ -98,6 +118,14 @@ Where the output lives:
 - STAC: `nwp-simulations/EXP-XXXX-output`
 - Load: `xr.open_zarr("s3://aeolus-data/experiments/EXP-XXXX/output.zarr")`
 ```
+
+A good formatted record lets a future reader reconstruct the story in one pass:
+
+- why this run existed
+- what changed relative to prior work
+- what evidence was produced
+- what the evidence means
+- what the next experiment or decision should be
 
 You can update individual sections without replacing the whole body:
 ```bash
@@ -185,7 +213,47 @@ A good finding is:
 - Specific about conditions ("at CCN=1200 over maritime Cu" not "in some cases")
 - Honest about negative or inconclusive results
 
-### 7. Close the experiment
+### 7. Curate artifacts so the result is obvious
+
+If an experiment produced a figure, animation, memo, or summary table, attach
+it and caption it before closing:
+
+```bash
+sonde experiment attach EXP-XXXX figures/precip-anomaly.png \
+  -d "Figure 1. Spectral-bin run shows 8.2% lower enhancement than matched bulk baseline."
+sonde experiment attach EXP-XXXX diagnostics/evolution.gif \
+  -d "GIF. Convergence stabilizes after 6h; no late-stage reversal."
+sonde experiment attach EXP-XXXX reports/summary.pdf \
+  -d "Two-page result memo with methods, figure panels, and final conclusion."
+sonde artifact list EXP-XXXX --json
+sonde artifact update ART-0001 -d "Updated caption after matched-baseline rerun."
+```
+
+A good artifact is instantly interpretable:
+
+- readable title or caption
+- clear axes/units/legends when relevant
+- enough visual polish that the next agent does not have to decode it from scratch
+- scoped to the result, not a full notebook dump
+
+### 8. Use the review thread for critique, not hidden chat comments
+
+If the experiment matters, review it explicitly:
+
+```bash
+sonde experiment review add EXP-XXXX "Control and treatment use different spinup windows."
+sonde experiment review show EXP-XXXX
+sonde experiment review resolve EXP-XXXX "Re-ran with matched 6h spinup and updated Figure 1."
+```
+
+Review comments should pressure-test:
+
+- method validity
+- baseline correctness
+- whether the finding is supported by the evidence
+- whether captions and attached artifacts overstate confidence
+
+### 9. Close the experiment
 
 Use `sonde close` when the experiment is done. Include the finding and a takeaway in one step:
 
@@ -216,7 +284,7 @@ After close, `sonde close` will suggest promoting the finding to a curated Findi
 sonde finding extract EXP-0001 --topic "CCN saturation"
 ```
 
-### 8. Link to data
+### 10. Link to data
 
 If the experiment produced geospatial output (NetCDF, Zarr):
 
@@ -234,14 +302,14 @@ If the experiment produced geospatial output (NetCDF, Zarr):
 
 4. Add the S3 path and load snippet to the content's Data section so future agents can find and load it without querying STAC.
 
-If the experiment produced small files (figures, CSVs, PDFs):
+If the experiment produced small files (figures, GIFs, CSVs, PDFs):
 
 ```bash
-sonde attach EXP-XXXX figures/precip_map.png
-sonde attach EXP-XXXX diagnostics/timeseries.csv
+sonde experiment attach EXP-XXXX figures/precip_map.png -d "Figure 2. Precip anomaly map with matched bulk baseline."
+sonde experiment attach EXP-XXXX diagnostics/timeseries.csv -d "Summary table used to compute Figure 2."
 ```
 
-### 9. Link to related records
+### 11. Link to related records
 
 Connect the experiment to the knowledge graph:
 

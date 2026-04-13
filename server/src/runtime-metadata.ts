@@ -4,6 +4,8 @@ import {
   isSharedRateLimitRequired,
 } from "./security-config.js";
 import { hasGitHubAccess } from "./github.js";
+import { hasSupabaseTelemetryConfig, telemetryRequiresServiceRole } from "./supabase.js";
+import { getManagedSessionCostThresholds } from "./managed/pricing.js";
 
 export interface RuntimeMetadata {
   status: "ok";
@@ -15,6 +17,12 @@ export interface RuntimeMetadata {
   sondeMcpConfigured: boolean;
   githubConfigured: boolean;
   anthropicConfigured: boolean;
+  anthropicAdminConfigured: boolean;
+  costTelemetryConfigured: boolean;
+  liveSpendEnabled: boolean;
+  telemetryRequiresServiceRole: boolean;
+  managedSessionWarnUsd: number;
+  managedSessionCriticalUsd: number;
   cliGitRef: string | null;
   supabaseProjectRef: string | null;
   sharedRateLimitConfigured: boolean;
@@ -54,6 +62,7 @@ export function getRuntimeMetadata(
     Boolean(env.SONDE_MANAGED_ENVIRONMENT_ID?.trim()) &&
     (Boolean(env.SONDE_MANAGED_AGENT_ID?.trim()) ||
       env.SONDE_MANAGED_ALLOW_EPHEMERAL_AGENT === "1");
+  const thresholds = getManagedSessionCostThresholds(env);
   return {
     status: "ok",
     environment: getRuntimeEnvironment(env),
@@ -67,6 +76,12 @@ export function getRuntimeMetadata(
       true,
     githubConfigured: hasGitHubAccess(env),
     anthropicConfigured: Boolean(env.ANTHROPIC_API_KEY?.trim()),
+    anthropicAdminConfigured: Boolean(env.ANTHROPIC_ADMIN_API_KEY?.trim()),
+    costTelemetryConfigured: hasSupabaseTelemetryConfig(env),
+    liveSpendEnabled: Boolean(env.ANTHROPIC_API_KEY?.trim()) && managedConfigured,
+    telemetryRequiresServiceRole: telemetryRequiresServiceRole(env),
+    managedSessionWarnUsd: thresholds.warnUsd,
+    managedSessionCriticalUsd: thresholds.criticalUsd,
     cliGitRef: env.SONDE_CLI_GIT_REF?.trim() || null,
     supabaseProjectRef: getSupabaseProjectRef(env),
     sharedRateLimitConfigured: hasSharedRateLimitConfig(env),

@@ -15,8 +15,8 @@ from sonde.output import err, print_banner, print_error, print_json, print_succe
     "--remote",
     is_flag=True,
     help=(
-        "URL-paste login for remote VMs (Lightning, Codespaces, SSH) "
-        "when the localhost OAuth callback cannot be reached."
+        "Force the assisted login flow when the browser cannot reach the "
+        "local callback automatically."
     ),
 )
 @click.pass_context
@@ -26,7 +26,6 @@ def login(ctx: click.Context, remote: bool) -> None:
     \b
     Examples:
       sonde login
-      sonde login --remote
     """
     if auth.is_authenticated():
         user = auth.get_current_user()

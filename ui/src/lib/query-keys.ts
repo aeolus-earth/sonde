@@ -4,7 +4,8 @@
 export const queryKeys = {
   experiments: {
     all: (program: string) => ["experiments", program] as const,
-    byProgram: (program: string) => ["experiments", "byProgram", program] as const,
+    byProgram: (program: string) =>
+      ["experiments", "byProgram", program] as const,
     detail: (id: string) => ["experiments", "detail", id] as const,
     ancestors: (id: string) => ["experiments", "ancestors", id] as const,
     children: (id: string) => ["experiments", "children", id] as const,
@@ -21,26 +22,38 @@ export const queryKeys = {
     all: (program: string) => ["directions", program] as const,
     detail: (id: string) => ["directions", "detail", id] as const,
     status: (program: string) => ["directions", "status", program] as const,
-    children: (parentId: string) => ["directions", "children", parentId] as const,
+    children: (parentId: string) =>
+      ["directions", "children", parentId] as const,
   },
   questions: {
     all: (program: string) => ["questions", program] as const,
     inbox: (program: string) => ["questions", "inbox", program] as const,
+    detail: (id: string) => ["questions", "detail", id] as const,
+    byDirection: (directionId: string) =>
+      ["questions", "direction", directionId] as const,
+    byExperiment: (experimentId: string) =>
+      ["questions", "experiment", experimentId] as const,
+    byFinding: (findingId: string) =>
+      ["questions", "finding", findingId] as const,
   },
   artifacts: {
     byParent: (parentId: string) => ["artifacts", parentId] as const,
-    detail: (artifactId: string) => ["artifacts", "detail", artifactId] as const,
-    blob: (storagePath: string | null) => ["artifacts", "blob", storagePath] as const,
+    detail: (artifactId: string) =>
+      ["artifacts", "detail", artifactId] as const,
+    blob: (storagePath: string | null) =>
+      ["artifacts", "blob", storagePath] as const,
     /** Sorted joined program ids — cross-program canvas feed */
     assistantCanvas: (programsKey: string) =>
       ["artifacts", "assistantCanvas", programsKey] as const,
     /** Deduped sorted paths for batch signed URL fetch */
-    urlBatch: (pathsKey: string) => ["artifacts", "urlBatch", pathsKey] as const,
+    urlBatch: (pathsKey: string) =>
+      ["artifacts", "urlBatch", pathsKey] as const,
   },
   notes: {
     byRecord: (type: string, id: string) => ["notes", type, id] as const,
     byExperiment: (expId: string) => ["notes", "experiment", expId] as const,
-    search: (expId: string, q: string) => ["notes", "search", expId, q] as const,
+    search: (expId: string, q: string) =>
+      ["notes", "search", expId, q] as const,
   },
   reviews: {
     byExperiment: (expId: string) => ["reviews", "experiment", expId] as const,

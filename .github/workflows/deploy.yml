@@ -1,4 +1,4 @@
-name: Deploy Production
+name: Sync Production Infra
 
 on:
   push:
@@ -25,7 +25,7 @@ jobs:
       - name: Validate production deploy ref
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.ref_name }}" != "main" ] && [ "${{ inputs.allow_ref_mismatch }}" != "true" ]; then
-            echo "::error::Deploy Production must be dispatched from the main branch unless allow_ref_mismatch=true."
+            echo "::error::Sync Production Infra must be dispatched from the main branch unless allow_ref_mismatch=true."
             exit 1
           fi
 
@@ -33,7 +33,6 @@ jobs:
     runs-on: ubuntu-latest
     needs: validate-ref
     outputs:
-      agent: ${{ steps.filter.outputs.agent }}
       database: ${{ steps.filter.outputs.database }}
     steps:
       - uses: actions/checkout@v6
@@ -44,11 +43,6 @@ jobs:
           filters: |
             database:
               - 'supabase/**'
-            agent:
-              - 'Dockerfile'
-              - '.dockerignore'
-              - 'cli/**'
-              - 'server/**'
               - '.github/workflows/deploy.yml'
 
   push-migrations:
@@ -110,109 +104,3 @@ jobs:
           else
             echo "::notice::Skipping strict schema verification because get_schema_version is not reachable with the configured production publishable key"
           fi
-
-  deploy-production-agent:
-    runs-on: ubuntu-latest
-    needs:
-      - changes
-      - push-migrations
-    if: >-
-      ${{
-        always() &&
-        (
-          needs.push-migrations.result == 'success' ||
-          needs.push-migrations.result == 'skipped'
-        ) &&
-        (
-          needs.changes.outputs.agent == 'true' ||
-          github.event_name == 'workflow_dispatch'
-        )
-      }}
-
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: "22"
-
-      - name: Resolve production schema version
-        id: schema
-        env:
-          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
-          SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
-        run: |
-          if [ -z "$SUPABASE_PROJECT_REF" ] || [ -z "$SUPABASE_ANON_KEY" ]; then
-            echo "::notice::Skipping schema lookup because SUPABASE_PROJECT_REF or SUPABASE_ANON_KEY is not configured"
-            exit 0
-          fi
-          VERSION=$(curl -sf \
-            -H "apikey: $SUPABASE_ANON_KEY" \
-            -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
-            "https://${SUPABASE_PROJECT_REF}.supabase.co/rest/v1/rpc/get_schema_version" | tr -d '"')
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-
-      - name: Install Railway CLI
-        run: npm install -g @railway/cli
-
-      - name: Verify Railway production token
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_PRODUCTION_PROJECT_TOKEN }}
-        run: |
-          if [ -z "$RAILWAY_TOKEN" ]; then
-            echo "::error::Missing RAILWAY_PRODUCTION_PROJECT_TOKEN secret"
-            exit 1
-          fi
-          railway run \
-            -p "${{ vars.RAILWAY_PRODUCTION_PROJECT_ID }}" \
-            -e "${{ vars.RAILWAY_PRODUCTION_ENVIRONMENT_ID }}" \
-            -s "${{ vars.RAILWAY_PRODUCTION_SERVICE_NAME }}" \
-            env >/tmp/railway-production-env.txt
-
-      - name: Pin deployed commit metadata
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_PRODUCTION_PROJECT_TOKEN }}
-          SONDE_MANAGED_ENVIRONMENT_ID: ${{ vars.SONDE_ANTHROPIC_MANAGED_ENVIRONMENT_ID }}
-          SONDE_SCHEMA_VERSION: ${{ steps.schema.outputs.version }}
-          SONDE_RUNTIME_AUDIT_TOKEN: ${{ secrets.SONDE_PRODUCTION_AGENT_RUNTIME_AUDIT_TOKEN }}
-          SONDE_WS_TOKEN_SECRET: ${{ secrets.SONDE_PRODUCTION_WS_TOKEN_SECRET }}
-          SONDE_GITHUB_ALLOWED_REPOS: ${{ vars.SONDE_GITHUB_ALLOWED_REPOS }}
-        run: |
-          if [ -z "$SONDE_MANAGED_ENVIRONMENT_ID" ]; then
-            echo "::error::Missing SONDE_ANTHROPIC_MANAGED_ENVIRONMENT_ID repository variable"
-            exit 1
-          fi
-          SCHEMA_VERSION="${SONDE_SCHEMA_VERSION:-unknown}"
-          railway variable delete \
-            -s "${{ vars.RAILWAY_PRODUCTION_SERVICE_NAME }}" \
-            -e production \
-            SONDE_MANAGED_AGENT_ID || true
-          railway variable set \
-            -s "${{ vars.RAILWAY_PRODUCTION_SERVICE_NAME }}" \
-            -e production \
-            --skip-deploys \
-            VITE_SUPABASE_URL="https://${{ secrets.SUPABASE_PROJECT_REF }}.supabase.co" \
-            VITE_SUPABASE_ANON_KEY="${{ vars.SUPABASE_ANON_KEY }}" \
-            SONDE_AGENT_BACKEND="managed" \
-            SONDE_MANAGED_ENVIRONMENT_ID="${SONDE_MANAGED_ENVIRONMENT_ID}" \
-            SONDE_MANAGED_AGENT_ID=" " \
-            SONDE_MANAGED_ALLOW_EPHEMERAL_AGENT="1" \
-            SONDE_ALLOWED_ORIGINS="${{ vars.SONDE_UI_URL }}" \
-            SONDE_ENVIRONMENT="production" \
-            SONDE_COMMIT_SHA="${GITHUB_SHA}" \
-            SONDE_CLI_GIT_REF="${GITHUB_SHA}" \
-            SONDE_SCHEMA_VERSION="${SCHEMA_VERSION}" \
-            SONDE_RUNTIME_AUDIT_TOKEN="${SONDE_RUNTIME_AUDIT_TOKEN}" \
-            SONDE_WS_TOKEN_SECRET="${SONDE_WS_TOKEN_SECRET}" \
-            SONDE_GITHUB_ALLOWED_REPOS="${SONDE_GITHUB_ALLOWED_REPOS}"
-
-      - name: Deploy production agent
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_PRODUCTION_PROJECT_TOKEN }}
-        run: |
-          railway up \
-            -p "${{ vars.RAILWAY_PRODUCTION_PROJECT_ID }}" \
-            -e "${{ vars.RAILWAY_PRODUCTION_ENVIRONMENT_ID }}" \
-            -s "${{ vars.RAILWAY_PRODUCTION_SERVICE_NAME }}" \
-            --detach \
-            --ci

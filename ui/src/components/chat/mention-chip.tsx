@@ -1,11 +1,10 @@
 import type { ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import { cn } from "@/lib/utils";
-import type { MentionRef } from "@/types/chat";
-import type { RecordType } from "@/types/sonde";
+import type { MentionRef, MentionTargetType } from "@/types/chat";
 
 export function mentionChipClasses(
-  type: RecordType,
+  type: MentionTargetType,
   opts?: { interactive?: boolean }
 ): string {
   const interactive = opts?.interactive ?? false;
@@ -44,6 +43,12 @@ export function mentionChipClasses(
         "border-teal-950/40 bg-teal-800 dark:border-teal-300/30 dark:bg-teal-700",
         interactive && "hover:brightness-110 dark:hover:bg-teal-600"
       );
+    case "program":
+      return cn(
+        base,
+        "border-orange-950/40 bg-orange-800 dark:border-orange-300/30 dark:bg-orange-700",
+        interactive && "hover:brightness-110 dark:hover:bg-orange-600"
+      );
     default:
       return cn(
         base,
@@ -57,10 +62,13 @@ export function mentionTitle(m: MentionRef): string {
   if (m.type === "experiment" && m.program) {
     return `${m.program}/${m.id}`;
   }
+  if (m.type === "program") {
+    return `Program · ${m.label}`;
+  }
   return m.id;
 }
 
-export function mentionRoute(type: RecordType): string {
+export function mentionRoute(type: Exclude<MentionTargetType, "program">): string {
   switch (type) {
     case "experiment":
       return "/experiments/$id";
@@ -68,8 +76,10 @@ export function mentionRoute(type: RecordType): string {
       return "/findings/$id";
     case "direction":
       return "/directions/$id";
+    case "project":
+      return "/projects/$id";
     case "question":
-      return "/questions";
+      return "/questions/$id";
     default:
       return "/experiments/$id";
   }
@@ -85,11 +95,11 @@ export function MentionLink({
   className?: string;
 }) {
   const title = mentionTitle(m);
-  if (m.type === "question") {
+  if (m.type === "program") {
     return (
-      <Link to="/questions" title={title} className={className}>
+      <span title={title} className={className}>
         {children}
-      </Link>
+      </span>
     );
   }
   return (
@@ -108,6 +118,13 @@ export function MentionChipLabel({ m }: { m: MentionRef }) {
           {m.id}
         </span>
       </>
+    );
+  }
+  if (m.type === "program") {
+    return (
+      <span className="font-mono text-[11px] font-semibold tabular-nums tracking-tight">
+        @{m.id}
+      </span>
     );
   }
   return (

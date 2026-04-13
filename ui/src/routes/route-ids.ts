@@ -15,6 +15,7 @@ export const ROUTE_API = {
   authDirections: "/_authenticated/directions",
   authDirectionDetail: "/_authenticated/directions/$id",
   authQuestions: "/_authenticated/questions",
+  authQuestionDetail: "/_authenticated/questions/$id",
   authActivity: "/_authenticated/activity",
   authProjects: "/_authenticated/projects",
   authProjectDetail: "/_authenticated/projects/$id",

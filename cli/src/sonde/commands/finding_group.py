@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal, cast
+from typing import cast
 
 import click
 
@@ -15,9 +15,17 @@ from sonde.commands.push import push_finding
 from sonde.commands.remove import remove_finding
 from sonde.db import experiments as exp_db
 from sonde.db import findings as db
+from sonde.db import question_links as q_links
+from sonde.db import questions as q_db
 from sonde.db.activity import log_activity
 from sonde.local import extract_finding_text
-from sonde.models.finding import FindingCreate
+from sonde.models.finding import (
+    FINDING_CONFIDENCE_VALUES,
+    FINDING_IMPORTANCE_VALUES,
+    FindingConfidence,
+    FindingCreate,
+    FindingImportance,
+)
 from sonde.output import err, print_error, print_json, print_success
 from sonde.services.findings import delete_finding as delete_finding_record
 
@@ -65,11 +73,18 @@ def finding_show(ctx: click.Context, finding_id: str) -> None:
 @click.option("--finding", "finding_text", required=True, help="The finding itself")
 @click.option(
     "--confidence",
-    type=click.Choice(["low", "medium", "high"]),
+    type=click.Choice(list(FINDING_CONFIDENCE_VALUES)),
     default="medium",
     help="Confidence level (default: medium)",
 )
+@click.option(
+    "--importance",
+    type=click.Choice(list(FINDING_IMPORTANCE_VALUES)),
+    default="medium",
+    help="Importance level (default: medium)",
+)
 @click.option("--evidence", multiple=True, help="Supporting experiment IDs (repeatable)")
+@click.option("--question", "question_ids", multiple=True, help="Linked question IDs (repeatable)")
 @click.option("--supersedes", help="ID of finding this supersedes")
 @click.option("--source", "-s", help="Who created this (default: auto-detect)")
 @pass_output_options
@@ -80,7 +95,9 @@ def finding_create(
     topic: str,
     finding_text: str,
     confidence: str,
+    importance: str,
     evidence: tuple[str, ...],
+    question_ids: tuple[str, ...],
     supersedes: str | None,
     source: str | None,
 ) -> None:
@@ -101,18 +118,31 @@ def finding_create(
     """
 
     resolved_source = source or resolve_source()
+    resolved_questions = [question_id.upper() for question_id in question_ids]
+    for question_id in resolved_questions:
+        q = q_db.get(question_id)
+        if not q:
+            print_error(
+                f"{question_id} not found",
+                "No question with this ID.",
+                "List questions: sonde question list --all",
+            )
+            raise SystemExit(1)
 
     data = FindingCreate(
         program=program,
         topic=topic,
         finding=finding_text,
-        confidence=cast(Literal["low", "medium", "high"], confidence),
+        confidence=cast(FindingConfidence, confidence),
+        importance=cast(FindingImportance, importance),
         evidence=list(evidence),
         source=resolved_source,
         supersedes=supersedes,
     )
 
     result = db.create(data)
+    for question_id in resolved_questions:
+        q_links.link_finding(question_id, result.id)
 
     if supersedes:
         db.supersede(supersedes, result.id)
@@ -129,7 +159,11 @@ def finding_create(
     else:
         print_success(
             f"Created {result.id} ({program})",
-            details=[f"Topic: {topic}", f"Confidence: {confidence}"],
+            details=[
+                f"Topic: {topic}",
+                f"Confidence: {confidence}",
+                f"Importance: {importance}",
+            ],
             breadcrumbs=[f"View: sonde finding show {result.id}"],
         )
         if not evidence:
@@ -146,11 +180,18 @@ def finding_create(
 @click.option("--topic", "-t", required=True, help="Topic for the finding")
 @click.option(
     "--confidence",
-    type=click.Choice(["low", "medium", "high"]),
+    type=click.Choice(list(FINDING_CONFIDENCE_VALUES)),
     default="medium",
     help="Confidence level (default: medium)",
 )
+@click.option(
+    "--importance",
+    type=click.Choice(list(FINDING_IMPORTANCE_VALUES)),
+    default="medium",
+    help="Importance level (default: medium)",
+)
 @click.option("--source", "-s", help="Override source attribution")
+@click.option("--question", "question_ids", multiple=True, help="Linked question IDs (repeatable)")
 @pass_output_options
 @click.pass_context
 def finding_extract(
@@ -158,7 +199,9 @@ def finding_extract(
     experiment_id: str,
     topic: str,
     confidence: str,
+    importance: str,
     source: str | None,
+    question_ids: tuple[str, ...],
 ) -> None:
     """Extract an experiment's finding into a curated Finding record.
 
@@ -201,17 +244,35 @@ def finding_extract(
         )
 
     resolved_source = source or resolve_source()
+    resolved_questions = [question_id.upper() for question_id in question_ids]
+    for question_id in resolved_questions:
+        q = q_db.get(question_id)
+        if not q:
+            print_error(
+                f"{question_id} not found",
+                "No question with this ID.",
+                "List questions: sonde question list --all",
+            )
+            raise SystemExit(1)
 
     data = FindingCreate(
         program=exp.program,
         topic=topic,
         finding=finding_text,
-        confidence=cast(Literal["low", "medium", "high"], confidence),
+        confidence=cast(FindingConfidence, confidence),
+        importance=cast(FindingImportance, importance),
         evidence=[experiment_id.upper()],
         source=resolved_source,
     )
 
     result = db.create(data)
+    linked_questions = resolved_questions
+    if not linked_questions:
+        primary_question = q_links.get_primary_question_for_experiment(experiment_id.upper())
+        if primary_question:
+            linked_questions = [primary_question.id]
+    for question_id in linked_questions:
+        q_links.link_finding(question_id, result.id)
     log_activity(result.id, "finding", "created")
 
     # Refresh saved brief
@@ -226,6 +287,8 @@ def finding_extract(
             f"Extracted {result.id} from {experiment_id.upper()}",
             details=[
                 f"Topic: {topic}",
+                f"Confidence: {confidence}",
+                f"Importance: {importance}",
                 f"Finding: {finding_text[:80]}",
             ],
             breadcrumbs=[
