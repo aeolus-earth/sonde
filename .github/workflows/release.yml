@@ -130,8 +130,7 @@ jobs:
 
             ### Install
             ```bash
-            curl -LsSfO https://github.com/${{ github.repository }}/releases/latest/download/sonde-latest-py3-none-any.whl
-            uv tool install ./sonde-latest-py3-none-any.whl
+            uv tool install --force "git+https://github.com/${{ github.repository }}.git@main#subdirectory=cli"
             ```
 
             ### Changes

@@ -110,6 +110,16 @@ jobs:
         working-directory: cli
         run: uv run pytest -m "not integration" --tb=short
 
+      - if: steps.gate.outputs.run == 'true'
+        name: Git install smoke
+        env:
+          XDG_BIN_HOME: /tmp/sonde-git-bin
+          XDG_DATA_HOME: /tmp/sonde-git-data
+        run: |
+          rm -rf "$XDG_BIN_HOME" "$XDG_DATA_HOME"
+          uv tool install --force "git+file://${GITHUB_WORKSPACE}#subdirectory=cli"
+          "$XDG_BIN_HOME/sonde" --version
+
   ui-core:
     name: ui-core
     runs-on: ubuntu-latest

@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import sys
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from urllib.error import URLError
 
 from sonde.cli import cli
 from sonde.diagnostics import (
+    GIT_TOOL_INSTALL_COMMAND,
+    check_install_shadows,
     check_s3_settings,
     check_stac_settings,
     run_doctor,
@@ -172,3 +175,30 @@ def test_stac_deep_warns_when_unreachable(monkeypatch):
 
     assert check.status == "warn"
     assert "not reachable" in check.summary.lower()
+
+
+def test_check_install_shadows_reports_shadowed_binary(monkeypatch):
+    monkeypatch.setattr(sys, "argv", ["/tmp/current-sonde"])
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/local/bin/sonde")
+
+    check = check_install_shadows()
+
+    assert check.id == "install-shadow"
+    assert check.status == "warn"
+    assert "/usr/local/bin/sonde" in "\n".join(check.details)
+    assert GIT_TOOL_INSTALL_COMMAND in (check.fix or "")
+    assert "which -a sonde" in (check.fix or "")
+    assert "sonde doctor" in (check.fix or "")
+
+
+def test_check_install_shadows_reports_low_command_count(monkeypatch):
+    monkeypatch.setattr(sys, "argv", ["/tmp/current-sonde"])
+    monkeypatch.setattr("shutil.which", lambda name: "/tmp/current-sonde")
+    monkeypatch.setattr("sonde.cli.cli.commands", {"doctor": object()})
+
+    check = check_install_shadows()
+
+    assert check.id == "install-low-commands"
+    assert check.status == "warn"
+    assert GIT_TOOL_INSTALL_COMMAND in (check.fix or "")
+    assert "sonde --version" in (check.fix or "")
