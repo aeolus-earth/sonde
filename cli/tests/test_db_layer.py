@@ -183,8 +183,8 @@ class TestQuestions:
             }
         )
         questions_table.execute.return_value = MagicMock(data=[_QUESTION_ROW])
-        patched_db.table.side_effect = (
-            lambda table_name: status_table if table_name == "question_status" else questions_table
+        patched_db.table.side_effect = lambda table_name: (
+            status_table if table_name == "question_status" else questions_table
         )
 
         from sonde.db import questions as db
@@ -211,8 +211,8 @@ class TestQuestions:
             }
         )
         questions_table.execute.return_value = MagicMock(data=[], count=3)
-        patched_db.table.side_effect = (
-            lambda table_name: status_table if table_name == "question_status" else questions_table
+        patched_db.table.side_effect = lambda table_name: (
+            status_table if table_name == "question_status" else questions_table
         )
 
         from sonde.db import questions as db

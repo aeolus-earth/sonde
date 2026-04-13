@@ -109,10 +109,12 @@ def list_by_direction(direction_id: str) -> list[Question]:
     client = get_client()
     result = _execute_question_query(
         client,
-        lambda table_name: client.table(table_name)
-        .select("*")
-        .eq("direction_id", direction_id)
-        .order("created_at"),
+        lambda table_name: (
+            client.table(table_name)
+            .select("*")
+            .eq("direction_id", direction_id)
+            .order("created_at")
+        ),
     )
     return [Question(**row) for row in to_rows(result.data)]
 

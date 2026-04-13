@@ -213,8 +213,7 @@ def _render_chain(ctx: click.Context, findings_list: list) -> None:
 
             marker = "[green]●[/] current" if is_current else ""
             err.print(
-                f"  [sonde.brand]{f.id}[/]  {created}  "
-                f"[{f.confidence}/{f.importance}]  {f.finding}"
+                f"  [sonde.brand]{f.id}[/]  {created}  [{f.confidence}/{f.importance}]  {f.finding}"
             )
             if evidence:
                 err.print(f"        Evidence: {evidence}")
