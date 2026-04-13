@@ -12,13 +12,15 @@ import json
 import logging
 import os
 import secrets
+import shutil
 import socket
+import subprocess
+import sys
 import time
-import webbrowser
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from importlib import resources
-from threading import Event, Lock
+from threading import Event, Lock, Thread
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -41,6 +43,8 @@ KEYRING_SERVICE = "sonde-cli"
 CALLBACK_TIMEOUT = 120
 AGENT_TOKEN_PREFIX = "sonde_at_"
 BOT_TOKEN_PREFIX = "sonde_bt_"
+LOGIN_MODE_AUTO = "auto"
+LOGIN_MODE_ASSISTED = "assisted"
 
 
 def _load_callback_html() -> bytes:
@@ -352,8 +356,8 @@ def login(remote: bool = False) -> UserInfo:
     if not auth_url.startswith("https://"):
         raise RuntimeError(f"Unexpected non-HTTPS OAuth URL: {auth_url[:80]}")
 
-    paste_fallback = remote or _is_remote_environment()
-    code = _wait_for_callback(port, auth_url, paste_fallback=paste_fallback)
+    assisted = _login_mode(remote=remote) == LOGIN_MODE_ASSISTED
+    code = _wait_for_callback(port, auth_url, assisted=assisted)
 
     # Exchange code for session
     params = CodeExchangeParams(
@@ -531,6 +535,33 @@ def _skip_browser_launch() -> bool:
     return os.environ.get("SONDE_LOGIN_NO_BROWSER", "").lower() in ("1", "true", "yes")
 
 
+def _looks_like_vscode_terminal() -> bool:
+    """Best-effort detection for VS Code and Cursor integrated terminals."""
+    return os.environ.get("TERM_PROGRAM") == "vscode" or any(
+        key.startswith("VSCODE_") for key in os.environ
+    )
+
+
+def _is_headless_unix() -> bool:
+    """True when a Unix shell has no obvious GUI browser target."""
+    if os.name == "nt" or sys.platform == "darwin":
+        return False
+    return not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+
+
+def _login_mode(*, remote: bool = False) -> str:
+    """Choose between local auto-open and assisted login UX."""
+    if remote or _skip_browser_launch():
+        return LOGIN_MODE_ASSISTED
+    if _is_remote_environment():
+        return LOGIN_MODE_ASSISTED
+    if _looks_like_vscode_terminal() and _is_headless_unix():
+        return LOGIN_MODE_ASSISTED
+    if _is_headless_unix():
+        return LOGIN_MODE_ASSISTED
+    return LOGIN_MODE_AUTO
+
+
 def _is_remote_environment() -> bool:
     """True when the browser may not reach the CLI's localhost (VMs, SSH, cloud shells)."""
     if os.environ.get("SONDE_LOGIN_REMOTE", "").lower() in ("1", "true", "yes"):
@@ -563,10 +594,51 @@ def _extract_code_from_url(raw: str) -> str | None:
     return None
 
 
-def _emit_login_browser_instructions(
-    port: int, auth_url: str, *, paste_fallback: bool = False
-) -> None:
-    """Print sign-in URL to stderr, try to open the system browser, explain when that fails."""
+def _launch_command_quietly(cmd: list[str]) -> bool:
+    """Start a helper process without leaking its output into the terminal."""
+    kwargs: dict[str, Any] = {
+        "stdin": subprocess.DEVNULL,
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+        "close_fds": True,
+    }
+    if os.name != "nt":
+        kwargs["start_new_session"] = True
+
+    try:
+        subprocess.Popen(cmd, **kwargs)
+    except OSError:
+        return False
+    return True
+
+
+def _launch_browser_quietly(auth_url: str) -> bool:
+    """Best-effort browser launch that suppresses helper stderr."""
+    if _skip_browser_launch():
+        return False
+
+    if sys.platform == "darwin":
+        opener = shutil.which("open")
+        return _launch_command_quietly([opener, auth_url]) if opener else False
+
+    if os.name == "nt":
+        try:
+            os.startfile(auth_url)  # type: ignore[attr-defined]
+        except OSError:
+            return False
+        return True
+
+    if _is_headless_unix():
+        return False
+
+    for cmd in (["xdg-open", auth_url], ["gio", "open", auth_url]):
+        if shutil.which(cmd[0]) and _launch_command_quietly(cmd):
+            return True
+    return False
+
+
+def _emit_login_browser_instructions(port: int, auth_url: str, *, assisted: bool = False) -> bool:
+    """Print sign-in guidance and optionally launch a local browser."""
     err.print("[sonde.muted]Sign in with your Aeolus Google Workspace account.[/]")
     err.print(
         "  [sonde.muted]Use this link in your browser (click if your terminal supports links):[/]"
@@ -590,21 +662,30 @@ def _emit_login_browser_instructions(
             "this machine.[/]"
         )
 
-    if paste_fallback:
+    if assisted:
+        err.print(
+            "  [sonde.muted]This terminal looks remote or headless, so Sonde will not try to "
+            "open a browser automatically.[/]"
+        )
+        err.print(
+            "  [sonde.muted]If the browser reaches localhost after sign-in, Sonde will finish "
+            "automatically.[/]"
+        )
         err.print(
             "  [sonde.muted]If the browser cannot connect to localhost after sign-in, copy the "
-            "full URL from the address bar (OAuth code in the query string) and paste it at the "
-            "prompt below.[/]"
+            "full URL from the address bar (OAuth code in the query string) or just the code "
+            "and paste it below.[/]"
         )
+        return False
 
-    opened = False
-    if not _skip_browser_launch():
-        opened = bool(webbrowser.open(auth_url))
-    if not _skip_browser_launch() and not opened:
+    opened = _launch_browser_quietly(auth_url)
+    if not opened:
         err.print(
             "[sonde.warning]Could not open a browser automatically.[/] "
-            "[sonde.muted]Use the sign-in link above, then return to this terminal.[/]"
+            "[sonde.muted]Open the sign-in link above, then paste the callback URL or code "
+            "below if localhost is unreachable.[/]"
         )
+    return opened
 
 
 def _extract_auth_code(value: str) -> str | None:
@@ -624,22 +705,38 @@ def _extract_auth_code(value: str) -> str | None:
     return candidate
 
 
-def _prompt_for_manual_callback(port: int) -> str | None:
+def _prompt_for_manual_callback(
+    port: int,
+    *,
+    immediate: bool = False,
+    stop_event: Event | None = None,
+) -> str | None:
     """Ask the user for the redirected callback URL when localhost is unreachable."""
-    err.print(
-        "[sonde.warning]Automatic callback did not reach this machine.[/] "
-        "[sonde.muted]This is common on VMs and remote terminals.[/]"
-    )
-    err.print(
-        "  [sonde.muted]If the browser is showing a localhost error page, copy the full URL "
-        "from the address bar and paste it here. You can also paste just the code value.[/]"
-    )
-    err.print(f"  [sonde.muted]Expected callback: http://localhost:{port}/callback?code=...[/]")
+    if immediate:
+        err.print(
+            "  [sonde.muted]Paste the redirected callback URL or raw auth code below at any "
+            "time. Sonde will keep listening on localhost while you do this.[/]"
+        )
+    else:
+        err.print(
+            "[sonde.warning]Automatic callback did not reach this machine.[/] "
+            "[sonde.muted]This is common on VMs and remote terminals.[/]"
+        )
+        err.print(
+            "  [sonde.muted]If the browser is showing a localhost error page, copy the full URL "
+            "from the address bar and paste it here. You can also paste just the code value.[/]"
+        )
+        err.print(f"  [sonde.muted]Expected callback: http://localhost:{port}/callback?code=...[/]")
 
     for _ in range(3):
+        if stop_event and stop_event.is_set():
+            return None
         try:
             response = err.input("  [sonde.muted]Callback URL or auth code:[/] ")
         except EOFError:
+            return None
+
+        if stop_event and stop_event.is_set():
             return None
 
         code = _extract_auth_code(response)
@@ -662,8 +759,8 @@ def _login_timeout_message() -> str:
     )
 
 
-def _wait_for_callback(port: int, auth_url: str, *, paste_fallback: bool = False) -> str:
-    """Start a temporary HTTP server, print URL and open browser, wait for the OAuth callback."""
+def _wait_for_callback(port: int, auth_url: str, *, assisted: bool = False) -> str:
+    """Start a temporary HTTP server and resolve the OAuth callback."""
     code_received = Event()
     auth_code: list[str] = []
     callback_page = _load_callback_html()
@@ -697,9 +794,18 @@ def _wait_for_callback(port: int, auth_url: str, *, paste_fallback: bool = False
             pass  # Suppress HTTP server logs
 
     server = HTTPServer(("127.0.0.1", port), CallbackHandler)
-    server.timeout = 1
+    server.timeout = 0.5
 
-    _emit_login_browser_instructions(port, auth_url, paste_fallback=paste_fallback)
+    def _run_manual_prompt(*, immediate: bool) -> None:
+        _try_set_auth_code(
+            _prompt_for_manual_callback(port, immediate=immediate, stop_event=code_received)
+        )
+
+    opened = _emit_login_browser_instructions(port, auth_url, assisted=assisted)
+    manual_prompt_started = assisted or not opened
+    if manual_prompt_started:
+        Thread(target=_run_manual_prompt, kwargs={"immediate": True}, daemon=True).start()
+
     deadline = time.monotonic() + CALLBACK_TIMEOUT
 
     try:
@@ -711,8 +817,9 @@ def _wait_for_callback(port: int, auth_url: str, *, paste_fallback: bool = False
     if code_received.is_set():
         return auth_code[0]
 
-    manual_code = _prompt_for_manual_callback(port)
-    if manual_code:
-        return manual_code
+    if not manual_prompt_started:
+        manual_code = _prompt_for_manual_callback(port, stop_event=code_received)
+        if manual_code:
+            return manual_code
 
     raise TimeoutError(_login_timeout_message())

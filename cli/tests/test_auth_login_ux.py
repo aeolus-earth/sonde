@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+from typing import cast
+
 import pytest
 
 from sonde import auth
@@ -17,8 +20,14 @@ def _clear_remote_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "CODESPACES",
         "GITPOD_WORKSPACE_ID",
         "CLOUD_SHELL",
+        "TERM_PROGRAM",
+        "DISPLAY",
+        "WAYLAND_DISPLAY",
     ):
         monkeypatch.delenv(key, raising=False)
+    for key in list(os.environ):
+        if key.startswith("VSCODE_"):
+            monkeypatch.delenv(key, raising=False)
 
 
 def test_is_remote_environment_false_when_unset(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -42,6 +51,29 @@ def test_is_remote_environment_true_ssh_connection(monkeypatch: pytest.MonkeyPat
     _clear_remote_env(monkeypatch)
     monkeypatch.setenv("SSH_CONNECTION", "1.2.3.4 1 5.6.7.8 22")
     assert auth._is_remote_environment() is True
+
+
+def test_login_mode_auto_for_local_mac_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
+    _clear_remote_env(monkeypatch)
+    monkeypatch.setattr(auth.os, "name", "posix", raising=False)
+    monkeypatch.setattr(auth.sys, "platform", "darwin", raising=False)
+    monkeypatch.setenv("TERM_PROGRAM", "vscode")
+    assert auth._login_mode() == auth.LOGIN_MODE_AUTO
+
+
+def test_login_mode_assisted_for_headless_linux(monkeypatch: pytest.MonkeyPatch) -> None:
+    _clear_remote_env(monkeypatch)
+    monkeypatch.setattr(auth.os, "name", "posix", raising=False)
+    monkeypatch.setattr(auth.sys, "platform", "linux", raising=False)
+    assert auth._login_mode() == auth.LOGIN_MODE_ASSISTED
+
+
+def test_login_mode_assisted_for_vscode_headless_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
+    _clear_remote_env(monkeypatch)
+    monkeypatch.setattr(auth.os, "name", "posix", raising=False)
+    monkeypatch.setattr(auth.sys, "platform", "linux", raising=False)
+    monkeypatch.setenv("TERM_PROGRAM", "vscode")
+    assert auth._login_mode() == auth.LOGIN_MODE_ASSISTED
 
 
 def test_extract_code_from_url_full_callback() -> None:
@@ -70,7 +102,7 @@ def test_extract_code_from_url_invalid() -> None:
 
 
 def test_emit_login_browser_instructions_shows_url(monkeypatch, capfd) -> None:
-    monkeypatch.setenv("SONDE_LOGIN_NO_BROWSER", "1")
+    monkeypatch.setattr("sonde.auth._launch_browser_quietly", lambda _url: True)
     auth._emit_login_browser_instructions(8443, "https://example.com/oauth?state=abc")
     captured = capfd.readouterr()
     assert "https://example.com/oauth?state=abc" in captured.err
@@ -78,23 +110,21 @@ def test_emit_login_browser_instructions_shows_url(monkeypatch, capfd) -> None:
 
 
 def test_emit_login_browser_open_false_shows_warning(monkeypatch, capfd) -> None:
-    monkeypatch.delenv("SONDE_LOGIN_NO_BROWSER", raising=False)
-    monkeypatch.setattr("sonde.auth.webbrowser.open", lambda url: False)
+    monkeypatch.setattr("sonde.auth._launch_browser_quietly", lambda _url: False)
     auth._emit_login_browser_instructions(9000, "https://example.com/o")
     captured = capfd.readouterr()
     assert "Could not open a browser automatically" in captured.err
 
 
 def test_emit_login_browser_open_true_no_warning(monkeypatch, capfd) -> None:
-    monkeypatch.delenv("SONDE_LOGIN_NO_BROWSER", raising=False)
-    monkeypatch.setattr("sonde.auth.webbrowser.open", lambda url: True)
+    monkeypatch.setattr("sonde.auth._launch_browser_quietly", lambda _url: True)
     auth._emit_login_browser_instructions(9001, "https://example.com/o")
     captured = capfd.readouterr()
     assert "Could not open a browser automatically" not in captured.err
 
 
 def test_emit_login_ssh_hint(monkeypatch, capfd) -> None:
-    monkeypatch.setenv("SONDE_LOGIN_NO_BROWSER", "1")
+    monkeypatch.setattr("sonde.auth._launch_browser_quietly", lambda _url: True)
     monkeypatch.setenv("SSH_CONNECTION", "1.2.3.4 12345 5.6.7.8 22")
     auth._emit_login_browser_instructions(7777, "https://example.com/o")
     captured = capfd.readouterr()
@@ -102,19 +132,37 @@ def test_emit_login_ssh_hint(monkeypatch, capfd) -> None:
     assert "ssh -L" in err_text and "7777:127.0.0.1:7777" in err_text
 
 
-def test_emit_login_skip_browser_env_skips_webbrowser(monkeypatch, capfd) -> None:
-    monkeypatch.setenv("SONDE_LOGIN_NO_BROWSER", "1")
+def test_emit_login_assisted_skips_browser_launch(monkeypatch, capfd) -> None:
     called: list[str] = []
 
-    def _open(url: str) -> bool:
+    def _launch(url: str) -> bool:
         called.append(url)
         return True
 
-    monkeypatch.setattr("sonde.auth.webbrowser.open", _open)
-    auth._emit_login_browser_instructions(8000, "https://x.test/")
+    monkeypatch.setattr("sonde.auth._launch_browser_quietly", _launch)
+    auth._emit_login_browser_instructions(8000, "https://x.test/", assisted=True)
     assert called == []
     captured = capfd.readouterr()
     assert "https://x.test/" in captured.err
+    assert "This terminal looks remote or headless" in captured.err
+
+
+def test_launch_command_quietly_suppresses_stdio(monkeypatch) -> None:
+    seen: dict[str, object] = {}
+
+    def _popen(cmd, **kwargs):
+        seen["cmd"] = cmd
+        seen["kwargs"] = kwargs
+        return object()
+
+    monkeypatch.setattr("sonde.auth.subprocess.Popen", _popen)
+
+    assert auth._launch_command_quietly(["open", "https://example.com"]) is True
+    assert seen["cmd"] == ["open", "https://example.com"]
+    kwargs = cast(dict[str, object], seen["kwargs"])
+    assert kwargs["stdin"] is auth.subprocess.DEVNULL
+    assert kwargs["stdout"] is auth.subprocess.DEVNULL
+    assert kwargs["stderr"] is auth.subprocess.DEVNULL
 
 
 def test_extract_auth_code_from_callback_url() -> None:
@@ -191,7 +239,7 @@ def test_prompt_for_manual_callback_exhausts_retries(monkeypatch, capfd) -> None
 
 
 def test_wait_for_callback_returns_code_on_first_poll(monkeypatch) -> None:
-    """Happy path: browser callback arrives immediately on first server poll."""
+    """Falls back to manual entry after timeout in the local auto-open flow."""
 
     class FakeServer:
         def __init__(self, *_args, **_kwargs):
@@ -218,9 +266,11 @@ def test_wait_for_callback_returns_code_on_first_poll(monkeypatch) -> None:
     monkeypatch.setattr("sonde.auth._load_callback_html", lambda: b"ok")
     monkeypatch.setattr(
         "sonde.auth._emit_login_browser_instructions",
-        lambda _port, _url, *, paste_fallback=False: None,
+        lambda _port, _url, *, assisted=False: True,
     )
-    monkeypatch.setattr("sonde.auth._prompt_for_manual_callback", lambda _port: "fallback-code")
+    monkeypatch.setattr(
+        "sonde.auth._prompt_for_manual_callback", lambda *_args, **_kwargs: "fallback-code"
+    )
     monkeypatch.setattr("sonde.auth.time.monotonic", fake_monotonic)
 
     # Since FakeServer.handle_request doesn't trigger code_received,
@@ -247,10 +297,10 @@ def test_wait_for_callback_raises_timeout_when_manual_also_fails(monkeypatch) ->
     monkeypatch.setattr("sonde.auth._load_callback_html", lambda: b"ok")
     monkeypatch.setattr(
         "sonde.auth._emit_login_browser_instructions",
-        lambda _port, _url, *, paste_fallback=False: None,
+        lambda _port, _url, *, assisted=False: True,
     )
     monkeypatch.setattr(
-        "sonde.auth._prompt_for_manual_callback", lambda _port: None
+        "sonde.auth._prompt_for_manual_callback", lambda *_args, **_kwargs: None
     )  # User gives up
     monkeypatch.setattr("sonde.auth.time.monotonic", lambda: next(times))
 
@@ -279,12 +329,57 @@ def test_wait_for_callback_uses_manual_fallback_after_timeout(monkeypatch) -> No
     monkeypatch.setattr("sonde.auth._load_callback_html", lambda: b"ok")
     monkeypatch.setattr(
         "sonde.auth._emit_login_browser_instructions",
-        lambda _port, _url, *, paste_fallback=False: None,
+        lambda _port, _url, *, assisted=False: True,
     )
-    monkeypatch.setattr("sonde.auth._prompt_for_manual_callback", lambda _port: "manual-789")
+    monkeypatch.setattr(
+        "sonde.auth._prompt_for_manual_callback", lambda *_args, **_kwargs: "manual-789"
+    )
     monkeypatch.setattr("sonde.auth.time.monotonic", lambda: next(times))
 
     code = auth._wait_for_callback(8123, "https://example.com/oauth")
 
     assert code == "manual-789"
     assert server_instances[0].closed is True
+
+
+def test_wait_for_callback_assisted_starts_manual_prompt_immediately(monkeypatch) -> None:
+    """Assisted mode prompts right away while the localhost listener stays available."""
+
+    class FakeServer:
+        def __init__(self, *_args, **_kwargs):
+            self.timeout = None
+
+        def handle_request(self):
+            return None
+
+        def server_close(self):
+            return None
+
+    class FakeThread:
+        def __init__(self, target, kwargs=None, daemon=None):
+            self.target = target
+            self.kwargs = kwargs or {}
+            self.daemon = daemon
+
+        def start(self):
+            self.target(**self.kwargs)
+
+    seen: dict[str, object] = {}
+
+    def _prompt(*_args, **kwargs):
+        seen["immediate"] = kwargs["immediate"]
+        return "manual-now"
+
+    monkeypatch.setattr("sonde.auth.HTTPServer", FakeServer)
+    monkeypatch.setattr("sonde.auth.Thread", FakeThread)
+    monkeypatch.setattr("sonde.auth._load_callback_html", lambda: b"ok")
+    monkeypatch.setattr(
+        "sonde.auth._emit_login_browser_instructions",
+        lambda _port, _url, *, assisted=False: False,
+    )
+    monkeypatch.setattr("sonde.auth._prompt_for_manual_callback", _prompt)
+
+    code = auth._wait_for_callback(8123, "https://example.com/oauth", assisted=True)
+
+    assert code == "manual-now"
+    assert seen["immediate"] is True
