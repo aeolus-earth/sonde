@@ -8,25 +8,17 @@ import {
 } from "@/contexts/chat-store-context";
 import { useChatPageContext } from "@/contexts/chat-page-context";
 import { filesToAttachmentPayloads } from "@/lib/chat-attachments";
-import { getAgentHttpBase } from "@/lib/agent-http";
+import {
+  getAgentHttpBase,
+  getAgentWsBase,
+  HostedAgentConfigError,
+} from "@/lib/agent-http";
 import type {
   MentionRef,
   ServerMessage,
   ClientMessage,
 } from "@/types/chat";
 import { expandDefendExistenceCommand } from "@/lib/defend-existence";
-
-function getAgentWsBase(): string {
-  const explicit = import.meta.env.VITE_AGENT_WS_URL as string | undefined;
-  if (typeof explicit === "string" && explicit.trim() !== "") {
-    return explicit.trim().replace(/\/$/, "");
-  }
-  if (typeof window !== "undefined") {
-    const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-    return `${proto}//${window.location.host}/agent`;
-  }
-  return "ws://localhost:3001";
-}
 
 async function fetchChatSessionToken(accessToken: string): Promise<string> {
   const response = await fetch(`${getAgentHttpBase()}/chat/session-token`, {
@@ -72,6 +64,16 @@ function chatDebug(event: string, detail?: Record<string, unknown>) {
 function resolveTargetTabId(storeApi: ChatStoreApi): string {
   const s = storeApi.getState();
   return s.streamingTabId ?? s.activeTabId;
+}
+
+function pushSystemMessage(storeApi: ChatStoreApi, content: string): void {
+  const targetTabId = resolveTargetTabId(storeApi);
+  storeApi.getState().addMessage(targetTabId, {
+    id: crypto.randomUUID(),
+    role: "system",
+    content,
+    timestamp: Date.now(),
+  });
 }
 
 function sleep(ms: number): Promise<void> {
@@ -309,6 +311,7 @@ export function useChat() {
   const reconnectDelay = useRef(RECONNECT_BASE_MS);
   const authFailureRef = useRef(false);
   const authErrorLoggedRef = useRef(false);
+  const connectionIssueRef = useRef<string | null>(null);
   const recoveringSessionIdRef = useRef<string | null>(null);
   const connectRef = useRef<() => Promise<void>>(async () => {});
 
@@ -402,17 +405,29 @@ export function useChat() {
     chatStoreApiRef.current.getState().setConnectionStatus("connecting");
 
     let wsToken: string;
+    let wsBase: string;
     try {
       wsToken = await fetchChatSessionToken(token);
+      wsBase = getAgentWsBase();
     } catch (error) {
       chatDebug("connect:session-token-error", {
         message: error instanceof Error ? error.message : String(error),
       });
       chatStoreApiRef.current.getState().setConnectionStatus("disconnected");
+      const message =
+        error instanceof HostedAgentConfigError
+          ? error.message
+          : error instanceof Error
+            ? error.message
+            : "Chat could not reach the agent.";
+      if (connectionIssueRef.current !== message) {
+        connectionIssueRef.current = message;
+        pushSystemMessage(chatStoreApiRef.current, message);
+      }
       return;
     }
 
-    const url = new URL(`${getAgentWsBase()}/chat`);
+    const url = new URL(`${wsBase}/chat`);
     url.searchParams.set("ws_token", wsToken);
     const ws = new WebSocket(url.toString());
     wsRef.current = ws;
@@ -423,6 +438,7 @@ export function useChat() {
       });
       authFailureRef.current = false;
       authErrorLoggedRef.current = false;
+      connectionIssueRef.current = null;
       chatStoreApiRef.current.getState().setConnectionStatus("connecting");
       reconnectDelay.current = RECONNECT_BASE_MS;
     };
@@ -526,6 +542,7 @@ export function useChat() {
   useEffect(() => {
     authFailureRef.current = false;
     authErrorLoggedRef.current = false;
+    connectionIssueRef.current = null;
 
     if (!accessToken) {
       if (authLoading) {

@@ -35,6 +35,15 @@ function versionMetadataPlugin(): PluginOption {
         process.env.SONDE_COMMIT_SHA?.trim() ||
         process.env.VERCEL_GIT_COMMIT_SHA?.trim() ||
         null;
+      const explicitAgentWsBase = process.env.VITE_AGENT_WS_URL?.trim() || "";
+      let agentWsOrigin: string | null = null;
+      if (explicitAgentWsBase) {
+        try {
+          agentWsOrigin = new URL(explicitAgentWsBase).origin;
+        } catch {
+          agentWsOrigin = null;
+        }
+      }
 
       this.emitFile({
         type: "asset",
@@ -43,6 +52,8 @@ function versionMetadataPlugin(): PluginOption {
           {
             environment,
             commitSha,
+            agentWsConfigured: Boolean(explicitAgentWsBase),
+            agentWsOrigin,
           },
           null,
           2

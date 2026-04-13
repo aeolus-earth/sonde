@@ -17,6 +17,12 @@ export function parseBooleanFlag(value) {
   return value === "1" || value === "true";
 }
 
+const DISALLOWED_CHAT_FAILURE_MARKERS = [
+  "PGRST301",
+  "No suitable key was found to decode the JWT",
+  "JWT authentication error",
+];
+
 export function resolveWsUrl({
   explicitWsUrl = process.env.CHAT_SMOKE_WS_URL?.trim(),
   httpBase = process.env.CHAT_SMOKE_HTTP_BASE?.trim(),
@@ -99,6 +105,7 @@ export async function runChatConversation({
     let streamedText = "";
     let finalText = "";
     let lastEventType = null;
+    let disallowedFailureMarker = null;
 
     const timer = setTimeout(() => {
       ws.close();
@@ -153,6 +160,10 @@ export async function runChatConversation({
 
       if (message.type === "text_done") {
         finalText = message.content ?? streamedText;
+        disallowedFailureMarker =
+          disallowedFailureMarker ??
+          DISALLOWED_CHAT_FAILURE_MARKERS.find((marker) => finalText.includes(marker)) ??
+          null;
       }
 
       if (message.type === "ping") {
@@ -202,6 +213,14 @@ export async function runChatConversation({
           finish(
             new Error(
               `Chat completed without any tool use events. Final text: ${summarizeText(finalText)}`
+            )
+          );
+          return;
+        }
+        if (requireToolUse && disallowedFailureMarker) {
+          finish(
+            new Error(
+              `Chat completed after surfacing an auth/config failure (${disallowedFailureMarker}). Final text: ${summarizeText(finalText)}`
             )
           );
           return;

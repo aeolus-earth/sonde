@@ -164,6 +164,14 @@ async function main() {
         Object.prototype.hasOwnProperty.call(uiVersion ?? {}, "commitSha"),
         "UI version metadata is missing commitSha"
       );
+      ensure(
+        Object.prototype.hasOwnProperty.call(uiVersion ?? {}, "agentWsConfigured"),
+        "UI version metadata is missing agentWsConfigured"
+      );
+      ensure(
+        Object.prototype.hasOwnProperty.call(uiVersion ?? {}, "agentWsOrigin"),
+        "UI version metadata is missing agentWsOrigin"
+      );
       ensure(agentHealth?.status === "ok", "Agent health status is not ok");
       ensure(
         Object.keys(agentHealth ?? {}).length === 1 && agentHealth?.status === "ok",
@@ -260,6 +268,16 @@ async function main() {
           `Supabase project mismatch: expected ${expectedSupabaseProjectRef}, got ${agentRuntime.supabaseProjectRef}`
         );
       }
+
+      const expectedAgentOrigin = new URL(agentBase).origin;
+      ensure(
+        uiVersion.agentWsConfigured === true,
+        `UI build is missing VITE_AGENT_WS_URL for ${expectedEnvironment ?? "this environment"}.`
+      );
+      ensure(
+        uiVersion.agentWsOrigin === expectedAgentOrigin,
+        `UI agent origin mismatch: expected ${expectedAgentOrigin}, got ${uiVersion.agentWsOrigin}`
+      );
 
       ensure(
         agentRuntime.agentBackend === "managed",

@@ -27,6 +27,24 @@ const SUITE_LABEL =
   DEPLOY_ENVIRONMENT === "hosted"
     ? "Hosted smoke"
     : `${ENVIRONMENT_LABEL} hosted smoke`;
+
+const CHAT_AUTH_FAILURE_MARKER =
+  /PGRST301|No suitable key was found to decode the JWT|JWT authentication error/i;
+
+function agentOrigin(value: string | null): string | null {
+  if (!value) return null;
+  return new URL(value).origin;
+}
+
+async function readVisibleText(page: Page, selector: string): Promise<string | null> {
+  const locator = page.locator(selector).first();
+  if (!(await locator.isVisible().catch(() => false))) {
+    return null;
+  }
+  const text = await locator.textContent().catch(() => "");
+  return text?.trim() || null;
+}
+
 async function waitForHostedChatResponse(
   page: Page,
   assistantMessage: Locator,
@@ -58,6 +76,9 @@ async function waitForHostedChatResponse(
       .last()
       .textContent()
       .catch(() => "");
+    if (content && CHAT_AUTH_FAILURE_MARKER.test(content)) {
+      throw new Error(`Hosted chat surfaced an auth failure instead of tool output: ${content}`);
+    }
     if (content?.includes("SONDE_SMOKE_OK")) {
       return;
     }
@@ -200,6 +221,24 @@ test.describe(SUITE_LABEL, () => {
     expect(body.sharedRateLimitConfigured ?? false).not.toBeUndefined();
     expect(body.sharedRateLimitRequired ?? false).not.toBeUndefined();
   });
+
+  test("hosted build publishes the configured agent origin", async ({ request }) => {
+    test.skip(!AGENT_HTTP_BASE, "Skipped: no agent host configured");
+
+    const response = await request.get("/version.json");
+    expect(response.ok()).toBeTruthy();
+
+    const body = (await response.json()) as {
+      environment: string;
+      commitSha: string | null;
+      agentWsConfigured?: boolean;
+      agentWsOrigin?: string | null;
+    };
+
+    expect(body.environment).toBeTruthy();
+    expect(body.agentWsConfigured).toBeTruthy();
+    expect(body.agentWsOrigin ?? null).toBe(agentOrigin(AGENT_HTTP_BASE));
+  });
 });
 
 test.describe(`${SUITE_LABEL} authenticated flows`, () => {
@@ -256,9 +295,15 @@ test.describe(`${SUITE_LABEL} authenticated flows`, () => {
     await expect(loadButton).toBeVisible({ timeout: 20_000 });
     await loadButton.click();
 
+    const timelineError = page.getByText(/Failed to load commit history|Sign in again|Repository not accessible|Server GitHub token is invalid|Hosted Sonde UI is missing VITE_AGENT_WS_URL/i);
     await expect(
       page.getByText(new RegExp(EXPECT_TIMELINE_AUTH_MODE, "i"))
-    ).toBeVisible({ timeout: 60_000 });
+    ).toBeVisible({ timeout: 60_000 }).catch(async () => {
+      const errorText = await timelineError.first().textContent().catch(() => "");
+      throw new Error(
+        `Timeline diagnostics never loaded expected auth mode (${EXPECT_TIMELINE_AUTH_MODE}). Visible error: ${errorText || "(none)"}`
+      );
+    });
     await expect(page.getByText(/upstream GitHub request/i)).toBeVisible({
       timeout: 60_000,
     });
@@ -276,7 +321,14 @@ test.describe(`${SUITE_LABEL} authenticated flows`, () => {
 
     const input = page.locator('textarea[aria-label="Chat message"]:visible').first();
     await expect(input).toBeVisible({ timeout: 20_000 });
-    await expect(input).toBeEditable({ timeout: 60_000 });
+    await expect(input).toBeEditable({ timeout: 60_000 }).catch(async () => {
+      const bannerText =
+        (await readVisibleText(page, "[role='alert']")) ??
+        (await readVisibleText(page, "[role='status']"));
+      throw new Error(
+        `Hosted chat never became editable. Visible connection state: ${bannerText || "(none)"}`
+      );
+    });
     await expect(page.getByText(/agent is not connected/i)).not.toBeVisible({
       timeout: 60_000,
     });
