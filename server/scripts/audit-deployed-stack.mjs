@@ -106,6 +106,9 @@ async function main() {
   const requireAnthropic = parseBooleanFlag(
     (process.env.AUDIT_REQUIRE_ANTHROPIC ?? "1").trim().toLowerCase()
   );
+  const requireAgentCommitMatch = parseBooleanFlag(
+    (process.env.AUDIT_REQUIRE_AGENT_COMMIT_MATCH ?? "1").trim().toLowerCase()
+  );
   const requireFirstPartyAgent = parseBooleanFlag(
     (process.env.AUDIT_REQUIRE_FIRST_PARTY_AGENT || "1").trim().toLowerCase()
   );
@@ -118,6 +121,7 @@ async function main() {
   let state;
   let lastError = null;
   const deadline = Date.now() + waitTimeoutMs;
+  const warnings = [];
 
   while (true) {
     try {
@@ -133,6 +137,8 @@ async function main() {
   }
 
   let { uiVersion, agentHealth, agentRuntime } = state;
+  const agentHostname = new URL(agentBase).hostname;
+  const agentHostIsFirstParty = !isRailwayHostname(agentHostname);
 
   while (true) {
     try {
@@ -200,10 +206,16 @@ async function main() {
           uiVersion.commitSha === expectedCommitSha,
           `UI commit mismatch: expected ${expectedCommitSha}, got ${uiVersion.commitSha}`
         );
-        ensure(
-          agentRuntime.commitSha === expectedCommitSha,
-          `Agent commit mismatch: expected ${expectedCommitSha}, got ${agentRuntime.commitSha}`
-        );
+        if (requireAgentCommitMatch) {
+          ensure(
+            agentRuntime.commitSha === expectedCommitSha,
+            `Agent commit mismatch: expected ${expectedCommitSha}, got ${agentRuntime.commitSha}`
+          );
+        } else if (agentRuntime.commitSha !== expectedCommitSha) {
+          warnings.push(
+            `Agent commit mismatch (non-blocking): expected ${expectedCommitSha}, got ${agentRuntime.commitSha}`
+          );
+        }
       } else if (uiVersion.commitSha && agentRuntime.commitSha) {
         ensure(
           uiVersion.commitSha === agentRuntime.commitSha,
@@ -249,9 +261,8 @@ async function main() {
       }
 
       if (requireFirstPartyAgent) {
-        const agentHostname = new URL(agentBase).hostname;
         ensure(
-          !isRailwayHostname(agentHostname),
+          agentHostIsFirstParty,
           `Agent host is still provider-branded: ${agentHostname}`
         );
 
@@ -260,6 +271,8 @@ async function main() {
           !loginHtml.includes(".railway.app"),
           "UI HTML still exposes a Railway hostname"
         );
+      } else if (!agentHostIsFirstParty) {
+        warnings.push(`Agent host is provider-branded (non-blocking): ${agentHostname}`);
       }
 
       break;
@@ -284,6 +297,17 @@ async function main() {
   console.log(
     JSON.stringify(
       {
+        audit: {
+          requireAgentCommitMatch,
+          requireFirstPartyAgent,
+          expectedCommitSha,
+          agentCommitMatchesExpectation: expectedCommitSha
+            ? agentRuntime.commitSha === expectedCommitSha
+            : null,
+          agentHostname,
+          agentHostIsFirstParty,
+          warnings,
+        },
         ui: uiVersion,
         agent: {
           health: agentHealth,

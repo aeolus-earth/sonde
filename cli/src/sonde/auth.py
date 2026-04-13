@@ -8,6 +8,7 @@ Two auth paths, one interface:
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import logging
 import os
@@ -20,6 +21,7 @@ import time
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from importlib import resources
+from pathlib import Path
 from threading import Event, Lock, Thread
 from typing import Any
 from urllib.parse import parse_qs, urlparse
@@ -43,6 +45,7 @@ KEYRING_SERVICE = "sonde-cli"
 CALLBACK_TIMEOUT = 120
 AGENT_TOKEN_PREFIX = "sonde_at_"
 BOT_TOKEN_PREFIX = "sonde_bt_"
+BOT_SESSION_FILE = CONFIG_DIR / "bot-session.json"
 LOGIN_MODE_AUTO = "auto"
 LOGIN_MODE_ASSISTED = "assisted"
 
@@ -82,16 +85,30 @@ def _ensure_config_dir() -> None:
         CONFIG_DIR.chmod(0o700)
 
 
-def save_session(session_data: dict[str, Any]) -> None:
-    """Persist session to disk. Keyring used as secondary store if available."""
+def _write_json_file(path: Path, data: dict[str, Any]) -> None:
     import os as _os
 
     _ensure_config_dir()
-    fd = _os.open(str(SESSION_FILE), _os.O_WRONLY | _os.O_CREAT | _os.O_TRUNC, 0o600)
+    fd = _os.open(str(path), _os.O_WRONLY | _os.O_CREAT | _os.O_TRUNC, 0o600)
     try:
-        _os.write(fd, json.dumps(session_data, default=str).encode())
+        _os.write(fd, json.dumps(data, default=str).encode())
     finally:
         _os.close(fd)
+
+
+def _read_json_file(path: Path) -> dict[str, Any] | None:
+    if path.exists():
+        try:
+            payload = json.loads(path.read_text())
+        except (json.JSONDecodeError, OSError):
+            return None
+        return payload if isinstance(payload, dict) else None
+    return None
+
+
+def save_session(session_data: dict[str, Any]) -> None:
+    """Persist session to disk. Keyring used as secondary store if available."""
+    _write_json_file(SESSION_FILE, session_data)
 
     try:
         import keyring
@@ -122,19 +139,15 @@ def load_session() -> dict[str, Any] | None:
             logger.debug("Keyring read failed — falling back to file", exc_info=True)
 
     # Fall back to file
-    if SESSION_FILE.exists():
-        try:
-            return json.loads(SESSION_FILE.read_text())
-        except (json.JSONDecodeError, OSError):
-            return None
-
-    return None
+    return _read_json_file(SESSION_FILE)
 
 
 def clear_session() -> None:
     """Remove stored session from all backends."""
     if SESSION_FILE.exists():
         SESSION_FILE.unlink()
+    if BOT_SESSION_FILE.exists():
+        BOT_SESSION_FILE.unlink()
 
     try:
         import keyring
@@ -162,7 +175,7 @@ def get_token() -> str:
     env_token = os.environ.get("SONDE_TOKEN", "")
     if env_token:
         if env_token.startswith(BOT_TOKEN_PREFIX):
-            return _bot_session_token(_decode_bot_token(env_token))
+            return _bot_session_token(env_token, _decode_bot_token(env_token))
         return env_token.removeprefix(AGENT_TOKEN_PREFIX)
 
     # Path 2: Human session from storage
@@ -195,23 +208,12 @@ def refresh_session() -> str | None:
     if not refresh_token:
         return None
 
-    try:
-        client = _anon_client()
-        refreshed = client.auth.refresh_session(refresh_token)
-    except AuthApiError:
-        logger.debug("Token refresh failed", exc_info=True)
+    refreshed = _refresh_session_data(refresh_token)
+    if not refreshed:
         return None
 
-    if not refreshed or not refreshed.session:
-        return None
-
-    new_session = {
-        "access_token": refreshed.session.access_token,
-        "refresh_token": refreshed.session.refresh_token,
-        "user": _user_dict(refreshed.session.user),
-    }
-    save_session(new_session)
-    return refreshed.session.access_token
+    save_session(refreshed)
+    return str(refreshed["access_token"])
 
 
 def get_current_user() -> UserInfo | None:
@@ -420,9 +422,48 @@ def _bundle_programs(bundle: dict[str, Any]) -> list[str] | None:
     return None
 
 
-def _bot_session_token(bundle: dict[str, Any]) -> str:
-    email = str(bundle.get("email") or "")
-    password = str(bundle.get("password") or "")
+def _bot_token_fingerprint(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _bot_cached_session(token: str) -> dict[str, Any] | None:
+    session = _read_json_file(BOT_SESSION_FILE)
+    if not session:
+        return None
+    if session.get("bot_token_fingerprint") != _bot_token_fingerprint(token):
+        return None
+    return session
+
+
+def _save_bot_session(token: str, session_data: dict[str, Any]) -> None:
+    payload = dict(session_data)
+    payload["bot_token_fingerprint"] = _bot_token_fingerprint(token)
+    _write_json_file(BOT_SESSION_FILE, payload)
+
+
+def _session_payload(session: Any) -> dict[str, Any]:
+    return {
+        "access_token": session.access_token,
+        "refresh_token": session.refresh_token,
+        "user": _user_dict(session.user),
+    }
+
+
+def _refresh_session_data(refresh_token: str) -> dict[str, Any] | None:
+    try:
+        client = _anon_client()
+        refreshed = client.auth.refresh_session(refresh_token)
+    except AuthApiError:
+        logger.debug("Token refresh failed", exc_info=True)
+        return None
+
+    if not refreshed or not refreshed.session:
+        return None
+
+    return _session_payload(refreshed.session)
+
+
+def _sign_in_with_password_session(email: str, password: str) -> dict[str, Any]:
     if not email or not password:
         raise NotAuthenticatedError("Malformed bot token")
 
@@ -440,7 +481,28 @@ def _bot_session_token(bundle: dict[str, Any]) -> str:
     session = getattr(session_response, "session", None)
     if not session or not session.access_token:
         raise NotAuthenticatedError("Bot token authentication failed")
-    return session.access_token
+    return _session_payload(session)
+
+
+def _bot_session_token(token: str, bundle: dict[str, Any]) -> str:
+    cached = _bot_cached_session(token)
+    if cached:
+        access_token = cached.get("access_token")
+        if isinstance(access_token, str) and access_token and not _is_expired(access_token):
+            return access_token
+
+        refresh_token = cached.get("refresh_token")
+        if isinstance(refresh_token, str) and refresh_token:
+            refreshed = _refresh_session_data(refresh_token)
+            if refreshed:
+                _save_bot_session(token, refreshed)
+                return str(refreshed["access_token"])
+
+    email = str(bundle.get("email") or "")
+    password = str(bundle.get("password") or "")
+    session_data = _sign_in_with_password_session(email, password)
+    _save_bot_session(token, session_data)
+    return str(session_data["access_token"])
 
 
 def _token_claims(token: str) -> dict[str, Any]:
@@ -640,20 +702,9 @@ def _launch_browser_quietly(auth_url: str) -> bool:
 def _emit_login_browser_instructions(port: int, auth_url: str, *, assisted: bool = False) -> bool:
     """Print sign-in guidance and optionally launch a local browser."""
     err.print("[sonde.muted]Sign in with your Aeolus Google Workspace account.[/]")
-    err.print(
-        "  [sonde.muted]Use this link in your browser (click if your terminal supports links):[/]"
-    )
-    err.print(f"  [link={auth_url}]Open Aeolus sign-in[/link]")
+    err.print("  [sonde.muted]Open this link to continue:[/]")
+    err.print(f"  [link={auth_url}]Open Sonde sign-in[/link]")
     err.print(f"  [sonde.muted]{auth_url}[/]")
-    err.print(
-        "  [sonde.muted]If the browser opens your hosted app instead of localhost after "
-        "Google sign-in, add http://localhost:*/callback to Supabase → Authentication → "
-        "Redirect URLs.[/]"
-    )
-    err.print(
-        "  [sonde.muted]If sign-in lands on a localhost error page in the browser, keep that "
-        "tab open. You can paste the callback URL back here if automatic redirect fails.[/]"
-    )
 
     if os.environ.get("SSH_CONNECTION"):
         err.print(
@@ -664,17 +715,14 @@ def _emit_login_browser_instructions(port: int, auth_url: str, *, assisted: bool
 
     if assisted:
         err.print(
-            "  [sonde.muted]This terminal looks remote or headless, so Sonde will not try to "
-            "open a browser automatically.[/]"
+            "  [sonde.muted]Sonde will keep listening for the callback while you sign in.[/]"
         )
         err.print(
-            "  [sonde.muted]If the browser reaches localhost after sign-in, Sonde will finish "
-            "automatically.[/]"
+            "  [sonde.muted]If the browser reaches localhost after sign-in, the terminal will "
+            "finish automatically.[/]"
         )
         err.print(
-            "  [sonde.muted]If the browser cannot connect to localhost after sign-in, copy the "
-            "full URL from the address bar (OAuth code in the query string) or just the code "
-            "and paste it below.[/]"
+            "  [sonde.muted]If it does not, paste the callback URL or code below.[/]"
         )
         return False
 
@@ -682,8 +730,8 @@ def _emit_login_browser_instructions(port: int, auth_url: str, *, assisted: bool
     if not opened:
         err.print(
             "[sonde.warning]Could not open a browser automatically.[/] "
-            "[sonde.muted]Open the sign-in link above, then paste the callback URL or code "
-            "below if localhost is unreachable.[/]"
+            "[sonde.muted]Open the link above in any browser. If localhost does not load after "
+            "sign-in, paste the callback URL or code below.[/]"
         )
     return opened
 
@@ -714,19 +762,24 @@ def _prompt_for_manual_callback(
     """Ask the user for the redirected callback URL when localhost is unreachable."""
     if immediate:
         err.print(
-            "  [sonde.muted]Paste the redirected callback URL or raw auth code below at any "
-            "time. Sonde will keep listening on localhost while you do this.[/]"
+            "  [sonde.muted]Paste the callback URL or auth code below at any time. Sonde is "
+            "still listening on localhost.[/]"
         )
     else:
         err.print(
             "[sonde.warning]Automatic callback did not reach this machine.[/] "
-            "[sonde.muted]This is common on VMs and remote terminals.[/]"
+            "[sonde.muted]Finish sign-in in the browser, then continue here.[/]"
         )
         err.print(
-            "  [sonde.muted]If the browser is showing a localhost error page, copy the full URL "
-            "from the address bar and paste it here. You can also paste just the code value.[/]"
+            "  [sonde.muted]If the browser is showing a localhost page or error page, copy the "
+            "full URL from the address bar and paste it here. You can also paste just the "
+            "code value.[/]"
         )
         err.print(f"  [sonde.muted]Expected callback: http://localhost:{port}/callback?code=...[/]")
+        err.print(
+            "  [sonde.muted]If sign-in opened the hosted app instead of localhost, add "
+            "http://localhost:*/callback to Supabase → Authentication → Redirect URLs.[/]"
+        )
 
     for _ in range(3):
         if stop_event and stop_event.is_set():
@@ -754,8 +807,10 @@ def _prompt_for_manual_callback(
 def _login_timeout_message() -> str:
     """Shared timeout guidance for interactive login."""
     return (
-        f"Login timed out after {CALLBACK_TIMEOUT}s. Finish signing in before the timeout, "
-        "or rerun sonde login and paste the callback URL if localhost is unreachable."
+        f"Login timed out after {CALLBACK_TIMEOUT}s. Open the sign-in link again and finish "
+        "sign-in before the timeout. If localhost does not load, paste the callback URL or "
+        "code into the terminal. If sign-in opened the hosted app instead, allowlist "
+        "http://localhost:*/callback in Supabase Redirect URLs."
     )
 
 
