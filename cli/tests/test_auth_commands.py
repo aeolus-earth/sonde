@@ -25,6 +25,14 @@ def test_whoami_when_authenticated(runner: CliRunner, authenticated: None):
     assert "test@aeolus.earth" in result.output
 
 
+def test_login_help_emphasizes_plain_login(runner: CliRunner) -> None:
+    result = runner.invoke(cli, ["login", "--help"])
+    assert result.exit_code == 0
+    assert "sonde login" in result.output
+    assert "sonde login --remote" not in result.output
+    assert "Force the assisted login flow" in result.output
+
+
 def test_whoami_json(runner: CliRunner, authenticated: None):
     result = runner.invoke(cli, ["--json", "whoami"])
     assert result.exit_code == 0
@@ -242,8 +250,9 @@ def test_get_token_refreshes_cached_bot_session(monkeypatch, tmp_path):
                 (),
                 {
                     "refresh_session": staticmethod(
-                        lambda refresh_token: refresh_token == "cached-refresh-token"
-                        and fake_response
+                        lambda refresh_token: (
+                            refresh_token == "cached-refresh-token" and fake_response
+                        )
                     ),
                     "sign_in_with_password": staticmethod(
                         lambda _creds: (_ for _ in ()).throw(AssertionError("should not sign in"))

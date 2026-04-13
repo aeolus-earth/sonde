@@ -714,16 +714,12 @@ def _emit_login_browser_instructions(port: int, auth_url: str, *, assisted: bool
         )
 
     if assisted:
-        err.print(
-            "  [sonde.muted]Sonde will keep listening for the callback while you sign in.[/]"
-        )
+        err.print("  [sonde.muted]Sonde will keep listening for the callback while you sign in.[/]")
         err.print(
             "  [sonde.muted]If the browser reaches localhost after sign-in, the terminal will "
             "finish automatically.[/]"
         )
-        err.print(
-            "  [sonde.muted]If it does not, paste the callback URL or code below.[/]"
-        )
+        err.print("  [sonde.muted]If it does not, paste the callback URL or code below.[/]")
         return False
 
     opened = _launch_browser_quietly(auth_url)

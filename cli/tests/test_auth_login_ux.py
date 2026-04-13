@@ -105,8 +105,8 @@ def test_emit_login_browser_instructions_shows_url(monkeypatch, capfd) -> None:
     monkeypatch.setattr("sonde.auth._launch_browser_quietly", lambda _url: True)
     auth._emit_login_browser_instructions(8443, "https://example.com/oauth?state=abc")
     captured = capfd.readouterr()
+    assert "Open this link to continue" in captured.err
     assert "https://example.com/oauth?state=abc" in captured.err
-    assert "http://localhost:*/callback" in captured.err
 
 
 def test_emit_login_browser_open_false_shows_warning(monkeypatch, capfd) -> None:
@@ -144,7 +144,8 @@ def test_emit_login_assisted_skips_browser_launch(monkeypatch, capfd) -> None:
     assert called == []
     captured = capfd.readouterr()
     assert "https://x.test/" in captured.err
-    assert "This terminal looks remote or headless" in captured.err
+    assert "Sonde will keep listening for the callback" in captured.err
+    assert "paste the callback URL or code below" in captured.err
 
 
 def test_launch_command_quietly_suppresses_stdio(monkeypatch) -> None:
@@ -188,6 +189,16 @@ def test_prompt_for_manual_callback_retries_until_code(monkeypatch, capfd) -> No
     assert code == "manual-456"
     captured = capfd.readouterr()
     assert "No auth code found in that input" in captured.err
+
+
+def test_prompt_for_manual_callback_immediate_copy(monkeypatch, capfd) -> None:
+    monkeypatch.setattr(auth.err, "input", lambda _prompt: (_ for _ in ()).throw(EOFError))
+
+    code = auth._prompt_for_manual_callback(8123, immediate=True)
+
+    assert code is None
+    captured = capfd.readouterr()
+    assert "Paste the callback URL or auth code below at any time" in captured.err
 
 
 def test_extract_auth_code_strips_quotes() -> None:
@@ -236,6 +247,18 @@ def test_prompt_for_manual_callback_exhausts_retries(monkeypatch, capfd) -> None
     assert code is None
     captured = capfd.readouterr()
     assert captured.err.count("No auth code found") == 3
+
+
+def test_login_timeout_message_includes_redirect_guidance() -> None:
+    message = auth._login_timeout_message()
+    assert "http://localhost:*/callback" in message
+    assert "hosted app" in message
+
+
+def test_callback_page_keeps_terminal_guidance() -> None:
+    html = auth._load_callback_html().decode("utf-8")
+    assert "Sign-in complete" in html
+    assert "Return to your terminal to keep going in Sonde." in html
 
 
 def test_wait_for_callback_returns_code_on_first_poll(monkeypatch) -> None:
