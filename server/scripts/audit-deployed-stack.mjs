@@ -19,6 +19,13 @@ function parseNumber(value, fallback) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function parseCsv(value) {
+  return (value ?? "")
+    .split(",")
+    .map((part) => part.trim().toLowerCase())
+    .filter(Boolean);
+}
+
 async function fetchJson(url, init) {
   const response = await fetch(url, init);
   const bodyText = await response.text();
@@ -64,8 +71,14 @@ function ensure(condition, message) {
   }
 }
 
-function isRailwayHostname(hostname) {
-  return hostname.endsWith(".railway.app") || hostname.endsWith(".up.railway.app");
+function matchesDisallowedHostSuffix(hostname, disallowedSuffixes) {
+  const normalizedHostname = hostname.toLowerCase();
+  return disallowedSuffixes.some((suffix) => normalizedHostname.endsWith(suffix));
+}
+
+function htmlContainsDisallowedSuffix(html, disallowedSuffixes) {
+  const normalizedHtml = html.toLowerCase();
+  return disallowedSuffixes.some((suffix) => normalizedHtml.includes(suffix));
 }
 
 function sleep(ms) {
@@ -112,6 +125,7 @@ async function main() {
   const requireFirstPartyAgent = parseBooleanFlag(
     (process.env.AUDIT_REQUIRE_FIRST_PARTY_AGENT || "1").trim().toLowerCase()
   );
+  const disallowedHostSuffixes = parseCsv(process.env.AUDIT_DISALLOWED_HOST_SUFFIXES);
   const requireSharedRateLimit = parseBooleanFlag(
     (process.env.AUDIT_REQUIRE_SHARED_RATE_LIMIT ?? "").trim().toLowerCase()
   );
@@ -138,7 +152,10 @@ async function main() {
 
   let { uiVersion, agentHealth, agentRuntime } = state;
   const agentHostname = new URL(agentBase).hostname;
-  const agentHostIsFirstParty = !isRailwayHostname(agentHostname);
+  const agentHostMatchesDisallowedSuffix = matchesDisallowedHostSuffix(
+    agentHostname,
+    disallowedHostSuffixes,
+  );
 
   while (true) {
     try {
@@ -262,17 +279,21 @@ async function main() {
 
       if (requireFirstPartyAgent) {
         ensure(
-          agentHostIsFirstParty,
-          `Agent host is still provider-branded: ${agentHostname}`
+          disallowedHostSuffixes.length > 0,
+          "AUDIT_REQUIRE_FIRST_PARTY_AGENT requires AUDIT_DISALLOWED_HOST_SUFFIXES to be configured",
+        );
+        ensure(
+          !agentHostMatchesDisallowedSuffix,
+          `Agent host matches a disallowed suffix: ${agentHostname}`
         );
 
         const loginHtml = await fetchText(`${uiBase}/login`);
         ensure(
-          !loginHtml.includes(".railway.app"),
-          "UI HTML still exposes a Railway hostname"
+          !htmlContainsDisallowedSuffix(loginHtml, disallowedHostSuffixes),
+          "UI HTML still exposes a disallowed hosted-domain suffix"
         );
-      } else if (!agentHostIsFirstParty) {
-        warnings.push(`Agent host is provider-branded (non-blocking): ${agentHostname}`);
+      } else if (agentHostMatchesDisallowedSuffix) {
+        warnings.push(`Agent host matches a disallowed suffix (non-blocking): ${agentHostname}`);
       }
 
       break;
@@ -304,8 +325,11 @@ async function main() {
           agentCommitMatchesExpectation: expectedCommitSha
             ? agentRuntime.commitSha === expectedCommitSha
             : null,
+          disallowedHostSuffixes,
           agentHostname,
-          agentHostIsFirstParty,
+          agentHostMatchesDisallowedSuffix: disallowedHostSuffixes.length
+            ? agentHostMatchesDisallowedSuffix
+            : null,
           warnings,
         },
         ui: uiVersion,

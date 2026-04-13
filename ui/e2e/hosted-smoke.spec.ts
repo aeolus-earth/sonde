@@ -1,5 +1,5 @@
 /**
- * Production smoke tests — run against the real deployed URL.
+ * Hosted smoke tests — run against a real deployed URL.
  *
  * These verify what actual users experience after a deploy.
  * Only runs when E2E_BASE_URL is set (CI post-deploy or manual dispatch).
@@ -9,6 +9,7 @@ import { test, expect, type Locator, type Page } from "@playwright/test";
 import { seedActiveProgram, seedConfiguredSession } from "./helpers";
 
 const BASE_URL = process.env.E2E_BASE_URL;
+const DEPLOY_ENVIRONMENT = process.env.E2E_DEPLOY_ENVIRONMENT?.trim() || "hosted";
 const AGENT_HTTP_BASE = process.env.E2E_AGENT_HTTP_BASE ?? null;
 const AGENT_RUNTIME_AUDIT_TOKEN =
   process.env.E2E_AGENT_RUNTIME_AUDIT_TOKEN?.trim() || null;
@@ -20,6 +21,12 @@ const EXPECT_TIMELINE_AUTH_MODE =
 const CHAT_PROMPT =
   process.env.E2E_CHAT_PROMPT?.trim() ||
   "Use Sonde tools to list one accessible program id, then reply with SONDE_SMOKE_OK.";
+const ENVIRONMENT_LABEL =
+  DEPLOY_ENVIRONMENT.charAt(0).toUpperCase() + DEPLOY_ENVIRONMENT.slice(1);
+const SUITE_LABEL =
+  DEPLOY_ENVIRONMENT === "hosted"
+    ? "Hosted smoke"
+    : `${ENVIRONMENT_LABEL} hosted smoke`;
 async function waitForHostedChatResponse(
   page: Page,
   assistantMessage: Locator,
@@ -63,7 +70,7 @@ async function waitForHostedChatResponse(
   );
 }
 
-test.describe("Production deployment", () => {
+test.describe(SUITE_LABEL, () => {
   test.skip(!BASE_URL, "Skipped: E2E_BASE_URL not set (local dev)");
 
   test("no Vercel auth gate — serves app, not Vercel login", async ({
@@ -195,7 +202,7 @@ test.describe("Production deployment", () => {
   });
 });
 
-test.describe("Production deployment authenticated flows", () => {
+test.describe(`${SUITE_LABEL} authenticated flows`, () => {
   test.skip(
     !BASE_URL || !AUTH_SESSION_JSON,
     "Skipped: authenticated smoke requires E2E_BASE_URL and E2E_AUTH_SESSION_JSON"

@@ -178,6 +178,7 @@ jobs:
       - name: Run staging smoke tests
         env:
           E2E_BASE_URL: ${{ steps.targets.outputs.ui_url }}
+          E2E_DEPLOY_ENVIRONMENT: staging
           E2E_AGENT_HTTP_BASE: ${{ steps.targets.outputs.agent_url }}
           E2E_AGENT_RUNTIME_AUDIT_TOKEN: ${{ secrets.SONDE_STAGING_AGENT_RUNTIME_AUDIT_TOKEN }}
           E2E_SUPABASE_URL: https://${{ vars.SUPABASE_STAGING_PROJECT_REF }}.supabase.co
@@ -191,7 +192,7 @@ jobs:
             E2E_AUTH_SESSION_JSON="$(cat "$STAGING_SMOKE_SESSION_FILE")"
             export E2E_AUTH_SESSION_JSON
           fi
-          npx playwright test e2e/deployed.spec.ts --project=chromium --project=firefox --reporter=github
+          npm run test:e2e:hosted
 
       - name: Upload report on failure
         uses: actions/upload-artifact@v7
