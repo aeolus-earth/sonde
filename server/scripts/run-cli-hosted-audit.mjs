@@ -227,11 +227,37 @@ async function main() {
   }
 
   if (allowWrite) {
-    const questionText = `CLI hosted audit ${new Date().toISOString()}`;
+    const stamp = new Date().toISOString();
+    const directionTitle = `CLI hosted audit ${stamp.slice(11, 19)}`;
+    const questionText = `CLI hosted audit ${stamp}`;
+    const createdDirection = parseJsonOutput(
+      runCli(
+        sondeExecutable,
+        [
+          "direction",
+          "create",
+          "--program",
+          auditProgram,
+          "--title",
+          directionTitle,
+          questionText,
+          "--json",
+        ],
+        cliEnv
+      ),
+      "direction create"
+    );
     const created = parseJsonOutput(
       runCli(
         sondeExecutable,
-        ["question", "create", "-p", auditProgram, questionText, "--json"],
+        [
+          "question",
+          "create",
+          "--direction",
+          createdDirection.id,
+          questionText,
+          "--json",
+        ],
         cliEnv
       ),
       "question create"
@@ -250,6 +276,7 @@ async function main() {
     }
 
     summary.createdQuestionId = created.id;
+    summary.createdDirectionId = createdDirection.id;
   } else {
     const recent = parseJsonOutput(
       runCli(sondeExecutable, ["recent", "--json"], cliEnv),
