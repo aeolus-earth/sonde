@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   useAdminStats,
   useActiveUsers,
@@ -8,12 +8,10 @@ import {
   useDbSnapshots,
   useCaptureDbSnapshot,
   useAuthEvents,
-  useManagedSessions,
-  useManagedSessionCostSamples,
-  useManagedSessionEvents,
-  useAnthropicCostSyncRuns,
-  useAnthropicCostBuckets,
   useAdminRuntimeMetadata,
+  useManagedCostSummary,
+  useManagedSessionDetail,
+  useManagedSessionsQuery,
   useReconcileManagedCosts,
 } from "@/hooks/use-admin";
 import { useGlobalActivity } from "@/hooks/use-activity";
@@ -127,6 +125,10 @@ function managedStatusVariant(
 export default function AdminDashboard() {
   const [usageDays, setUsageDays] = useState(30);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
+  const [managedEnvironment, setManagedEnvironment] = useState("");
+  const [managedWindowDays, setManagedWindowDays] = useState(7);
+  const [managedStatus, setManagedStatus] = useState("");
+  const [managedUserFilter, setManagedUserFilter] = useState("");
 
   const { data: stats, isLoading: statsLoading } = useAdminStats();
   const { data: activity } = useGlobalActivity(50);
@@ -136,59 +138,40 @@ export default function AdminDashboard() {
   const { data: dbSizes, isLoading: dbSizesLoading } = useDbSizes();
   const { data: dbSnapshots, isLoading: dbSnapshotsLoading } = useDbSnapshots(30);
   const { data: authEvents } = useAuthEvents(50);
-  const { data: managedSessions, isLoading: managedSessionsLoading } = useManagedSessions(30);
-  const { data: managedSyncRuns } = useAnthropicCostSyncRuns(10);
-  const { data: anthropicCostBuckets } = useAnthropicCostBuckets(30);
   const { data: runtimeMetadata } = useAdminRuntimeMetadata();
+  const activeManagedEnvironment = managedEnvironment || runtimeMetadata?.environment || "all";
+  const { data: managedSummary, isLoading: managedSummaryLoading } = useManagedCostSummary({
+    days: managedWindowDays,
+    environment: activeManagedEnvironment,
+  });
+  const { data: managedSessionsResponse, isLoading: managedSessionsLoading } = useManagedSessionsQuery({
+    days: Math.max(30, managedWindowDays),
+    environment: activeManagedEnvironment,
+    status: managedStatus,
+    user: managedUserFilter,
+    limit: 100,
+    offset: 0,
+  });
   const reconcileManagedCosts = useReconcileManagedCosts();
-  const { data: selectedSessionSamples } = useManagedSessionCostSamples(selectedSessionId);
-  const { data: selectedSessionEvents } = useManagedSessionEvents(selectedSessionId);
+  const { data: selectedSessionDetail } = useManagedSessionDetail(selectedSessionId);
 
   useCaptureDbSnapshot(); // fire-and-forget, rate-limited to 1/hour server-side
 
   const usageRowCount = useMemo(() => usageRows?.length ?? 0, [usageRows]);
-  const selectedSession = useMemo(
-    () => (managedSessions ?? []).find((session) => session.session_id === selectedSessionId) ?? null,
-    [managedSessions, selectedSessionId]
-  );
-  const managedSummary = useMemo(() => {
-    const sessions = managedSessions ?? [];
-    const now = Date.now();
-    const todayCutoff = now - 86400000;
-    const weekCutoff = now - 7 * 86400000;
-    const estimatedToday = sessions
-      .filter((session) => new Date(session.created_at).getTime() >= todayCutoff)
-      .reduce((sum, session) => sum + (session.estimated_total_cost_usd ?? 0), 0);
-    const estimatedSevenDays = sessions
-      .filter((session) => new Date(session.created_at).getTime() >= weekCutoff)
-      .reduce((sum, session) => sum + (session.estimated_total_cost_usd ?? 0), 0);
-    const providerSevenDays = (anthropicCostBuckets ?? [])
-      .filter((bucket) => new Date(bucket.bucket_start).getTime() >= weekCutoff)
-      .reduce((sum, bucket) => sum + (bucket.amount_usd ?? 0), 0);
-    const activeSessions = sessions.filter(
-      (session) =>
-        session.status === "active" ||
-        session.status === "idle" ||
-        session.status === "awaiting_approval" ||
-        session.status === "prewarmed"
-    ).length;
-    return {
-      estimatedToday,
-      estimatedSevenDays,
-      providerSevenDays,
-      activeSessions,
-      unallocatedProviderCharges: Math.max(providerSevenDays - estimatedSevenDays, 0),
-    };
-  }, [anthropicCostBuckets, managedSessions]);
-  const latestSyncRun = managedSyncRuns?.[0] ?? null;
+  const managedSessions = managedSessionsResponse?.items ?? [];
+  const selectedSession = selectedSessionDetail?.session ?? null;
+  const selectedSessionSamples = selectedSessionDetail?.samples ?? [];
+  const selectedSessionEvents = selectedSessionDetail?.events ?? [];
+  const latestSyncRun = managedSummary?.latestSuccessfulSync ?? managedSummary?.latestAttemptedSync ?? null;
+
+  useEffect(() => {
+    if (runtimeMetadata?.environment && managedEnvironment === "") {
+      setManagedEnvironment(runtimeMetadata.environment);
+    }
+  }, [managedEnvironment, runtimeMetadata?.environment]);
 
   useRealtimeInvalidation("activity_log", ["admin"]);
   useRealtimeInvalidation("activity_log", ["activity", "global"]);
-  useRealtimeInvalidation("managed_sessions", ["admin"]);
-  useRealtimeInvalidation("managed_session_events", ["admin"]);
-  useRealtimeInvalidation("managed_session_cost_samples", ["admin"]);
-  useRealtimeInvalidation("anthropic_cost_sync_runs", ["admin"]);
-  useRealtimeInvalidation("anthropic_cost_buckets", ["admin"]);
 
   return (
     <div className="mx-auto max-w-[1100px] space-y-6 px-4 py-6">
@@ -238,10 +221,29 @@ export default function AdminDashboard() {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <select
+              value={activeManagedEnvironment}
+              onChange={(event) => setManagedEnvironment(event.target.value)}
+              className="rounded-[6px] border border-border bg-surface px-2 py-1 text-[12px] text-text"
+            >
+              {runtimeMetadata?.environment && (
+                <option value={runtimeMetadata.environment}>{runtimeMetadata.environment}</option>
+              )}
+              <option value="all">all environments</option>
+            </select>
+            <select
+              value={managedWindowDays}
+              onChange={(event) => setManagedWindowDays(Number(event.target.value))}
+              className="rounded-[6px] border border-border bg-surface px-2 py-1 text-[12px] text-text"
+            >
+              <option value={1}>1d</option>
+              <option value={7}>7d</option>
+              <option value={30}>30d</option>
+            </select>
             <Button
               variant="secondary"
               size="sm"
-              onClick={() => reconcileManagedCosts.mutate({ days: 7 })}
+              onClick={() => reconcileManagedCosts.mutate({ days: managedWindowDays })}
               disabled={reconcileManagedCosts.isPending}
             >
               <RefreshCw
@@ -255,24 +257,24 @@ export default function AdminDashboard() {
 
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           <StatCard
-            value={formatUsd(managedSummary.estimatedToday)}
+            value={formatUsd(managedSummary?.estimatedTodayUsd ?? 0)}
             label="Estimated spend today"
-            loading={managedSessionsLoading}
+            loading={managedSummaryLoading}
           />
           <StatCard
-            value={formatUsd(managedSummary.estimatedSevenDays)}
-            label="Estimated spend (7d)"
-            loading={managedSessionsLoading}
+            value={formatUsd(managedSummary?.estimatedSelectedWindowUsd ?? 0)}
+            label={`Estimated spend (${managedWindowDays}d)`}
+            loading={managedSummaryLoading}
           />
           <StatCard
-            value={formatUsd(managedSummary.providerSevenDays)}
-            label="Provider spend (7d)"
-            loading={managedSessionsLoading}
+            value={formatUsd(managedSummary?.providerSelectedWindowUsd ?? 0)}
+            label={`Provider spend (${managedWindowDays}d)`}
+            loading={managedSummaryLoading}
           />
           <StatCard
-            value={managedSummary.activeSessions}
+            value={managedSummary?.activeSessions ?? 0}
             label="Active managed sessions"
-            loading={managedSessionsLoading}
+            loading={managedSummaryLoading}
           />
         </div>
 
@@ -311,9 +313,29 @@ export default function AdminDashboard() {
                 </p>
               </div>
               <div className="rounded-[8px] border border-border-subtle bg-surface-raised px-3 py-2 text-[12px]">
+                <p className="text-text-tertiary">Telemetry auth mode</p>
+                <p className="mt-1 font-medium text-text">
+                  {runtimeMetadata?.telemetryRequiresServiceRole ? "Service role required" : "User-token fallback allowed"}
+                </p>
+              </div>
+              <div className="rounded-[8px] border border-border-subtle bg-surface-raised px-3 py-2 text-[12px]">
                 <p className="text-text-tertiary">Unallocated provider charges</p>
                 <p className="mt-1 font-medium text-text">
-                  {formatUsd(managedSummary.unallocatedProviderCharges)}
+                  {formatUsd(managedSummary?.unallocatedProviderChargesUsd ?? 0)}
+                </p>
+              </div>
+              <div className="rounded-[8px] border border-border-subtle bg-surface-raised px-3 py-2 text-[12px]">
+                <p className="text-text-tertiary">Alert thresholds</p>
+                <p className="mt-1 font-medium text-text">
+                  {formatUsd(
+                    managedSummary?.thresholds.warnUsd ?? runtimeMetadata?.managedSessionWarnUsd ?? 0
+                  )}
+                  {" / "}
+                  {formatUsd(
+                    managedSummary?.thresholds.criticalUsd ??
+                      runtimeMetadata?.managedSessionCriticalUsd ??
+                      0
+                  )}
                 </p>
               </div>
             </div>
@@ -347,6 +369,10 @@ export default function AdminDashboard() {
                   <span className="text-text-tertiary">Provider total</span>
                   <span>{formatUsd(latestSyncRun.total_cost_usd ?? 0)}</span>
                 </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-text-tertiary">Freshness</span>
+                  <span>{formatDateTimeShort(latestSyncRun.created_at)}</span>
+                </div>
                 {latestSyncRun.error_message && (
                   <p className="rounded-[8px] border border-status-failed/20 bg-status-failed/5 px-3 py-2 text-[11px] text-status-failed">
                     {latestSyncRun.error_message}
@@ -355,7 +381,9 @@ export default function AdminDashboard() {
               </div>
             ) : (
               <p className="mt-3 text-[12px] text-text-quaternary">
-                No reconciliation runs yet.
+                {runtimeMetadata?.anthropicAdminConfigured
+                  ? "No reconciliation runs yet."
+                  : "Anthropic admin reconciliation is not configured, so this view is currently estimate-only."}
               </p>
             )}
           </div>
@@ -369,6 +397,29 @@ export default function AdminDashboard() {
                 Click a row to inspect lifecycle diagnostics, samples, and last errors.
               </p>
             </div>
+            <div className="flex items-center gap-2">
+              <select
+                value={managedStatus}
+                onChange={(event) => setManagedStatus(event.target.value)}
+                className="rounded-[6px] border border-border bg-surface px-2 py-1 text-[12px] text-text"
+              >
+                <option value="">all statuses</option>
+                <option value="prewarmed">prewarmed</option>
+                <option value="active">active</option>
+                <option value="idle">idle</option>
+                <option value="awaiting_approval">awaiting approval</option>
+                <option value="archived">archived</option>
+                <option value="deleted">deleted</option>
+                <option value="error">error</option>
+              </select>
+              <input
+                type="search"
+                value={managedUserFilter}
+                onChange={(event) => setManagedUserFilter(event.target.value)}
+                placeholder="Filter by user"
+                className="rounded-[6px] border border-border bg-surface px-2 py-1 text-[12px] text-text placeholder:text-text-quaternary"
+              />
+            </div>
           </div>
           {managedSessionsLoading ? (
             <div className="space-y-2 px-3 py-3">
@@ -376,12 +427,12 @@ export default function AdminDashboard() {
               <Skeleton className="h-10 w-full" />
               <Skeleton className="h-10 w-full" />
             </div>
-          ) : (managedSessions ?? []).length === 0 ? (
+          ) : managedSessions.length === 0 ? (
             <p className="px-3 py-4 text-[12px] text-text-quaternary">
               No managed session telemetry yet.
             </p>
           ) : (
-            (managedSessions ?? []).map((session) => (
+            managedSessions.map((session) => (
               <button
                 key={session.session_id}
                 type="button"
@@ -419,6 +470,11 @@ export default function AdminDashboard() {
             ))
           )}
         </div>
+        {managedSessionsResponse && managedSessionsResponse.total > managedSessions.length && (
+          <p className="text-[11px] text-text-quaternary">
+            Showing {managedSessions.length} of {managedSessionsResponse.total} sessions for the selected filters.
+          </p>
+        )}
 
         {selectedSession && (
           <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
@@ -456,8 +512,16 @@ export default function AdminDashboard() {
                   <span>{formatUsd(selectedSession.estimated_token_cost_usd ?? 0)}</span>
                 </div>
                 <div className="flex items-center justify-between gap-3">
+                  <span className="text-text-tertiary">Estimated runtime cost</span>
+                  <span>{formatUsd(selectedSession.estimated_runtime_cost_usd ?? 0)}</span>
+                </div>
+                <div className="flex items-center justify-between gap-3">
                   <span className="text-text-tertiary">Estimated total cost</span>
                   <span>{formatUsd(selectedSession.estimated_total_cost_usd ?? 0)}</span>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-text-tertiary">Pricing version</span>
+                  <span>{selectedSession.pricing_version ?? "unknown"}</span>
                 </div>
               </div>
               {selectedSession.last_error_message && (
@@ -465,17 +529,34 @@ export default function AdminDashboard() {
                   {selectedSession.last_error_message}
                 </div>
               )}
+              {selectedSessionDetail && (
+                <div className="mt-3 space-y-2 rounded-[8px] border border-border-subtle bg-surface-raised px-3 py-3 text-[11px] text-text-secondary">
+                  <p className="font-medium text-text">Operator commands</p>
+                  <code className="block overflow-x-auto rounded-[6px] bg-surface px-2 py-1">
+                    {selectedSessionDetail.operatorCommands.retrieve}
+                  </code>
+                  <code className="block overflow-x-auto rounded-[6px] bg-surface px-2 py-1">
+                    {selectedSessionDetail.operatorCommands.events}
+                  </code>
+                  <code className="block overflow-x-auto rounded-[6px] bg-surface px-2 py-1">
+                    {selectedSessionDetail.operatorCommands.archive}
+                  </code>
+                  <code className="block overflow-x-auto rounded-[6px] bg-surface px-2 py-1">
+                    {selectedSessionDetail.operatorCommands.resources}
+                  </code>
+                </div>
+              )}
             </div>
 
             <div className={cardClass}>
               <h3 className="text-[12px] font-medium text-text">Cost samples</h3>
-              {(selectedSessionSamples ?? []).length === 0 ? (
+              {selectedSessionSamples.length === 0 ? (
                 <p className="mt-3 text-[12px] text-text-quaternary">
                   No cost samples recorded for this session yet.
                 </p>
               ) : (
                 <div className="mt-3 space-y-2">
-                  {(selectedSessionSamples ?? []).slice(0, 8).map((sample) => (
+                  {selectedSessionSamples.slice(0, 8).map((sample) => (
                     <div
                       key={sample.id}
                       className="rounded-[8px] border border-border-subtle bg-surface-raised px-3 py-2 text-[12px]"
@@ -503,13 +584,13 @@ export default function AdminDashboard() {
         {selectedSession && (
           <div className={cardClass}>
             <h3 className="text-[12px] font-medium text-text">Lifecycle timeline</h3>
-            {(selectedSessionEvents ?? []).length === 0 ? (
+            {selectedSessionEvents.length === 0 ? (
               <p className="mt-3 text-[12px] text-text-quaternary">
                 No metadata events recorded for this session yet.
               </p>
             ) : (
               <div className="mt-3 space-y-2">
-                {(selectedSessionEvents ?? []).slice(0, 12).map((event) => (
+                {selectedSessionEvents.slice(0, 12).map((event) => (
                   <div
                     key={event.id}
                     className="rounded-[8px] border border-border-subtle bg-surface-raised px-3 py-2 text-[12px]"

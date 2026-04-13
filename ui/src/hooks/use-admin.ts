@@ -496,7 +496,7 @@ export function useManagedSessionsQuery({
 }: {
   days?: number;
   environment?: string;
-  status?: ManagedSessionRow["status"] | "";
+  status?: string;
   user?: string;
   limit?: number;
   offset?: number;

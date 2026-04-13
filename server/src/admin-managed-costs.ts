@@ -299,7 +299,7 @@ export async function fetchManagedSessions(options: {
   accessToken?: string | null;
   environment: string;
   days: number;
-  status?: ManagedSessionRow["status"] | "";
+  status?: string;
   user?: string;
   limit?: number;
   offset?: number;

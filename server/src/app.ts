@@ -64,7 +64,7 @@ function parseIntegerQuery(
 
 function errorResponse(
   c: Context,
-  status: 401 | 403 | 500 | 503,
+  status: 401 | 403 | 404 | 500 | 503,
   type: string,
   message: string,
 ): Response {
@@ -308,14 +308,14 @@ export function createApp(): Hono {
     try {
       const sessionId = c.req.param("sessionId")?.trim() ?? "";
       if (!sessionId) {
-        return errorResponse(c, 500, "managed_session_missing", "Missing managed session id.");
+        return errorResponse(c, 404, "managed_session_missing", "Missing managed session id.");
       }
       const detail = await fetchManagedSessionDetail({
         accessToken: admin.accessToken,
         sessionId,
       });
       if (!detail) {
-        return errorResponse(c, 500, "managed_session_missing", "Managed session not found.");
+        return errorResponse(c, 404, "managed_session_missing", "Managed session not found.");
       }
       return c.json(detail);
     } catch (error) {
