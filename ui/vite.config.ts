@@ -39,7 +39,9 @@ function versionMetadataPlugin(): PluginOption {
       let agentWsOrigin: string | null = null;
       if (explicitAgentWsBase) {
         try {
-          agentWsOrigin = new URL(explicitAgentWsBase).origin;
+          const agentUrl = new URL(explicitAgentWsBase);
+          agentUrl.protocol = agentUrl.protocol === "wss:" ? "https:" : "http:";
+          agentWsOrigin = agentUrl.origin;
         } catch {
           agentWsOrigin = null;
         }
