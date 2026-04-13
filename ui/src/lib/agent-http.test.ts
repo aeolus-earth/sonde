@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { resolveAgentHttpBase } from "./agent-http";
+import {
+  HostedAgentConfigError,
+  resolveAgentHttpBase,
+  resolveAgentWsBase,
+} from "./agent-http";
 
 describe("resolveAgentHttpBase", () => {
   it("derives https from an explicit wss base", () => {
@@ -8,13 +12,19 @@ describe("resolveAgentHttpBase", () => {
     );
   });
 
-  it("uses same-origin /agent when no explicit server url is set", () => {
-    expect(resolveAgentHttpBase(undefined, "https://sonde.aeolus.earth")).toBe(
-      "https://sonde.aeolus.earth/agent"
+  it("falls back to localhost when there is no browser origin", () => {
+    expect(resolveAgentHttpBase(undefined, undefined)).toBe("http://localhost:3001");
+  });
+
+  it("uses same-origin agent proxy in local development", () => {
+    expect(resolveAgentWsBase(undefined, "http://localhost:5173")).toBe(
+      "ws://localhost:5173/agent"
     );
   });
 
-  it("falls back to localhost when there is no browser origin", () => {
-    expect(resolveAgentHttpBase(undefined, undefined)).toBe("http://localhost:3001");
+  it("fails loudly when a hosted build is missing agent config", () => {
+    expect(() => resolveAgentHttpBase(undefined, "https://sonde-staging.vercel.app")).toThrow(
+      HostedAgentConfigError
+    );
   });
 });

@@ -11,7 +11,7 @@ Sonde uses **one Supabase project** and **Google OAuth** for both the CLI and th
 
 Both pass **`hd=aeolus.earth`** on the Google authorization URL (workspace hint). Enforcement remains server-side (access token hook / RLS).
 
-**VM / SSH:** If you run `sonde login` on a remote machine, the browser must reach the **same** loopback port where the CLI listens (browser on the machine, or `ssh -L` port forwarding). The CLI prints that guidance when `SSH_CONNECTION` is set.
+**VM / SSH:** If you run `sonde login` on a remote machine, the browser must reach the **same** loopback port where the CLI listens (browser on the machine, or `ssh -L` port forwarding). The CLI prints that guidance when `SSH_CONNECTION` is set. When you already know the callback will not reach the shell automatically, use `sonde login --remote` to force the assisted flow and keep the manual callback prompt visible from the start.
 
 **Do not confuse flows:** A URL like `https://*.vercel.app/auth/callback?code=...` is the **web UI** flow. The CLI never uses `/auth/callback` on Vercel.
 

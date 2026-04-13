@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
+
+echo "[sonde pre-push] Running make ci-local"
+make ci-local
+echo "[sonde pre-push] Passed. For deeper pre-PR coverage, also run: make ci-browser ci-data"
