@@ -7,8 +7,8 @@ import { useQuestion } from "@/hooks/use-questions";
 import { useDirection } from "@/hooks/use-directions";
 import { useRecordActivity } from "@/hooks/use-activity";
 import { useHotkey } from "@/hooks/use-keyboard";
+import { FindingConfidenceBadge } from "@/components/shared/finding-confidence-badge";
 import { FindingImportanceBadge } from "@/components/shared/finding-importance-badge";
-import { Badge } from "@/components/ui/badge";
 import {
   Skeleton,
   DetailSectionSkeleton,
@@ -193,10 +193,8 @@ export default function QuestionDetailPage() {
                 {sortedFindings.map((finding) => (
                   <div key={finding.id} className="flex items-center gap-2">
                     <RecordLink recordId={finding.id} />
+                    <FindingConfidenceBadge confidence={finding.confidence} />
                     <FindingImportanceBadge importance={finding.importance} />
-                    <Badge variant={finding.confidence}>
-                      {findingConfidenceLabel(finding.confidence)}
-                    </Badge>
                   </div>
                 ))}
               </div>
