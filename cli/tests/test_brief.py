@@ -723,7 +723,7 @@ def _brief_table_factory(
             tbl.execute.return_value = MagicMock(data=exps)
         elif name == "findings":
             tbl.execute.return_value = MagicMock(data=finds)
-        elif name == "questions":
+        elif name == "questions" or name == "question_status":
             tbl.execute.return_value = MagicMock(data=qs)
         elif name == "programs" or name == "projects" or name == "directions":
             tbl.execute.return_value = MagicMock(data=[])

@@ -20,6 +20,34 @@ class SpawnExperimentResult:
     experiment_id: str
 
 
+def promote_question(
+    *,
+    question_id: str,
+    target_type: str,
+    program: str | None = None,
+    title: str | None = None,
+    direction_id: str | None = None,
+) -> SpawnExperimentResult:
+    """Backward-compatible question promotion entrypoint.
+
+    The product now treats experiment spawning as the canonical promotion flow.
+    This wrapper keeps older service callers and tests working while routing
+    everything through the new question-first workflow.
+    """
+
+    del program, title
+    if target_type != "experiment":
+        raise WorkflowError(
+            f"Unsupported promotion target: {target_type}",
+            "Questions can only be promoted by spawning an experiment.",
+            "Use: sonde question spawn-experiment <Q-ID>",
+        )
+    return spawn_experiment_from_question(
+        question_id=question_id,
+        direction_id=direction_id,
+    )
+
+
 def spawn_experiment_from_question(
     *,
     question_id: str,
