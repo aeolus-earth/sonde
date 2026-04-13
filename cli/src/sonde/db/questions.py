@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from postgrest.exceptions import APIError
 from postgrest.types import CountMethod
 
 from sonde.db import apply_source_filter
@@ -23,7 +24,10 @@ def create(data: QuestionCreate) -> Question:
 def get(question_id: str) -> Question | None:
     """Get a single question by ID."""
     client = get_client()
-    result = client.table("question_status").select("*").eq("id", question_id).execute()
+    result = _execute_question_query(
+        client,
+        lambda table_name: client.table(table_name).select("*").eq("id", question_id),
+    )
     data = to_rows(result.data)
     return Question(**data[0]) if data else None
 
@@ -39,16 +43,17 @@ def list_questions(
 ) -> list[Question]:
     """List questions with optional filters. Returns Pydantic models."""
     client = get_client()
-    query = client.table("question_status").select("*").order("created_at", desc=True)
-    query = query.range(offset, offset + limit - 1) if offset else query.limit(limit)
-    query = _apply_filters(
-        query,
-        program=program,
-        include_all=include_all,
-        tags=tags,
-        source=source,
+    result = _execute_question_query(
+        client,
+        lambda table_name: _apply_filters(
+            _list_questions_query(client, table_name, limit=limit, offset=offset),
+            program=program,
+            include_all=include_all,
+            tags=tags,
+            source=source,
+        ),
     )
-    return [Question(**row) for row in to_rows(query.execute().data)]
+    return [Question(**row) for row in to_rows(result.data)]
 
 
 def count_questions(
@@ -60,15 +65,17 @@ def count_questions(
 ) -> int:
     """Count questions matching filters (no limit)."""
     client = get_client()
-    query = client.table("question_status").select("id", count=CountMethod.exact)
-    query = _apply_filters(
-        query,
-        program=program,
-        include_all=include_all,
-        tags=tags,
-        source=source,
+    result = _execute_question_query(
+        client,
+        lambda table_name: _apply_filters(
+            client.table(table_name).select("id", count=CountMethod.exact),
+            program=program,
+            include_all=include_all,
+            tags=tags,
+            source=source,
+        ),
     )
-    return query.execute().count or 0
+    return result.count or 0
 
 
 def update(question_id: str, updates: dict[str, Any]) -> Question | None:
@@ -90,8 +97,9 @@ def delete(question_id: str) -> None:
 def find_by_promoted_to(experiment_id: str) -> list[Question]:
     """Get questions that were promoted to a specific experiment."""
     client = get_client()
-    result = (
-        client.table("question_status").select("*").eq("promoted_to_id", experiment_id).execute()
+    result = _execute_question_query(
+        client,
+        lambda table_name: client.table(table_name).select("*").eq("promoted_to_id", experiment_id),
     )
     return [Question(**row) for row in to_rows(result.data)]
 
@@ -99,14 +107,42 @@ def find_by_promoted_to(experiment_id: str) -> list[Question]:
 def list_by_direction(direction_id: str) -> list[Question]:
     """List questions whose home direction is the given direction."""
     client = get_client()
-    result = (
-        client.table("question_status")
+    result = _execute_question_query(
+        client,
+        lambda table_name: client.table(table_name)
         .select("*")
         .eq("direction_id", direction_id)
-        .order("created_at")
-        .execute()
+        .order("created_at"),
     )
     return [Question(**row) for row in to_rows(result.data)]
+
+
+def _execute_question_query(client: Any, build_query: Any) -> Any:
+    """Run a question read query, falling back when the status view is unavailable."""
+    try:
+        return build_query("question_status").execute()
+    except APIError as exc:
+        if not _is_missing_question_status(exc):
+            raise
+        return build_query("questions").execute()
+
+
+def _is_missing_question_status(exc: APIError) -> bool:
+    """Return True when the remote schema lacks the question_status view."""
+    code = str(getattr(exc, "code", "") or "")
+    message = str(getattr(exc, "message", "") or exc).lower()
+    details = str(getattr(exc, "details", "") or "").lower()
+    hint = str(getattr(exc, "hint", "") or "").lower()
+    combined = " ".join((message, details, hint))
+    return code == "PGRST205" and "question_status" in combined
+
+
+def _list_questions_query(client: Any, table_name: str, *, limit: int, offset: int) -> Any:
+    """Build the base list query for questions."""
+    query = client.table(table_name).select("*").order("created_at", desc=True)
+    if offset:
+        return query.range(offset, offset + limit - 1)
+    return query.limit(limit)
 
 
 def _apply_filters(

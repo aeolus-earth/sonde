@@ -3,6 +3,7 @@ import { Route as authenticatedRoute } from "./_authenticated";
 
 export type FindingsSearch = {
   confidence?: string;
+  importance?: string;
 };
 
 export const Route = createRoute({
@@ -11,5 +12,6 @@ export const Route = createRoute({
   component: lazyRouteComponent(() => import("./pages/findings-list")),
   validateSearch: (search: Record<string, unknown>): FindingsSearch => ({
     confidence: typeof search.confidence === "string" ? search.confidence : undefined,
+    importance: typeof search.importance === "string" ? search.importance : undefined,
   }),
 });

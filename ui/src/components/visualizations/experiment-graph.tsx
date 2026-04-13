@@ -22,12 +22,14 @@ import {
   GitFork,
   Lightbulb,
 } from "lucide-react";
+import { FindingImportanceBadge } from "@/components/shared/finding-importance-badge";
 import { Badge } from "@/components/ui/badge";
 import {
   useStatusChartColors,
   useThemeCssColors,
 } from "@/hooks/use-theme-css-colors";
 import { findingConfidenceLabel } from "@/lib/finding-confidence";
+import { sortFindingsByImportanceAndRecency } from "@/lib/finding-importance";
 import type {
   DirectionSummary,
   ExperimentSummary,
@@ -468,9 +470,15 @@ function FindingNode({ data }: NodeProps) {
             <span className="truncate font-mono text-[11px] font-medium text-text">
               {d.id}
             </span>
-            <Badge variant={confidenceVariant(d.confidence)}>
-              {findingConfidenceLabel(d.confidence)}
-            </Badge>
+            <div className="flex items-center gap-1.5">
+              <FindingImportanceBadge
+                importance={d.importance}
+                className="px-1.5 py-0.5"
+              />
+              <Badge variant={confidenceVariant(d.confidence)}>
+                {findingConfidenceLabel(d.confidence)}
+              </Badge>
+            </div>
           </div>
           <p className="mt-0.5 truncate text-[10px] font-medium text-text-secondary">
             {d.topic}
@@ -556,8 +564,8 @@ function buildFindingsByExperiment(
       map.set(experimentId, list);
     }
   }
-  for (const list of map.values()) {
-    list.sort((a, b) => b.valid_from.localeCompare(a.valid_from));
+  for (const [experimentId, linkedFindings] of map.entries()) {
+    map.set(experimentId, sortFindingsByImportanceAndRecency(linkedFindings));
   }
   return map;
 }

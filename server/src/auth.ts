@@ -9,6 +9,29 @@ export interface VerifiedUser {
 
 let supabaseClient: ReturnType<typeof createClient> | null = null;
 
+function decodeJwtPayload(
+  token: string
+): Record<string, unknown> | null {
+  const segments = token.split(".");
+  if (segments.length < 2) {
+    return null;
+  }
+
+  try {
+    const normalized = segments[1]!
+      .replace(/-/g, "+")
+      .replace(/_/g, "/")
+      .padEnd(Math.ceil(segments[1]!.length / 4) * 4, "=");
+    const payload = Buffer.from(normalized, "base64").toString("utf8");
+    const parsed = JSON.parse(payload);
+    return parsed && typeof parsed === "object"
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 function getBypassToken(): string | null {
   if (process.env.NODE_ENV !== "test") {
     return null;
@@ -57,6 +80,12 @@ export async function verifyToken(
       return null;
     }
 
+    const claims = decodeJwtPayload(accessToken);
+    const appMetadata =
+      claims?.app_metadata && typeof claims.app_metadata === "object"
+        ? (claims.app_metadata as Record<string, unknown>)
+        : null;
+
     return {
       id: data.user.id,
       email: data.user.email,
@@ -64,6 +93,8 @@ export async function verifyToken(
         (data.user.user_metadata?.full_name as string | undefined) ??
         data.user.email,
       isAdmin:
+        appMetadata?.is_admin === true ||
+        appMetadata?.isAdmin === true ||
         data.user.app_metadata?.is_admin === true ||
         data.user.app_metadata?.isAdmin === true,
     };

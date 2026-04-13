@@ -1,5 +1,5 @@
 import type { MentionRef } from "@/types/chat";
-import type { RecordType } from "@/types/sonde";
+import type { MentionTargetType } from "@/types/chat";
 import { mentionChipClasses } from "./mention-chip";
 
 function mentionPlainLength(id: string): number {
@@ -39,7 +39,7 @@ export function serializeComposer(root: HTMLElement): {
   function collect(node: Node) {
     if (node instanceof HTMLElement && node.dataset.mentionId) {
       const id = node.dataset.mentionId;
-      const type = (node.dataset.mentionType ?? "experiment") as RecordType;
+      const type = (node.dataset.mentionType ?? "experiment") as MentionTargetType;
       const label = node.dataset.mentionLabel ?? id;
       const program = node.dataset.mentionProgram;
       mentions.push({
@@ -222,4 +222,3 @@ export function createMentionChipElement(ref: MentionRef): HTMLSpanElement {
   }
   return span;
 }
-

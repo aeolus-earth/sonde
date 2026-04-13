@@ -47,6 +47,8 @@ export type ExperimentsSearch = {
 };
 
 const routeApi = getRouteApi(ROUTE_API.authExperiments);
+const EXPERIMENTS_TABLE_GRID_CLASS =
+  "grid-cols-[80px_80px_minmax(0,1fr)_minmax(0,1fr)_100px_minmax(0,auto)_120px]";
 
 const ExperimentRow = memo(function ExperimentRow({
   exp,
@@ -78,7 +80,8 @@ const ExperimentRow = memo(function ExperimentRow({
         }
       }}
       className={cn(
-        "grid cursor-pointer grid-cols-[80px_80px_1fr_1fr_100px_auto_120px] items-center gap-1 border-b border-border-subtle px-3 py-2 transition-colors hover:bg-surface-hover",
+        "grid w-full cursor-pointer items-center gap-1 border-b border-border-subtle px-3 py-2 transition-colors hover:bg-surface-hover",
+        EXPERIMENTS_TABLE_GRID_CLASS,
         !nested && "last:border-0",
         nested && "pl-3",
         focused ? "ring-1 ring-inset ring-accent bg-surface-hover" : "",
@@ -344,7 +347,7 @@ export default function ExperimentsListPage() {
 
   if (isLoading) {
     return (
-      <div className="space-y-3">
+      <div className="w-full min-w-0 space-y-3">
         <div className="flex items-center justify-between">
           <h1 className="text-[15px] font-semibold tracking-[-0.015em] text-text">
             Experiments
@@ -354,7 +357,12 @@ export default function ExperimentsListPage() {
           <Input placeholder="Filter…" disabled className="max-w-[240px]" />
         </div>
         <div className="rounded-[8px] border border-border bg-surface">
-          <div className="grid grid-cols-[80px_80px_1fr_1fr_100px_auto_120px] gap-1 border-b border-border px-3 py-1.5 text-[11px] font-medium text-text-quaternary">
+          <div
+            className={cn(
+              "grid w-full gap-1 border-b border-border px-3 py-1.5 text-[11px] font-medium text-text-quaternary",
+              EXPERIMENTS_TABLE_GRID_CLASS
+            )}
+          >
             <span>ID</span>
             <span>Status</span>
             <span>Hypothesis</span>
@@ -377,7 +385,7 @@ export default function ExperimentsListPage() {
   }
 
   return (
-    <div className="space-y-3">
+    <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col space-y-3">
       <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-[15px] font-semibold tracking-[-0.015em] text-text">
@@ -526,8 +534,13 @@ export default function ExperimentsListPage() {
         </div>
       </div>
 
-        <div className="rounded-[8px] border border-border bg-surface">
-          <div className="grid grid-cols-[80px_80px_1fr_1fr_100px_auto_120px] gap-1 border-b border-border px-3 py-1.5 text-[11px] font-medium text-text-quaternary">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[8px] border border-border bg-surface">
+          <div
+            className={cn(
+              "grid w-full gap-1 border-b border-border px-3 py-1.5 text-[11px] font-medium text-text-quaternary",
+              EXPERIMENTS_TABLE_GRID_CLASS
+            )}
+          >
             <span>ID</span>
             <span>Status</span>
             <span>Hypothesis</span>
@@ -541,145 +554,152 @@ export default function ExperimentsListPage() {
               onToggleOrder={toggleSortOrder}
             />
           </div>
-        {viewMode === "grouped" ? (
-          <div className="max-h-[600px] space-y-4 overflow-y-auto px-0.5 pb-1 pt-0.5">
-            {projectTree.length === 0 ? (
-              <div className="py-10 text-center text-[13px] text-text-quaternary">
-                No experiments match your filters.
-              </div>
-            ) : (
-              projectTree.map((pg) => (
-                <div
-                  key={pg.key}
-                  className="overflow-hidden rounded-[8px] border border-border-subtle bg-surface shadow-sm"
-                >
-                  <div className="flex items-center gap-2 border-b border-accent/20 bg-accent-muted px-2.5 py-2">
-                    <button
-                      type="button"
-                      onClick={() => toggleKey(setProjOpen, pg.key)}
-                      className="flex min-w-0 flex-1 items-center gap-2 rounded-[5.5px] px-1 py-0.5 text-left transition-colors hover:bg-accent/10"
-                      aria-expanded={isExpanded(projOpen, pg.key)}
-                    >
-                      <ChevronRight
-                        className={cn(
-                          "h-4 w-4 shrink-0 text-accent transition-transform",
-                          isExpanded(projOpen, pg.key) && "rotate-90"
-                        )}
-                      />
-                      <span className="min-w-0 truncate text-[13px] font-semibold text-text">
-                        {pg.label}
-                      </span>
-                      <span className="shrink-0 font-mono text-[11px] text-accent/90">
-                        {pg.displayId}
-                      </span>
-                    </button>
-                    {pg.projectId && (
-                      <Link
-                        to="/projects/$id"
-                        params={{ id: pg.projectId }}
-                        className="shrink-0 rounded-[5.5px] px-2 py-1 text-[11px] font-medium text-accent hover:bg-accent/15 hover:text-accent-hover"
-                      >
-                        Open project
-                      </Link>
-                    )}
+          {viewMode === "grouped" ? (
+            <div className="min-h-0 flex-1 overflow-y-auto px-0.5 pb-1 pt-0.5">
+              <div className="space-y-4">
+                {projectTree.length === 0 ? (
+                  <div className="py-10 text-center text-[13px] text-text-quaternary">
+                    No experiments match your filters.
                   </div>
-                  {isExpanded(projOpen, pg.key) &&
-                    pg.directions.map((dg) => {
-                      const dirKey = `${pg.key}::${dg.directionId ?? "none"}`;
-                      return (
-                        <div key={dirKey}>
-                          <button
-                            type="button"
-                            onClick={() => toggleKey(setDirOpen, dirKey)}
-                            className="flex w-full items-center gap-2 border-b border-status-running/20 bg-status-running/10 py-1.5 pl-5 pr-3 text-left transition-colors hover:bg-status-running/18"
-                            aria-expanded={isExpanded(dirOpen, dirKey)}
-                          >
-                            <ChevronRight
-                              className={cn(
-                                "h-3.5 w-3.5 shrink-0 text-status-running transition-transform",
-                                isExpanded(dirOpen, dirKey) && "rotate-90"
-                              )}
-                            />
-                            <span className="truncate text-[12px] font-medium text-text">
-                              {dg.label}
-                            </span>
-                            {dg.directionId && (
-                              <span className="shrink-0 font-mono text-[10px] text-status-running/85">
-                                {dg.directionId}
-                              </span>
+                ) : (
+                  projectTree.map((pg) => (
+                    <div
+                      key={pg.key}
+                      className="w-full overflow-hidden rounded-[8px] border border-border-subtle bg-surface shadow-sm"
+                    >
+                      <div className="flex items-center gap-2 border-b border-accent/20 bg-accent-muted px-2.5 py-2">
+                        <button
+                          type="button"
+                          onClick={() => toggleKey(setProjOpen, pg.key)}
+                          className="flex min-w-0 flex-1 items-center gap-2 rounded-[5.5px] px-1 py-0.5 text-left transition-colors hover:bg-accent/10"
+                          aria-expanded={isExpanded(projOpen, pg.key)}
+                        >
+                          <ChevronRight
+                            className={cn(
+                              "h-4 w-4 shrink-0 text-accent transition-transform",
+                              isExpanded(projOpen, pg.key) && "rotate-90"
                             )}
-                          </button>
-                          {isExpanded(dirOpen, dirKey) &&
-                            dg.experiments.map((exp) => (
-                              <ExperimentRow
-                                key={exp.id}
-                                exp={exp}
-                                sortField={sortField}
-                                nested
-                                focused={
-                                  focusedIndex ===
-                                  (focusIndexByExpId.get(exp.id) ?? -1)
-                                }
-                                onClick={handleRowClick}
-                              />
-                            ))}
-                        </div>
-                      );
-                    })}
-                </div>
-              ))
-            )}
-          </div>
-        ) : useVirtual ? (
-          <div ref={scrollRef} className="max-h-[600px] overflow-y-auto">
+                          />
+                          <span className="min-w-0 truncate text-[13px] font-semibold text-text">
+                            {pg.label}
+                          </span>
+                          <span className="shrink-0 font-mono text-[11px] text-accent/90">
+                            {pg.displayId}
+                          </span>
+                        </button>
+                        {pg.projectId && (
+                          <Link
+                            to="/projects/$id"
+                            params={{ id: pg.projectId }}
+                            className="shrink-0 rounded-[5.5px] px-2 py-1 text-[11px] font-medium text-accent hover:bg-accent/15 hover:text-accent-hover"
+                          >
+                            Open project
+                          </Link>
+                        )}
+                      </div>
+                      {isExpanded(projOpen, pg.key) &&
+                        pg.directions.map((dg) => {
+                          const dirKey = `${pg.key}::${dg.directionId ?? "none"}`;
+                          return (
+                            <div key={dirKey}>
+                              <button
+                                type="button"
+                                onClick={() => toggleKey(setDirOpen, dirKey)}
+                                className="flex w-full items-center gap-2 border-b border-status-running/20 bg-status-running/10 py-1.5 pl-5 pr-3 text-left transition-colors hover:bg-status-running/18"
+                                aria-expanded={isExpanded(dirOpen, dirKey)}
+                              >
+                                <ChevronRight
+                                  className={cn(
+                                    "h-3.5 w-3.5 shrink-0 text-status-running transition-transform",
+                                    isExpanded(dirOpen, dirKey) && "rotate-90"
+                                  )}
+                                />
+                                <span className="truncate text-[12px] font-medium text-text">
+                                  {dg.label}
+                                </span>
+                                {dg.directionId && (
+                                  <span className="shrink-0 font-mono text-[10px] text-status-running/85">
+                                    {dg.directionId}
+                                  </span>
+                                )}
+                              </button>
+                              {isExpanded(dirOpen, dirKey) &&
+                                dg.experiments.map((exp) => (
+                                  <ExperimentRow
+                                    key={exp.id}
+                                    exp={exp}
+                                    sortField={sortField}
+                                    nested
+                                    focused={
+                                      focusedIndex ===
+                                      (focusIndexByExpId.get(exp.id) ?? -1)
+                                    }
+                                    onClick={handleRowClick}
+                                  />
+                                ))}
+                            </div>
+                          );
+                        })}
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          ) : (
+            <div
+              ref={useVirtual ? scrollRef : undefined}
+              className="min-h-0 flex-1 overflow-y-auto"
+            >
+              {useVirtual ? (
             <div
               style={{
                 height: virtualizer.getTotalSize(),
-                position: "relative",
-              }}
-            >
-              {virtualizer.getVirtualItems().map((vRow) => {
-                const exp = sortedFiltered[vRow.index];
-                return (
-                  <div
+                  position: "relative",
+                }}
+              >
+                {virtualizer.getVirtualItems().map((vRow) => {
+                  const exp = sortedFiltered[vRow.index];
+                  return (
+                    <div
+                      key={exp.id}
+                      data-index={vRow.index}
+                      ref={virtualizer.measureElement}
+                      style={{
+                        position: "absolute",
+                        top: 0,
+                        left: 0,
+                        width: "100%",
+                        transform: `translateY(${vRow.start}px)`,
+                      }}
+                    >
+                      <ExperimentRow
+                        exp={exp}
+                        sortField={sortField}
+                        focused={focusedIndex === vRow.index}
+                        onClick={handleRowClick}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+              ) : (
+                sortedFiltered.map((exp, idx) => (
+                  <ExperimentRow
                     key={exp.id}
-                    data-index={vRow.index}
-                    ref={virtualizer.measureElement}
-                    style={{
-                      position: "absolute",
-                      top: 0,
-                      left: 0,
-                      width: "100%",
-                      transform: `translateY(${vRow.start}px)`,
-                    }}
-                  >
-                    <ExperimentRow
-                      exp={exp}
-                      sortField={sortField}
-                      focused={focusedIndex === vRow.index}
-                      onClick={handleRowClick}
-                    />
-                  </div>
-                );
-              })}
+                    exp={exp}
+                    sortField={sortField}
+                    focused={focusedIndex === idx}
+                    onClick={handleRowClick}
+                  />
+                ))
+              )}
             </div>
-          </div>
-        ) : (
-          sortedFiltered.map((exp, idx) => (
-            <ExperimentRow
-              key={exp.id}
-              exp={exp}
-              sortField={sortField}
-              focused={focusedIndex === idx}
-              onClick={handleRowClick}
-            />
-          ))
-        )}
-        {viewMode === "list" && sortedFiltered.length === 0 && (
-          <div className="py-10 text-center text-[13px] text-text-quaternary">
-            No experiments match your filters.
-          </div>
-        )}
+          )}
+          {viewMode === "list" && sortedFiltered.length === 0 && (
+            <div className="py-10 text-center text-[13px] text-text-quaternary">
+              No experiments match your filters.
+            </div>
+          )}
       </div>
     </div>
   );

@@ -6,6 +6,8 @@ import {
   MessageCircleQuestion,
   Folder,
   ArrowLeft,
+  ChevronRight,
+  Boxes,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { RecordType } from "@/types/sonde";
@@ -19,10 +21,28 @@ const typeIcon: Record<RecordType, typeof FlaskConical> = {
   project: Folder,
 };
 
+function recordTypeLabel(type: RecordType): string {
+  switch (type) {
+    case "project":
+      return "Project";
+    case "direction":
+      return "Direction";
+    case "experiment":
+      return "Experiment";
+    case "finding":
+      return "Finding";
+    case "question":
+      return "Question";
+    default:
+      return "Record";
+  }
+}
+
 interface ChatMentionPopoverProps {
   items: MentionListItem[];
   selectedIndex: number;
   onSelect: (index: number) => void;
+  onProgramDrill: (programId: string, programName: string) => void;
   position: { top: number; left: number };
   drillDownProgramName: string | null;
   onBack: () => void;
@@ -35,6 +55,7 @@ export const ChatMentionPopover = memo(function ChatMentionPopover({
   items,
   selectedIndex,
   onSelect,
+  onProgramDrill,
   position,
   drillDownProgramName,
   onBack,
@@ -60,12 +81,16 @@ export const ChatMentionPopover = memo(function ChatMentionPopover({
 
   return (
     <div
-      className="absolute z-50 w-[min(100%,320px)] overflow-hidden rounded-[8px] border border-border bg-surface shadow-lg"
-      style={{ bottom: position.top, left: position.left }}
+      className="absolute z-50 flex h-[360px] min-h-[240px] min-w-[320px] max-w-[min(calc(100vw-32px),640px)] max-h-[70vh] resize flex-col overflow-hidden rounded-[8px] border border-border bg-surface shadow-lg"
+      style={{
+        bottom: `calc(100% + ${position.top}px)`,
+        left: position.left,
+        width: "min(calc(100vw - 32px), 360px)",
+      }}
     >
       {drillDownProgramName ? (
         <>
-          <div className="flex items-center gap-1 border-b border-border-subtle px-2 py-1.5">
+          <div className="flex shrink-0 items-center gap-1 border-b border-border-subtle px-2 py-1.5">
             <button
               type="button"
               onMouseDown={(e) => {
@@ -78,29 +103,29 @@ export const ChatMentionPopover = memo(function ChatMentionPopover({
               <ArrowLeft className="h-3.5 w-3.5" />
             </button>
             <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-text-secondary">
-              Experiments in {drillDownProgramName}
+              Records in {drillDownProgramName}
             </span>
           </div>
-          <div className="border-b border-border-subtle px-2 py-1.5">
+          <div className="shrink-0 border-b border-border-subtle px-2 py-1.5">
             <input
               ref={filterRef}
               type="search"
               value={drillFilterQuery}
               onChange={(e) => onDrillFilterChange(e.target.value)}
               onMouseDown={(e) => e.stopPropagation()}
-              placeholder="Filter experiments…"
+              placeholder="Filter records…"
               className="w-full rounded-[5.5px] border border-border-subtle bg-bg px-2 py-1 text-[12px] text-text placeholder:text-text-quaternary focus:outline-none focus:ring-1 focus:ring-accent"
             />
           </div>
-          <div ref={listRef} className="max-h-[220px] overflow-y-auto py-0.5">
+          <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto py-0.5">
             {drillLoading && items.length === 0 && (
               <div className="px-2 py-3 text-center text-[11px] text-text-quaternary">
-                Loading experiments…
+                Loading records…
               </div>
             )}
             {!drillLoading && items.length === 0 && (
               <div className="px-2 py-3 text-center text-[11px] text-text-quaternary">
-                No experiments match
+                No records match
               </div>
             )}
             {items.map((item, i) => {
@@ -139,17 +164,24 @@ export const ChatMentionPopover = memo(function ChatMentionPopover({
         </>
       ) : (
         <>
-          <div className="px-2 py-1.5 text-[10px] font-medium uppercase tracking-wider text-text-quaternary">
-            Programs & records
+          <div className="shrink-0 px-2 py-1.5 text-[10px] font-medium uppercase tracking-wider text-text-quaternary">
+            Mentionable records
           </div>
-          <div ref={listRef} className="max-h-[240px] overflow-y-auto py-0.5">
+          <div className="shrink-0 border-b border-border-subtle px-2 py-1.5 text-[11px] leading-relaxed text-text-quaternary">
+            Use <span className="font-medium text-text-secondary">@</span> to reference projects,
+            directions, experiments, findings, or a program.
+          </div>
+          <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto py-0.5">
             {items.map((item, i) => {
+              const previousItem = i > 0 ? items[i - 1] : undefined;
               const showProgramHeader =
                 item.kind === "program" &&
-                (i === 0 || items[i - 1]?.kind !== "program");
+                (!previousItem || previousItem.kind !== "program");
               const showRecordHeader =
                 item.kind === "record" &&
-                (i === 0 || items[i - 1]?.kind === "program");
+                (!previousItem ||
+                  previousItem.kind === "program" ||
+                  (previousItem.kind === "record" && previousItem.type !== item.type));
 
               return (
                 <div key={`${item.kind}-${item.kind === "program" ? item.programId : item.id}`}>
@@ -160,29 +192,48 @@ export const ChatMentionPopover = memo(function ChatMentionPopover({
                   )}
                   {showRecordHeader && (
                     <div className="px-2 pb-0.5 pt-1 text-[10px] font-medium text-text-quaternary">
-                      Experiments & records
+                      {recordTypeLabel(item.type)}s
                     </div>
                   )}
                   {item.kind === "program" ? (
-                    <button
-                      onMouseDown={(e) => {
-                        e.preventDefault();
-                        onSelect(i);
-                      }}
+                    <div
                       className={cn(
-                        "flex w-full items-center gap-2 px-2 py-1.5 text-left transition-colors",
+                        "flex items-center gap-1",
                         i === selectedIndex ? "bg-surface-hover" : ""
                       )}
                     >
-                      <Folder className="h-3.5 w-3.5 shrink-0 text-accent" />
-                      <div className="min-w-0 flex-1">
-                        <span className="truncate text-[11px] text-text">{item.label}</span>
-                        <span className="font-mono text-[10px] text-text-quaternary">
-                          {" "}
-                          · {item.programId}
-                        </span>
-                      </div>
-                    </button>
+                      <button
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          onSelect(i);
+                        }}
+                        className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left transition-colors"
+                      >
+                        <Boxes className="h-3.5 w-3.5 shrink-0 text-accent" />
+                        <div className="min-w-0 flex-1">
+                          <span className="truncate text-[11px] text-text">{item.label}</span>
+                          <span className="font-mono text-[10px] text-text-quaternary">
+                            {" "}
+                            · {item.programId}
+                          </span>
+                        </div>
+                      </button>
+                      <button
+                        type="button"
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          onProgramDrill(item.programId, item.label);
+                        }}
+                        className={cn(
+                          "mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-[5.5px] text-text-quaternary transition-colors hover:bg-surface-raised hover:text-text-secondary",
+                          i === selectedIndex ? "bg-surface-raised" : ""
+                        )}
+                        aria-label={`Browse records in ${item.label}`}
+                        title={`Browse records in ${item.label}`}
+                      >
+                        <ChevronRight className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
                   ) : (
                     <button
                       onMouseDown={(e) => {

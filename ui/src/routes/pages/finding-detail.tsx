@@ -1,13 +1,18 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getRouteApi, Link } from "@tanstack/react-router";
 import { ROUTE_API } from "../route-ids";
-import { useFinding, useUpdateFindingConfidence } from "@/hooks/use-findings";
+import {
+  useFinding,
+  useUpdateFindingConfidence,
+  useUpdateFindingImportance,
+} from "@/hooks/use-findings";
 import { useQuestionsByFinding } from "@/hooks/use-questions";
 import { useDirections } from "@/hooks/use-directions";
 import { useProjects } from "@/hooks/use-projects";
 import { useRecordActivity } from "@/hooks/use-activity";
 import { useHotkey } from "@/hooks/use-keyboard";
+import { FindingImportanceBadge } from "@/components/shared/finding-importance-badge";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton, DetailSectionSkeleton } from "@/components/ui/skeleton";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
@@ -18,6 +23,10 @@ import {
   FINDING_CONFIDENCE_LEVELS,
   findingConfidenceLabel,
 } from "@/lib/finding-confidence";
+import {
+  FINDING_IMPORTANCE_LEVELS,
+  findingImportanceLabel,
+} from "@/lib/finding-importance";
 import { supabase } from "@/lib/supabase";
 import { cn, formatDateTime, formatDateTimeShort } from "@/lib/utils";
 import { ArrowLeft, Check } from "lucide-react";
@@ -25,6 +34,7 @@ import type {
   DirectionSummary,
   ExperimentSummary,
   FindingConfidence,
+  FindingImportance,
   ProjectSummary,
 } from "@/types/sonde";
 
@@ -45,6 +55,13 @@ const confidenceButtonStyles: Record<FindingConfidence, string> = {
     "data-[active=true]:border-confidence-very-high/30 data-[active=true]:bg-confidence-very-high/12 data-[active=true]:text-confidence-very-high",
 };
 
+const importanceButtonStyles: Record<FindingImportance, string> = {
+  low: "data-[active=true]:border-importance-low/25 data-[active=true]:bg-importance-low/10 data-[active=true]:text-importance-low",
+  medium:
+    "data-[active=true]:border-importance-medium/25 data-[active=true]:bg-importance-medium/10 data-[active=true]:text-importance-medium",
+  high: "data-[active=true]:border-importance-high/25 data-[active=true]:bg-importance-high/10 data-[active=true]:text-importance-high",
+};
+
 export default function FindingDetailPage() {
   const { id } = routeApi.useParams();
   const nav = routeApi.useNavigate();
@@ -54,6 +71,7 @@ export default function FindingDetailPage() {
   const { data: directions } = useDirections();
   const { data: activity } = useRecordActivity(id);
   const updateConfidence = useUpdateFindingConfidence(id);
+  const updateImportance = useUpdateFindingImportance(id);
   const evidenceIds = finding?.evidence ?? [];
   const { data: evidenceExperiments } = useQuery({
     queryKey: ["findings", "detail", id, "evidence-experiments", evidenceIds] as const,
@@ -126,6 +144,7 @@ export default function FindingDetailPage() {
           <Badge variant={finding.confidence}>
             {findingConfidenceLabel(finding.confidence)}
           </Badge>
+          <FindingImportanceBadge importance={finding.importance} />
         </div>
         <span
           className="text-[12px] text-text-quaternary"
@@ -202,26 +221,53 @@ export default function FindingDetailPage() {
             <div className="divide-y divide-border-subtle">
               <DetailRow label="Program">{finding.program}</DetailRow>
               <DetailRow label="Source">{finding.source}</DetailRow>
-              <div className="space-y-2.5 py-2.5">
-                <div className="flex items-center justify-between gap-4">
-                  <span className="text-[12px] text-text-quaternary">
-                    Confidence
-                  </span>
-                  <div className="flex items-center gap-3">
-                    <Badge variant={finding.confidence}>
-                      {findingConfidenceLabel(finding.confidence)}
-                    </Badge>
-                    <span className="text-[11px] text-text-quaternary">
-                      {updateConfidence.isPending ? "Saving..." : "Tap to update"}
-                    </span>
-                  </div>
-                </div>
-                <ConfidencePicker
-                  value={finding.confidence}
-                  isPending={updateConfidence.isPending}
-                  onChange={(confidence) => updateConfidence.mutate({ confidence })}
-                />
-              </div>
+              <FindingAxisEditor
+                label="Confidence"
+                valueLabel={findingConfidenceLabel(finding.confidence)}
+                valueBadge={
+                  <Badge className="text-[12px]" variant={finding.confidence}>
+                    {findingConfidenceLabel(finding.confidence)}
+                  </Badge>
+                }
+                helperText={updateConfidence.isPending ? "Saving..." : undefined}
+                picker={
+                  <SegmentedPicker
+                    value={finding.confidence}
+                    levels={FINDING_CONFIDENCE_LEVELS}
+                    isPending={updateConfidence.isPending}
+                    labelFor={findingConfidenceLabel}
+                    buttonStyles={confidenceButtonStyles}
+                    columnsClassName="grid-cols-5"
+                    onChange={(confidence) =>
+                      updateConfidence.mutate({ value: confidence })
+                    }
+                  />
+                }
+              />
+              <FindingAxisEditor
+                label="Importance"
+                valueLabel={findingImportanceLabel(finding.importance)}
+                valueBadge={
+                  <FindingImportanceBadge
+                    importance={finding.importance}
+                    className="min-w-0 px-3 py-1.5 text-[11px]"
+                  />
+                }
+                helperText={updateImportance.isPending ? "Saving..." : undefined}
+                picker={
+                  <SegmentedPicker
+                    value={finding.importance}
+                    levels={FINDING_IMPORTANCE_LEVELS}
+                    isPending={updateImportance.isPending}
+                    labelFor={findingImportanceLabel}
+                    buttonStyles={importanceButtonStyles}
+                    columnsClassName="grid-cols-3"
+                    onChange={(importance) =>
+                      updateImportance.mutate({ value: importance })
+                    }
+                  />
+                }
+              />
               <DetailRow label="Valid from">
                 <span title={formatDateTime(finding.valid_from)}>
                   {formatDateTimeShort(finding.valid_from)}
@@ -265,20 +311,67 @@ export default function FindingDetailPage() {
   );
 }
 
-function ConfidencePicker({
+function FindingAxisEditor({
+  label,
+  valueLabel,
+  valueBadge,
+  helperText,
+  picker,
+}: {
+  label: string;
+  valueLabel: string;
+  valueBadge: ReactNode;
+  helperText?: string;
+  picker: ReactNode;
+}) {
+  return (
+    <div className="space-y-3 py-3">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-[12px] text-text-quaternary">{label}</p>
+          <p className="mt-1 text-[18px] font-medium tracking-[-0.02em] text-text">
+            {valueLabel}
+          </p>
+          <p className="mt-1 text-[11px] text-text-quaternary">
+            {helperText ?? `Set the current ${label.toLowerCase()} level for this finding.`}
+          </p>
+        </div>
+        <div className="shrink-0">{valueBadge}</div>
+      </div>
+      <div className="rounded-[16px] bg-surface/60 p-1.5">
+        {picker}
+      </div>
+    </div>
+  );
+}
+
+function SegmentedPicker<T extends string>({
   value,
+  levels,
   isPending,
+  labelFor,
+  buttonStyles,
+  columnsClassName,
   onChange,
 }: {
-  value: FindingConfidence;
+  value: T;
+  levels: readonly T[];
   isPending: boolean;
-  onChange: (confidence: FindingConfidence) => void;
+  labelFor: (value: T) => string;
+  buttonStyles: Record<T, string>;
+  columnsClassName: string;
+  onChange: (value: T) => void;
 }) {
   return (
     <div className="w-full">
-      <div className="rounded-[12px] border border-border-subtle bg-surface-raised/90 p-1.5 shadow-[inset_0_1px_0_color-mix(in_srgb,var(--color-bg)_55%,transparent)]">
-        <div className="grid grid-cols-5 gap-1.5">
-          {FINDING_CONFIDENCE_LEVELS.map((level) => {
+      <div className="overflow-hidden rounded-[14px] border border-border-subtle bg-surface-raised/95 shadow-[inset_0_1px_0_color-mix(in_srgb,var(--color-bg)_55%,transparent)]">
+        <div
+          className={cn(
+            "grid divide-x divide-border-subtle",
+            columnsClassName,
+          )}
+        >
+          {levels.map((level) => {
             const isActive = value === level;
             return (
               <button
@@ -288,21 +381,23 @@ function ConfidencePicker({
                 disabled={isPending}
                 onClick={() => onChange(level)}
                 className={cn(
-                  "flex min-h-[52px] items-center justify-center rounded-[9px] border border-transparent px-1.5 py-2 text-center text-[10px] font-medium leading-tight text-text-quaternary transition-[background-color,border-color,color,box-shadow] hover:bg-surface hover:text-text-secondary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50 data-[active=true]:shadow-sm",
-                  confidenceButtonStyles[level]
+                  "relative flex min-h-[60px] items-center justify-center px-2 py-2.5 text-center text-[11px] font-medium leading-[1.15] text-text-tertiary transition-[background-color,color,box-shadow] hover:bg-surface hover:text-text-secondary focus-visible:z-10 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50",
+                  buttonStyles[level],
                 )}
                 aria-pressed={isActive}
               >
-                <span className="flex flex-col items-center gap-1">
-                  <span>{findingConfidenceLabel(level)}</span>
+                <span className="flex items-center gap-1.5">
+                  <span className="max-w-[72px] text-balance">
+                    {labelFor(level)}
+                  </span>
                   <span
-                  className={cn(
-                    "flex h-4 w-4 items-center justify-center rounded-full border border-current/25 opacity-0 transition-opacity",
-                    isActive && "opacity-100"
-                  )}
-                >
-                  <Check className="h-3 w-3" />
-                </span>
+                    className={cn(
+                      "flex h-4 w-4 items-center justify-center rounded-full border border-current/25 opacity-0 transition-opacity",
+                      isActive && "opacity-100",
+                    )}
+                  >
+                    <Check className="h-3 w-3" />
+                  </span>
                 </span>
               </button>
             );

@@ -37,7 +37,7 @@ export const ChatEmptyState = memo(function ChatEmptyState({
           </p>
           <p className="text-[11px] leading-relaxed text-text-quaternary">
             Use <kbd className="rounded-[2px] border border-border px-1">@</kbd>{" "}
-            to reference records
+            to reference projects, directions, experiments, findings, or programs
           </p>
         </div>
       </div>

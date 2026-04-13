@@ -7,6 +7,7 @@ import {
   useState,
 } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { ArrowDown } from "lucide-react";
 import { ChatMessage } from "./chat-message";
 import { ChatEmptyState } from "./chat-empty-state";
 import { BrailleLive } from "./braille-activity";
@@ -294,14 +295,16 @@ export const ChatMessages = memo(function ChatMessages({
             setUserScrolledUp(false);
             scrollToBottom();
           }}
+          aria-label="Scroll to bottom"
+          title="Scroll to bottom"
           className={cn(
-            "sticky bottom-2 left-1/2 -translate-x-1/2 rounded-full border px-3 py-1 text-[11px] text-text-secondary shadow-sm",
+            "absolute bottom-3 right-3 z-[3] inline-flex h-9 w-9 items-center justify-center rounded-full border shadow-sm transition-colors",
             glass
               ? "border-border bg-surface-raised shadow-sm hover:bg-surface-hover dark:border-white/15 dark:bg-black/35 dark:hover:bg-black/45 dark:backdrop-blur-md"
               : "border-border bg-surface-raised hover:bg-surface-hover",
           )}
         >
-          Scroll to bottom
+          <ArrowDown className="h-4 w-4 text-text-secondary" />
         </button>
       )}
         </div>

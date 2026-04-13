@@ -1,7 +1,7 @@
 import { createRoute, redirect } from "@tanstack/react-router";
 import { Route as rootRoute } from "./__root";
 import { supabase } from "@/lib/supabase";
-import { isAdminUser } from "@/lib/admin-access";
+import { isAdminSession } from "@/lib/admin-access";
 import AdminDashboard from "./pages/admin-dashboard";
 
 export const Route = createRoute({
@@ -11,7 +11,7 @@ export const Route = createRoute({
     const {
       data: { session },
     } = await supabase.auth.getSession();
-    if (!isAdminUser(session?.user)) {
+    if (!isAdminSession(session)) {
       throw redirect({ to: "/" });
     }
   },

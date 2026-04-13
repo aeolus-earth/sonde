@@ -36,6 +36,8 @@ export type FindingConfidence =
   | "high"
   | "very_high";
 
+export type FindingImportance = "low" | "medium" | "high";
+
 export type ArtifactType =
   | "figure"
   | "paper"
@@ -191,6 +193,7 @@ export interface Finding {
   topic: string;
   finding: string;
   confidence: FindingConfidence;
+  importance: FindingImportance;
   content: string | null;
   metadata: Record<string, unknown>;
   evidence: string[];

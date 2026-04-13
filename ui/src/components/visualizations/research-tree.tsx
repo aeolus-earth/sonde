@@ -16,6 +16,7 @@ import {
   FolderKanban,
   GitFork,
 } from "lucide-react";
+import { FindingImportanceBadge } from "@/components/shared/finding-importance-badge";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import {
@@ -26,6 +27,7 @@ import {
   experimentMatchesSearchQuery,
   parseExperimentSearchTokens,
 } from "@/lib/experiment-search-match";
+import { sortFindingsByImportanceAndRecency } from "@/lib/finding-importance";
 import { cn } from "@/lib/utils";
 import type {
   DirectionSummary,
@@ -172,6 +174,9 @@ function buildFindingsByExperiment(
       if (!map.has(eid)) map.set(eid, []);
       map.get(eid)!.push(f);
     }
+  }
+  for (const [experimentId, linkedFindings] of map.entries()) {
+    map.set(experimentId, sortFindingsByImportanceAndRecency(linkedFindings));
   }
   return map;
 }
@@ -1322,7 +1327,7 @@ export const ResearchTree = memo(function ResearchTree({
                 <button
                   key={f.id}
                   type="button"
-                  className="inline-flex items-center gap-0.5 rounded border border-border-subtle bg-surface-raised px-1 py-0.5 text-[10px] font-mono text-text-secondary hover:border-accent/40"
+                  className="inline-flex items-center gap-1 rounded border border-border-subtle bg-surface-raised px-1 py-0.5 text-[10px] text-text-secondary hover:border-accent/40"
                   onClick={(e) => {
                     e.stopPropagation();
                     onNavigate({ kind: "finding", id: f.id });
@@ -1334,6 +1339,10 @@ export const ResearchTree = memo(function ResearchTree({
                   >
                     {f.id}
                   </Badge>
+                  <FindingImportanceBadge
+                    importance={f.importance}
+                    className="px-1.5 py-0.5 text-[9px]"
+                  />
                 </button>
               ))}
             </div>

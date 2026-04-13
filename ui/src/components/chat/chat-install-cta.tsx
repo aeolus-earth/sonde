@@ -54,18 +54,33 @@ export const ChatInstallCta = memo(function ChatInstallCta({
   return (
     <div
       className={cn(
-        "w-full rounded-[20px] border border-black/[0.06] bg-white/94 shadow-[0_18px_44px_-28px_rgba(15,23,42,0.18)] backdrop-blur-xl",
+        "relative w-full rounded-[20px] border border-black/[0.06] bg-white/94 shadow-[0_18px_44px_-28px_rgba(15,23,42,0.18)] backdrop-blur-xl",
         "dark:border-white/[0.1] dark:bg-white/[0.04]",
         compact ? "max-w-[34rem]" : "max-w-[42rem]",
       )}
     >
+      <button
+        type="button"
+        onClick={() => setExpanded((value) => !value)}
+        className="absolute right-3 top-3 inline-flex items-center gap-1.5 rounded-full border border-black/[0.07] bg-black/[0.025] px-3 py-1.5 text-[12px] font-medium text-text-secondary transition-colors hover:bg-black/[0.045] hover:text-text dark:border-white/[0.1] dark:bg-white/[0.06] dark:hover:bg-white/[0.1] sm:right-4 sm:top-4"
+        aria-expanded={expanded}
+      >
+        <TerminalSquare className="h-3.5 w-3.5 shrink-0" />
+        {expanded ? "Hide install steps" : "Install with uv"}
+        <ChevronDown
+          className={cn(
+            "h-3.5 w-3.5 shrink-0 transition-transform",
+            expanded && "rotate-180",
+          )}
+        />
+      </button>
       <div
         className={cn(
-          "flex flex-wrap items-center justify-between gap-3",
+          "flex min-w-0 items-start",
           compact ? "px-3 py-3" : "px-4 py-3.5",
         )}
       >
-        <div className="min-w-0">
+        <div className="min-w-0 pr-40">
           <div className="flex items-center gap-2">
             <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-black/[0.06] bg-black/[0.025] text-text-secondary dark:border-white/[0.1] dark:bg-white/[0.06]">
               <Download className="h-4 w-4" />
@@ -81,23 +96,11 @@ export const ChatInstallCta = memo(function ChatInstallCta({
             </div>
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setExpanded((value) => !value)}
-            className="inline-flex items-center gap-1.5 rounded-full border border-black/[0.07] bg-black/[0.025] px-3 py-1.5 text-[12px] font-medium text-text-secondary transition-colors hover:bg-black/[0.045] hover:text-text dark:border-white/[0.1] dark:bg-white/[0.06] dark:hover:bg-white/[0.1]"
-            aria-expanded={expanded}
-          >
-            <TerminalSquare className="h-3.5 w-3.5 shrink-0" />
-            {expanded ? "Hide install steps" : "Install with uv"}
-            <ChevronDown
-              className={cn(
-                "h-3.5 w-3.5 shrink-0 transition-transform",
-                expanded && "rotate-180",
-              )}
-            />
-          </button>
-          {expanded && (
+      </div>
+
+      {expanded && (
+        <div className="border-t border-black/[0.06] px-4 py-3 dark:border-white/[0.08]">
+          <div className="mb-2.5 flex justify-end">
             <button
               type="button"
               onClick={() => void copyCommands()}
@@ -106,12 +109,7 @@ export const ChatInstallCta = memo(function ChatInstallCta({
               <Copy className="h-3.5 w-3.5 shrink-0" />
               {copied ? "Copied" : "Copy all"}
             </button>
-          )}
-        </div>
-      </div>
-
-      {expanded && (
-        <div className="border-t border-black/[0.06] px-4 py-3 dark:border-white/[0.08]">
+          </div>
           <div className="space-y-2.5">
             {INSTALL_COMMANDS.map((step, index) => (
               <div

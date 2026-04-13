@@ -218,6 +218,8 @@ export default function AdminDashboard() {
             </h2>
             <p className="mt-0.5 text-[11px] text-text-quaternary">
               Session-first estimates with Anthropic provider reconciliation when available.
+              Keep the selected environment tight so local, staging, and production spend do
+              not blur together.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -276,6 +278,44 @@ export default function AdminDashboard() {
             label="Active managed sessions"
             loading={managedSummaryLoading}
           />
+        </div>
+
+        <div className="grid gap-3 lg:grid-cols-3">
+          <div className="rounded-[8px] border border-border-subtle bg-surface-raised px-3 py-3">
+            <p className="text-[11px] font-medium text-text-secondary">
+              Estimated session spend
+            </p>
+            <p className="mt-1 text-[11px] leading-relaxed text-text-quaternary">
+              This is Sonde&apos;s per-session estimate from token usage plus managed runtime
+              cost. It is the best attribution view for answering which user or session
+              drove spend.
+            </p>
+          </div>
+          <div className="rounded-[8px] border border-border-subtle bg-surface-raised px-3 py-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[11px] font-medium text-text-secondary">Provider spend</p>
+              <Badge
+                variant={runtimeMetadata?.anthropicAdminConfigured ? "complete" : "tag"}
+              >
+                {runtimeMetadata?.anthropicAdminConfigured ? "provider-backed" : "estimated-only"}
+              </Badge>
+            </div>
+            <p className="mt-1 text-[11px] leading-relaxed text-text-quaternary">
+              This comes from the latest successful Anthropic reconciliation for the
+              selected window and environment. Older sync runs stay in history, but they do
+              not inflate the headline total.
+            </p>
+          </div>
+          <div className="rounded-[8px] border border-border-subtle bg-surface-raised px-3 py-3">
+            <p className="text-[11px] font-medium text-text-secondary">
+              Unallocated provider charges
+            </p>
+            <p className="mt-1 text-[11px] leading-relaxed text-text-quaternary">
+              The gap between Anthropic&apos;s provider total and Sonde&apos;s session ledger.
+              Treat it as drift to investigate rather than silently assigning cost to the
+              wrong session.
+            </p>
+          </div>
         </div>
 
         <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">

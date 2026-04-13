@@ -31,6 +31,7 @@ def list_findings(
     *,
     program: str | None = None,
     confidence: str | None = None,
+    importance: str | None = None,
     topic: str | None = None,
     include_superseded: bool = False,
     limit: int = 50,
@@ -44,6 +45,7 @@ def list_findings(
         query,
         program=program,
         confidence=confidence,
+        importance=importance,
         topic=topic,
         include_superseded=include_superseded,
     )
@@ -54,6 +56,7 @@ def count_findings(
     *,
     program: str | None = None,
     confidence: str | None = None,
+    importance: str | None = None,
     topic: str | None = None,
     include_superseded: bool = False,
 ) -> int:
@@ -64,6 +67,7 @@ def count_findings(
         query,
         program=program,
         confidence=confidence,
+        importance=importance,
         topic=topic,
         include_superseded=include_superseded,
     )
@@ -167,6 +171,7 @@ def _apply_filters(
     *,
     program: str | None = None,
     confidence: str | None = None,
+    importance: str | None = None,
     topic: str | None = None,
     include_superseded: bool = False,
 ) -> Any:
@@ -177,6 +182,8 @@ def _apply_filters(
         query = query.is_("valid_until", "null")
     if confidence:
         query = query.eq("confidence", confidence)
+    if importance:
+        query = query.eq("importance", importance)
     if topic:
         from sonde.db.validate import escape_like
 

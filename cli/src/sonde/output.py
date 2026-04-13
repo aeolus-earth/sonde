@@ -88,6 +88,12 @@ CONFIDENCE_STYLE: dict[str, str] = {
     "very_low": "sonde.muted",
 }
 
+IMPORTANCE_STYLE: dict[str, str] = {
+    "high": "sonde.brand",
+    "medium": "sonde.warning",
+    "low": "sonde.muted",
+}
+
 
 def styled_status(status: str) -> str:
     """Return a Rich-styled status string."""
@@ -99,6 +105,12 @@ def styled_confidence(confidence: str) -> str:
     """Return a Rich-styled confidence string."""
     style = CONFIDENCE_STYLE.get(confidence, "")
     return f"[{style}]{confidence}[/]" if style else confidence
+
+
+def styled_importance(importance: str) -> str:
+    """Return a Rich-styled importance string."""
+    style = IMPORTANCE_STYLE.get(importance, "")
+    return f"[{style}]{importance}[/]" if style else importance
 
 
 def styled_doctor_status(status: str) -> str:
@@ -127,6 +139,8 @@ def print_table(columns: list[str], rows: list[dict[str, Any]], *, title: str | 
                 val = styled_status(val)
             elif col == "confidence":
                 val = styled_confidence(val)
+            elif col == "importance":
+                val = styled_importance(val)
             values.append(val)
         table.add_row(*values)
     out.print(table)

@@ -7,6 +7,7 @@ import { useQuestion } from "@/hooks/use-questions";
 import { useDirection } from "@/hooks/use-directions";
 import { useRecordActivity } from "@/hooks/use-activity";
 import { useHotkey } from "@/hooks/use-keyboard";
+import { FindingImportanceBadge } from "@/components/shared/finding-importance-badge";
 import { Badge } from "@/components/ui/badge";
 import {
   Skeleton,
@@ -17,6 +18,7 @@ import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { Section, DetailRow } from "@/components/shared/detail-layout";
 import { RecordLink } from "@/components/shared/record-link";
 import { findingConfidenceLabel } from "@/lib/finding-confidence";
+import { sortFindingsByImportanceAndRecency } from "@/lib/finding-importance";
 import { formatDateTime, formatDateTimeShort } from "@/lib/utils";
 import type { ExperimentSummary, Finding } from "@/types/sonde";
 import { ArrowLeft } from "lucide-react";
@@ -96,6 +98,7 @@ export default function QuestionDetailPage() {
     },
     enabled: !!id,
   });
+  const sortedFindings = sortFindingsByImportanceAndRecency(findings ?? []);
 
   if (isLoading || !question) {
     return (
@@ -184,12 +187,13 @@ export default function QuestionDetailPage() {
             </Section>
           )}
 
-          {findings && findings.length > 0 && (
-            <Section title="Findings" count={findings.length}>
+          {sortedFindings.length > 0 && (
+            <Section title="Findings" count={sortedFindings.length}>
               <div className="space-y-1">
-                {findings.map((finding) => (
+                {sortedFindings.map((finding) => (
                   <div key={finding.id} className="flex items-center gap-2">
                     <RecordLink recordId={finding.id} />
+                    <FindingImportanceBadge importance={finding.importance} />
                     <Badge variant={finding.confidence}>
                       {findingConfidenceLabel(finding.confidence)}
                     </Badge>

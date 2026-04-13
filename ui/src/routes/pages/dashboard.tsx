@@ -5,10 +5,12 @@ import { useDirections } from "@/hooks/use-directions";
 import { useCurrentFindings } from "@/hooks/use-findings";
 import { useGlobalActivity } from "@/hooks/use-activity";
 import { useRealtimeInvalidation } from "@/hooks/use-realtime";
+import { FindingImportanceBadge } from "@/components/shared/finding-importance-badge";
 import { Badge } from "@/components/ui/badge";
 import { StatBlockSkeleton, Skeleton } from "@/components/ui/skeleton";
 import { RecordLink } from "@/components/shared/record-link";
 import { findingConfidenceLabel } from "@/lib/finding-confidence";
+import { sortFindingsByImportanceAndRecency } from "@/lib/finding-importance";
 import { formatDateTimeShort, formatDateTime, cn } from "@/lib/utils";
 import type { ExperimentsSearch } from "@/routes/pages/experiments-list";
 
@@ -118,7 +120,7 @@ export default function DashboardPage() {
 
   const exps = experiments ?? [];
   const dirs = directions ?? [];
-  const finds = findings ?? [];
+  const finds = sortFindingsByImportanceAndRecency(findings ?? []);
 
   const running = exps.filter((e) => e.status === "running").length;
   const complete = exps.filter((e) => e.status === "complete").length;
@@ -264,9 +266,12 @@ export default function DashboardPage() {
                     {f.finding}
                   </p>
                 </div>
-                <Badge variant={f.confidence}>
-                  {findingConfidenceLabel(f.confidence)}
-                </Badge>
+                <div className="flex shrink-0 items-center gap-2">
+                  <FindingImportanceBadge importance={f.importance} />
+                  <Badge variant={f.confidence}>
+                    {findingConfidenceLabel(f.confidence)}
+                  </Badge>
+                </div>
               </Link>
             ))}
           </div>
