@@ -14,6 +14,7 @@ import { useRecordActivity } from "@/hooks/use-activity";
 import { useHotkey } from "@/hooks/use-keyboard";
 import { FindingConfidenceBadge } from "@/components/shared/finding-confidence-badge";
 import { FindingImportanceBadge } from "@/components/shared/finding-importance-badge";
+import { Badge } from "@/components/ui/badge";
 import { Skeleton, DetailSectionSkeleton } from "@/components/ui/skeleton";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { MarkdownView } from "@/components/ui/markdown-view";
@@ -221,15 +222,18 @@ export default function FindingDetailPage() {
               <DetailRow label="Source">{finding.source}</DetailRow>
               <FindingAxisEditor
                 label="Confidence"
-                valueLabel={findingConfidenceLabel(finding.confidence)}
                 valueBadge={
                   <FindingConfidenceBadge
                     confidence={finding.confidence}
                     className="px-3 py-1.5 text-[11px]"
-                    labelStyle="short"
+                    labelStyle="none"
                   />
                 }
-                helperText={updateConfidence.isPending ? "Saving..." : undefined}
+                helperText={
+                  updateConfidence.isPending
+                    ? "Saving confidence..."
+                    : "How strongly is this finding supported by the evidence?"
+                }
                 picker={
                   <SegmentedPicker
                     value={finding.confidence}
@@ -246,14 +250,18 @@ export default function FindingDetailPage() {
               />
               <FindingAxisEditor
                 label="Importance"
-                valueLabel={findingImportanceLabel(finding.importance)}
                 valueBadge={
                   <FindingImportanceBadge
                     importance={finding.importance}
                     className="min-w-0 px-3 py-1.5 text-[11px]"
+                    labelStyle="none"
                   />
                 }
-                helperText={updateImportance.isPending ? "Saving..." : undefined}
+                helperText={
+                  updateImportance.isPending
+                    ? "Saving importance..."
+                    : "How much does this finding matter for current research decisions?"
+                }
                 picker={
                   <SegmentedPicker
                     value={finding.importance}
@@ -313,27 +321,22 @@ export default function FindingDetailPage() {
 
 function FindingAxisEditor({
   label,
-  valueLabel,
   valueBadge,
   helperText,
   picker,
 }: {
   label: string;
-  valueLabel: string;
   valueBadge: ReactNode;
-  helperText?: string;
+  helperText: string;
   picker: ReactNode;
 }) {
   return (
-    <div className="space-y-3 py-3">
+    <div className="space-y-2.5 py-3">
       <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <p className="text-[12px] text-text-quaternary">{label}</p>
-          <p className="mt-1 text-[18px] font-medium tracking-[-0.02em] text-text">
-            {valueLabel}
-          </p>
-          <p className="mt-1 text-[11px] text-text-quaternary">
-            {helperText ?? `Set the current ${label.toLowerCase()} level for this finding.`}
+        <div className="min-w-0 space-y-1">
+          <p className="text-[12px] font-medium text-text-quaternary">{label}</p>
+          <p className="max-w-[28ch] text-[11px] leading-[1.45] text-text-quaternary">
+            {helperText}
           </p>
         </div>
         <div className="shrink-0">{valueBadge}</div>
@@ -381,18 +384,18 @@ function SegmentedPicker<T extends string>({
                 disabled={isPending}
                 onClick={() => onChange(level)}
                 className={cn(
-                  "relative flex min-h-[60px] items-center justify-center px-2 py-2.5 text-center text-[11px] font-medium leading-[1.15] text-text-tertiary transition-[background-color,color,box-shadow] hover:bg-surface hover:text-text-secondary focus-visible:z-10 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50",
+                  "relative flex min-h-[60px] min-w-0 shrink items-center justify-center px-1.5 py-2.5 text-center text-[10px] font-medium tracking-[-0.01em] leading-[1.2] text-text-tertiary transition-[background-color,color,box-shadow] hover:bg-surface hover:text-text-secondary focus-visible:z-10 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50 sm:px-2 sm:text-[11px]",
                   buttonStyles[level],
                 )}
                 aria-pressed={isActive}
               >
-                <span className="flex items-center gap-1.5">
-                  <span className="max-w-[72px] text-balance">
+                <span className="flex min-w-0 flex-col items-center justify-center gap-1">
+                  <span className="max-w-full px-0.5 text-balance text-center leading-tight">
                     {labelFor(level)}
                   </span>
                   <span
                     className={cn(
-                      "flex h-4 w-4 items-center justify-center rounded-full border border-current/25 opacity-0 transition-opacity",
+                      "flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-current/25 opacity-0 transition-opacity",
                       isActive && "opacity-100",
                     )}
                   >

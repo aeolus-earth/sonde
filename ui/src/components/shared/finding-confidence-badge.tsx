@@ -22,9 +22,14 @@ export function FindingConfidenceBadge({
 }: {
   confidence: FindingConfidence;
   className?: string;
-  labelStyle?: "full" | "short";
+  labelStyle?: "full" | "short" | "none";
 }) {
-  const prefix = labelStyle === "short" ? "conf" : "confidence";
+  const prefix =
+    labelStyle === "short"
+      ? "conf"
+      : labelStyle === "none"
+        ? null
+        : "confidence";
 
   return (
     <span
@@ -35,7 +40,7 @@ export function FindingConfidenceBadge({
       )}
     >
       <span className="h-[6px] w-[6px] rounded-full bg-current/75" />
-      <span className="opacity-80">{prefix}</span>
+      {prefix ? <span className="opacity-80">{prefix}</span> : null}
       <span>{findingConfidenceLabel(confidence)}</span>
     </span>
   );

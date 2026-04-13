@@ -9,11 +9,11 @@ import { useProjectTakeawaysInProgram } from "@/hooks/use-project-takeaways";
 import { useActiveProgram } from "@/stores/program";
 import { FindingConfidenceBadge } from "@/components/shared/finding-confidence-badge";
 import { FindingImportanceBadge } from "@/components/shared/finding-importance-badge";
+import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { RecordLink } from "@/components/shared/record-link";
 import { Section } from "@/components/shared/detail-layout";
 import { MarkdownView } from "@/components/ui/markdown-view";
-import { findingConfidenceLabel } from "@/lib/finding-confidence";
 import { sortFindingsByImportanceAndRecency } from "@/lib/finding-importance";
 import { cn, formatDateTimeShort, formatDateTime } from "@/lib/utils";
 import {

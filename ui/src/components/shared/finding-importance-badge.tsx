@@ -18,9 +18,14 @@ export function FindingImportanceBadge({
 }: {
   importance: FindingImportance;
   className?: string;
-  labelStyle?: "full" | "short";
+  labelStyle?: "full" | "short" | "none";
 }) {
-  const prefix = labelStyle === "short" ? "imp" : "importance";
+  const prefix =
+    labelStyle === "short"
+      ? "imp"
+      : labelStyle === "none"
+        ? null
+        : "importance";
 
   return (
     <span
@@ -31,7 +36,7 @@ export function FindingImportanceBadge({
       )}
     >
       <span className="h-[6px] w-[6px] rounded-full bg-current/75" />
-      <span className="opacity-80">{prefix}</span>
+      {prefix ? <span className="opacity-80">{prefix}</span> : null}
       <span>{findingImportanceLabel(importance)}</span>
     </span>
   );

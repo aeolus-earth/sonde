@@ -9,6 +9,7 @@ import { useRecordActivity } from "@/hooks/use-activity";
 import { useHotkey } from "@/hooks/use-keyboard";
 import { FindingConfidenceBadge } from "@/components/shared/finding-confidence-badge";
 import { FindingImportanceBadge } from "@/components/shared/finding-importance-badge";
+import { Badge } from "@/components/ui/badge";
 import {
   Skeleton,
   DetailSectionSkeleton,
@@ -17,7 +18,6 @@ import {
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { Section, DetailRow } from "@/components/shared/detail-layout";
 import { RecordLink } from "@/components/shared/record-link";
-import { findingConfidenceLabel } from "@/lib/finding-confidence";
 import { sortFindingsByImportanceAndRecency } from "@/lib/finding-importance";
 import { formatDateTime, formatDateTimeShort } from "@/lib/utils";
 import type { ExperimentSummary, Finding } from "@/types/sonde";
