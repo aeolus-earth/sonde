@@ -12,8 +12,8 @@ import { useDirections } from "@/hooks/use-directions";
 import { useProjects } from "@/hooks/use-projects";
 import { useRecordActivity } from "@/hooks/use-activity";
 import { useHotkey } from "@/hooks/use-keyboard";
+import { FindingConfidenceBadge } from "@/components/shared/finding-confidence-badge";
 import { FindingImportanceBadge } from "@/components/shared/finding-importance-badge";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton, DetailSectionSkeleton } from "@/components/ui/skeleton";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { MarkdownView } from "@/components/ui/markdown-view";
@@ -141,9 +141,7 @@ export default function FindingDetailPage() {
           <h1 className="font-mono text-[15px] font-semibold tracking-[-0.01em] text-text">
             {finding.id}
           </h1>
-          <Badge variant={finding.confidence}>
-            {findingConfidenceLabel(finding.confidence)}
-          </Badge>
+          <FindingConfidenceBadge confidence={finding.confidence} />
           <FindingImportanceBadge importance={finding.importance} />
         </div>
         <span
@@ -225,9 +223,11 @@ export default function FindingDetailPage() {
                 label="Confidence"
                 valueLabel={findingConfidenceLabel(finding.confidence)}
                 valueBadge={
-                  <Badge className="text-[12px]" variant={finding.confidence}>
-                    {findingConfidenceLabel(finding.confidence)}
-                  </Badge>
+                  <FindingConfidenceBadge
+                    confidence={finding.confidence}
+                    className="px-3 py-1.5 text-[11px]"
+                    labelStyle="short"
+                  />
                 }
                 helperText={updateConfidence.isPending ? "Saving..." : undefined}
                 picker={

@@ -5,8 +5,8 @@ import type { FindingsSearch } from "../findings";
 import { useCurrentFindings } from "@/hooks/use-findings";
 import { useRealtimeInvalidation } from "@/hooks/use-realtime";
 import { useListKeyboardNav } from "@/hooks/use-keyboard";
+import { FindingConfidenceBadge } from "@/components/shared/finding-confidence-badge";
 import { FindingImportanceBadge } from "@/components/shared/finding-importance-badge";
-import { Badge } from "@/components/ui/badge";
 import { ListRowSkeleton } from "@/components/ui/skeleton";
 import {
   FINDING_CONFIDENCE_LEVELS,
@@ -16,6 +16,7 @@ import {
 } from "@/lib/finding-confidence";
 import {
   FINDING_IMPORTANCE_LEVELS,
+  findingImportanceLabel,
   parseFindingImportanceFilter,
   serializeFindingImportanceFilter,
   sortFindingsByImportanceAndRecency,
@@ -24,6 +25,14 @@ import { cn, formatRelativeTime } from "@/lib/utils";
 import type { Finding, FindingConfidence, FindingImportance } from "@/types/sonde";
 
 const routeApi = getRouteApi(ROUTE_API.authFindings);
+
+const confidenceDotStyles: Record<FindingConfidence, string> = {
+  very_low: "bg-confidence-very-low",
+  low: "bg-confidence-low",
+  medium: "bg-confidence-medium",
+  high: "bg-confidence-high",
+  very_high: "bg-confidence-very-high",
+};
 
 export default function FindingsListPage() {
   const navigate = routeApi.useNavigate();
@@ -160,42 +169,46 @@ export default function FindingsListPage() {
         </span>
       </div>
 
-      <div className="rounded-[10px] border border-border bg-surface">
-        <div className="border-b border-border-subtle px-3 py-2">
-          <span className="text-[12px] font-medium text-text-secondary">
-            Filters
-          </span>
-        </div>
-        <div className="space-y-3 px-3 py-3">
-          <FilterAxisBar
-            label="Confidence"
-            clearLabel="Any"
-            isClearActive={activeConfidence.length === 0}
-            onClear={clearConfidenceFilter}
-            options={FINDING_CONFIDENCE_LEVELS.map((level) => ({
-              key: level,
-              active: activeConfidenceSet.has(level),
-              onClick: () => toggleConfidence(level),
-              content: (
-                <Badge variant={level} className="text-[11px]">
-                  {findingConfidenceLabel(level)}
-                </Badge>
-              ),
-            }))}
-          />
-          <FilterAxisBar
-            label="Importance"
-            clearLabel="Any"
-            isClearActive={activeImportance.length === 0}
-            onClear={clearImportanceFilter}
-            options={FINDING_IMPORTANCE_LEVELS.map((level) => ({
-              key: level,
-              active: activeImportanceSet.has(level),
-              onClick: () => toggleImportance(level),
-              content: <FindingImportanceBadge importance={level} />,
-            }))}
-          />
-        </div>
+      <div className="flex flex-col gap-2">
+        <FilterAxisBar
+          label="Confidence"
+          clearLabel="Any"
+          isClearActive={activeConfidence.length === 0}
+          onClear={clearConfidenceFilter}
+          options={FINDING_CONFIDENCE_LEVELS.map((level) => ({
+            key: level,
+            active: activeConfidenceSet.has(level),
+            onClick: () => toggleConfidence(level),
+            content: (
+              <span className="inline-flex items-center gap-1.5 text-inherit">
+                <span
+                  className={cn(
+                    "h-[6px] w-[6px] rounded-full",
+                    confidenceDotStyles[level],
+                  )}
+                />
+                <span>{findingConfidenceLabel(level)}</span>
+              </span>
+            ),
+          }))}
+        />
+        <FilterAxisBar
+          label="Importance"
+          clearLabel="Any"
+          isClearActive={activeImportance.length === 0}
+          onClear={clearImportanceFilter}
+          options={FINDING_IMPORTANCE_LEVELS.map((level) => ({
+            key: level,
+            active: activeImportanceSet.has(level),
+            onClick: () => toggleImportance(level),
+            content: (
+              <span className="inline-flex items-center gap-1.5 text-inherit">
+                <span className="h-[6px] w-[6px] rounded-full bg-current/70" />
+                <span>{findingImportanceLabel(level)}</span>
+              </span>
+            ),
+          }))}
+        />
       </div>
 
       <div className="rounded-[8px] border border-border bg-surface">
@@ -210,9 +223,7 @@ export default function FindingsListPage() {
                 <span className="font-mono text-[11px] text-text-quaternary">
                   {f.id}
                 </span>
-                <Badge variant={f.confidence}>
-                  {findingConfidenceLabel(f.confidence)}
-                </Badge>
+                <FindingConfidenceBadge confidence={f.confidence} />
                 <FindingImportanceBadge importance={f.importance} />
               </div>
               <p className="mt-0.5 text-[13px] font-medium text-text">
@@ -263,29 +274,24 @@ function FilterAxisBar({
   }[];
 }) {
   return (
-    <div className="grid gap-2 md:grid-cols-[92px_minmax(0,1fr)] md:items-center">
+    <div className="flex flex-wrap items-center gap-2">
       <span className="text-[12px] font-medium text-text-quaternary">{label}</span>
-      <div className="overflow-hidden rounded-[10px] border border-border-subtle bg-surface-raised">
-        <div
-          className="grid divide-x divide-border-subtle"
-          style={{ gridTemplateColumns: `repeat(${options.length + 1}, minmax(0, 1fr))` }}
-        >
+      <div className="flex h-8 shrink-0 overflow-hidden rounded-[5.5px] border border-border bg-surface">
+        <SegmentButton
+          active={isClearActive}
+          onClick={onClear}
+          content={
+            <span className="text-[12px] font-medium text-inherit">{clearLabel}</span>
+          }
+        />
+        {options.map((option) => (
           <SegmentButton
-            active={isClearActive}
-            onClick={onClear}
-            content={
-              <span className="text-[11px] font-medium text-inherit">{clearLabel}</span>
-            }
+            key={option.key}
+            active={option.active}
+            onClick={option.onClick}
+            content={option.content}
           />
-          {options.map((option) => (
-            <SegmentButton
-              key={option.key}
-              active={option.active}
-              onClick={option.onClick}
-              content={option.content}
-            />
-          ))}
-        </div>
+        ))}
       </div>
     </div>
   );
@@ -306,10 +312,10 @@ function SegmentButton({
       onClick={onClick}
       aria-pressed={active}
       className={cn(
-        "flex min-h-[48px] items-center justify-center px-3 py-2 transition-colors focus-visible:z-10 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent",
+        "flex h-full min-w-0 items-center justify-center px-2.5 text-[12px] leading-none transition-colors first:rounded-l-[5.5px] last:rounded-r-[5.5px] focus-visible:z-10 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent",
         active
-          ? "bg-surface text-text shadow-[inset_0_1px_0_color-mix(in_srgb,var(--color-bg)_55%,transparent)]"
-          : "bg-surface-raised text-text-quaternary hover:bg-surface hover:text-text-secondary",
+          ? "bg-surface-hover text-text"
+          : "text-text-quaternary hover:text-text-tertiary",
       )}
     >
       {content}
