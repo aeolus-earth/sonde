@@ -12,7 +12,7 @@ export const CHAT_COMPOSER_PROMPTS: readonly string[] = [
   "What questions are still open?",
   "Trace a result back to code and data…",
   "Search your research memory…",
-  "@ mention an experiment for full context…",
+  "@ mention a project, direction, or experiment for context…",
   "What did we learn from that run?",
   "Pull context from a notebook or attachment…",
   "What's the next experiment to log?",

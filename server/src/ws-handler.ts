@@ -113,6 +113,14 @@ function sendAgentTraceEvent(
       destructive: event.destructive,
       kind: event.kind,
     });
+  } else if (event.type === "cost_alert") {
+    send(ws, {
+      type: "cost_alert",
+      severity: event.severity,
+      sessionId: event.sessionId,
+      estimatedTotalUsd: event.estimatedTotalUsd,
+      message: event.message,
+    });
   } else if (event.type === "error") {
     send(ws, {
       type: "error",

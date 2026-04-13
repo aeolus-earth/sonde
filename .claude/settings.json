@@ -1,11 +1,12 @@
 {
   "mcpServers": {
     "sonde": {
-      "command": "/Users/mlee27/miniconda3/bin/sonde",
+      "command": "npx",
       "args": [
-        "mcp",
-        "serve"
-      ]
+        "tsx",
+        "src/index.ts"
+      ],
+      "cwd": "/Users/mlee27/code/sonde/server"
     }
   }
 }

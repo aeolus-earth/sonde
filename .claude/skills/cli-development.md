@@ -2,16 +2,18 @@
 
 ## When to use
 
-Apply these rules whenever creating, modifying, or reviewing CLI commands, argument parsers, output formatting, error handling, or help text in this project. This is mandatory for all aeolus CLI work.
+Apply these rules whenever creating, modifying, or reviewing CLI commands,
+argument parsers, output formatting, error handling, help text, or bundled
+skills in this project. This is mandatory for all Sonde CLI work.
 
 ---
 
 ## Command structure
 
-- **`noun verb`** pattern: `aeolus experiment list`, `aeolus finding add`, `aeolus data check`.
+- **`noun verb`** pattern: `sonde experiment list`, `sonde finding create`, `sonde artifact list`.
 - Keep a small, consistent verb set: `list`, `show`, `create`/`log`, `update`, `delete`, `search`.
-- Allow implicit default resource for the most common noun: `aeolus log` = `aeolus experiment log`.
-- Maximum depth: 3 levels. `aeolus <noun> <verb>` is the sweet spot.
+- Allow implicit default resource for the most common noun: `sonde log` = `sonde experiment log`.
+- Maximum depth: 3 levels. `sonde <noun> <verb>` is the sweet spot.
 
 ## Arguments and flags
 
@@ -25,7 +27,8 @@ Apply these rules whenever creating, modifying, or reviewing CLI commands, argum
   - `--verbose` increases detail
   - `--no-color` disables color (also respect `NO_COLOR` env var)
 - State-changing commands get `--dry-run` and `--force` (skip confirmations).
-- Every flag overridable via env var with `AEOLUS_` prefix: `AEOLUS_PROGRAM=weather-intervention`.
+- Where env overrides exist, they should follow the current config layer. Sonde
+  still uses the compatibility `AEOLUS_` prefix in settings today.
 - Priority: explicit flag > env var > project config > user config > default.
 
 ## Output design (critical for agent composability)
@@ -35,7 +38,8 @@ Apply these rules whenever creating, modifying, or reviewing CLI commands, argum
 - **stdout**: Data output only. The thing the user/agent asked for. What gets piped.
 - **stderr**: Everything else — spinners, progress bars, status messages, warnings, prompts, errors.
 
-If someone runs `aeolus list --json | jq '.experiments'`, the spinner must not corrupt the JSON stream. This is non-negotiable.
+If someone runs `sonde experiment list --json | jq '.experiments'`, the spinner
+must not corrupt the JSON stream. This is non-negotiable.
 
 ### Default format
 
@@ -51,8 +55,8 @@ EXP-0090  open      weather-intervention heating=500 ccn=1200      —
 ### Machine formats
 
 - `--json` outputs structured JSON to stdout. Always available.
-- `--format md` outputs markdown. Useful for reports and pasting.
-- `--format tsv` outputs tab-separated values. Useful for piping to `awk`/`cut`.
+- If a command supports additional formats, document them explicitly in that
+  command's help instead of assuming a global `--format` flag exists.
 
 ### Progress and completion
 
@@ -65,8 +69,8 @@ On completion, print a summary with next steps:
   Attached 2 artifacts
   Linked to DIR-003
 
-  View:    aeolus show EXP-0082
-  Attach:  aeolus attach EXP-0082 <file>
+  View:    sonde show EXP-0082
+  Attach:  sonde experiment attach EXP-0082 <file>
 ```
 
 ## Exit codes
@@ -92,8 +96,8 @@ Every error must answer:
 Error: Experiment EXP-9999 not found
   No experiment with this ID exists in the database.
 
-  List experiments: aeolus list
-  Search: aeolus search --text "your query"
+  List experiments: sonde experiment list
+  Search: sonde search --text "your query"
 ```
 
 Suggest corrections on typos (Click does this by default). Distinguish user errors (exit 2) from transient errors (exit 1) from bugs (exit 1 + trace if `--verbose`).
@@ -112,7 +116,7 @@ Validate all inputs before doing work. Don't upload artifacts and then tell the 
 Every command must have at least one realistic example in `--help`:
 
 ```
-Usage: aeolus log [OPTIONS]
+Usage: sonde experiment log [OPTIONS]
 
   Log an experiment to the knowledge base.
 
@@ -134,12 +138,12 @@ Options:
 
 Examples:
   # Quick log after a simulation run
-  aeolus log --quick --program weather-intervention \
+  sonde experiment log --quick --program weather-intervention \
     --params '{"ccn": 1200, "scheme": "spectral_bin"}' \
     --result '{"precip_delta_pct": 5.8}'
 
   # Full log with attachments and provenance
-  aeolus log --program weather-intervention \
+  sonde experiment log --program weather-intervention \
     --hypothesis "Spectral bin changes CCN response curve" \
     --params '{"ccn": 1200, "scheme": "spectral_bin"}' \
     --result '{"precip_delta_pct": 5.8}' \
@@ -148,28 +152,41 @@ Examples:
     --direction DIR-003
 
   # Open an experiment for the backlog
-  aeolus log --open --program weather-intervention \
+  sonde experiment log --open --program weather-intervention \
     --hypothesis "Combined BL heating + seeding is superlinear"
 ```
 
 ## Configuration
 
-- User config: `~/.config/aeolus/config.yaml`
+- User config: `~/.config/sonde/config.yaml`
 - Project config: `.aeolus.yaml` in repo root (walk up from cwd)
-- `aeolus config list` shows all values with source attribution:
+- `sonde doctor` and related inspection commands should make config and auth
+  problems obvious.
 
 ```
 KEY         VALUE                    SOURCE
 program     weather-intervention     project config (.aeolus.yaml)
-db_url      postgresql://...         env var (AEOLUS_DB_URL)
-source      human/mlee               user config (~/.config/aeolus/config.yaml)
+source      human/mlee               user config (~/.config/sonde/config.yaml)
 ```
 
 Setting `program` in project config means scientists don't have to pass `--program` on every command when working in a research repo. This removes the most common flag.
 
+## Bundled skills and runtime support
+
+If you change bundled Sonde skills, verify they deploy cleanly through:
+
+```bash
+sonde setup
+sonde setup --runtime claude-code,cursor,codex
+sonde setup --check
+```
+
+Skill text should teach the canonical Sonde surface, not legacy aliases, and it
+should be usable from Codex, Cursor, and Claude Code after `sonde setup`.
+
 ## Robustness
 
-- **Idempotency**: `aeolus update EXP-0073 --status complete` twice should not fail or create duplicates.
+- **Idempotency**: `sonde experiment update EXP-0073 --status complete` twice should not fail or create duplicates.
 - **Signal handling**: SIGINT/SIGTERM → clean up gracefully, print short message, exit 130. SIGPIPE → exit silently.
 - **Atomic writes**: Write to temp file, then rename. Don't leave half-written artifacts on error.
 - **Timeouts**: All database/network operations have configurable timeouts with sane defaults (30s). Never hang forever.
@@ -184,7 +201,7 @@ from rich.console import Console
 from rich.table import Table
 
 console = Console(stderr=True)  # Rich output goes to stderr
-output = Console()               # Data output goes to stdout
+output = Console()              # Data output goes to stdout
 
 @click.group()
 @click.version_option()

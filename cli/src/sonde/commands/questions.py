@@ -1,4 +1,4 @@
-"""Questions command — list open research questions."""
+"""Questions command — list research questions."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from sonde.output import (
 
 @click.command("questions")
 @click.option("--program", "-p", help="Filter by program")
-@click.option("--all", "show_all", is_flag=True, help="Include dismissed and promoted questions")
+@click.option("--all", "show_all", is_flag=True, help="Include answered and dismissed questions")
 @click.option("--tag", multiple=True, help="Filter by tag (repeatable)")
 @click.option("--source", help="Filter by source")
 @click.option("--count", "show_count", is_flag=True, help="Show only the count")
@@ -39,7 +39,7 @@ def questions_cmd(
     """List research questions.
 
     Shows open and investigating questions by default.
-    Use --all to include dismissed and promoted ones.
+    Use --all to include answered and dismissed ones.
 
     \b
     Examples:
@@ -96,10 +96,9 @@ def questions_cmd(
         print_table(["id", "status", "question", "source", "created"], table_rows)
         err.print(f"\n[dim]{len(questions_list)} question(s)[/dim]")
 
-        prog = resolved or "<program>"
         print_breadcrumbs(
             [
-                "Promote: sonde question promote <Q-ID>",
-                f'Create:  sonde question create -p {prog} "your question"',
+                "Spawn:  sonde question spawn-experiment <Q-ID>",
+                'Create: sonde question create --direction DIR-001 "your question"',
             ]
         )

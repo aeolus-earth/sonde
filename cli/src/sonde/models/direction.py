@@ -26,5 +26,8 @@ class Direction(DirectionCreate):
     """Full direction record as returned from the database."""
 
     id: str
+    primary_question_id: str | None = None
+    question_count: int | None = None
+    answered_question_count: int | None = None
     created_at: datetime
     updated_at: datetime

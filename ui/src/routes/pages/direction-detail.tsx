@@ -1,12 +1,21 @@
 import { useState, useMemo, useCallback } from "react";
 import { getRouteApi, Link } from "@tanstack/react-router";
 import { ROUTE_API } from "../route-ids";
-import { useDirection, useChildDirections, useParentDirection } from "@/hooks/use-directions";
+import {
+  useDirection,
+  useChildDirections,
+  useParentDirection,
+} from "@/hooks/use-directions";
 import { useExperimentsByDirection } from "@/hooks/use-experiments";
+import { useQuestionsByDirection } from "@/hooks/use-questions";
 import { useRecordActivity } from "@/hooks/use-activity";
 import { useHotkey } from "@/hooks/use-keyboard";
 import { Badge } from "@/components/ui/badge";
-import { Skeleton, DetailSectionSkeleton, ExperimentRowSkeleton } from "@/components/ui/skeleton";
+import {
+  Skeleton,
+  DetailSectionSkeleton,
+  ExperimentRowSkeleton,
+} from "@/components/ui/skeleton";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { Section, DetailRow } from "@/components/shared/detail-layout";
 import { directionDetailShareUrl } from "@/lib/app-origin";
@@ -21,23 +30,45 @@ export default function DirectionDetailPage() {
   const navigate = routeApi.useNavigate();
   const [linkCopied, setLinkCopied] = useState(false);
   const { data: dir, isLoading: loadingDir } = useDirection(id);
-  const { data: experiments, isLoading: loadingExps } = useExperimentsByDirection(id);
+  const { data: experiments, isLoading: loadingExps } =
+    useExperimentsByDirection(id);
   const { data: activity } = useRecordActivity(id);
   const { data: childDirections } = useChildDirections(id);
   const { data: parentDir } = useParentDirection(dir?.parent_direction_id);
-  const [statusFilter, setStatusFilter] = useState<ExperimentStatus | "all">("all");
+  const { data: questions } = useQuestionsByDirection(id);
+  const [statusFilter, setStatusFilter] = useState<ExperimentStatus | "all">(
+    "all",
+  );
   const shareUrl = useMemo(() => directionDetailShareUrl(id), [id]);
-  useHotkey("Escape", useCallback(() => navigate({ to: "/directions" }), [navigate]));
+  useHotkey(
+    "Escape",
+    useCallback(() => navigate({ to: "/directions" }), [navigate]),
+  );
 
   const filtered = useMemo(() => {
     if (!experiments) return [];
     if (statusFilter === "all") return experiments;
     return experiments.filter((e) => e.status === statusFilter);
   }, [experiments, statusFilter]);
+  const primaryQuestion = useMemo(
+    () =>
+      questions?.find((question) => question.id === dir?.primary_question_id) ??
+      questions?.[0] ??
+      null,
+    [questions, dir?.primary_question_id],
+  );
+  const secondaryQuestions = useMemo(
+    () =>
+      (questions ?? []).filter(
+        (question) => question.id !== primaryQuestion?.id,
+      ),
+    [questions, primaryQuestion?.id],
+  );
 
   const handleExpClick = useCallback(
-    (expId: string) => navigate({ to: "/experiments/$id", params: { id: expId } }),
-    [navigate]
+    (expId: string) =>
+      navigate({ to: "/experiments/$id", params: { id: expId } }),
+    [navigate],
   );
 
   const copyShareLink = useCallback(async () => {
@@ -75,7 +106,13 @@ export default function DirectionDetailPage() {
     );
   }
 
-  const statuses: (ExperimentStatus | "all")[] = ["all", "open", "running", "complete", "failed"];
+  const statuses: (ExperimentStatus | "all")[] = [
+    "all",
+    "open",
+    "running",
+    "complete",
+    "failed",
+  ];
 
   return (
     <div className="space-y-4">
@@ -83,7 +120,12 @@ export default function DirectionDetailPage() {
         items={[
           { label: "Directions", to: "/directions" },
           ...(parentDir
-            ? [{ label: `${parentDir.id} ${parentDir.title}`, to: `/directions/${parentDir.id}` }]
+            ? [
+                {
+                  label: `${parentDir.id} ${parentDir.title}`,
+                  to: `/directions/${parentDir.id}`,
+                },
+              ]
             : []),
           { label: dir.id },
         ]}
@@ -102,15 +144,22 @@ export default function DirectionDetailPage() {
             </h1>
             <Badge
               variant={
-                dir.status === "active" ? "running" :
-                dir.status === "completed" ? "complete" :
-                dir.status === "abandoned" ? "failed" : "default"
+                dir.status === "active"
+                  ? "running"
+                  : dir.status === "completed"
+                    ? "complete"
+                    : dir.status === "abandoned"
+                      ? "failed"
+                      : "default"
               }
             >
               {dir.status}
             </Badge>
           </div>
-          <span className="text-[12px] text-text-quaternary" title={formatDateTime(dir.created_at)}>
+          <span
+            className="text-[12px] text-text-quaternary"
+            title={formatDateTime(dir.created_at)}
+          >
             {formatDateTimeShort(dir.created_at)}
           </span>
         </div>
@@ -122,7 +171,10 @@ export default function DirectionDetailPage() {
             aria-label={linkCopied ? "Link copied" : `Copy link: ${shareUrl}`}
             className="inline-flex shrink-0 items-center gap-1.5 rounded-[5.5px] border border-border-subtle bg-surface-raised px-2.5 py-1 text-[12px] font-medium text-text-secondary transition-colors hover:bg-surface-hover"
           >
-            <Copy className="h-3.5 w-3.5 shrink-0 text-text-quaternary" aria-hidden />
+            <Copy
+              className="h-3.5 w-3.5 shrink-0 text-text-quaternary"
+              aria-hidden
+            />
             {linkCopied ? "Copied" : "Copy link"}
           </button>
         </div>
@@ -146,8 +198,30 @@ export default function DirectionDetailPage() {
             )}
             <p className="text-[14px] font-medium text-text">{dir.title}</p>
             <p className="mt-1 text-[13px] leading-relaxed text-text-secondary">
-              {dir.question}
+              {primaryQuestion?.question ?? dir.question}
             </p>
+            {secondaryQuestions.length > 0 && (
+              <div className="mt-3 border-t border-border-subtle pt-3">
+                <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-quaternary">
+                  More questions
+                </p>
+                <div className="mt-2 space-y-1.5">
+                  {secondaryQuestions.map((question) => (
+                    <Link
+                      key={question.id}
+                      to="/questions/$id"
+                      params={{ id: question.id }}
+                      className="block rounded-[6px] px-2 py-1.5 text-[12px] text-text-secondary transition-colors hover:bg-surface-hover hover:text-text"
+                    >
+                      <span className="mr-2 font-mono text-[11px] text-text-quaternary">
+                        {question.id}
+                      </span>
+                      {question.question}
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            )}
           </Section>
 
           {childDirections && childDirections.length > 0 && (
@@ -156,7 +230,12 @@ export default function DirectionDetailPage() {
                 {childDirections.map((child) => (
                   <div
                     key={child.id}
-                    onClick={() => navigate({ to: "/directions/$id", params: { id: child.id } })}
+                    onClick={() =>
+                      navigate({
+                        to: "/directions/$id",
+                        params: { id: child.id },
+                      })
+                    }
                     className="flex min-w-0 cursor-pointer items-center gap-3 px-3 py-2 transition-colors hover:bg-surface-hover"
                   >
                     <GitFork className="h-3.5 w-3.5 shrink-0 text-text-quaternary" />
@@ -165,9 +244,13 @@ export default function DirectionDetailPage() {
                     </span>
                     <Badge
                       variant={
-                        child.status === "active" ? "running" :
-                        child.status === "completed" ? "complete" :
-                        child.status === "abandoned" ? "failed" : "default"
+                        child.status === "active"
+                          ? "running"
+                          : child.status === "completed"
+                            ? "complete"
+                            : child.status === "abandoned"
+                              ? "failed"
+                              : "default"
                       }
                     >
                       {child.status}
@@ -239,7 +322,10 @@ export default function DirectionDetailPage() {
                 ))}
                 {filtered.length === 0 && (
                   <div className="py-8 text-center text-[13px] text-text-quaternary">
-                    No experiments {statusFilter !== "all" ? `with status "${statusFilter}"` : ""}
+                    No experiments{" "}
+                    {statusFilter !== "all"
+                      ? `with status "${statusFilter}"`
+                      : ""}
                   </div>
                 )}
               </div>
@@ -251,11 +337,17 @@ export default function DirectionDetailPage() {
           <Section title="Details">
             <div className="divide-y divide-border-subtle">
               <DetailRow label="Program">{dir.program}</DetailRow>
+              <DetailRow label="Questions">
+                {questions?.length ?? dir.question_count ?? 0}
+              </DetailRow>
               <DetailRow label="Status">
                 <Badge
                   variant={
-                    dir.status === "active" ? "running" :
-                    dir.status === "completed" ? "complete" : "default"
+                    dir.status === "active"
+                      ? "running"
+                      : dir.status === "completed"
+                        ? "complete"
+                        : "default"
                   }
                 >
                   {dir.status}
@@ -270,7 +362,9 @@ export default function DirectionDetailPage() {
                   >
                     {parentDir.id}
                   </Link>
-                  <span className="ml-1 text-[11px] text-text-quaternary">{parentDir.title}</span>
+                  <span className="ml-1 text-[11px] text-text-quaternary">
+                    {parentDir.title}
+                  </span>
                 </DetailRow>
               )}
               {dir.spawned_from_experiment_id && (
@@ -294,7 +388,9 @@ export default function DirectionDetailPage() {
               <DetailRow label="Running">{dir.running_count}</DetailRow>
               <DetailRow label="Open">{dir.open_count}</DetailRow>
               {childDirections && childDirections.length > 0 && (
-                <DetailRow label="Sub-directions">{childDirections.length}</DetailRow>
+                <DetailRow label="Sub-directions">
+                  {childDirections.length}
+                </DetailRow>
               )}
             </div>
           </Section>

@@ -640,6 +640,7 @@ def _upsert_finding(frontmatter: dict[str, Any], body: str, filepath: Path) -> d
                 "topic": topic,
                 "finding": finding_text,
                 "confidence": frontmatter.get("confidence", "medium"),
+                "importance": frontmatter.get("importance", "medium"),
                 "evidence": frontmatter.get("evidence") or [],
                 "source": source,
                 "supersedes": frontmatter.get("supersedes"),
@@ -655,6 +656,7 @@ def _upsert_finding(frontmatter: dict[str, Any], body: str, filepath: Path) -> d
             topic=topic,
             finding=finding_text,
             confidence=frontmatter.get("confidence", "medium"),
+            importance=frontmatter.get("importance", "medium"),
             evidence=frontmatter.get("evidence") or [],
             source=source,
             supersedes=frontmatter.get("supersedes"),
@@ -677,6 +679,7 @@ def _upsert_question(frontmatter: dict[str, Any], body: str, filepath: Path) -> 
             {
                 "program": program,
                 "question": question_text,
+                "direction_id": frontmatter.get("direction_id"),
                 "context": context,
                 "status": frontmatter.get("status", "open"),
                 "source": source,
@@ -694,6 +697,7 @@ def _upsert_question(frontmatter: dict[str, Any], body: str, filepath: Path) -> 
         QuestionCreate(
             program=program,
             question=question_text,
+            direction_id=frontmatter.get("direction_id"),
             context=context,
             status=frontmatter.get("status", "open"),
             source=source,

@@ -14,9 +14,22 @@ import {
 } from "@xyflow/react";
 import dagre from "@dagrejs/dagre";
 import "@xyflow/react/dist/style.css";
-import { Briefcase, ChevronRight, ChevronDown, GitFork, Lightbulb } from "lucide-react";
+import {
+  Briefcase,
+  ChevronRight,
+  ChevronDown,
+  CircleHelp,
+  GitFork,
+  Lightbulb,
+} from "lucide-react";
+import { FindingImportanceBadge } from "@/components/shared/finding-importance-badge";
 import { Badge } from "@/components/ui/badge";
-import { useStatusChartColors, useThemeCssColors } from "@/hooks/use-theme-css-colors";
+import {
+  useStatusChartColors,
+  useThemeCssColors,
+} from "@/hooks/use-theme-css-colors";
+import { findingConfidenceLabel } from "@/lib/finding-confidence";
+import { sortFindingsByImportanceAndRecency } from "@/lib/finding-importance";
 import type {
   DirectionSummary,
   ExperimentSummary,
@@ -24,6 +37,7 @@ import type {
   Finding,
   FindingConfidence,
   ProjectSummary,
+  QuestionSummary,
 } from "@/types/sonde";
 
 type StatusColorMap = Record<ExperimentStatus, string>;
@@ -60,6 +74,16 @@ type DirectionNodeData = {
   onOpen?: NodeAction;
 };
 
+type QuestionNodeData = {
+  question: string;
+  questionId: string;
+  count: number;
+  findingCount: number;
+  expanded: boolean;
+  onToggle?: NodeAction;
+  onOpen?: NodeAction;
+};
+
 type UngroupedNodeData = {
   count: number;
   expanded: boolean;
@@ -80,6 +104,8 @@ const PROJ_W = 280;
 const PROJ_H = 56;
 const DIR_W = 260;
 const DIR_H = 52;
+const QUESTION_W = 240;
+const QUESTION_H = 56;
 const FIND_W = 220;
 const FIND_H = 70;
 
@@ -92,7 +118,11 @@ function ExperimentNode({ data }: NodeProps) {
       className="w-[220px] rounded-[8px] border border-border bg-surface transition-shadow hover:shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-accent)_30%,transparent)]"
       style={{ borderLeftWidth: 3, borderLeftColor: d.statusColors[d.status] }}
     >
-      <Handle type="target" position={Position.Top} className="!h-1.5 !w-1.5 !bg-border" />
+      <Handle
+        type="target"
+        position={Position.Top}
+        className="!h-1.5 !w-1.5 !bg-border"
+      />
       <div className="px-2.5 py-2">
         <div className="flex items-start gap-2">
           {d.hasChildren ? (
@@ -124,7 +154,9 @@ function ExperimentNode({ data }: NodeProps) {
           >
             <div className="flex items-center justify-between gap-1">
               <div className="min-w-0 flex items-center gap-1.5">
-                <span className="truncate font-mono text-[11px] font-medium text-text">{d.id}</span>
+                <span className="truncate font-mono text-[11px] font-medium text-text">
+                  {d.id}
+                </span>
               </div>
               <Badge variant={d.status}>{d.status}</Badge>
             </div>
@@ -147,7 +179,11 @@ function ExperimentNode({ data }: NodeProps) {
           </button>
         </div>
       </div>
-      <Handle type="source" position={Position.Bottom} className="!h-1.5 !w-1.5 !bg-border" />
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        className="!h-1.5 !w-1.5 !bg-border"
+      />
     </div>
   );
 }
@@ -156,7 +192,11 @@ function ProjectNode({ data }: NodeProps) {
   const d = data as unknown as ProjectNodeData;
   return (
     <div className="relative w-[280px] rounded-[8px] border-2 border-border bg-bg px-3 py-2.5 shadow-sm transition-colors hover:border-border-subtle">
-      <Handle type="target" position={Position.Top} className="!h-1.5 !w-1.5 !bg-border" />
+      <Handle
+        type="target"
+        position={Position.Top}
+        className="!h-1.5 !w-1.5 !bg-border"
+      />
       <div className="flex items-center gap-2.5">
         <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[4px] border border-border-subtle bg-surface-raised text-text-secondary">
           <Briefcase className="h-3.5 w-3.5" />
@@ -169,10 +209,14 @@ function ProjectNode({ data }: NodeProps) {
           }}
           className="min-w-0 flex-1 text-left"
         >
-          <p className="truncate text-[12px] font-semibold text-text">{d.label}</p>
+          <p className="truncate text-[12px] font-semibold text-text">
+            {d.label}
+          </p>
           <div className="mt-0.5 flex flex-wrap items-center gap-2">
             {d.projectId && (
-              <span className="font-mono text-[10px] text-text-quaternary">{d.projectId}</span>
+              <span className="font-mono text-[10px] text-text-quaternary">
+                {d.projectId}
+              </span>
             )}
             {!d.expanded && (
               <span className="text-[10px] text-text-quaternary">
@@ -195,10 +239,18 @@ function ProjectNode({ data }: NodeProps) {
           }}
           className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[4px] text-text-quaternary transition-colors hover:bg-surface-raised hover:text-text-secondary"
         >
-          {d.expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+          {d.expanded ? (
+            <ChevronDown className="h-3.5 w-3.5" />
+          ) : (
+            <ChevronRight className="h-3.5 w-3.5" />
+          )}
         </button>
       </div>
-      <Handle type="source" position={Position.Bottom} className="!h-1.5 !w-1.5 !bg-border" />
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        className="!h-1.5 !w-1.5 !bg-border"
+      />
     </div>
   );
 }
@@ -207,8 +259,16 @@ function DirectionNode({ data }: NodeProps) {
   const d = data as unknown as DirectionNodeData;
   return (
     <div className="flex w-[260px] items-center gap-2.5 rounded-[8px] border border-accent/20 bg-accent/5 px-3 py-2.5 transition-colors hover:border-accent/40">
-      <Handle type="target" position={Position.Top} className="!h-1.5 !w-1.5 !bg-accent" />
-      <Handle type="source" position={Position.Bottom} className="!h-1.5 !w-1.5 !bg-accent" />
+      <Handle
+        type="target"
+        position={Position.Top}
+        className="!h-1.5 !w-1.5 !bg-accent"
+      />
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        className="!h-1.5 !w-1.5 !bg-accent"
+      />
       <button
         type="button"
         aria-label={d.expanded ? `Collapse ${d.dirId}` : `Expand ${d.dirId}`}
@@ -218,7 +278,11 @@ function DirectionNode({ data }: NodeProps) {
         }}
         className="flex h-5 w-5 shrink-0 items-center justify-center rounded-[4px] text-accent transition-colors hover:bg-accent/10"
       >
-        {d.expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+        {d.expanded ? (
+          <ChevronDown className="h-3.5 w-3.5" />
+        ) : (
+          <ChevronRight className="h-3.5 w-3.5" />
+        )}
       </button>
       <button
         type="button"
@@ -234,7 +298,11 @@ function DirectionNode({ data }: NodeProps) {
           {!d.expanded && (
             <div className="flex items-center gap-1.5">
               {Object.entries(d.statusCounts).map(([status, count]) => (
-                <span key={status} className="flex items-center gap-0.5 text-[10px]" style={{ color: d.statusColors[status as ExperimentStatus] }}>
+                <span
+                  key={status}
+                  className="flex items-center gap-0.5 text-[10px]"
+                  style={{ color: d.statusColors[status as ExperimentStatus] }}
+                >
                   <span className="inline-block h-[5px] w-[5px] rounded-full bg-current" />
                   {count}
                 </span>
@@ -242,10 +310,68 @@ function DirectionNode({ data }: NodeProps) {
             </div>
           )}
           {d.expanded && (
-            <span className="text-[10px] text-text-quaternary">{d.count} exp{d.count !== 1 ? "s" : ""}</span>
+            <span className="text-[10px] text-text-quaternary">
+              {d.count} exp{d.count !== 1 ? "s" : ""}
+            </span>
           )}
         </div>
       </button>
+    </div>
+  );
+}
+
+function QuestionNode({ data }: NodeProps) {
+  const d = data as unknown as QuestionNodeData;
+  return (
+    <div className="flex w-[240px] items-center gap-2.5 rounded-[8px] border border-border-subtle bg-surface-raised px-3 py-2.5 transition-colors hover:border-border">
+      <Handle
+        type="target"
+        position={Position.Top}
+        className="!h-1.5 !w-1.5 !bg-border"
+      />
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        className="!h-1.5 !w-1.5 !bg-border"
+      />
+      <button
+        type="button"
+        aria-label={
+          d.expanded ? `Collapse ${d.questionId}` : `Expand ${d.questionId}`
+        }
+        onClick={(event) => {
+          event.stopPropagation();
+          d.onToggle?.();
+        }}
+        className="flex h-5 w-5 shrink-0 items-center justify-center rounded-[4px] text-text-tertiary transition-colors hover:bg-surface hover:text-text-secondary"
+      >
+        {d.expanded ? (
+          <ChevronDown className="h-3.5 w-3.5" />
+        ) : (
+          <ChevronRight className="h-3.5 w-3.5" />
+        )}
+      </button>
+      <button
+        type="button"
+        onClick={(event) => {
+          event.stopPropagation();
+          d.onOpen?.();
+        }}
+        className="min-w-0 flex-1 text-left"
+      >
+        <p className="line-clamp-2 text-[11px] font-medium text-text">
+          {d.question}
+        </p>
+        <div className="mt-0.5 flex items-center gap-2">
+          <span className="font-mono text-[10px] text-text-quaternary">
+            {d.questionId}
+          </span>
+          <span className="text-[10px] text-text-quaternary">
+            {d.count} exp · {d.findingCount} findings
+          </span>
+        </div>
+      </button>
+      <CircleHelp className="h-3.5 w-3.5 shrink-0 text-text-tertiary" />
     </div>
   );
 }
@@ -254,26 +380,48 @@ function UngroupedNode({ data }: NodeProps) {
   const d = data as unknown as UngroupedNodeData;
   return (
     <div className="flex w-[260px] items-center gap-2.5 rounded-[8px] border border-border-subtle bg-surface-raised px-3 py-2.5 transition-colors hover:border-border">
-      <Handle type="target" position={Position.Top} className="!h-1.5 !w-1.5 !bg-border" />
-      <Handle type="source" position={Position.Bottom} className="!h-1.5 !w-1.5 !bg-border" />
+      <Handle
+        type="target"
+        position={Position.Top}
+        className="!h-1.5 !w-1.5 !bg-border"
+      />
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        className="!h-1.5 !w-1.5 !bg-border"
+      />
       <button
         type="button"
-        aria-label={d.expanded ? "Collapse unlinked experiments" : "Expand unlinked experiments"}
+        aria-label={
+          d.expanded
+            ? "Collapse unlinked experiments"
+            : "Expand unlinked experiments"
+        }
         onClick={(event) => {
           event.stopPropagation();
           d.onToggle?.();
         }}
         className="flex h-5 w-5 shrink-0 items-center justify-center rounded-[4px] text-text-tertiary transition-colors hover:bg-surface hover:text-text-secondary"
       >
-        {d.expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+        {d.expanded ? (
+          <ChevronDown className="h-3.5 w-3.5" />
+        ) : (
+          <ChevronRight className="h-3.5 w-3.5" />
+        )}
       </button>
       <div className="min-w-0 flex-1">
-        <p className="text-[12px] font-medium text-text-secondary">No direction</p>
+        <p className="text-[12px] font-medium text-text-secondary">
+          No direction
+        </p>
         <div className="mt-0.5 flex items-center gap-2">
           {!d.expanded && (
             <div className="flex items-center gap-1.5">
               {Object.entries(d.statusCounts).map(([status, count]) => (
-                <span key={status} className="flex items-center gap-0.5 text-[10px]" style={{ color: d.statusColors[status as ExperimentStatus] }}>
+                <span
+                  key={status}
+                  className="flex items-center gap-0.5 text-[10px]"
+                  style={{ color: d.statusColors[status as ExperimentStatus] }}
+                >
                   <span className="inline-block h-[5px] w-[5px] rounded-full bg-current" />
                   {count}
                 </span>
@@ -281,7 +429,9 @@ function UngroupedNode({ data }: NodeProps) {
             </div>
           )}
           {d.expanded && (
-            <span className="text-[10px] text-text-quaternary">{d.count} experiment{d.count !== 1 ? "s" : ""}</span>
+            <span className="text-[10px] text-text-quaternary">
+              {d.count} experiment{d.count !== 1 ? "s" : ""}
+            </span>
           )}
         </div>
       </div>
@@ -289,7 +439,9 @@ function UngroupedNode({ data }: NodeProps) {
   );
 }
 
-function confidenceVariant(confidence: FindingConfidence): "high" | "medium" | "low" {
+function confidenceVariant(
+  confidence: FindingConfidence,
+): FindingConfidence {
   return confidence;
 }
 
@@ -297,7 +449,11 @@ function FindingNode({ data }: NodeProps) {
   const d = data as unknown as FindingNodeData;
   return (
     <div className="w-[220px] rounded-[8px] border border-border-subtle bg-surface-raised transition-shadow hover:shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-accent)_22%,transparent)]">
-      <Handle type="target" position={Position.Top} className="!h-1.5 !w-1.5 !bg-border" />
+      <Handle
+        type="target"
+        position={Position.Top}
+        className="!h-1.5 !w-1.5 !bg-border"
+      />
       <button
         type="button"
         onClick={(event) => {
@@ -311,8 +467,18 @@ function FindingNode({ data }: NodeProps) {
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-2">
-            <span className="truncate font-mono text-[11px] font-medium text-text">{d.id}</span>
-            <Badge variant={confidenceVariant(d.confidence)}>{d.confidence}</Badge>
+            <span className="truncate font-mono text-[11px] font-medium text-text">
+              {d.id}
+            </span>
+            <div className="flex items-center gap-1.5">
+              <FindingImportanceBadge
+                importance={d.importance}
+                className="px-1.5 py-0.5"
+              />
+              <Badge variant={confidenceVariant(d.confidence)}>
+                {findingConfidenceLabel(d.confidence)}
+              </Badge>
+            </div>
           </div>
           <p className="mt-0.5 truncate text-[10px] font-medium text-text-secondary">
             {d.topic}
@@ -330,6 +496,7 @@ const nodeTypes = {
   experiment: memo(ExperimentNode),
   project: memo(ProjectNode),
   direction: memo(DirectionNode),
+  question: memo(QuestionNode),
   ungrouped: memo(UngroupedNode),
   finding: memo(FindingNode),
 };
@@ -339,14 +506,24 @@ const nodeTypes = {
 function nodeBox(type: string | undefined): { w: number; h: number } {
   if (type === "experiment") return { w: EXP_W, h: EXP_H };
   if (type === "project") return { w: PROJ_W, h: PROJ_H };
+  if (type === "question") return { w: QUESTION_W, h: QUESTION_H };
   if (type === "finding") return { w: FIND_W, h: FIND_H };
   return { w: DIR_W, h: DIR_H };
 }
 
-function layoutGraph(nodes: Node[], edges: Edge[]): { nodes: Node[]; edges: Edge[] } {
+function layoutGraph(
+  nodes: Node[],
+  edges: Edge[],
+): { nodes: Node[]; edges: Edge[] } {
   const g = new dagre.graphlib.Graph();
   g.setDefaultEdgeLabel(() => ({}));
-  g.setGraph({ rankdir: "TB", ranksep: 88, nodesep: 44, marginx: 60, marginy: 60 });
+  g.setGraph({
+    rankdir: "TB",
+    ranksep: 88,
+    nodesep: 44,
+    marginx: 60,
+    marginy: 60,
+  });
 
   for (const node of nodes) {
     const { w, h } = nodeBox(node.type);
@@ -376,7 +553,9 @@ function countStatuses(exps: ExperimentSummary[]): Record<string, number> {
   return counts;
 }
 
-function buildFindingsByExperiment(findings: Finding[]): Map<string, Finding[]> {
+function buildFindingsByExperiment(
+  findings: Finding[],
+): Map<string, Finding[]> {
   const map = new Map<string, Finding[]>();
   for (const finding of findings) {
     for (const experimentId of finding.evidence) {
@@ -385,13 +564,15 @@ function buildFindingsByExperiment(findings: Finding[]): Map<string, Finding[]> 
       map.set(experimentId, list);
     }
   }
-  for (const list of map.values()) {
-    list.sort((a, b) => b.valid_from.localeCompare(a.valid_from));
+  for (const [experimentId, linkedFindings] of map.entries()) {
+    map.set(experimentId, sortFindingsByImportanceAndRecency(linkedFindings));
   }
   return map;
 }
 
-function buildChildMap(exps: ExperimentSummary[]): Map<string, ExperimentSummary[]> {
+function buildChildMap(
+  exps: ExperimentSummary[],
+): Map<string, ExperimentSummary[]> {
   const map = new Map<string, ExperimentSummary[]>();
   for (const e of exps) {
     if (e.parent_id) {
@@ -403,7 +584,7 @@ function buildChildMap(exps: ExperimentSummary[]): Map<string, ExperimentSummary
 }
 
 function buildDirectionsByParent(
-  directions: DirectionSummary[]
+  directions: DirectionSummary[],
 ): Map<string, DirectionSummary[]> {
   const map = new Map<string, DirectionSummary[]>();
   for (const direction of directions) {
@@ -419,7 +600,7 @@ function buildDirectionsByParent(
 }
 
 function buildDirectionsBySpawnExperiment(
-  directions: DirectionSummary[]
+  directions: DirectionSummary[],
 ): Map<string, DirectionSummary[]> {
   const map = new Map<string, DirectionSummary[]>();
   for (const direction of directions) {
@@ -435,7 +616,7 @@ function buildDirectionsBySpawnExperiment(
 }
 
 function buildExperimentsByDirection(
-  experiments: ExperimentSummary[]
+  experiments: ExperimentSummary[],
 ): Map<string, ExperimentSummary[]> {
   const map = new Map<string, ExperimentSummary[]>();
   for (const experiment of experiments) {
@@ -447,14 +628,48 @@ function buildExperimentsByDirection(
   return map;
 }
 
-function rootExperimentsForGroup(experiments: ExperimentSummary[]): ExperimentSummary[] {
+function buildQuestionsByDirection(
+  questions: QuestionSummary[],
+): Map<string, QuestionSummary[]> {
+  const map = new Map<string, QuestionSummary[]>();
+  for (const question of questions) {
+    if (!question.direction_id) continue;
+    const list = map.get(question.direction_id) ?? [];
+    list.push(question);
+    map.set(question.direction_id, list);
+  }
+  for (const list of map.values()) {
+    list.sort((a, b) => a.created_at.localeCompare(b.created_at));
+  }
+  return map;
+}
+
+function buildExperimentsByPrimaryQuestion(
+  experiments: ExperimentSummary[],
+): Map<string, ExperimentSummary[]> {
+  const map = new Map<string, ExperimentSummary[]>();
+  for (const experiment of experiments) {
+    if (!experiment.primary_question_id) continue;
+    const list = map.get(experiment.primary_question_id) ?? [];
+    list.push(experiment);
+    map.set(experiment.primary_question_id, list);
+  }
+  return map;
+}
+
+function rootExperimentsForGroup(
+  experiments: ExperimentSummary[],
+): ExperimentSummary[] {
   const ids = new Set(experiments.map((experiment) => experiment.id));
   return experiments.filter(
-    (experiment) => !experiment.parent_id || !ids.has(experiment.parent_id)
+    (experiment) => !experiment.parent_id || !ids.has(experiment.parent_id),
   );
 }
 
-function countDescendants(id: string, childMap: Map<string, ExperimentSummary[]>): number {
+function countDescendants(
+  id: string,
+  childMap: Map<string, ExperimentSummary[]>,
+): number {
   const children = childMap.get(id) ?? [];
   let count = children.length;
   for (const c of children) count += countDescendants(c.id, childMap);
@@ -473,17 +688,21 @@ function addExperimentSubtree(
   directionsByParent: Map<string, DirectionSummary[]>,
   directionsBySpawnExperiment: Map<string, DirectionSummary[]>,
   experimentsByDirection: Map<string, ExperimentSummary[]>,
+  questionsByDirection: Map<string, QuestionSummary[]>,
+  experimentsByQuestion: Map<string, ExperimentSummary[]>,
   findingsByExperiment: Map<string, Finding[]>,
   nodes: Node[],
   edges: Edge[],
+  onQuestionOpen?: (id: string) => void,
   onExperimentOpen?: (id: string) => void,
   onDirectionOpen?: (id: string) => void,
-  onFindingOpen?: (id: string) => void
+  onFindingOpen?: (id: string) => void,
 ) {
   const children = childMap.get(exp.id) ?? [];
   const spawnedDirections = directionsBySpawnExperiment.get(exp.id) ?? [];
   const findings = findingsByExperiment.get(exp.id) ?? [];
-  const hasChildren = children.length > 0 || spawnedDirections.length > 0 || findings.length > 0;
+  const hasChildren =
+    children.length > 0 || spawnedDirections.length > 0 || findings.length > 0;
   const isExpanded = expandedNodes.has(exp.id);
 
   nodes.push({
@@ -494,7 +713,10 @@ function addExperimentSubtree(
       ...exp,
       statusColors: statusColor,
       hasChildren,
-      childCount: countDescendants(exp.id, childMap) + spawnedDirections.length + findings.length,
+      childCount:
+        countDescendants(exp.id, childMap) +
+        spawnedDirections.length +
+        findings.length,
       isExpanded,
       depth,
       onToggle: hasChildren ? () => toggleNode(exp.id) : undefined,
@@ -547,9 +769,12 @@ function addExperimentSubtree(
         directionsByParent,
         directionsBySpawnExperiment,
         experimentsByDirection,
+        questionsByDirection,
+        experimentsByQuestion,
         findingsByExperiment,
         nodes,
         edges,
+        onQuestionOpen,
         onExperimentOpen,
         onDirectionOpen,
         onFindingOpen,
@@ -569,14 +794,96 @@ function addExperimentSubtree(
         directionsByParent,
         directionsBySpawnExperiment,
         experimentsByDirection,
+        questionsByDirection,
+        experimentsByQuestion,
         findingsByExperiment,
         nodes,
         edges,
+        onQuestionOpen,
         onExperimentOpen,
         onDirectionOpen,
         onFindingOpen,
       );
     }
+  }
+}
+
+function addQuestionSubtree(
+  question: QuestionSummary,
+  parentNodeId: string,
+  childMap: Map<string, ExperimentSummary[]>,
+  expandedNodes: Set<string>,
+  toggleNode: (key: string) => void,
+  statusColor: StatusColorMap,
+  borderColor: string,
+  directionsByParent: Map<string, DirectionSummary[]>,
+  directionsBySpawnExperiment: Map<string, DirectionSummary[]>,
+  experimentsByDirection: Map<string, ExperimentSummary[]>,
+  questionsByDirection: Map<string, QuestionSummary[]>,
+  experimentsByQuestion: Map<string, ExperimentSummary[]>,
+  findingsByExperiment: Map<string, Finding[]>,
+  nodes: Node[],
+  edges: Edge[],
+  onExperimentOpen?: (id: string) => void,
+  onQuestionOpen?: (id: string) => void,
+  onDirectionOpen?: (id: string) => void,
+  onFindingOpen?: (id: string) => void,
+) {
+  const headerId = `question-${question.id}`;
+  const isExpanded = expandedNodes.has(headerId);
+  const questionExperiments = experimentsByQuestion.get(question.id) ?? [];
+  const questionRoots = rootExperimentsForGroup(questionExperiments);
+  const findingCount = question.linked_finding_count ?? 0;
+
+  nodes.push({
+    id: headerId,
+    type: "question",
+    position: { x: 0, y: 0 },
+    data: {
+      question: question.question,
+      questionId: question.id,
+      count: questionExperiments.length,
+      findingCount,
+      expanded: isExpanded,
+      onToggle: () => toggleNode(headerId),
+      onOpen: () => onQuestionOpen?.(question.id),
+    } as Record<string, unknown>,
+    draggable: true,
+  });
+
+  edges.push({
+    id: `${parentNodeId}->${headerId}`,
+    source: parentNodeId,
+    target: headerId,
+    type: "smoothstep",
+    style: { stroke: borderColor, strokeWidth: 1 },
+  });
+
+  if (!isExpanded) return;
+
+  for (const experiment of questionRoots) {
+    addExperimentSubtree(
+      experiment,
+      0,
+      headerId,
+      childMap,
+      expandedNodes,
+      toggleNode,
+      statusColor,
+      borderColor,
+      directionsByParent,
+      directionsBySpawnExperiment,
+      experimentsByDirection,
+      questionsByDirection,
+      experimentsByQuestion,
+      findingsByExperiment,
+      nodes,
+      edges,
+      onQuestionOpen,
+      onExperimentOpen,
+      onDirectionOpen,
+      onFindingOpen,
+    );
   }
 }
 
@@ -591,17 +898,25 @@ function addDirectionSubtree(
   directionsByParent: Map<string, DirectionSummary[]>,
   directionsBySpawnExperiment: Map<string, DirectionSummary[]>,
   experimentsByDirection: Map<string, ExperimentSummary[]>,
+  questionsByDirection: Map<string, QuestionSummary[]>,
+  experimentsByQuestion: Map<string, ExperimentSummary[]>,
   findingsByExperiment: Map<string, Finding[]>,
   nodes: Node[],
   edges: Edge[],
+  onQuestionOpen?: (id: string) => void,
   onExperimentOpen?: (id: string) => void,
   onDirectionOpen?: (id: string) => void,
-  onFindingOpen?: (id: string) => void
+  onFindingOpen?: (id: string) => void,
 ) {
   const headerId = `dir-${direction.id}`;
   const isExpanded = expandedNodes.has(headerId);
   const directionExperiments = experimentsByDirection.get(direction.id) ?? [];
-  const directionRoots = rootExperimentsForGroup(directionExperiments);
+  const directionQuestions = questionsByDirection.get(direction.id) ?? [];
+  const directionRoots = rootExperimentsForGroup(
+    directionExperiments.filter(
+      (experiment) => !experiment.primary_question_id,
+    ),
+  );
 
   nodes.push({
     id: headerId,
@@ -630,6 +945,30 @@ function addDirectionSubtree(
 
   if (!isExpanded) return;
 
+  for (const question of directionQuestions) {
+    addQuestionSubtree(
+      question,
+      headerId,
+      childMap,
+      expandedNodes,
+      toggleNode,
+      statusColor,
+      borderColor,
+      directionsByParent,
+      directionsBySpawnExperiment,
+      experimentsByDirection,
+      questionsByDirection,
+      experimentsByQuestion,
+      findingsByExperiment,
+      nodes,
+      edges,
+      onExperimentOpen,
+      onQuestionOpen,
+      onDirectionOpen,
+      onFindingOpen,
+    );
+  }
+
   for (const experiment of directionRoots) {
     addExperimentSubtree(
       experiment,
@@ -643,9 +982,12 @@ function addDirectionSubtree(
       directionsByParent,
       directionsBySpawnExperiment,
       experimentsByDirection,
+      questionsByDirection,
+      experimentsByQuestion,
       findingsByExperiment,
       nodes,
       edges,
+      onQuestionOpen,
       onExperimentOpen,
       onDirectionOpen,
       onFindingOpen,
@@ -665,9 +1007,12 @@ function addDirectionSubtree(
       directionsByParent,
       directionsBySpawnExperiment,
       experimentsByDirection,
+      questionsByDirection,
+      experimentsByQuestion,
       findingsByExperiment,
       nodes,
       edges,
+      onQuestionOpen,
       onExperimentOpen,
       onDirectionOpen,
       onFindingOpen,
@@ -682,7 +1027,7 @@ function projectNodeId(raw: string | null): string {
 /** Resolve FK to a known project row; orphan ids bucket with unassigned. */
 function bucketProjectId(
   projectId: string | null | undefined,
-  knownIds: Set<string>
+  knownIds: Set<string>,
 ): string | null {
   if (projectId == null) return null;
   return knownIds.has(projectId) ? projectId : null;
@@ -695,7 +1040,9 @@ interface ExperimentGraphProps {
   directions: DirectionSummary[];
   projects: ProjectSummary[];
   findings: Finding[];
+  questions: QuestionSummary[];
   onNodeClick?: (id: string) => void;
+  onQuestionNavigate?: (questionId: string) => void;
   onProjectNavigate?: (projectId: string) => void;
   onDirectionNavigate?: (directionId: string) => void;
   onFindingNavigate?: (findingId: string) => void;
@@ -706,21 +1053,33 @@ export const ExperimentGraph = memo(function ExperimentGraph({
   directions,
   projects,
   findings,
+  questions,
   onNodeClick,
+  onQuestionNavigate,
   onProjectNavigate,
   onDirectionNavigate,
   onFindingNavigate,
 }: ExperimentGraphProps) {
   const colors = useThemeCssColors();
   const statusColor = useStatusChartColors();
-  const knownProjectIds = useMemo(() => new Set(projects.map((p) => p.id)), [projects]);
-  const findingsByExperiment = useMemo(() => buildFindingsByExperiment(findings), [findings]);
+  const knownProjectIds = useMemo(
+    () => new Set(projects.map((p) => p.id)),
+    [projects],
+  );
+  const findingsByExperiment = useMemo(
+    () => buildFindingsByExperiment(findings),
+    [findings],
+  );
   const expandAllKeys = useMemo(() => {
     const keys = new Set<string>();
 
     const needsUnassigned =
-      directions.some((d) => bucketProjectId(d.project_id, knownProjectIds) === null) ||
-      experiments.some((e) => bucketProjectId(e.project_id, knownProjectIds) === null);
+      directions.some(
+        (d) => bucketProjectId(d.project_id, knownProjectIds) === null,
+      ) ||
+      experiments.some(
+        (e) => bucketProjectId(e.project_id, knownProjectIds) === null,
+      );
 
     for (const project of projects) {
       keys.add(projectNodeId(project.id));
@@ -733,20 +1092,37 @@ export const ExperimentGraph = memo(function ExperimentGraph({
     for (const direction of directions) {
       keys.add(`dir-${direction.id}`);
     }
+    for (const question of questions) {
+      keys.add(`question-${question.id}`);
+    }
     for (const experiment of experiments) {
       if (
-        experiments.some((candidate) => candidate.parent_id === experiment.id) ||
-        directions.some((direction) => direction.spawned_from_experiment_id === experiment.id) ||
+        experiments.some(
+          (candidate) => candidate.parent_id === experiment.id,
+        ) ||
+        directions.some(
+          (direction) => direction.spawned_from_experiment_id === experiment.id,
+        ) ||
         (findingsByExperiment.get(experiment.id)?.length ?? 0) > 0
       ) {
         keys.add(experiment.id);
       }
     }
     return keys;
-  }, [projects, directions, experiments, knownProjectIds, findingsByExperiment]);
+  }, [
+    projects,
+    directions,
+    experiments,
+    questions,
+    knownProjectIds,
+    findingsByExperiment,
+  ]);
 
-  const [expanded, setExpanded] = useState<Set<string>>(() => new Set(expandAllKeys));
-  const [hasUserAdjustedExpansion, setHasUserAdjustedExpansion] = useState(false);
+  const [expanded, setExpanded] = useState<Set<string>>(
+    () => new Set(expandAllKeys),
+  );
+  const [hasUserAdjustedExpansion, setHasUserAdjustedExpansion] =
+    useState(false);
 
   useEffect(() => {
     if (hasUserAdjustedExpansion) return;
@@ -764,20 +1140,34 @@ export const ExperimentGraph = memo(function ExperimentGraph({
   }, []);
 
   const childMap = useMemo(() => buildChildMap(experiments), [experiments]);
-  const directionsByParent = useMemo(() => buildDirectionsByParent(directions), [directions]);
+  const directionsByParent = useMemo(
+    () => buildDirectionsByParent(directions),
+    [directions],
+  );
   const directionsBySpawnExperiment = useMemo(
     () => buildDirectionsBySpawnExperiment(directions),
-    [directions]
+    [directions],
+  );
+  const questionsByDirection = useMemo(
+    () => buildQuestionsByDirection(questions),
+    [questions],
   );
   const experimentsByDirection = useMemo(
     () => buildExperimentsByDirection(experiments),
-    [experiments]
+    [experiments],
   );
-  const experimentIds = useMemo(() => new Set(experiments.map((e) => e.id)), [experiments]);
+  const experimentsByQuestion = useMemo(
+    () => buildExperimentsByPrimaryQuestion(experiments),
+    [experiments],
+  );
+  const experimentIds = useMemo(
+    () => new Set(experiments.map((e) => e.id)),
+    [experiments],
+  );
 
   const isRoot = useCallback(
     (e: ExperimentSummary) => !e.parent_id || !experimentIds.has(e.parent_id),
-    [experimentIds]
+    [experimentIds],
   );
 
   const { nodes: initialNodes, edges: initialEdges } = useMemo(() => {
@@ -786,16 +1176,24 @@ export const ExperimentGraph = memo(function ExperimentGraph({
 
     const projEdgeStyle = { stroke: colors.textTertiary, strokeWidth: 2 };
 
-    const sortedProjects = [...projects].sort((a, b) => a.name.localeCompare(b.name));
+    const sortedProjects = [...projects].sort((a, b) =>
+      a.name.localeCompare(b.name),
+    );
 
     const needsUnassigned =
-      directions.some((d) => bucketProjectId(d.project_id, knownProjectIds) === null) ||
+      directions.some(
+        (d) => bucketProjectId(d.project_id, knownProjectIds) === null,
+      ) ||
       experiments.some(
-        (e) => bucketProjectId(e.project_id, knownProjectIds) === null && isRoot(e)
+        (e) =>
+          bucketProjectId(e.project_id, knownProjectIds) === null && isRoot(e),
       );
 
     type PEntry = { id: string | null; label: string };
-    const entries: PEntry[] = sortedProjects.map((p) => ({ id: p.id, label: p.name }));
+    const entries: PEntry[] = sortedProjects.map((p) => ({
+      id: p.id,
+      label: p.name,
+    }));
     if (needsUnassigned) {
       entries.push({ id: null, label: "Unassigned" });
     }
@@ -807,7 +1205,7 @@ export const ExperimentGraph = memo(function ExperimentGraph({
       const isProjExpanded = expanded.has(pid);
 
       const allInProject = experiments.filter(
-        (e) => bucketProjectId(e.project_id, knownProjectIds) === bucketId
+        (e) => bucketProjectId(e.project_id, knownProjectIds) === bucketId,
       );
 
       const dirsInProj = directions
@@ -815,7 +1213,8 @@ export const ExperimentGraph = memo(function ExperimentGraph({
           (d) =>
             bucketProjectId(d.project_id, knownProjectIds) === bucketId &&
             !d.parent_direction_id &&
-            (!d.spawned_from_experiment_id || !experimentIds.has(d.spawned_from_experiment_id))
+            (!d.spawned_from_experiment_id ||
+              !experimentIds.has(d.spawned_from_experiment_id)),
         )
         .sort((a, b) => a.title.localeCompare(b.title));
 
@@ -830,7 +1229,10 @@ export const ExperimentGraph = memo(function ExperimentGraph({
           directionCount: dirsInProj.length,
           expanded: isProjExpanded,
           onToggle: () => toggle(pid),
-          onOpen: projectId === null ? undefined : () => onProjectNavigate?.(projectId),
+          onOpen:
+            projectId === null
+              ? undefined
+              : () => onProjectNavigate?.(projectId),
         } as Record<string, unknown>,
         draggable: true,
       });
@@ -849,9 +1251,12 @@ export const ExperimentGraph = memo(function ExperimentGraph({
           directionsByParent,
           directionsBySpawnExperiment,
           experimentsByDirection,
+          questionsByDirection,
+          experimentsByQuestion,
           findingsByExperiment,
           rawNodes,
           rawEdges,
+          onQuestionNavigate,
           onNodeClick,
           onDirectionNavigate,
           onFindingNavigate,
@@ -862,7 +1267,7 @@ export const ExperimentGraph = memo(function ExperimentGraph({
         (e) =>
           isRoot(e) &&
           e.direction_id === null &&
-          bucketProjectId(e.project_id, knownProjectIds) === bucketId
+          bucketProjectId(e.project_id, knownProjectIds) === bucketId,
       );
 
       if (noDirExps.length > 0) {
@@ -905,9 +1310,12 @@ export const ExperimentGraph = memo(function ExperimentGraph({
               directionsByParent,
               directionsBySpawnExperiment,
               experimentsByDirection,
+              questionsByDirection,
+              experimentsByQuestion,
               findingsByExperiment,
               rawNodes,
               rawEdges,
+              onQuestionNavigate,
               onNodeClick,
               onDirectionNavigate,
               onFindingNavigate,
@@ -927,6 +1335,8 @@ export const ExperimentGraph = memo(function ExperimentGraph({
     directionsByParent,
     directionsBySpawnExperiment,
     experimentsByDirection,
+    questionsByDirection,
+    experimentsByQuestion,
     findingsByExperiment,
     experimentIds,
     statusColor,
@@ -934,6 +1344,7 @@ export const ExperimentGraph = memo(function ExperimentGraph({
     colors.textTertiary,
     knownProjectIds,
     isRoot,
+    onQuestionNavigate,
     onDirectionNavigate,
     onFindingNavigate,
     onNodeClick,

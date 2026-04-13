@@ -25,10 +25,18 @@ export type DirectionStatus =
 export type QuestionStatus =
   | "open"
   | "investigating"
+  | "answered"
   | "promoted"
   | "dismissed";
 
-export type FindingConfidence = "low" | "medium" | "high";
+export type FindingConfidence =
+  | "very_low"
+  | "low"
+  | "medium"
+  | "high"
+  | "very_high";
+
+export type FindingImportance = "low" | "medium" | "high";
 
 export type ArtifactType =
   | "figure"
@@ -40,7 +48,12 @@ export type ArtifactType =
   | "report"
   | "other";
 
-export type RecordType = "experiment" | "finding" | "question" | "direction" | "project";
+export type RecordType =
+  | "experiment"
+  | "finding"
+  | "question"
+  | "direction"
+  | "project";
 
 export interface RepoSnapshot {
   name: string;
@@ -149,6 +162,8 @@ export interface Experiment {
 }
 
 export interface ExperimentSummary extends Experiment {
+  primary_question_id?: string | null;
+  question_count?: number;
   artifact_count: number;
   artifact_types: ArtifactType[] | null;
   artifact_filenames: string[] | null;
@@ -157,7 +172,13 @@ export interface ExperimentSummary extends Experiment {
 /** Result from search_all RPC */
 export interface SearchResult {
   id: string;
-  record_type: "experiment" | "finding" | "direction" | "question" | "artifact" | "project";
+  record_type:
+    | "experiment"
+    | "finding"
+    | "direction"
+    | "question"
+    | "artifact"
+    | "project";
   title: string | null;
   subtitle: string | null;
   program: string | null;
@@ -172,6 +193,7 @@ export interface Finding {
   topic: string;
   finding: string;
   confidence: FindingConfidence;
+  importance: FindingImportance;
   content: string | null;
   metadata: Record<string, unknown>;
   evidence: string[];
@@ -189,17 +211,21 @@ export interface Direction {
   program: string;
   title: string;
   question: string;
+  context?: string | null;
   status: DirectionStatus;
   source: string;
   /** Present when direction_status includes project_id (migration applied). */
   project_id?: string | null;
   parent_direction_id?: string | null;
   spawned_from_experiment_id?: string | null;
+  primary_question_id?: string | null;
   created_at: string;
   updated_at: string;
 }
 
 export interface DirectionSummary extends Direction {
+  question_count?: number;
+  answered_question_count?: number;
   experiment_count: number;
   complete_count: number;
   open_count: number;
@@ -211,9 +237,8 @@ export interface Question {
   id: string;
   program: string;
   question: string;
+  direction_id: string | null;
   context: string | null;
-  content: string | null;
-  metadata: Record<string, unknown>;
   status: QuestionStatus;
   source: string;
   raised_by: string | null;
@@ -222,6 +247,12 @@ export interface Question {
   tags: string[];
   created_at: string;
   updated_at: string;
+}
+
+export interface QuestionSummary extends Question {
+  linked_experiment_count: number;
+  primary_experiment_count: number;
+  linked_finding_count: number;
 }
 
 export interface Artifact {

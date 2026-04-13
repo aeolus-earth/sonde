@@ -12,7 +12,7 @@ def get_graph_neighborhood(exp: Experiment) -> dict[str, Any]:
     """Fetch all entities connected to an experiment."""
     from sonde.db import directions as dir_db
     from sonde.db import findings as find_db
-    from sonde.db import questions as q_db
+    from sonde.db import question_links as q_links
 
     graph: dict[str, Any] = {
         "related_experiments": [],
@@ -27,7 +27,7 @@ def get_graph_neighborhood(exp: Experiment) -> dict[str, Any]:
         graph["related_experiments"] = get_by_ids(exp.related)
 
     graph["reverse_related"] = get_reverse_related(exp.id)
-    graph["questions_answered"] = q_db.find_by_promoted_to(exp.id)
+    graph["questions_answered"] = q_links.list_questions_for_experiment(exp.id)
     graph["findings"] = find_db.find_by_evidence(exp.id)
 
     if exp.direction_id:

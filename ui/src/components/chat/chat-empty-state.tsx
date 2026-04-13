@@ -2,6 +2,7 @@ import { memo } from "react";
 import { getWelcomeGreeting } from "@/lib/welcome-name";
 import { useAuthStore } from "@/stores/auth";
 import { cn } from "@/lib/utils";
+import { ChatInstallCta } from "./chat-install-cta";
 
 interface ChatEmptyStateProps {
   /** Embedded column: tighter vertical rhythm (experiment page, etc.). */
@@ -20,7 +21,7 @@ export const ChatEmptyState = memo(function ChatEmptyState({
     : `Welcome back, ${getWelcomeGreeting(user)}`;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-3 py-6 sm:px-5">
+    <div className="relative flex min-h-0 flex-1 flex-col items-center justify-center px-3 py-6 sm:px-5">
       <div
         className={cn(
           "flex w-full max-w-[52rem] flex-col items-center text-center",
@@ -35,10 +36,14 @@ export const ChatEmptyState = memo(function ChatEmptyState({
             Ask about experiments, findings, or research directions.
           </p>
           <p className="text-[11px] leading-relaxed text-text-quaternary">
-            Use{" "}
-            <kbd className="rounded-[2px] border border-border px-1">@</kbd> to
-            reference records
+            Use <kbd className="rounded-[2px] border border-border px-1">@</kbd>{" "}
+            to reference projects, directions, experiments, findings, or programs
           </p>
+        </div>
+      </div>
+      <div className="pointer-events-auto absolute bottom-3 right-3 z-10 w-[min(100%,34rem)] sm:bottom-4 sm:right-4">
+        <div className="ml-auto max-w-[34rem]">
+          <ChatInstallCta compact />
         </div>
       </div>
     </div>

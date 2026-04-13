@@ -40,6 +40,12 @@ export function getRuntimeAuditToken(
   );
 }
 
+export function getInternalAdminToken(
+  env: NodeJS.ProcessEnv = process.env,
+): string | null {
+  return normalizeSecret(env.SONDE_INTERNAL_ADMIN_TOKEN, null);
+}
+
 export function getGitHubAllowedRepos(
   env: NodeJS.ProcessEnv = process.env,
 ): Set<string> {

@@ -7,29 +7,53 @@ from dataclasses import dataclass
 from sonde.auth import resolve_source
 from sonde.config import get_settings
 from sonde.db import activity as activity_db
-from sonde.db import directions as dir_db
+from sonde.db import question_links as q_links
 from sonde.db import questions as db
-from sonde.models.direction import DirectionCreate
 from sonde.services.errors import WorkflowError
 
 
 @dataclass(frozen=True, slots=True)
-class PromoteQuestionResult:
-    """Result payload for question promotion."""
+class SpawnExperimentResult:
+    """Result payload for question-driven experiment creation."""
 
     question_id: str
-    promoted_to_type: str
-    promoted_to_id: str
+    experiment_id: str
 
 
 def promote_question(
     *,
     question_id: str,
     target_type: str,
-    program: str | None,
-    title: str | None,
-) -> PromoteQuestionResult:
-    """Promote a question while keeping linked records consistent."""
+    program: str | None = None,
+    title: str | None = None,
+    direction_id: str | None = None,
+) -> SpawnExperimentResult:
+    """Backward-compatible question promotion entrypoint.
+
+    The product now treats experiment spawning as the canonical promotion flow.
+    This wrapper keeps older service callers and tests working while routing
+    everything through the new question-first workflow.
+    """
+
+    del program, title
+    if target_type != "experiment":
+        raise WorkflowError(
+            f"Unsupported promotion target: {target_type}",
+            "Questions can only be promoted by spawning an experiment.",
+            "Use: sonde question spawn-experiment <Q-ID>",
+        )
+    return spawn_experiment_from_question(
+        question_id=question_id,
+        direction_id=direction_id,
+    )
+
+
+def spawn_experiment_from_question(
+    *,
+    question_id: str,
+    direction_id: str | None = None,
+) -> SpawnExperimentResult:
+    """Create a linked open experiment from a question."""
     from sonde.db import experiments as exp_db
     from sonde.models.experiment import ExperimentCreate
 
@@ -40,83 +64,50 @@ def promote_question(
             "No question with this ID.",
             "List questions: sonde questions",
         )
-    if q.status == "promoted":
-        raise WorkflowError(
-            f"Question {question_id} already promoted",
-            f"Promoted to {q.promoted_to_type} {q.promoted_to_id}.",
-            f"View: sonde show {q.promoted_to_id}",
-        )
 
     settings = get_settings()
     source = settings.source or resolve_source()
-    resolved_program = program or q.program
-    if not resolved_program:
-        raise WorkflowError(
-            "No program",
-            "Specify --program or ensure the question has a program.",
-            "Use --program <name> or set 'program' in .aeolus.yaml",
-        )
+    resolved_direction = direction_id or q.direction_id or settings.default_direction or None
+    promoted_ctx = f"Spawned from {question_id}"
 
-    promoted_ctx = f"Promoted from {question_id}"
-    promoted_to_id: str
-    created_kind: str
-    cleanup_id: str
-
-    if target_type == "direction":
-        direction = dir_db.create(
-            DirectionCreate(
-                program=resolved_program,
-                title=title or q.question,
-                question=q.question,
-                status="active",
-                source=source,
-            )
+    exp = exp_db.create(
+        ExperimentCreate(
+            program=q.program,
+            status="open",
+            source=source,
+            content=f"# {q.question}\n\n{q.context or promoted_ctx}",
+            tags=q.tags,
+            direction_id=resolved_direction,
         )
-        promoted_to_id = direction.id
-        created_kind = "direction"
-        cleanup_id = direction.id
-    else:
-        exp = exp_db.create(
-            ExperimentCreate(
-                program=resolved_program,
-                status="open",
-                source=source,
-                content=f"# {q.question}\n\n{q.context or promoted_ctx}",
-                tags=q.tags,
-                direction_id=settings.default_direction or None,
-            )
-        )
-        promoted_to_id = exp.id
-        created_kind = "experiment"
-        cleanup_id = exp.id
+    )
 
     updated = db.update(
         question_id,
         {
-            "status": "promoted",
-            "promoted_to_type": target_type,
-            "promoted_to_id": promoted_to_id,
+            "status": "investigating",
+            "promoted_to_type": "experiment",
+            "promoted_to_id": exp.id,
         },
     )
     if updated is None:
-        _rollback_promoted_record(created_kind, cleanup_id)
+        _rollback_experiment(exp.id)
         raise WorkflowError(
             f"Failed to update {question_id}",
-            "The target record was created, but the question could not be marked as promoted.",
+            "The experiment was created, but the question could not be updated.",
             "Retry the command after the partial record has been cleaned up.",
         )
 
-    activity_db.log_activity(promoted_to_id, created_kind, "created")
+    q_links.link_experiment(question_id, exp.id, is_primary=True)
+    activity_db.log_activity(exp.id, "experiment", "created")
     activity_db.log_activity(
         question_id,
         "question",
         "status_changed",
-        {"from": q.status, "to": "promoted"},
+        {"from": q.status, "to": "investigating", "experiment_id": exp.id},
     )
-    return PromoteQuestionResult(
+    return SpawnExperimentResult(
         question_id=question_id,
-        promoted_to_type=target_type,
-        promoted_to_id=promoted_to_id,
+        experiment_id=exp.id,
     )
 
 
@@ -130,12 +121,8 @@ def delete_question(question_id: str) -> None:
     db.delete(question_id)
 
 
-def _rollback_promoted_record(record_type: str, record_id: str) -> None:
-    """Best-effort cleanup for a promotion that failed mid-flight."""
-    if record_type == "direction":
-        dir_db.delete(record_id)
-        return
-
+def _rollback_experiment(record_id: str) -> None:
+    """Best-effort cleanup for an experiment that failed mid-flight."""
     from sonde.db import experiments as exp_db
 
     exp_db.delete(record_id)

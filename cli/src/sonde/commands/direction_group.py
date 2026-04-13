@@ -14,8 +14,10 @@ from sonde.commands.push import push_direction
 from sonde.commands.remove import remove_direction
 from sonde.config import get_settings
 from sonde.db import directions as db
+from sonde.db import questions as q_db
 from sonde.db.activity import log_activity
 from sonde.models.direction import DirectionCreate
+from sonde.models.question import QuestionCreate
 from sonde.output import err, print_error, print_json, print_success, print_table
 from sonde.services.directions import delete_direction as delete_direction_record
 
@@ -181,8 +183,26 @@ def direction_create(
         spawned_from_experiment_id=from_experiment,
     )
     result = db.create(data)
+    primary_question = q_db.create(
+        QuestionCreate(
+            program=resolved_program,
+            question=question_text,
+            direction_id=result.id,
+            context=context,
+            status="investigating" if status in ("active", "paused") else "open",
+            source=resolved_source,
+        )
+    )
+    result = (
+        db.update(
+            result.id,
+            {"primary_question_id": primary_question.id, "question": question_text},
+        )
+        or result
+    )
     details: dict = {"parent_direction": parent_direction, "spawned_from": from_experiment}
     log_activity(result.id, "direction", "created", {k: v for k, v in details.items() if v})
+    log_activity(primary_question.id, "question", "created", {"direction_id": result.id})
 
     if ctx.obj.get("json"):
         print_json(result.model_dump(mode="json"))
@@ -192,6 +212,7 @@ def direction_create(
             detail_lines.append(f"Parent: {parent_direction}")
         if from_experiment:
             detail_lines.append(f"Spawned from: {from_experiment}")
+        detail_lines.append(f"Primary question: {primary_question.id}")
         print_success(
             f"Created {result.id} ({resolved_program})",
             details=detail_lines,
@@ -292,6 +313,40 @@ def direction_update(
         raise SystemExit(1)
 
     log_activity(direction_id, "direction", "updated", updates)
+    if question is not None:
+        if current.primary_question_id:
+            q_db.update(
+                current.primary_question_id,
+                {
+                    "question": question,
+                    "context": context if context is not None else current.context,
+                    "direction_id": direction_id,
+                },
+            )
+            log_activity(
+                current.primary_question_id,
+                "question",
+                "updated",
+                {"direction_id": direction_id, "question": question},
+            )
+        else:
+            primary_question = q_db.create(
+                QuestionCreate(
+                    program=current.program,
+                    question=question,
+                    direction_id=direction_id,
+                    context=context if context is not None else current.context,
+                    status="investigating"
+                    if (status or current.status) in ("active", "paused")
+                    else "open",
+                    source=resolve_source(),
+                )
+            )
+            db.update(
+                direction_id,
+                {"primary_question_id": primary_question.id, "question": question},
+            )
+            log_activity(primary_question.id, "question", "created", {"direction_id": direction_id})
     if ctx.obj.get("json"):
         print_json(updated.model_dump(mode="json"))
     else:

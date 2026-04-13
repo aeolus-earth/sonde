@@ -55,7 +55,7 @@ jobs:
             }
 
             const requiredWorkflows = [
-              { workflowId: "deploy-staging.yml", name: "Deploy Staging" },
+              { workflowId: "deploy-staging.yml", name: "Sync Staging Infra" },
               { workflowId: "config-audit.yml", name: "Config Audit" },
               { workflowId: "cli-hosted-audit.yml", name: "CLI Hosted Audit" },
             ];

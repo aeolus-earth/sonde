@@ -6,6 +6,8 @@ import {
   MessageCircleQuestion,
   Folder,
   ArrowLeft,
+  ChevronRight,
+  Boxes,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { RecordType } from "@/types/sonde";
@@ -19,10 +21,64 @@ const typeIcon: Record<RecordType, typeof FlaskConical> = {
   project: Folder,
 };
 
+function recordTypeLabel(type: RecordType): string {
+  switch (type) {
+    case "project":
+      return "Project";
+    case "direction":
+      return "Direction";
+    case "experiment":
+      return "Experiment";
+    case "finding":
+      return "Finding";
+    case "question":
+      return "Question";
+    default:
+      return "Record";
+  }
+}
+
+function groupDrillItems(items: MentionListItem[]) {
+  const groups: Array<{ key: string; label: string; items: Extract<MentionListItem, { kind: "record" }>[] }> = [];
+  for (const item of items) {
+    if (item.kind !== "record") continue;
+    const label = `${recordTypeLabel(item.type)}s`;
+    const last = groups[groups.length - 1];
+    if (last && last.key === item.type) {
+      last.items.push(item);
+    } else {
+      groups.push({
+        key: item.type,
+        label,
+        items: [item],
+      });
+    }
+  }
+  return groups;
+}
+
+function groupRootItems(items: MentionListItem[]) {
+  const groups: Array<{ key: string; label: string; items: MentionListItem[] }> = [];
+
+  for (const item of items) {
+    const key = item.kind === "program" ? "program" : item.type;
+    const label = item.kind === "program" ? "Programs" : `${recordTypeLabel(item.type)}s`;
+    const last = groups[groups.length - 1];
+    if (last && last.key === key) {
+      last.items.push(item);
+    } else {
+      groups.push({ key, label, items: [item] });
+    }
+  }
+
+  return groups;
+}
+
 interface ChatMentionPopoverProps {
   items: MentionListItem[];
   selectedIndex: number;
   onSelect: (index: number) => void;
+  onProgramDrill: (programId: string, programName: string) => void;
   position: { top: number; left: number };
   drillDownProgramName: string | null;
   onBack: () => void;
@@ -35,6 +91,7 @@ export const ChatMentionPopover = memo(function ChatMentionPopover({
   items,
   selectedIndex,
   onSelect,
+  onProgramDrill,
   position,
   drillDownProgramName,
   onBack,
@@ -44,6 +101,8 @@ export const ChatMentionPopover = memo(function ChatMentionPopover({
 }: ChatMentionPopoverProps) {
   const listRef = useRef<HTMLDivElement>(null);
   const filterRef = useRef<HTMLInputElement>(null);
+  const drillGroups = groupDrillItems(items);
+  const rootGroups = groupRootItems(items);
 
   useEffect(() => {
     const el = listRef.current?.children[selectedIndex] as HTMLElement | undefined;
@@ -60,12 +119,16 @@ export const ChatMentionPopover = memo(function ChatMentionPopover({
 
   return (
     <div
-      className="absolute z-50 w-[min(100%,320px)] overflow-hidden rounded-[8px] border border-border bg-surface shadow-lg"
-      style={{ bottom: position.top, left: position.left }}
+      className="absolute z-50 flex h-[360px] min-h-[240px] min-w-[320px] max-w-[min(calc(100vw-32px),640px)] max-h-[70vh] resize flex-col overflow-hidden rounded-[8px] border border-border bg-surface shadow-lg"
+      style={{
+        bottom: `calc(100% + ${position.top}px)`,
+        left: position.left,
+        width: "min(calc(100vw - 32px), 360px)",
+      }}
     >
       {drillDownProgramName ? (
         <>
-          <div className="flex items-center gap-1 border-b border-border-subtle px-2 py-1.5">
+          <div className="flex shrink-0 items-center gap-1 border-b border-border-subtle px-2 py-1.5">
             <button
               type="button"
               onMouseDown={(e) => {
@@ -78,128 +141,60 @@ export const ChatMentionPopover = memo(function ChatMentionPopover({
               <ArrowLeft className="h-3.5 w-3.5" />
             </button>
             <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-text-secondary">
-              Experiments in {drillDownProgramName}
+              Records in {drillDownProgramName}
             </span>
           </div>
-          <div className="border-b border-border-subtle px-2 py-1.5">
+          <div className="shrink-0 border-b border-border-subtle px-2 py-1.5">
             <input
               ref={filterRef}
               type="search"
               value={drillFilterQuery}
               onChange={(e) => onDrillFilterChange(e.target.value)}
               onMouseDown={(e) => e.stopPropagation()}
-              placeholder="Filter experiments…"
+              placeholder="Filter records…"
               className="w-full rounded-[5.5px] border border-border-subtle bg-bg px-2 py-1 text-[12px] text-text placeholder:text-text-quaternary focus:outline-none focus:ring-1 focus:ring-accent"
             />
           </div>
-          <div ref={listRef} className="max-h-[220px] overflow-y-auto py-0.5">
+          <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto py-0.5">
             {drillLoading && items.length === 0 && (
               <div className="px-2 py-3 text-center text-[11px] text-text-quaternary">
-                Loading experiments…
+                Loading records…
               </div>
             )}
             {!drillLoading && items.length === 0 && (
               <div className="px-2 py-3 text-center text-[11px] text-text-quaternary">
-                No experiments match
+                No records match
               </div>
             )}
-            {items.map((item, i) => {
-              if (item.kind !== "record") return null;
-              const Icon = typeIcon[item.type];
-              return (
-                <button
-                  key={`${item.type}-${item.id}`}
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    onSelect(i);
-                  }}
-                  className={cn(
-                    "flex w-full items-center gap-2 px-2 py-1.5 text-left transition-colors",
-                    i === selectedIndex ? "bg-surface-hover" : ""
-                  )}
-                >
-                  <Icon className="h-3.5 w-3.5 shrink-0 text-text-tertiary" />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      {item.kind === "record" && item.type === "experiment" && item.program && (
-                        <span className="shrink-0 font-mono text-[10px] text-text-quaternary">
-                          {item.program}/
-                        </span>
-                      )}
-                      <span className="font-mono text-[11px] text-accent">{item.id}</span>
-                      <span className="truncate text-[11px] text-text-secondary">
-                        {item.label}
-                      </span>
-                    </div>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </>
-      ) : (
-        <>
-          <div className="px-2 py-1.5 text-[10px] font-medium uppercase tracking-wider text-text-quaternary">
-            Programs & records
-          </div>
-          <div ref={listRef} className="max-h-[240px] overflow-y-auto py-0.5">
-            {items.map((item, i) => {
-              const showProgramHeader =
-                item.kind === "program" &&
-                (i === 0 || items[i - 1]?.kind !== "program");
-              const showRecordHeader =
-                item.kind === "record" &&
-                (i === 0 || items[i - 1]?.kind === "program");
-
-              return (
-                <div key={`${item.kind}-${item.kind === "program" ? item.programId : item.id}`}>
-                  {showProgramHeader && (
-                    <div className="px-2 pb-0.5 pt-1 text-[10px] font-medium text-text-quaternary">
-                      Programs
-                    </div>
-                  )}
-                  {showRecordHeader && (
-                    <div className="px-2 pb-0.5 pt-1 text-[10px] font-medium text-text-quaternary">
-                      Experiments & records
-                    </div>
-                  )}
-                  {item.kind === "program" ? (
+            {drillGroups.map((group, groupIndex) => (
+              <div
+                key={group.key}
+                className={cn(groupIndex > 0 && "border-t border-border-subtle")}
+              >
+                <div className="px-2 pb-0.5 pt-1.5 text-[10px] font-medium text-text-quaternary">
+                  {group.label}
+                </div>
+                {group.items.map((item) => {
+                  const itemIndex = items.findIndex(
+                    (candidate) =>
+                      candidate.kind === "record" &&
+                      candidate.id === item.id &&
+                      candidate.type === item.type,
+                  );
+                  const Icon = typeIcon[item.type];
+                  return (
                     <button
+                      key={`${item.type}-${item.id}`}
                       onMouseDown={(e) => {
                         e.preventDefault();
-                        onSelect(i);
+                        onSelect(itemIndex);
                       }}
                       className={cn(
                         "flex w-full items-center gap-2 px-2 py-1.5 text-left transition-colors",
-                        i === selectedIndex ? "bg-surface-hover" : ""
+                        itemIndex === selectedIndex ? "bg-surface-hover" : ""
                       )}
                     >
-                      <Folder className="h-3.5 w-3.5 shrink-0 text-accent" />
-                      <div className="min-w-0 flex-1">
-                        <span className="truncate text-[11px] text-text">{item.label}</span>
-                        <span className="font-mono text-[10px] text-text-quaternary">
-                          {" "}
-                          · {item.programId}
-                        </span>
-                      </div>
-                    </button>
-                  ) : (
-                    <button
-                      onMouseDown={(e) => {
-                        e.preventDefault();
-                        onSelect(i);
-                      }}
-                      className={cn(
-                        "flex w-full items-center gap-2 px-2 py-1.5 text-left transition-colors",
-                        i === selectedIndex ? "bg-surface-hover" : ""
-                      )}
-                    >
-                      {(() => {
-                        const Icon = typeIcon[item.type];
-                        return (
-                          <Icon className="h-3.5 w-3.5 shrink-0 text-text-tertiary" />
-                        );
-                      })()}
+                      <Icon className="h-3.5 w-3.5 shrink-0 text-text-tertiary" />
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-1.5">
                           {item.type === "experiment" && item.program && (
@@ -214,10 +209,115 @@ export const ChatMentionPopover = memo(function ChatMentionPopover({
                         </div>
                       </div>
                     </button>
-                  )}
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="shrink-0 border-b border-border-subtle px-2 py-1.5 text-[10px] font-medium uppercase tracking-wider text-text-quaternary">
+            Mentionable records
+          </div>
+          <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto py-0.5">
+            {rootGroups.map((group, groupIndex) => (
+              <div
+                key={group.key}
+                className={cn(groupIndex > 0 && "border-t border-border-subtle")}
+              >
+                <div className="px-2 pb-0.5 pt-1.5 text-[10px] font-medium text-text-quaternary">
+                  {group.label}
                 </div>
-              );
-            })}
+                {group.items.map((item) => {
+                  const itemIndex = items.findIndex((candidate) =>
+                    item.kind === "program"
+                      ? candidate.kind === "program" &&
+                        candidate.programId === item.programId
+                      : candidate.kind === "record" &&
+                        candidate.id === item.id &&
+                        candidate.type === item.type,
+                  );
+
+                  if (item.kind === "program") {
+                    return (
+                      <div
+                        key={`program-${item.programId}`}
+                        className={cn(
+                          "flex items-center gap-1",
+                          itemIndex === selectedIndex ? "bg-surface-hover" : ""
+                        )}
+                      >
+                        <button
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            onSelect(itemIndex);
+                          }}
+                          className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left transition-colors"
+                        >
+                          <Boxes className="h-3.5 w-3.5 shrink-0 text-accent" />
+                          <div className="min-w-0 flex-1">
+                            <span className="truncate text-[11px] text-text">{item.label}</span>
+                            <span className="font-mono text-[10px] text-text-quaternary">
+                              {" "}
+                              · {item.programId}
+                            </span>
+                          </div>
+                        </button>
+                        <button
+                          type="button"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            onProgramDrill(item.programId, item.label);
+                          }}
+                          className={cn(
+                            "mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-[5.5px] text-text-quaternary transition-colors hover:bg-surface-raised hover:text-text-secondary",
+                            itemIndex === selectedIndex ? "bg-surface-raised" : ""
+                          )}
+                          aria-label={`Browse records in ${item.label}`}
+                          title={`Browse records in ${item.label}`}
+                        >
+                          <ChevronRight className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    );
+                  }
+
+                  const Icon = typeIcon[item.type];
+                  return (
+                    <button
+                      key={`${item.type}-${item.id}`}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        onSelect(itemIndex);
+                      }}
+                      className={cn(
+                        "flex w-full items-center gap-2 px-2 py-1.5 text-left transition-colors",
+                        itemIndex === selectedIndex ? "bg-surface-hover" : ""
+                      )}
+                    >
+                      <Icon className="h-3.5 w-3.5 shrink-0 text-text-tertiary" />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {item.type === "experiment" && item.program && (
+                            <span className="shrink-0 font-mono text-[10px] text-text-quaternary">
+                              {item.program}/
+                            </span>
+                          )}
+                          <span className="font-mono text-[11px] text-accent">{item.id}</span>
+                          <span className="truncate text-[11px] text-text-secondary">
+                            {item.label}
+                          </span>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+          <div className="shrink-0 border-t border-border-subtle px-2 py-1.5 text-[10px] text-text-quaternary">
+            Enter inserts. Right Arrow browses a program. Esc closes.
           </div>
         </>
       )}

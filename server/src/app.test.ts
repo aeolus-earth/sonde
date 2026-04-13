@@ -85,6 +85,9 @@ describe("createApp", () => {
       sondeMcpConfigured: boolean;
       githubConfigured: boolean;
       anthropicConfigured: boolean;
+      anthropicAdminConfigured: boolean;
+      costTelemetryConfigured: boolean;
+      liveSpendEnabled: boolean;
       cliGitRef: string | null;
       supabaseProjectRef: string | null;
       sharedRateLimitConfigured: boolean;
@@ -101,11 +104,170 @@ describe("createApp", () => {
       sondeMcpConfigured: true,
       githubConfigured: false,
       anthropicConfigured: true,
+      anthropicAdminConfigured: false,
+      costTelemetryConfigured: false,
+      liveSpendEnabled: false,
+      telemetryRequiresServiceRole: false,
+      managedSessionWarnUsd: 1,
+      managedSessionCriticalUsd: 5,
       cliGitRef: "refs/heads/staging",
       supabaseProjectRef: "oxajsxoedrmvrcatqser",
       sharedRateLimitConfigured: false,
       sharedRateLimitRequired: false,
     });
+  });
+
+  it("serves managed cost summary through the admin endpoint", async () => {
+    process.env.VITE_SUPABASE_URL = "https://oxajsxoedrmvrcatqser.supabase.co";
+    process.env.VITE_SUPABASE_ANON_KEY = "anon-key";
+    globalThis.fetch = async (input: string | URL | Request) => {
+      const url =
+        typeof input === "string"
+          ? new URL(input)
+          : input instanceof URL
+            ? input
+            : new URL(input.url);
+
+      if (url.pathname.endsWith("/rest/v1/managed_sessions")) {
+        return new Response(
+          JSON.stringify([
+            {
+              session_id: "sesn_1",
+              status: "active",
+              created_at: new Date().toISOString(),
+              estimated_total_cost_usd: 1.5,
+            },
+            {
+              session_id: "sesn_2",
+              status: "archived",
+              created_at: new Date().toISOString(),
+              estimated_total_cost_usd: 0.5,
+            },
+          ]),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      }
+
+      if (url.pathname.endsWith("/rest/v1/anthropic_cost_sync_runs")) {
+        return new Response(
+          JSON.stringify([
+            {
+              id: 42,
+              requested_by: "admin-user",
+              environment: "staging",
+              mode: "provider",
+              success: true,
+              starting_at: new Date(Date.now() - 7 * 86_400_000).toISOString(),
+              ending_at: new Date().toISOString(),
+              bucket_count: 2,
+              total_cost_usd: 3,
+              error_message: null,
+              summary: { window_days: 7 },
+              created_at: new Date().toISOString(),
+              completed_at: new Date().toISOString(),
+            },
+          ]),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      }
+
+      if (url.pathname.endsWith("/rest/v1/anthropic_cost_buckets")) {
+        return new Response(
+          JSON.stringify([
+            { id: 1, sync_run_id: 42, amount_usd: 1.25 },
+            { id: 2, sync_run_id: 42, amount_usd: 1.75 },
+          ]),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      }
+
+      throw new Error(`Unexpected fetch: ${url.toString()}`);
+    };
+
+    const app = createApp();
+    const response = await app.request(
+      "http://localhost/admin/managed-costs/summary?days=7&environment=staging",
+      {
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+        },
+      },
+    );
+
+    assert.equal(response.status, 200);
+    const body = (await response.json()) as {
+      environment: string;
+      providerSelectedWindowUsd: number;
+      estimatedSelectedWindowUsd: number;
+      activeSessions: number;
+      sessionCount: number;
+      latestSuccessfulSync: { id: number } | null;
+    };
+    assert.equal(body.environment, "staging");
+    assert.equal(body.providerSelectedWindowUsd, 3);
+    assert.equal(body.estimatedSelectedWindowUsd, 2);
+    assert.equal(body.activeSessions, 1);
+    assert.equal(body.sessionCount, 2);
+    assert.equal(body.latestSuccessfulSync?.id, 42);
+  });
+
+  it("requires the internal admin token for scheduled cost reconciliation", async () => {
+    process.env.VITE_SUPABASE_URL = "https://oxajsxoedrmvrcatqser.supabase.co";
+    process.env.VITE_SUPABASE_ANON_KEY = "anon-key";
+    process.env.SUPABASE_SERVICE_ROLE_KEY = "service-role-key";
+    process.env.SONDE_INTERNAL_ADMIN_TOKEN = "internal-admin-token";
+    globalThis.fetch = async (input: string | URL | Request, init?: RequestInit) => {
+      const url =
+        typeof input === "string"
+          ? new URL(input)
+          : input instanceof URL
+            ? input
+            : new URL(input.url);
+
+      if (
+        url.pathname.endsWith("/rest/v1/anthropic_cost_sync_runs") &&
+        (init?.method ?? (input instanceof Request ? input.method : "GET")) === "POST"
+      ) {
+        return new Response(JSON.stringify({ id: 77 }), {
+          status: 201,
+          headers: { "content-type": "application/json" },
+        });
+      }
+
+      throw new Error(`Unexpected fetch: ${url.toString()}`);
+    };
+
+    const app = createApp();
+    const unauthorized = await app.request("http://localhost/internal/managed-costs/reconcile", {
+      method: "POST",
+    });
+    assert.equal(unauthorized.status, 401);
+
+    const response = await app.request("http://localhost/internal/managed-costs/reconcile", {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer internal-admin-token",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ days: 3 }),
+    });
+
+    assert.equal(response.status, 200);
+    const body = (await response.json()) as {
+      mode: string;
+      syncRunId: number | null;
+    };
+    assert.equal(body.mode, "estimated_only");
+    assert.equal(body.syncRunId, 77);
   });
 
   it("mints a chat session token from an authenticated request", async () => {

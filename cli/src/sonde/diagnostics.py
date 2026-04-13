@@ -184,7 +184,11 @@ def check_install_shadows() -> DoctorCheck:
             status="warn",
             summary=f"Only {cmd_count} commands registered (expected 30+)",
             details=["Some command modules may be failing to import silently."],
-            fix="pip install --force-reinstall 'sonde @ git+https://github.com/aeolus-earth/sonde.git@main#subdirectory=cli'",
+            fix=(
+                "curl -LsSfO https://github.com/aeolus-earth/sonde/releases/latest/download/"
+                "sonde-latest-py3-none-any.whl && "
+                "uv tool install --force ./sonde-latest-py3-none-any.whl"
+            ),
         )
 
     return DoctorCheck(

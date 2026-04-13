@@ -45,10 +45,22 @@ Standard naming, paths, and patterns used across the Aeolus research platform.
 | File type | Where it goes |
 |---|---|
 | NetCDF, Zarr, GeoTIFF (geospatial) | S3 + STAC catalog |
-| Figures, plots (.png, .svg) | `sonde attach` (Supabase Storage) |
-| CSVs, Parquet (tabular) | `sonde attach` |
-| PDFs, notebooks | `sonde attach` |
-| Config files (.yaml, .toml) | `sonde attach` or in experiment directory |
+| Figures, plots, GIFs (.png, .svg, .gif) | `sonde experiment attach` / `sonde artifact update` |
+| CSVs, Parquet (tabular) | `sonde experiment attach` when the table is itself a result |
+| PDFs | `sonde experiment attach` or `sonde project report` for canonical project reports |
+| Notebooks, configs (.ipynb, .yaml, .toml) | Prefer git provenance; attach only when the file itself is the reviewed output |
+
+## Artifact quality bar
+
+Attach artifacts that are easy to interpret quickly:
+
+- Prefer result artifacts over raw source files.
+- Every attachment should have a caption/description explaining the takeaway.
+- A polished PNG, GIF, PDF, or concise CSV summary is usually better than a raw
+  notebook or config dump.
+- If you must attach a raw notebook or config, pair it with a readable summary
+  figure or memo.
+- Use `sonde artifact update ART-XXXX -d "..."` to tighten captions after upload.
 
 ## Tags
 

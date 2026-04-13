@@ -1,13 +1,39 @@
-# Sonde Formatter — Structure, Enrich, and Sync Experiment Records
+# Sonde Formatter — Structure, Enrich, and Close Experiment Records
 
-Use this skill when experiment results need to be properly formatted, linked to data, and synced with the knowledge base. This covers the gap between "the run finished" and "the knowledge base accurately reflects what happened."
+Use this skill when experiment results need to be properly formatted, enriched with metadata, and closed cleanly. This covers the gap between "the run finished" and "the knowledge base accurately reflects what happened."
 
 Typical triggers:
 - "Format my recent experiments"
-- "Sync these results with the knowledge base"
 - "Clean up EXP-0042"
 - "Make sure the metadata is right on my latest runs"
 - "Link my output data to the experiment"
+- "Close this experiment with results"
+
+## Core principle: content first
+
+The `hypothesis` field is a first-class freeform field for what the experiment
+expects to happen. The `content` field (markdown body) is the primary vehicle
+for method, results, findings, and narrative analysis. Together they give Sonde
+both structured previews and a readable research record.
+
+Write content as if a colleague — or an agent six months from now — needs to reproduce or build on this work without asking you any questions.
+
+Use a higher bar for important work: the record should still make sense two
+years later. That means preserving the motivation, the exact method, the key
+numbers, the interpretation, and the reason the result mattered.
+
+If you are choosing between brevity and future clarity, favor future clarity.
+
+## Results-first artifact principle
+
+Sonde should primarily store interpretable results, not raw implementation
+debris.
+
+- Prefer polished PNGs, GIFs, PDFs, and concise CSV summaries.
+- Give every artifact a caption that states the takeaway.
+- Keep raw code/config/notebooks in git unless the file itself is the result
+  being reviewed.
+- If you attach a raw file, pair it with a readable summary artifact.
 
 ## The formatting workflow
 
@@ -25,34 +51,66 @@ Check:
 - Does it have a **finding**? (if status is complete, it should)
 - Does it have **data linked**? (check for `has-data` tag or `metadata.stac_items`)
 - Is the **status** correct? (running but actually finished? open but already done?)
+- Does it have structured metadata? (`repro`, `evidence`, `blocker`, `env_vars`)
+- Does it have a **project link**? (check `project_id` -- orphan experiments are hard to find later)
 
-### 2. Structure the content
+### 2. Enrich with `sonde update`
 
-Good experiment content follows this pattern. Not rigidly — adapt to what's relevant — but these sections make experiments searchable and useful to future agents:
+The preferred way to enrich experiments is `sonde update`. Do not pull/edit/push — update directly:
+
+```bash
+# Set the content body (the most important update)
+sonde update EXP-0001 -c "## Hypothesis\nTest CCN=1500 saturation threshold\n\n## Method\nSpectral bin, 25km, North Atlantic"
+
+# Or from a markdown file (better for longer content)
+sonde update EXP-0001 --content-file analysis.md
+
+# Record the finding
+sonde update EXP-0001 --finding "CCN=1500 shows 8.2% less precipitation enhancement (5.8% vs 13.6%)"
+
+# Set structured parameters (merges with existing)
+sonde update EXP-0001 --params '{"ccn": 1500, "scheme": "spectral_bin"}'
+
+# Set status
+sonde update EXP-0001 --status complete
+```
+
+All flags can be combined in a single call:
+
+```bash
+sonde update EXP-0001 \
+  --content-file analysis.md \
+  --finding "CCN=1500 saturates enhancement" \
+  --params '{"ccn": 1500}' \
+  --tag spectral-bin --tag north-atlantic --tag 25km
+```
+
+### 3. Structure the content body
+
+Good experiment content follows this template. Adapt to what is relevant — not every section applies to every experiment — but these sections make records searchable, reproducible, and useful to future agents:
 
 ```markdown
-# Clear one-line title describing what was tested
-
-## Objective
-What question this experiment answers and why it matters.
+## Hypothesis
+What you're testing and why.
 Reference the finding or question that motivated it.
 
 ## Method
+What you did. Commands, configs, hardware. Be reproducible.
 - Model: Breeze v2.1 / WRF 4.5 / etc.
 - Domain: North Atlantic, 25km horizontal, 50 vertical levels
 - Period: 2026-03-15 00:00Z to 2026-03-17 00:00Z (48h)
-- Key parameters: CCN=1200, scheme=spectral_bin, ...
+- Key parameters: CCN=1500, scheme=spectral_bin
 - Code: branch `feature/spectral-bin` @ commit f7a2c1d
 
 ## Results
-What happened. Include quantitative results:
+What happened. Numbers, not narratives.
 - Precipitation enhancement: 5.8% (vs 13.6% with bulk at same CCN)
 - Domain-mean temperature bias: -0.3K
 - Spinup time: 6h
 
-## Interpretation
-What this means. How it relates to existing findings.
-Does it support, contradict, or extend prior work?
+## Finding
+What it means. Connect to prior work.
+Does it support, contradict, or extend prior findings?
 
 ## Data
 Where the output lives:
@@ -61,13 +119,49 @@ Where the output lives:
 - Load: `xr.open_zarr("s3://aeolus-data/experiments/EXP-XXXX/output.zarr")`
 ```
 
-**The title matters most.** It's what appears in `sonde list`, `sonde search`, and `sonde brief`. A title like "Spectral bin CCN=1200, 8% less enhancement than bulk" is findable. A title like "Run 3" is not.
+A good formatted record lets a future reader reconstruct the story in one pass:
 
-### 3. Set the structured metadata
+- why this run existed
+- what changed relative to prior work
+- what evidence was produced
+- what the evidence means
+- what the next experiment or decision should be
 
-These fields power search, filtering, and the brief. Get them right:
+You can update individual sections without replacing the whole body:
+```bash
+sonde update EXP-0001 --method "Modified run_config.yaml: scheme=spectral_bin, ccn=1500"
+sonde update EXP-0001 --results "Enhancement: 5.8%, LWC: 1.03 g/m3, spinup: 6h"
+```
 
-**Tags** — use the canonical vocabulary. Check what exists first:
+**The first line of content matters most.** It is what appears in `sonde list`, `sonde search`, and `sonde brief`. A first line like "Spectral bin CCN=1500, 8% less enhancement than bulk" is findable. A first line like "Run 3" is not.
+
+### 4. Set structured metadata fields
+
+These fields live in the experiment's metadata dict and power specific workflows:
+
+```bash
+# Reproducibility — exact command to re-run
+sonde update EXP-0001 --repro "python run_sim.py --config configs/spectral_1500.yaml"
+
+# Evidence — supporting files or experiment IDs
+sonde update EXP-0001 --evidence EXP-0002 --evidence EXP-0003
+
+# Blockers — what is preventing progress
+sonde update EXP-0001 --blocker "waiting for GPU allocation"
+
+# Environment capture — key env vars for reproducibility
+sonde update EXP-0001 --env CUDA_VERSION=12.0 --env NCCL_VERSION=2.18.1
+```
+
+When to use each:
+- `--repro`: Always, if there is a single command that reproduces the experiment. Agents use this for re-runs.
+- `--evidence`: When results depend on or reference other experiments. Builds the evidence graph.
+- `--blocker`: For open/running experiments that are stuck. Shows up in `sonde brief` so the team sees bottlenecks.
+- `--env`: When the runtime environment matters for reproducibility (GPU driver, library version, etc.).
+
+### 5. Set tags
+
+Tags power filtering and discovery. Check what exists first:
 
 ```bash
 sonde tags -p <program>
@@ -80,60 +174,117 @@ Apply tags from these categories:
 - **Scale:** `3km`, `10km`, `25km`
 - **Data:** `has-data` (if output is registered in STAC)
 - **Quality:** `baseline` (reference run), `needs-review`
+- **Status:** `stale` (no activity, needs attention)
 
 ```bash
 # Replace all tags at once (overwrites existing tags):
 sonde update EXP-XXXX --tag cloud-seeding --tag spectral-bin --tag north-atlantic --tag 25km
 
-# Or add tags one at a time (preserves existing tags):
+# Or add/remove tags incrementally (preserves existing tags):
 sonde tag add EXP-XXXX cloud-seeding
 sonde tag add EXP-XXXX spectral-bin
+sonde tag remove EXP-XXXX draft
 ```
 
-**Finding** — record what you learned in enough detail that someone grepping for this topic in six months gets the full story without opening the experiment. Write as much as you need — a few sentences, a couple paragraphs, whatever captures the result, the context, and what it means:
+### 6. Record the finding
+
+If the experiment is complete, extract the key insight as a single sentence:
 
 ```bash
-sonde update EXP-XXXX --finding "Spectral bin microphysics produces 8% less precipitation enhancement than bulk two-moment at CCN=1200 over the North Atlantic maritime Cu domain (5.8% vs 13.6% baseline). The difference is concentrated in the first 24 hours of simulation and diminishes as the domain equilibrates — by hour 48 the schemes converge to within 2%.
-
-This suggests microphysics scheme choice matters more than CCN concentration once you're above the ~1000 CCN threshold. Below 1000, CCN dominates; above it, the scheme's treatment of droplet activation becomes the controlling factor. The implication for the seeding program is that we need to validate scheme sensitivity before interpreting any CCN sweep results — bulk and spectral give qualitatively different answers in the enhancement regime we care about.
-
-Next steps: replicate with Morrison scheme to see if the pattern holds across a third microphysics option, and test at 3km resolution to check if the convergence timescale changes."
+sonde update EXP-XXXX --finding "Spectral bin produces 8% less precipitation enhancement than bulk at CCN=1200 over maritime Cu domain"
 ```
 
-A good finding:
-- Self-contained — makes sense without reading the full experiment
-- Quantitative — includes numbers, baselines, and conditions
-- Includes interpretation — what this means for the research direction
-- Includes context — when/where the result holds and when it doesn't
-- Suggests what to do next — what questions remain
+**Quality matters.** The finding field is indexed separately and appears in briefs and search results. Vague findings waste everyone's time:
 
-Bad: "it worked" / "CCN looked good" / "results as expected" / "see experiment for details"
+```
+Bad:   "CCN affects precipitation"
+Good:  "CCN=1500 shows 8.2% less precipitation enhancement (5.8% vs 13.6%)"
 
-Good (kernel optimization): "Tiling at 32x32 gives 12.4 GFLOPS on A100 — 3x improvement over the naive implementation. L2 cache miss rate dropped from 0.31 to 0.08, which accounts for most of the speedup. Above 32x32, diminishing returns set in due to register pressure: 64x64 causes register spill and a 40% regression back to 7.5 GFLOPS. Register blocking partially recovers the 64x64 case (9.1 GFLOPS) but still underperforms 32x32. The 32x32 sweet spot holds on both A100 and H100 — this appears to be an architectural constant for this kernel shape rather than a hardware-specific artifact."
+Bad:   "Model runs faster"
+Good:  "60% of wall time is host-side compile; GPU utilization peaks at 34%"
 
-Good (trading): "The momentum signal decays to noise after 4 hours on BTC/USD across 2024-2025 data (Sharpe drops from 1.8 at 1h to 0.3 at 4h, below transaction costs at 0.15% maker fee). Signal is strongest during US market hours (14:00-21:00 UTC) and nearly absent during Asian session. The decay rate is faster during high-volatility regimes (VIX > 25) — the 1h Sharpe drops to 1.1 and the useful window shrinks to 2h. This means the strategy needs sub-4h execution and should either scale position size inversely with volatility or shut off entirely above VIX 30."
+Bad:   "Results are inconclusive"
+Good:  "No significant difference at CCN=1200 (p=0.23); need CCN>1500 to separate signals"
+```
 
-**Parameters** — if the experiment used specific configuration values, capture them as structured data so `sonde search --param` works:
+A good finding is:
+- One sentence, self-contained (makes sense without reading the full experiment)
+- Quantitative when possible ("8% less" not "less")
+- Specific about conditions ("at CCN=1200 over maritime Cu" not "in some cases")
+- Honest about negative or inconclusive results
+
+### 7. Curate artifacts so the result is obvious
+
+If an experiment produced a figure, animation, memo, or summary table, attach
+it and caption it before closing:
 
 ```bash
-sonde update EXP-XXXX --params '{"ccn": 1200, "scheme": "spectral_bin", "resolution_km": 25}'
+sonde experiment attach EXP-XXXX figures/precip-anomaly.png \
+  -d "Figure 1. Spectral-bin run shows 8.2% lower enhancement than matched bulk baseline."
+sonde experiment attach EXP-XXXX diagnostics/evolution.gif \
+  -d "GIF. Convergence stabilizes after 6h; no late-stage reversal."
+sonde experiment attach EXP-XXXX reports/summary.pdf \
+  -d "Two-page result memo with methods, figure panels, and final conclusion."
+sonde artifact list EXP-XXXX --json
+sonde artifact update ART-0001 -d "Updated caption after matched-baseline rerun."
 ```
 
-Or from a config file:
+A good artifact is instantly interpretable:
+
+- readable title or caption
+- clear axes/units/legends when relevant
+- enough visual polish that the next agent does not have to decode it from scratch
+- scoped to the result, not a full notebook dump
+
+### 8. Use the review thread for critique, not hidden chat comments
+
+If the experiment matters, review it explicitly:
 
 ```bash
-sonde update EXP-XXXX --params-file run_config.yaml
+sonde experiment review add EXP-XXXX "Control and treatment use different spinup windows."
+sonde experiment review show EXP-XXXX
+sonde experiment review resolve EXP-XXXX "Re-ran with matched 6h spinup and updated Figure 1."
 ```
 
-**Status** — make sure it matches reality:
+Review comments should pressure-test:
+
+- method validity
+- baseline correctness
+- whether the finding is supported by the evidence
+- whether captions and attached artifacts overstate confidence
+
+### 9. Close the experiment
+
+Use `sonde close` when the experiment is done. Include the finding and a takeaway in one step:
 
 ```bash
-sonde close EXP-XXXX                          # if done
-sonde close EXP-XXXX --finding "key result"   # done + finding in one step
-sonde start EXP-XXXX                          # if running
+# Simple close
+sonde close EXP-0001
+
+# Close with finding
+sonde close EXP-0001 --finding "CCN saturates at 1500"
+
+# Close with finding + program-level takeaway
+sonde close EXP-0001 \
+  --finding "60% host compile" \
+  --takeaway "Host dominates wall time; next: warm cache."
 ```
 
-### 4. Link to data
+The `--takeaway` flag appends to `.sonde/takeaways.md`, the program-level synthesis that appears in `sonde brief`. Takeaways connect individual findings into a narrative:
+
+```
+Finding:  "CCN=1500 shows 8.2% less enhancement"
+Takeaway: "Enhancement saturates around CCN=1500. Spectral bin confirms this.
+           Next: test BL heating as an alternative forcing mechanism."
+```
+
+After close, `sonde close` will suggest promoting the finding to a curated Finding record:
+
+```bash
+sonde finding extract EXP-0001 --topic "CCN saturation"
+```
+
+### 10. Link to data
 
 If the experiment produced geospatial output (NetCDF, Zarr):
 
@@ -146,19 +297,19 @@ If the experiment produced geospatial output (NetCDF, Zarr):
 
 3. Tag the experiment and update metadata:
    ```bash
-   sonde update EXP-XXXX --tag has-data
+   sonde tag add EXP-XXXX has-data
    ```
 
 4. Add the S3 path and load snippet to the content's Data section so future agents can find and load it without querying STAC.
 
-If the experiment produced small files (figures, CSVs, PDFs):
+If the experiment produced small files (figures, GIFs, CSVs, PDFs):
 
 ```bash
-sonde attach EXP-XXXX figures/precip_map.png
-sonde attach EXP-XXXX diagnostics/timeseries.csv
+sonde experiment attach EXP-XXXX figures/precip_map.png -d "Figure 2. Precip anomaly map with matched bulk baseline."
+sonde experiment attach EXP-XXXX diagnostics/timeseries.csv -d "Summary table used to compute Figure 2."
 ```
 
-### 5. Link to related records
+### 11. Link to related records
 
 Connect the experiment to the knowledge graph:
 
@@ -166,14 +317,16 @@ Connect the experiment to the knowledge graph:
 # Link to related experiments
 sonde update EXP-XXXX --related EXP-0039,EXP-0041
 
-# If this experiment was motivated by a question
-sonde note EXP-XXXX "Motivated by Q-003: does spectral bin change CCN response?"
+# Fork a new experiment from an existing one
+sonde fork EXP-0001 --type refinement "Increase CCN to 1800"
+sonde fork EXP-0001 --params '{"ccn": 1800}'
 
-# If results support or contradict a finding
+# Add a note (timestamped annotation)
+sonde note EXP-XXXX "Motivated by Q-003: does spectral bin change CCN response?"
 sonde note EXP-XXXX "Supports FIND-001 (CCN saturation) — consistent threshold at 1200-1500"
 ```
 
-### 6. Verify the record
+### 10. Verify the record
 
 After formatting, verify everything looks right:
 
@@ -182,9 +335,10 @@ sonde show EXP-XXXX
 ```
 
 Check:
-- Title is clear and searchable
+- Content body is clear and searchable (Objective, Method, Results, Interpretation)
 - Tags cover domain, method, scheme, scale
 - Finding is a self-contained sentence (if complete)
+- Structured metadata is set (repro, evidence, env where applicable)
 - Data is linked (has-data tag, S3 paths in content)
 - Related experiments are connected
 - Status matches reality
@@ -206,31 +360,91 @@ if not e.get('content'): issues.append('no content')
 if not e.get('tags'): issues.append('no tags')
 if not e.get('finding') and e['status'] == 'complete': issues.append('no finding')
 if 'has-data' not in (e.get('tags') or []): issues.append('no data linked')
+meta = e.get('metadata', {})
+if not meta.get('repro_command'): issues.append('no repro')
 if issues: print(f\"{e['id']}: {', '.join(issues)}\")
 else: print(f\"{e['id']}: OK\")
 "
 ```
 
-For each experiment with issues, apply the formatting workflow above.
+For each experiment with issues, apply the formatting workflow above. Use `sonde update` for each fix — do not batch unrelated changes into one call.
+
+## Complete example: formatting a raw experiment
+
+Before (experiment logged quickly during a run):
+
+```bash
+sonde log -p weather-intervention "Ran spectral bin at CCN=1200"
+# Creates EXP-0042 with minimal content
+```
+
+After (properly formatted with `sonde update`):
+
+```bash
+# 1. Add structured content
+sonde update EXP-0042 --content-file - <<'EOF'
+## Hypothesis
+Test whether spectral bin microphysics changes CCN sensitivity
+relative to bulk 2-moment at CCN=1200. Motivated by FIND-001
+(CCN saturation with bulk scheme).
+
+## Method
+- Model: WRF 4.5, spectral bin microphysics
+- Domain: North Atlantic, 25km horizontal, 50 vertical levels
+- Period: 2026-03-15 00:00Z to 2026-03-17 00:00Z (48h)
+- CCN: 1200 cm-3
+- Baseline: EXP-0039 (bulk 2-moment, same domain/period/CCN)
+
+## Results
+- Precipitation enhancement: 5.8% (vs 13.6% with bulk at same CCN)
+- Domain-mean temperature bias: -0.3K
+- Spinup time: 6h (same as bulk)
+
+## Finding
+Spectral bin produces substantially less enhancement (8% less) than
+bulk at the same CCN. Consistent with FIND-001 saturation hypothesis
+but the threshold appears lower with spectral bin. Need to test
+CCN=1500 with spectral bin to confirm.
+
+## Data
+- S3: `s3://aeolus-data/experiments/EXP-0042/output.zarr`
+- Load: `xr.open_zarr("s3://aeolus-data/experiments/EXP-0042/output.zarr")`
+EOF
+
+# 2. Set structured fields
+sonde update EXP-0042 \
+  --finding "Spectral bin produces 8% less precipitation enhancement than bulk at CCN=1200 over maritime Cu domain" \
+  --params '{"ccn": 1200, "scheme": "spectral_bin", "resolution_km": 25}' \
+  --tag spectral-bin --tag north-atlantic --tag 25km --tag has-data \
+  --repro "python run_sim.py --config configs/spectral_1200.yaml" \
+  --evidence EXP-0039 \
+  --env CUDA_VERSION=12.0
+
+# 3. Close with takeaway
+sonde close EXP-0042 \
+  --takeaway "Spectral bin confirms CCN saturation but at lower threshold. Next: test CCN=1500 with spectral bin."
+```
 
 ## What NOT to do
 
 - **Don't fabricate results.** If the experiment content doesn't mention a specific number, don't invent one for the finding. Use what's there.
 - **Don't change scientific meaning.** Restructure and clarify, but don't reinterpret results. If the author said "inconclusive," don't upgrade that to a positive finding.
-- **Don't merge experiments.** Each experiment is its own record. If two experiments are related, link them with `--related`, don't combine their content.
+- **Don't merge experiments.** Each experiment is its own record. If two experiments are related, link them with `--related` or `sonde fork`, don't combine their content.
 - **Don't delete content.** Add structure (headings, lists), but keep all original information. It's fine to reorganize; it's not fine to drop details.
 - **Don't guess the program.** If `.aeolus.yaml` has a program, use it. If not, ask.
+- **Don't skip the finding.** Every completed experiment should have a finding, even if it's a negative result.
 
 ## Full-text search and why structure matters
 
 Postgres full-text search indexes the content body. When someone runs `sonde search --text "spectral bin CCN"`, the search hits:
-- The title (most weight — it's the first line)
-- The content body (method, results, interpretation)
+- The content body (most weight — Objective, Method, Results, Interpretation)
 - The finding field (separate indexed column)
 
 Structured content with clear sections makes search more precise. An experiment with "CCN=1200" in a Method section and "8% less enhancement" in a Results section is more findable than one that buries both in a paragraph.
 
 Tags add another discovery axis. An agent running `sonde list --tag spectral-bin --complete` finds all completed spectral bin experiments instantly — no text search needed.
+
+Parameters add a third axis. `sonde search --param ccn=1200` finds experiments by structured parameter values, regardless of how the content is written.
 
 ## STAC metadata quality
 

@@ -51,6 +51,36 @@ function createManagedMockFetch(scenario: ManagedMockScenario) {
       return jsonResponse({ id: scenario.sessionId });
     }
 
+    const sessionResourceMatch = url.pathname.match(/^\/v1\/sessions\/([^/]+)$/);
+    if (
+      sessionResourceMatch &&
+      (init?.method ?? "GET").toUpperCase() === "GET"
+    ) {
+      if (invalidSessionIds.has(sessionResourceMatch[1] ?? "")) {
+        return new Response(
+          JSON.stringify({
+            type: "error",
+            error: {
+              type: "invalid_request_error",
+              message: `Invalid session ID: ${sessionResourceMatch[1]}`,
+            },
+          }),
+          {
+            status: 400,
+            headers: { "content-type": "application/json" },
+          }
+        );
+      }
+      return jsonResponse({
+        id: sessionResourceMatch[1],
+        model: "claude-sonnet-4-6",
+        usage: {
+          input_tokens: 250,
+          output_tokens: 120,
+        },
+      });
+    }
+
     const sessionMatch = url.pathname.match(/^\/v1\/sessions\/([^/]+)\/(events|stream)$/);
     if (sessionMatch && invalidSessionIds.has(sessionMatch[1] ?? "")) {
       return new Response(

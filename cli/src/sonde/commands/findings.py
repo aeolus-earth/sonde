@@ -8,6 +8,7 @@ from sonde.cli_options import pass_output_options
 from sonde.config import get_settings
 from sonde.db import findings as db
 from sonde.finding_utils import is_operational_finding, sort_operational_first
+from sonde.models.finding import FINDING_CONFIDENCE_VALUES, FINDING_IMPORTANCE_VALUES
 from sonde.output import (
     err,
     print_breadcrumbs,
@@ -21,8 +22,13 @@ from sonde.output import (
 @click.option("--program", "-p", help="Filter by program")
 @click.option(
     "--confidence",
-    type=click.Choice(["low", "medium", "high"]),
+    type=click.Choice(list(FINDING_CONFIDENCE_VALUES)),
     help="Filter by confidence",
+)
+@click.option(
+    "--importance",
+    type=click.Choice(list(FINDING_IMPORTANCE_VALUES)),
+    help="Filter by importance",
 )
 @click.option("--topic", help="Filter by topic (case-insensitive substring match)")
 @click.option("--operational", is_flag=True, help="Only show Gotcha:/Checklist: findings")
@@ -37,6 +43,7 @@ def findings_cmd(
     ctx: click.Context,
     program: str | None,
     confidence: str | None,
+    importance: str | None,
     topic: str | None,
     operational: bool,
     show_all: bool,
@@ -71,6 +78,7 @@ def findings_cmd(
                     for f in db.list_findings(
                         program=resolved,
                         confidence=confidence,
+                        importance=importance,
                         topic=topic,
                         include_superseded=fetch_all,
                         limit=10000,
@@ -82,6 +90,7 @@ def findings_cmd(
             total = db.count_findings(
                 program=resolved,
                 confidence=confidence,
+                importance=importance,
                 topic=topic,
                 include_superseded=fetch_all,
             )
@@ -94,6 +103,7 @@ def findings_cmd(
     findings_list = db.list_findings(
         program=resolved,
         confidence=confidence,
+        importance=importance,
         topic=topic,
         include_superseded=fetch_all,
         limit=limit,
@@ -125,11 +135,15 @@ def findings_cmd(
                     "id": f.id,
                     "finding": truncate_text(f.finding, 45),
                     "confidence": f.confidence,
+                    "importance": f.importance,
                     "evidence": ", ".join(f.evidence)[:30] if f.evidence else "—",
                     "topic": truncate_text(f.topic, 20),
                 }
             )
-        print_table(["id", "finding", "confidence", "evidence", "topic"], table_rows)
+        print_table(
+            ["id", "finding", "confidence", "importance", "evidence", "topic"],
+            table_rows,
+        )
         err.print(f"\n[dim]{len(findings_list)} finding(s)[/dim]")
 
         first_evidence = (findings_list[0].evidence or [None])[0]
@@ -173,6 +187,7 @@ def _render_chain(ctx: click.Context, findings_list: list) -> None:
                             "id": f.id,
                             "finding": f.finding,
                             "confidence": f.confidence,
+                            "importance": f.importance,
                             "topic": f.topic,
                             "evidence": f.evidence,
                             "valid_from": f.valid_from.isoformat() if f.valid_from else None,
@@ -197,7 +212,9 @@ def _render_chain(ctx: click.Context, findings_list: list) -> None:
             is_current = f.valid_until is None
 
             marker = "[green]●[/] current" if is_current else ""
-            err.print(f"  [sonde.brand]{f.id}[/]  {created}  [{f.confidence}]  {f.finding}")
+            err.print(
+                f"  [sonde.brand]{f.id}[/]  {created}  [{f.confidence}/{f.importance}]  {f.finding}"
+            )
             if evidence:
                 err.print(f"        Evidence: {evidence}")
             if f.superseded_by:

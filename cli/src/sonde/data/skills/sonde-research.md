@@ -13,6 +13,23 @@ when you need to parse the response programmatically.
 
 ---
 
+## Agent setup and runtime support
+
+Make sure Sonde is installed into the agent runtime before you start relying on
+memory, MCP, or bundled skills:
+
+```bash
+sonde setup
+sonde setup --runtime claude-code,cursor,codex
+sonde setup --check
+```
+
+Use `sonde setup` whenever you are onboarding a repo, refreshing bundled
+skills, or checking that Codex, Cursor, and Claude Code all have current Sonde
+instructions and MCP configuration.
+
+---
+
 ## Discovery workflow
 
 Start broad, then drill down.
@@ -73,19 +90,57 @@ Default: open + running + failed. Use `--all` for completed/superseded too.
 
 ---
 
-## The thought chain: Program > Project > Direction > Experiment > Finding > Takeaway
+## The thought chain: Program > Project > Direction > Question > Experiment > Finding > Takeaway
 
 | Level | What it is | Example |
 |---|---|---|
 | **Program** | Top-level research area | `weather-intervention` |
 | **Project** | Coherent body of work within a program | "SuperDroplets GPU Port" |
 | **Direction** | Research thread answering a guiding question | "Does spectral bin improve accuracy?" |
+| **Question** | Durable unknown owned by one direction | "Which historical branch change prevents collapse?" |
 | **Experiment** | Single test with parameters, method, results | EXP-0164 |
 | **Finding** | Atomic, evidence-linked fact from experiments | FIND-042 |
 | **Takeaway** | Program- or project-level synthesis | `.sonde/takeaways.md` or per-project |
 
-Work flows down (programs contain projects contain directions contain experiments).
-Knowledge flows up (experiments produce findings, findings feed takeaways).
+Work flows down (programs contain projects contain directions contain questions contain experiments).
+Knowledge flows up (experiments produce findings, findings answer questions, findings feed takeaways).
+
+---
+
+## Scientific hygiene standards
+
+Treat Sonde as the team's scientific memory, not as a dumping ground.
+
+- Log work close to when it happens. Late reconstruction is where provenance and
+  conclusions get sloppy.
+- Prefer one clean experiment with explicit hypothesis, method, results, and
+  finding over several vague notes.
+- Attach results, not code dumps. The main artifact should usually be a figure,
+  GIF, PDF, CSV summary, or another immediately interpretable output.
+- Keep code, config, and notebooks in git when possible; let Sonde point to
+  them through provenance and curated result artifacts.
+- Give every important artifact a caption that says what the reader should see.
+- Promote durable lessons into findings and takeaways instead of burying them in
+  notes or chat transcripts.
+- Review important experiments before operationalizing them. A fast review is
+  much cheaper than teaching the wrong lesson to the next agent.
+- Leave the next agent an obvious starting point: handoff, review state,
+  blockers, and the best next command.
+
+### The two-year readability test
+
+Write every important record so that someone reading it two years later can
+still answer the core questions without asking the original author:
+
+- What were we trying to learn?
+- Why did this experiment or project matter at the time?
+- What exact method, code state, data, and parameters produced the result?
+- What happened quantitatively?
+- What did we conclude, and how confident were we?
+- What should the next person do differently because of this result?
+
+If a record does not preserve the why, the method, the result, and the
+conclusion, it is not finished.
 
 ### Field naming convention
 
@@ -96,9 +151,19 @@ Each entity has a *headline* (one-liner, shown in list views) and optionally a
 |--------|---------------|------------|---------------|
 | Project | `objective` | `description` | proposed, active, paused, completed, archived |
 | Direction | `question` | `context` | proposed, active, paused, completed, abandoned |
+| Question | `question` | `context` | open, investigating, answered, dismissed |
 | Experiment | `hypothesis` | `content` | open, running, complete, failed, superseded |
 
 ---
+
+### Question vs hypothesis
+
+- A **question** is a durable unknown the direction is trying to resolve.
+- A **hypothesis** is the experiment-local prediction for one run.
+- A **finding** is the answer candidate we are willing to record with evidence.
+
+Use questions to structure the research graph. Use hypotheses to describe what a
+specific experiment is testing.
 
 ## How to log
 
@@ -153,15 +218,24 @@ experiment:
    the work starts.
 3. During long runs, add checkpoint notes when the phase or status changes, or
    whenever another agent would otherwise need to reconstruct what happened.
-4. Promote stable lessons into findings. Use `Gotcha:` for recurring pitfalls
+4. Attach the best result artifacts while the context is still fresh. Prefer a
+   polished PNG, GIF, PDF, or concise CSV summary over raw source files, and
+   caption it so someone skimming the record understands the takeaway.
+5. Promote stable lessons into findings. Use `Gotcha:` for recurring pitfalls
    and `Checklist:` for startup rules you want surfaced in future sessions.
-5. When uncertainty remains, create or update a question instead of burying the
+6. When uncertainty remains, create or update a question instead of burying the
    unknown in a note.
-6. End with `sonde handoff EXP-XXXX` if someone else may continue.
+7. If the result matters for decisions, add or request an explicit review
+   before you treat it as settled.
+8. End with `sonde handoff EXP-XXXX` if someone else may continue.
 
 For long-running jobs, prefer several short checkpoint notes over one long
 retrospective note. The useful details are the command, phase, elapsed time,
 why the run changed course, and what the next agent should watch for.
+
+When you update a record, prefer complete sentences that preserve intent:
+"Changed CFL limiter to avoid instability after doubling domain size" is much
+better than "updated config again."
 
 `--source` is set automatically. Git commit, repo, and branch are auto-detected.
 
@@ -339,6 +413,31 @@ sonde experiment start EXP-0001 --json
 sonde experiment start EXP-0001 --force          # take over
 ```
 
+### Reviews
+
+Use reviews when an experiment's method, interpretation, or evidence deserves
+explicit critique and resolution.
+
+```bash
+sonde experiment review add EXP-0001 "Control run is not a valid baseline"
+sonde experiment review add EXP-0001 -f critique.md
+sonde experiment review show EXP-0001
+sonde experiment review resolve EXP-0001 "Re-ran against matched bulk baseline"
+sonde experiment review reopen EXP-0001 "Caption still overstates confidence"
+```
+
+Review comments should focus on:
+
+- correctness of the baseline, controls, and comparison set
+- whether the evidence actually supports the stated finding
+- hidden confounders, implementation bugs, or missing provenance
+- artifact quality: are figures/captions/pdfs readable and honest about what
+  they show?
+- whether confidence language matches the evidence
+
+Use reviews for important completed experiments, surprising results, or anything
+likely to feed a project report, operational guidance, or a program takeaway.
+
 ---
 
 ## Working with experiment trees
@@ -458,7 +557,8 @@ agent or human reads.
 
 ### Questions
 
-Track what the team doesn't know yet. Promote to experiments or directions.
+Track what the team doesn't know yet. Questions live under a home direction and
+can link to many experiments and findings.
 
 Raise a question whenever an experiment leaves a real unknown behind. Use this
 for inconclusive results, surprising outcomes, or obvious follow-up work that
@@ -472,10 +572,11 @@ sonde log -p weather-intervention "CCN sweep was inconclusive" \
 sonde question list -p <program>
 sonde question list -p <program> --json
 sonde show Q-001
-sonde question create -p weather-intervention "Does spectral bin change the CCN curve?"
-sonde question create -p weather-intervention "BL heating interaction?" --tag cloud-seeding
-sonde question promote Q-001                      # promote to experiment
-sonde question promote Q-001 --to direction -t "CCN sensitivity"  # to direction
+sonde question create --direction DIR-001 "Does spectral bin change the CCN curve?"
+sonde question create --direction DIR-001 --primary "BL heating interaction?"
+sonde question spawn-experiment Q-001
+sonde question link Q-001 EXP-0123 --primary
+sonde question link Q-001 FIND-0042
 sonde question delete Q-001 --confirm
 ```
 
@@ -500,7 +601,8 @@ sonde direction delete DIR-001 --confirm  # clears direction_id on linked experi
 ```
 
 The `--context` field explains prior work, motivation, constraints. Agents use
-it to decide whether an experiment belongs in this direction.
+it to decide whether an experiment belongs in this direction. `--question`
+updates the direction's primary linked question.
 
 ---
 
@@ -630,6 +732,25 @@ sonde artifact update ART-0002 -d "Raw watchdog stdout from GPU profiling run"
 
 Descriptions are searchable, shown as captions, and readable by agents via
 `sonde artifact list`. Figures without context are useless.
+
+Prefer result artifacts that a human or agent can interpret in seconds:
+
+- PNG for a clear static figure or summary panel
+- GIF for temporal evolution, convergence, or before/after comparisons
+- PDF for a polished memo, report, or multi-panel summary
+- CSV or Parquet when the table itself is the result and needs reuse
+
+The default should not be "attach the code". Keep raw source, config, and
+notebooks in git unless the source file itself is the reviewed research output.
+If you do attach a raw file, pair it with a readable summary artifact and a
+caption explaining why it matters.
+
+When an artifact is central to the conclusion, tighten it after upload:
+
+```bash
+sonde artifact list EXP-0001 --json
+sonde artifact update ART-0001 -d "Figure 2. Spectral-bin run converges after 6h; enhancement remains 8.2% below bulk."
+```
 
 ---
 

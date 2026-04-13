@@ -1,0 +1,71 @@
+name: Reconcile Managed Costs
+
+on:
+  schedule:
+    - cron: "35 8 * * *"
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Which deployment to reconcile"
+        required: false
+        type: choice
+        default: all
+        options:
+          - all
+          - staging
+          - production
+      days:
+        description: "Trailing window in days"
+        required: false
+        type: string
+        default: "7"
+
+permissions:
+  contents: read
+
+jobs:
+  staging:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.target == 'all' || inputs.target == 'staging' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Reconcile staging managed costs
+        working-directory: server
+        env:
+          MANAGED_COST_RECONCILE_HTTP_BASE: ${{ vars.SONDE_STAGING_AGENT_HTTP_BASE }}
+          MANAGED_COST_RECONCILE_TOKEN: ${{ secrets.SONDE_STAGING_INTERNAL_ADMIN_TOKEN }}
+          MANAGED_COST_RECONCILE_DAYS: ${{ inputs.days || '7' }}
+        run: |
+          if [ -z "$MANAGED_COST_RECONCILE_HTTP_BASE" ] || [ -z "$MANAGED_COST_RECONCILE_TOKEN" ]; then
+            echo "::notice::Skipping staging managed-cost reconcile because the base URL or internal token is not configured"
+            exit 0
+          fi
+          node scripts/reconcile-managed-costs.mjs
+
+  production:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.target == 'all' || inputs.target == 'production' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Reconcile production managed costs
+        working-directory: server
+        env:
+          MANAGED_COST_RECONCILE_HTTP_BASE: ${{ vars.SONDE_AGENT_HTTP_BASE }}
+          MANAGED_COST_RECONCILE_TOKEN: ${{ secrets.SONDE_PRODUCTION_INTERNAL_ADMIN_TOKEN }}
+          MANAGED_COST_RECONCILE_DAYS: ${{ inputs.days || '7' }}
+        run: |
+          if [ -z "$MANAGED_COST_RECONCILE_HTTP_BASE" ] || [ -z "$MANAGED_COST_RECONCILE_TOKEN" ]; then
+            echo "::notice::Skipping production managed-cost reconcile because the base URL or internal token is not configured"
+            exit 0
+          fi
+          node scripts/reconcile-managed-costs.mjs

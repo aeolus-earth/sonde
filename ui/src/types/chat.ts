@@ -2,9 +2,11 @@ import type { RecordType } from "./sonde";
 
 // -- Domain types --
 
+export type MentionTargetType = RecordType | "program";
+
 export interface MentionRef {
   id: string;
-  type: RecordType;
+  type: MentionTargetType;
   label: string;
   /** Program namespace for experiments (e.g. for `program/EXP-…` chips). */
   program?: string;
@@ -207,6 +209,14 @@ export interface ServerTasks {
   tasks: AgentTask[];
 }
 
+export interface ServerCostAlert {
+  type: "cost_alert";
+  severity: "warn" | "critical";
+  sessionId: string;
+  estimatedTotalUsd: number;
+  message: string;
+}
+
 export interface ServerError {
   type: "error";
   message: string;
@@ -233,6 +243,7 @@ export type ServerMessage =
   | ServerToolUseError
   | ServerToolApprovalRequired
   | ServerTasks
+  | ServerCostAlert
   | ServerError
   | ServerDone
   | ServerPing;
