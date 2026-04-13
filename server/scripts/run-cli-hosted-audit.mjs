@@ -33,6 +33,20 @@ function parsePositiveInt(value, fallback) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function decodeBotToken(token) {
+  const prefix = "sonde_bt_";
+  if (!token.startsWith(prefix)) {
+    throw new Error("CLI_AUDIT_SONDE_TOKEN is not a bot token");
+  }
+  const payload = token.slice(prefix.length);
+  const padding = "=".repeat((4 - (payload.length % 4)) % 4);
+  const decoded = JSON.parse(Buffer.from(payload + padding, "base64url").toString("utf-8"));
+  if (!decoded || typeof decoded !== "object") {
+    throw new Error("Malformed bot token payload");
+  }
+  return decoded;
+}
+
 function sleep(ms) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -125,6 +139,12 @@ async function mintSession(supabaseUrl, supabaseAnonKey, email, password) {
   });
 }
 
+function persistSession(configDir, session) {
+  fs.writeFileSync(path.join(configDir, "session.json"), JSON.stringify(session), {
+    mode: 0o600,
+  });
+}
+
 async function main() {
   const supabaseUrl = requiredEnv("SUPABASE_URL");
   const supabaseAnonKey = requiredEnv("SUPABASE_ANON_KEY");
@@ -150,7 +170,15 @@ async function main() {
   };
 
   if (sondeToken) {
-    cliEnv.SONDE_TOKEN = sondeToken;
+    const bundle = decodeBotToken(sondeToken);
+    const botEmail = String(bundle.email || "");
+    const botPassword = String(bundle.password || "");
+    if (!botEmail || !botPassword) {
+      throw new Error("CLI_AUDIT_SONDE_TOKEN is missing bot credentials");
+    }
+    const session = await mintSession(supabaseUrl, supabaseAnonKey, botEmail, botPassword);
+    persistSession(configDir, session);
+    delete cliEnv.SONDE_TOKEN;
   } else {
     if (!email || !password) {
       throw new Error(
@@ -159,11 +187,7 @@ async function main() {
     }
 
     const session = await mintSession(supabaseUrl, supabaseAnonKey, email, password);
-    fs.writeFileSync(
-      path.join(configDir, "session.json"),
-      JSON.stringify(session),
-      { mode: 0o600 }
-    );
+    persistSession(configDir, session);
   }
 
   await waitForCliReadiness({
