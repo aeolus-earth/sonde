@@ -19,11 +19,10 @@ Scientific discovery management for the Aeolus research platform.
 
 ## Install
 
-**Option A — Install the latest release artifact (recommended):**
+**Option A — Install directly from GitHub (recommended):**
 
 ```bash
-curl -LsSfO https://github.com/aeolus-earth/sonde/releases/latest/download/sonde-latest-py3-none-any.whl
-uv tool install ./sonde-latest-py3-none-any.whl
+uv tool install --force "git+https://github.com/aeolus-earth/sonde.git@main#subdirectory=cli"
 ```
 
 **Option B — Clone and develop (recommended for contributors):**
@@ -70,6 +69,32 @@ sonde log --quick -p weather-intervention \
 sonde search --text "spectral bin"
 sonde search --param ccn>1000
 ```
+
+## Troubleshooting
+
+If install or login behaves strangely, first verify which `sonde` binary your shell is using:
+
+```bash
+which -a sonde
+sonde --version
+sonde doctor
+```
+
+If you see older login wording or noisy browser-open errors, you are likely running a stale install.
+Reinstall the current CLI:
+
+```bash
+uv tool install --force "git+https://github.com/aeolus-earth/sonde.git@main#subdirectory=cli"
+```
+
+For remote or headless shells, prefer the assisted login flow:
+
+```bash
+sonde login --remote
+```
+
+If sign-in opens the hosted app instead of `localhost`, add `http://localhost:*/callback`
+to Supabase → Authentication → Redirect URLs.
 
 ## Configuration
 

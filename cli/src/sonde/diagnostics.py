@@ -45,6 +45,15 @@ STATUS_ORDER: dict[DoctorStatus, int] = {
     "error": 4,
 }
 
+GIT_TOOL_INSTALL_COMMAND = (
+    'uv tool install --force "git+https://github.com/aeolus-earth/sonde.git@main#subdirectory=cli"'
+)
+INSTALL_VERIFY_COMMANDS = (
+    "which -a sonde",
+    "sonde --version",
+    "sonde doctor",
+)
+
 
 def run_doctor(
     *,
@@ -140,6 +149,23 @@ def collect_next_steps(sections: list[DoctorSection], *, limit: int = 3) -> list
     return fixes
 
 
+def _install_fix(*, shadow_path: Path | None = None) -> str:
+    """Return consistent reinstall guidance for CLI installation issues."""
+    lines: list[str] = []
+    if shadow_path is not None:
+        lines.append(
+            f"Remove or rename the older binary at {shadow_path}, or move it later on PATH."
+        )
+        lines.append("Then reinstall the current CLI:")
+    else:
+        lines.append("Reinstall the current CLI:")
+
+    lines.append(f"  {GIT_TOOL_INSTALL_COMMAND}")
+    lines.append("Verify the active binary:")
+    lines.extend(f"  {command}" for command in INSTALL_VERIFY_COMMANDS)
+    return "\n".join(lines)
+
+
 def check_install_shadows() -> DoctorCheck:
     """Detect if another sonde installation shadows this one on PATH."""
     import shutil
@@ -154,7 +180,11 @@ def check_install_shadows() -> DoctorCheck:
             title="Installation",
             status="warn",
             summary="sonde not found on PATH",
-            details=["The current invocation works but 'sonde' may not resolve in other shells."],
+            details=[
+                "The current invocation works but 'sonde' may not resolve in other shells.",
+                "Verify the active binary list with: which -a sonde",
+            ],
+            fix=_install_fix(),
         )
 
     this_resolved = Path(this_exe).resolve()
@@ -169,9 +199,11 @@ def check_install_shadows() -> DoctorCheck:
             details=[
                 f"Running:  {this_resolved}",
                 f"PATH has: {path_resolved}",
-                "Another install is shadowing this one. Commands may be missing.",
+                "Another install is shadowing this one. Commands may be stale or missing.",
+                "If login shows older wording or noisy browser-open errors, you are likely "
+                "hitting the shadowed binary.",
             ],
-            fix=f"pip uninstall sonde -y  # remove the shadow at {path_resolved}",
+            fix=_install_fix(shadow_path=path_resolved),
         )
 
     from sonde.cli import cli
@@ -183,12 +215,11 @@ def check_install_shadows() -> DoctorCheck:
             title="Installation",
             status="warn",
             summary=f"Only {cmd_count} commands registered (expected 30+)",
-            details=["Some command modules may be failing to import silently."],
-            fix=(
-                "curl -LsSfO https://github.com/aeolus-earth/sonde/releases/latest/download/"
-                "sonde-latest-py3-none-any.whl && "
-                "uv tool install --force ./sonde-latest-py3-none-any.whl"
-            ),
+            details=[
+                "Some command modules may be failing to import silently.",
+                "A stale install on PATH is the most likely cause.",
+            ],
+            fix=_install_fix(),
         )
 
     return DoctorCheck(

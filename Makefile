@@ -1,4 +1,4 @@
-.PHONY: setup dev test lint clean
+.PHONY: setup dev test lint clean ci-local ci-browser ci-data ci-all install-hooks
 
 # ── One-command setup for new contributors ──────────────────────────
 
@@ -49,3 +49,24 @@ lint:
 
 clean:
 	rm -rf cli/dist ui/dist server/dist
+
+# ── Shared CI entrypoints ────────────────────────────────────────────
+
+ci-local:
+	@bash scripts/ci/core.sh all
+
+ci-browser:
+	@bash scripts/ci/browser.sh all
+
+ci-data:
+	@bash scripts/ci/data.sh
+
+ci-all:
+	@bash scripts/ci/core.sh all
+	@bash scripts/ci/browser.sh all
+	@bash scripts/ci/data.sh
+
+install-hooks:
+	@git config core.hooksPath .githooks
+	@chmod +x .githooks/pre-push
+	@echo "Installed Sonde git hooks at .githooks/"

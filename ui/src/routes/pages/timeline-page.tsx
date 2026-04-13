@@ -17,6 +17,7 @@ import {
   RepoNotFoundError,
   useGitHubCommits,
 } from "@/hooks/use-github-commits";
+import { HostedAgentConfigError } from "@/lib/agent-http";
 import { useTimelineRepos } from "@/hooks/use-timeline-data";
 import { queryKeys } from "@/lib/query-keys";
 import { formatRelativeTime } from "@/lib/utils";
@@ -261,6 +262,9 @@ function renderTimelineError(error: Error | null): string {
     return error.message;
   }
   if (error instanceof GitHubProxyConfigError) {
+    return error.message;
+  }
+  if (error instanceof HostedAgentConfigError) {
     return error.message;
   }
   return "Failed to load commit history";
