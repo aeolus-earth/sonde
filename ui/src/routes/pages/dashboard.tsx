@@ -8,6 +8,7 @@ import { useRealtimeInvalidation } from "@/hooks/use-realtime";
 import { Badge } from "@/components/ui/badge";
 import { StatBlockSkeleton, Skeleton } from "@/components/ui/skeleton";
 import { RecordLink } from "@/components/shared/record-link";
+import { findingConfidenceLabel } from "@/lib/finding-confidence";
 import { formatDateTimeShort, formatDateTime, cn } from "@/lib/utils";
 import type { ExperimentsSearch } from "@/routes/pages/experiments-list";
 
@@ -263,7 +264,9 @@ export default function DashboardPage() {
                     {f.finding}
                   </p>
                 </div>
-                <Badge variant={f.confidence}>{f.confidence}</Badge>
+                <Badge variant={f.confidence}>
+                  {findingConfidenceLabel(f.confidence)}
+                </Badge>
               </Link>
             ))}
           </div>

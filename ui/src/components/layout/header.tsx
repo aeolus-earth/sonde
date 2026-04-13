@@ -11,6 +11,7 @@ import {
   useSetMobileMenuOpen,
 } from "@/stores/ui";
 import { useAuthStore } from "@/stores/auth";
+import { isAdminUser } from "@/lib/admin-access";
 
 export const Header = memo(function Header() {
   const router = useRouter();
@@ -73,7 +74,7 @@ export const Header = memo(function Header() {
         </button>
         {user && (
           <>
-            {user.email === "mason@aeolus.earth" && (
+            {isAdminUser(user) && (
               <Link
                 to="/admin"
                 className="rounded-[5.5px] p-1 text-text-quaternary transition-colors hover:bg-surface-hover hover:text-text-tertiary"

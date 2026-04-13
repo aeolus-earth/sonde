@@ -48,18 +48,29 @@ jobs:
             git push --tags
           fi
 
-      - name: Verify tagged CLI install
+      - name: Build release artifacts
+        working-directory: cli
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          rm -rf /tmp/sonde-release-bin
-          mkdir -p /tmp/sonde-release-bin
+          rm -rf dist-release
+          uv build --out-dir dist-release
+          cp "dist-release/sonde-${VERSION}-py3-none-any.whl" dist-release/sonde-latest-py3-none-any.whl
+          cp "dist-release/sonde-${VERSION}.tar.gz" dist-release/sonde-latest.tar.gz
+
+      - name: Verify wheel install
+        working-directory: cli
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          rm -rf /tmp/sonde-release-help.txt /tmp/sonde-xdg-data /tmp/sonde-xdg-bin
+          XDG_DATA_HOME=/tmp/sonde-xdg-data \
+          XDG_BIN_HOME=/tmp/sonde-xdg-bin \
           uv tool install \
             --force \
             --python 3.12 \
-            --bin-dir /tmp/sonde-release-bin \
-            "sonde @ git+https://github.com/aeolus-earth/sonde.git@v${VERSION}#subdirectory=cli"
-          /tmp/sonde-release-bin/sonde --help >/tmp/sonde-release-help.txt
+            "dist-release/sonde-${VERSION}-py3-none-any.whl"
+          /tmp/sonde-xdg-bin/sonde --help >/tmp/sonde-release-help.txt
           test -s /tmp/sonde-release-help.txt
 
       - name: Generate changelog from commits
@@ -119,10 +130,16 @@ jobs:
 
             ### Install
             ```bash
-            uv tool install "sonde @ git+https://github.com/aeolus-earth/sonde.git@v${{ steps.version.outputs.version }}#subdirectory=cli"
+            curl -LsSfO https://github.com/${{ github.repository }}/releases/latest/download/sonde-latest-py3-none-any.whl
+            uv tool install ./sonde-latest-py3-none-any.whl
             ```
 
             ### Changes
             ${{ inputs.notes || steps.changelog.outputs.log }}
+          files: |
+            cli/dist-release/sonde-${{ steps.version.outputs.version }}-py3-none-any.whl
+            cli/dist-release/sonde-${{ steps.version.outputs.version }}.tar.gz
+            cli/dist-release/sonde-latest-py3-none-any.whl
+            cli/dist-release/sonde-latest.tar.gz
           draft: false
           prerelease: false

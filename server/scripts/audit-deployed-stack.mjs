@@ -107,7 +107,7 @@ async function main() {
     (process.env.AUDIT_REQUIRE_ANTHROPIC ?? "1").trim().toLowerCase()
   );
   const requireFirstPartyAgent = parseBooleanFlag(
-    (process.env.AUDIT_REQUIRE_FIRST_PARTY_AGENT ?? "").trim().toLowerCase()
+    (process.env.AUDIT_REQUIRE_FIRST_PARTY_AGENT || "1").trim().toLowerCase()
   );
   const requireSharedRateLimit = parseBooleanFlag(
     (process.env.AUDIT_REQUIRE_SHARED_RATE_LIMIT ?? "").trim().toLowerCase()

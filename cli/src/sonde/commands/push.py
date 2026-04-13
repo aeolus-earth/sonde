@@ -677,6 +677,7 @@ def _upsert_question(frontmatter: dict[str, Any], body: str, filepath: Path) -> 
             {
                 "program": program,
                 "question": question_text,
+                "direction_id": frontmatter.get("direction_id"),
                 "context": context,
                 "status": frontmatter.get("status", "open"),
                 "source": source,
@@ -694,6 +695,7 @@ def _upsert_question(frontmatter: dict[str, Any], body: str, filepath: Path) -> 
         QuestionCreate(
             program=program,
             question=question_text,
+            direction_id=frontmatter.get("direction_id"),
             context=context,
             status=frontmatter.get("status", "open"),
             source=source,

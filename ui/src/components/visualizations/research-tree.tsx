@@ -9,6 +9,7 @@ import {
 } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
+  CircleHelp,
   ChevronDown,
   ChevronRight,
   Compass,
@@ -17,7 +18,10 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { useStatusChartColors, useThemeCssColors } from "@/hooks/use-theme-css-colors";
+import {
+  useStatusChartColors,
+  useThemeCssColors,
+} from "@/hooks/use-theme-css-colors";
 import {
   experimentMatchesSearchQuery,
   parseExperimentSearchTokens,
@@ -30,6 +34,7 @@ import type {
   Finding,
   FindingConfidence,
   ProjectSummary,
+  QuestionSummary,
 } from "@/types/sonde";
 
 // ── Shared helpers (aligned with experiment-graph) ─────────────────
@@ -40,7 +45,9 @@ function countStatuses(exps: ExperimentSummary[]): Record<string, number> {
   return counts;
 }
 
-function buildChildMap(exps: ExperimentSummary[]): Map<string, ExperimentSummary[]> {
+function buildChildMap(
+  exps: ExperimentSummary[],
+): Map<string, ExperimentSummary[]> {
   const map = new Map<string, ExperimentSummary[]>();
   for (const e of exps) {
     if (e.parent_id) {
@@ -52,7 +59,7 @@ function buildChildMap(exps: ExperimentSummary[]): Map<string, ExperimentSummary
 }
 
 function buildDirectionsByParent(
-  directions: DirectionSummary[]
+  directions: DirectionSummary[],
 ): Map<string, DirectionSummary[]> {
   const map = new Map<string, DirectionSummary[]>();
   for (const direction of directions) {
@@ -68,7 +75,7 @@ function buildDirectionsByParent(
 }
 
 function buildDirectionsBySpawnExperiment(
-  directions: DirectionSummary[]
+  directions: DirectionSummary[],
 ): Map<string, DirectionSummary[]> {
   const map = new Map<string, DirectionSummary[]>();
   for (const direction of directions) {
@@ -84,7 +91,7 @@ function buildDirectionsBySpawnExperiment(
 }
 
 function buildExperimentsByDirection(
-  experiments: ExperimentSummary[]
+  experiments: ExperimentSummary[],
 ): Map<string, ExperimentSummary[]> {
   const map = new Map<string, ExperimentSummary[]>();
   for (const experiment of experiments) {
@@ -96,14 +103,48 @@ function buildExperimentsByDirection(
   return map;
 }
 
-function rootExperimentsForGroup(experiments: ExperimentSummary[]): ExperimentSummary[] {
+function buildQuestionsByDirection(
+  questions: QuestionSummary[],
+): Map<string, QuestionSummary[]> {
+  const map = new Map<string, QuestionSummary[]>();
+  for (const question of questions) {
+    if (!question.direction_id) continue;
+    const list = map.get(question.direction_id) ?? [];
+    list.push(question);
+    map.set(question.direction_id, list);
+  }
+  for (const list of map.values()) {
+    list.sort((a, b) => a.created_at.localeCompare(b.created_at));
+  }
+  return map;
+}
+
+function buildExperimentsByPrimaryQuestion(
+  experiments: ExperimentSummary[],
+): Map<string, ExperimentSummary[]> {
+  const map = new Map<string, ExperimentSummary[]>();
+  for (const experiment of experiments) {
+    if (!experiment.primary_question_id) continue;
+    const list = map.get(experiment.primary_question_id) ?? [];
+    list.push(experiment);
+    map.set(experiment.primary_question_id, list);
+  }
+  return map;
+}
+
+function rootExperimentsForGroup(
+  experiments: ExperimentSummary[],
+): ExperimentSummary[] {
   const ids = new Set(experiments.map((experiment) => experiment.id));
   return experiments.filter(
-    (experiment) => !experiment.parent_id || !ids.has(experiment.parent_id)
+    (experiment) => !experiment.parent_id || !ids.has(experiment.parent_id),
   );
 }
 
-function countDescendants(id: string, childMap: Map<string, ExperimentSummary[]>): number {
+function countDescendants(
+  id: string,
+  childMap: Map<string, ExperimentSummary[]>,
+): number {
   const children = childMap.get(id) ?? [];
   let count = children.length;
   for (const c of children) count += countDescendants(c.id, childMap);
@@ -116,13 +157,15 @@ function projectNodeId(raw: string | null): string {
 
 function bucketProjectId(
   projectId: string | null | undefined,
-  knownIds: Set<string>
+  knownIds: Set<string>,
 ): string | null {
   if (projectId == null) return null;
   return knownIds.has(projectId) ? projectId : null;
 }
 
-function buildFindingsByExperiment(findings: Finding[]): Map<string, Finding[]> {
+function buildFindingsByExperiment(
+  findings: Finding[],
+): Map<string, Finding[]> {
   const map = new Map<string, Finding[]>();
   for (const f of findings) {
     for (const eid of f.evidence) {
@@ -149,7 +192,7 @@ function findingMatchesSearchQuery(f: Finding, rawQuery: string): boolean {
 function filterExperimentsForSearch(
   experiments: ExperimentSummary[],
   findings: Finding[],
-  rawQuery: string
+  rawQuery: string,
 ): ExperimentSummary[] | null {
   const tokens = parseExperimentSearchTokens(rawQuery);
   if (tokens.length === 0) return null;
@@ -192,6 +235,7 @@ export type TreeNavigateTarget =
   | { kind: "experiment"; id: string }
   | { kind: "project"; id: string }
   | { kind: "direction"; id: string }
+  | { kind: "question"; id: string }
   | { kind: "finding"; id: string };
 
 type TreeRowData =
@@ -224,6 +268,14 @@ type TreeRowData =
       toggleKey: string;
     }
   | {
+      kind: "question";
+      rowKey: string;
+      depth: number;
+      question: QuestionSummary;
+      expCount: number;
+      toggleKey: string;
+    }
+  | {
       kind: "experiment";
       rowKey: string;
       depth: number;
@@ -246,7 +298,7 @@ type TreeRowData =
 
 const ROW_H = 40;
 
-function confidenceVariant(c: FindingConfidence): "high" | "medium" | "low" {
+function confidenceVariant(c: FindingConfidence): FindingConfidence {
   return c;
 }
 
@@ -261,13 +313,16 @@ function addExperimentRows(
   directionsByParent: Map<string, DirectionSummary[]>,
   directionsBySpawnExperiment: Map<string, DirectionSummary[]>,
   experimentsByDirection: Map<string, ExperimentSummary[]>,
-  rows: TreeRowData[]
+  questionsByDirection: Map<string, QuestionSummary[]>,
+  experimentsByQuestion: Map<string, ExperimentSummary[]>,
+  rows: TreeRowData[],
 ) {
   const children = childMap.get(exp.id) ?? [];
   const spawnedDirections = directionsBySpawnExperiment.get(exp.id) ?? [];
   const hasChildren = children.length > 0 || spawnedDirections.length > 0;
   const isCollapsed = collapsed.has(exp.id);
-  const childCount = countDescendants(exp.id, childMap) + spawnedDirections.length;
+  const childCount =
+    countDescendants(exp.id, childMap) + spawnedDirections.length;
 
   rows.push({
     kind: "experiment",
@@ -292,7 +347,9 @@ function addExperimentRows(
         directionsByParent,
         directionsBySpawnExperiment,
         experimentsByDirection,
-        rows
+        questionsByDirection,
+        experimentsByQuestion,
+        rows,
       );
     }
   }
@@ -308,9 +365,56 @@ function addExperimentRows(
         directionsByParent,
         directionsBySpawnExperiment,
         experimentsByDirection,
-        rows
+        questionsByDirection,
+        experimentsByQuestion,
+        rows,
       );
     }
+  }
+}
+
+function addQuestionRows(
+  question: QuestionSummary,
+  depth: number,
+  childMap: Map<string, ExperimentSummary[]>,
+  collapsed: Set<string>,
+  findingsByExp: Map<string, Finding[]>,
+  directionsByParent: Map<string, DirectionSummary[]>,
+  directionsBySpawnExperiment: Map<string, DirectionSummary[]>,
+  experimentsByDirection: Map<string, ExperimentSummary[]>,
+  questionsByDirection: Map<string, QuestionSummary[]>,
+  experimentsByQuestion: Map<string, ExperimentSummary[]>,
+  rows: TreeRowData[],
+) {
+  const questionExperiments = experimentsByQuestion.get(question.id) ?? [];
+  const questionRoots = rootExperimentsForGroup(questionExperiments);
+  const toggleKey = `question-${question.id}`;
+
+  rows.push({
+    kind: "question",
+    rowKey: toggleKey,
+    depth,
+    question,
+    expCount: questionExperiments.length,
+    toggleKey,
+  });
+
+  if (collapsed.has(toggleKey)) return;
+
+  for (const experiment of questionRoots) {
+    addExperimentRows(
+      experiment,
+      depth + 1,
+      childMap,
+      collapsed,
+      findingsByExp,
+      directionsByParent,
+      directionsBySpawnExperiment,
+      experimentsByDirection,
+      questionsByDirection,
+      experimentsByQuestion,
+      rows,
+    );
   }
 }
 
@@ -324,10 +428,17 @@ function addDirectionRows(
   directionsByParent: Map<string, DirectionSummary[]>,
   directionsBySpawnExperiment: Map<string, DirectionSummary[]>,
   experimentsByDirection: Map<string, ExperimentSummary[]>,
-  rows: TreeRowData[]
+  questionsByDirection: Map<string, QuestionSummary[]>,
+  experimentsByQuestion: Map<string, ExperimentSummary[]>,
+  rows: TreeRowData[],
 ) {
   const directionExperiments = experimentsByDirection.get(dir.id) ?? [];
-  const directionRoots = rootExperimentsForGroup(directionExperiments);
+  const directionQuestions = questionsByDirection.get(dir.id) ?? [];
+  const directionRoots = rootExperimentsForGroup(
+    directionExperiments.filter(
+      (experiment) => !experiment.primary_question_id,
+    ),
+  );
   const toggleKey = `dir-${dir.id}`;
 
   rows.push({
@@ -343,6 +454,22 @@ function addDirectionRows(
 
   if (collapsed.has(toggleKey)) return;
 
+  for (const question of directionQuestions) {
+    addQuestionRows(
+      question,
+      depth + 1,
+      childMap,
+      collapsed,
+      findingsByExp,
+      directionsByParent,
+      directionsBySpawnExperiment,
+      experimentsByDirection,
+      questionsByDirection,
+      experimentsByQuestion,
+      rows,
+    );
+  }
+
   for (const experiment of directionRoots) {
     addExperimentRows(
       experiment,
@@ -353,7 +480,9 @@ function addDirectionRows(
       directionsByParent,
       directionsBySpawnExperiment,
       experimentsByDirection,
-      rows
+      questionsByDirection,
+      experimentsByQuestion,
+      rows,
     );
   }
 
@@ -369,7 +498,9 @@ function addDirectionRows(
       directionsByParent,
       directionsBySpawnExperiment,
       experimentsByDirection,
-      rows
+      questionsByDirection,
+      experimentsByQuestion,
+      rows,
     );
   }
 }
@@ -379,6 +510,7 @@ export interface ResearchTreeProps {
   directions: DirectionSummary[];
   projects: ProjectSummary[];
   findings: Finding[];
+  questions: QuestionSummary[];
   onNavigate: (target: TreeNavigateTarget) => void;
 }
 
@@ -387,6 +519,7 @@ export const ResearchTree = memo(function ResearchTree({
   directions,
   projects,
   findings,
+  questions,
   onNavigate,
 }: ResearchTreeProps) {
   const colors = useThemeCssColors();
@@ -398,19 +531,35 @@ export const ResearchTree = memo(function ResearchTree({
   const scrollRef = useRef<HTMLDivElement>(null);
   const didAutoCollapse = useRef(false);
 
-  const experimentIds = useMemo(() => new Set(experiments.map((e) => e.id)), [experiments]);
-  const knownProjectIds = useMemo(() => new Set(projects.map((p) => p.id)), [projects]);
+  const experimentIds = useMemo(
+    () => new Set(experiments.map((e) => e.id)),
+    [experiments],
+  );
+  const knownProjectIds = useMemo(
+    () => new Set(projects.map((p) => p.id)),
+    [projects],
+  );
 
   const isRoot = useCallback(
     (e: ExperimentSummary) => !e.parent_id || !experimentIds.has(e.parent_id),
-    [experimentIds]
+    [experimentIds],
   );
 
-  const findingsByExp = useMemo(() => buildFindingsByExperiment(findings), [findings]);
-  const directionsByParent = useMemo(() => buildDirectionsByParent(directions), [directions]);
+  const findingsByExp = useMemo(
+    () => buildFindingsByExperiment(findings),
+    [findings],
+  );
+  const directionsByParent = useMemo(
+    () => buildDirectionsByParent(directions),
+    [directions],
+  );
   const directionsBySpawnExperiment = useMemo(
     () => buildDirectionsBySpawnExperiment(directions),
-    [directions]
+    [directions],
+  );
+  const questionsByDirection = useMemo(
+    () => buildQuestionsByDirection(questions),
+    [questions],
   );
 
   const experimentsForTree = useMemo(() => {
@@ -420,11 +569,15 @@ export const ResearchTree = memo(function ResearchTree({
 
   const childMapFiltered = useMemo(
     () => buildChildMap(experimentsForTree),
-    [experimentsForTree]
+    [experimentsForTree],
   );
   const experimentsByDirection = useMemo(
     () => buildExperimentsByDirection(experimentsForTree),
-    [experimentsForTree]
+    [experimentsForTree],
+  );
+  const experimentsByQuestion = useMemo(
+    () => buildExperimentsByPrimaryQuestion(experimentsForTree),
+    [experimentsForTree],
   );
 
   useEffect(() => {
@@ -436,15 +589,23 @@ export const ResearchTree = memo(function ResearchTree({
     if (experiments.length === 0) return;
     const est = projects.length + directions.length + experiments.length;
     if (est > 120) {
-      const sortedProjects = [...projects].sort((a, b) => a.name.localeCompare(b.name));
+      const sortedProjects = [...projects].sort((a, b) =>
+        a.name.localeCompare(b.name),
+      );
       const needsUnassigned =
-        directions.some((d) => bucketProjectId(d.project_id, knownProjectIds) === null) ||
+        directions.some(
+          (d) => bucketProjectId(d.project_id, knownProjectIds) === null,
+        ) ||
         experiments.some(
           (e) =>
-            bucketProjectId(e.project_id, knownProjectIds) === null && isRoot(e)
+            bucketProjectId(e.project_id, knownProjectIds) === null &&
+            isRoot(e),
         );
       type PEntry = { id: string | null; label: string };
-      const entries: PEntry[] = sortedProjects.map((p) => ({ id: p.id, label: p.name }));
+      const entries: PEntry[] = sortedProjects.map((p) => ({
+        id: p.id,
+        label: p.name,
+      }));
       if (needsUnassigned) entries.push({ id: null, label: "Unassigned" });
       if (entries.length > 1) {
         const collapseKeys = entries.slice(1).map((p) => {
@@ -465,15 +626,23 @@ export const ResearchTree = memo(function ResearchTree({
     const rows: TreeRowData[] = [];
     const isFiltering = search.trim().length > 0;
 
-    const sortedProjects = [...projects].sort((a, b) => a.name.localeCompare(b.name));
+    const sortedProjects = [...projects].sort((a, b) =>
+      a.name.localeCompare(b.name),
+    );
     const needsUnassigned =
-      directions.some((d) => bucketProjectId(d.project_id, knownProjectIds) === null) ||
+      directions.some(
+        (d) => bucketProjectId(d.project_id, knownProjectIds) === null,
+      ) ||
       experimentsForTree.some(
-        (e) => bucketProjectId(e.project_id, knownProjectIds) === null && isRoot(e)
+        (e) =>
+          bucketProjectId(e.project_id, knownProjectIds) === null && isRoot(e),
       );
 
     type PEntry = { id: string | null; label: string };
-    const entries: PEntry[] = sortedProjects.map((p) => ({ id: p.id, label: p.name }));
+    const entries: PEntry[] = sortedProjects.map((p) => ({
+      id: p.id,
+      label: p.name,
+    }));
     if (needsUnassigned) {
       entries.push({ id: null, label: "Unassigned" });
     }
@@ -488,12 +657,13 @@ export const ResearchTree = memo(function ResearchTree({
           (d) =>
             bucketProjectId(d.project_id, knownProjectIds) === bucketId &&
             !d.parent_direction_id &&
-            (!d.spawned_from_experiment_id || !experimentIds.has(d.spawned_from_experiment_id))
+            (!d.spawned_from_experiment_id ||
+              !experimentIds.has(d.spawned_from_experiment_id)),
         )
         .sort((a, b) => a.title.localeCompare(b.title));
 
       const allInProject = experimentsForTree.filter(
-        (e) => bucketProjectId(e.project_id, knownProjectIds) === bucketId
+        (e) => bucketProjectId(e.project_id, knownProjectIds) === bucketId,
       );
 
       if (isFiltering && allInProject.length === 0) continue;
@@ -532,7 +702,27 @@ export const ResearchTree = memo(function ResearchTree({
 
         if (dirCollapsed) continue;
 
-        for (const exp of rootExps) {
+        const unlinkedRootExps = rootExps.filter(
+          (exp) => !exp.primary_question_id,
+        );
+
+        for (const question of questionsByDirection.get(dir.id) ?? []) {
+          addQuestionRows(
+            question,
+            2,
+            childMapFiltered,
+            collapsed,
+            findingsByExp,
+            directionsByParent,
+            directionsBySpawnExperiment,
+            experimentsByDirection,
+            questionsByDirection,
+            experimentsByQuestion,
+            rows,
+          );
+        }
+
+        for (const exp of unlinkedRootExps) {
           addExperimentRows(
             exp,
             2,
@@ -542,7 +732,9 @@ export const ResearchTree = memo(function ResearchTree({
             directionsByParent,
             directionsBySpawnExperiment,
             experimentsByDirection,
-            rows
+            questionsByDirection,
+            experimentsByQuestion,
+            rows,
           );
         }
 
@@ -561,7 +753,9 @@ export const ResearchTree = memo(function ResearchTree({
             directionsByParent,
             directionsBySpawnExperiment,
             experimentsByDirection,
-            rows
+            questionsByDirection,
+            experimentsByQuestion,
+            rows,
           );
         }
       }
@@ -570,7 +764,7 @@ export const ResearchTree = memo(function ResearchTree({
         (e) =>
           isRoot(e) &&
           e.direction_id === null &&
-          bucketProjectId(e.project_id, knownProjectIds) === bucketId
+          bucketProjectId(e.project_id, knownProjectIds) === bucketId,
       );
 
       if (noDirExps.length > 0) {
@@ -597,7 +791,9 @@ export const ResearchTree = memo(function ResearchTree({
               directionsByParent,
               directionsBySpawnExperiment,
               experimentsByDirection,
-              rows
+              questionsByDirection,
+              experimentsByQuestion,
+              rows,
             );
           }
         }
@@ -615,6 +811,8 @@ export const ResearchTree = memo(function ResearchTree({
     directionsByParent,
     directionsBySpawnExperiment,
     experimentsByDirection,
+    questionsByDirection,
+    experimentsByQuestion,
     experimentIds,
     knownProjectIds,
     isRoot,
@@ -648,13 +846,15 @@ export const ResearchTree = memo(function ResearchTree({
         if (row.projectId) onNavigate({ kind: "project", id: row.projectId });
       } else if (row.kind === "direction" || row.kind === "sub-direction") {
         onNavigate({ kind: "direction", id: row.dir.id });
+      } else if (row.kind === "question") {
+        onNavigate({ kind: "question", id: row.question.id });
       } else if (row.kind === "ungrouped") {
         return;
       } else {
         onNavigate({ kind: "experiment", id: row.exp.id });
       }
     },
-    [onNavigate]
+    [onNavigate],
   );
 
   const onKeyDown = useCallback(
@@ -683,7 +883,12 @@ export const ResearchTree = memo(function ResearchTree({
       } else if (e.key === "ArrowRight" && focusedIndex >= 0) {
         e.preventDefault();
         const row = rows[focusedIndex];
-        if (row.kind === "project" || row.kind === "direction" || row.kind === "ungrouped") {
+        if (
+          row.kind === "project" ||
+          row.kind === "direction" ||
+          row.kind === "question" ||
+          row.kind === "ungrouped"
+        ) {
           setCollapsed((prev) => {
             const next = new Set(prev);
             next.delete(row.toggleKey);
@@ -699,14 +904,19 @@ export const ResearchTree = memo(function ResearchTree({
       } else if (e.key === "ArrowLeft" && focusedIndex >= 0) {
         e.preventDefault();
         const row = rows[focusedIndex];
-        if (row.kind === "project" || row.kind === "direction" || row.kind === "ungrouped") {
+        if (
+          row.kind === "project" ||
+          row.kind === "direction" ||
+          row.kind === "question" ||
+          row.kind === "ungrouped"
+        ) {
           setCollapsed((prev) => new Set(prev).add(row.toggleKey));
         } else if (row.kind === "experiment" && row.hasChildren) {
           setCollapsed((prev) => new Set(prev).add(row.toggleKey));
         }
       }
     },
-    [flatRows, focusedIndex, navigateForRow]
+    [flatRows, focusedIndex, navigateForRow],
   );
 
   const pad = (depth: number) => ({ paddingLeft: 8 + depth * 20 });
@@ -727,7 +937,8 @@ export const ResearchTree = memo(function ResearchTree({
           }}
           onDoubleClick={(e) => {
             e.stopPropagation();
-            if (row.projectId) onNavigate({ kind: "project", id: row.projectId });
+            if (row.projectId)
+              onNavigate({ kind: "project", id: row.projectId });
           }}
           onKeyDown={(e) => {
             if (e.key === " ") {
@@ -737,7 +948,9 @@ export const ResearchTree = memo(function ResearchTree({
           }}
           className={cn(
             "flex cursor-pointer items-center gap-2 border-b border-border-subtle pr-2 text-left transition-colors",
-            focused ? "bg-surface-hover ring-1 ring-inset ring-accent" : "hover:bg-surface-hover/80"
+            focused
+              ? "bg-surface-hover ring-1 ring-inset ring-accent"
+              : "hover:bg-surface-hover/80",
           )}
           style={{ ...pad(row.depth), minHeight: ROW_H }}
         >
@@ -752,10 +965,14 @@ export const ResearchTree = memo(function ResearchTree({
             <FolderKanban className="h-3.5 w-3.5" />
           </span>
           <div className="min-w-0 flex-1">
-            <div className="truncate text-[12px] font-semibold text-text">{row.label}</div>
+            <div className="truncate text-[12px] font-semibold text-text">
+              {row.label}
+            </div>
             <div className="mt-0.5 flex flex-wrap items-center gap-2">
               {row.projectId && (
-                <span className="font-mono text-[10px] text-text-quaternary">{row.projectId}</span>
+                <span className="font-mono text-[10px] text-text-quaternary">
+                  {row.projectId}
+                </span>
               )}
               <span className="text-[10px] text-text-quaternary">
                 {row.directionCount} dir · {row.expCount} exp
@@ -789,7 +1006,9 @@ export const ResearchTree = memo(function ResearchTree({
           }}
           className={cn(
             "flex cursor-pointer items-center gap-2 border-b border-border-subtle border-l-[3px] border-l-accent/40 pr-2 text-left transition-colors",
-            focused ? "bg-surface-hover ring-1 ring-inset ring-accent" : "hover:bg-surface-hover/80"
+            focused
+              ? "bg-surface-hover ring-1 ring-inset ring-accent"
+              : "hover:bg-surface-hover/80",
           )}
           style={{ ...pad(row.depth), minHeight: ROW_H }}
         >
@@ -802,16 +1021,22 @@ export const ResearchTree = memo(function ResearchTree({
           </span>
           <Compass className="h-3.5 w-3.5 shrink-0 text-accent" />
           <div className="min-w-0 flex-1">
-            <div className="truncate text-[12px] font-medium text-text">{row.dir.title}</div>
+            <div className="truncate text-[12px] font-medium text-text">
+              {row.dir.title}
+            </div>
             <div className="mt-0.5 flex flex-wrap items-center gap-2">
-              <span className="font-mono text-[10px] text-text-quaternary">{row.dir.id}</span>
+              <span className="font-mono text-[10px] text-text-quaternary">
+                {row.dir.id}
+              </span>
               <div className="flex items-center gap-1.5">
                 {Object.entries(row.statusCounts).map(([status, count]) => (
                   <span
                     key={status}
                     className="flex items-center gap-0.5 text-[10px]"
                     style={{
-                      color: statusColor[status as ExperimentStatus] ?? colors.textQuaternary,
+                      color:
+                        statusColor[status as ExperimentStatus] ??
+                        colors.textQuaternary,
                     }}
                   >
                     <span className="inline-block h-[5px] w-[5px] rounded-full bg-current" />
@@ -848,7 +1073,9 @@ export const ResearchTree = memo(function ResearchTree({
           }}
           className={cn(
             "flex cursor-pointer items-center gap-2 border-b border-border-subtle border-l-[3px] border-l-accent/60 pr-2 text-left transition-colors",
-            focused ? "bg-surface-hover ring-1 ring-inset ring-accent" : "hover:bg-surface-hover/80"
+            focused
+              ? "bg-surface-hover ring-1 ring-inset ring-accent"
+              : "hover:bg-surface-hover/80",
           )}
           style={{ ...pad(row.depth), minHeight: ROW_H }}
         >
@@ -861,11 +1088,17 @@ export const ResearchTree = memo(function ResearchTree({
           </span>
           <GitFork className="h-3.5 w-3.5 shrink-0 text-accent" />
           <div className="min-w-0 flex-1">
-            <div className="truncate text-[12px] font-medium text-text">{row.dir.title}</div>
+            <div className="truncate text-[12px] font-medium text-text">
+              {row.dir.title}
+            </div>
             <div className="mt-0.5 flex flex-wrap items-center gap-2">
-              <span className="font-mono text-[10px] text-text-quaternary">{row.dir.id}</span>
+              <span className="font-mono text-[10px] text-text-quaternary">
+                {row.dir.id}
+              </span>
               {row.parentKind === "experiment" && (
-                <span className="text-[10px] text-text-quaternary">spawned from experiment</span>
+                <span className="text-[10px] text-text-quaternary">
+                  spawned from experiment
+                </span>
               )}
               <div className="flex items-center gap-1.5">
                 {Object.entries(row.statusCounts).map(([status, count]) => (
@@ -873,7 +1106,9 @@ export const ResearchTree = memo(function ResearchTree({
                     key={status}
                     className="flex items-center gap-0.5 text-[10px]"
                     style={{
-                      color: statusColor[status as ExperimentStatus] ?? colors.textQuaternary,
+                      color:
+                        statusColor[status as ExperimentStatus] ??
+                        colors.textQuaternary,
                     }}
                   >
                     <span className="inline-block h-[5px] w-[5px] rounded-full bg-current" />
@@ -881,6 +1116,61 @@ export const ResearchTree = memo(function ResearchTree({
                   </span>
                 ))}
               </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (row.kind === "question") {
+      const expanded = !collapsed.has(row.toggleKey);
+      return (
+        <div
+          key={row.rowKey}
+          role="row"
+          tabIndex={0}
+          onClick={() => {
+            setFocusedIndex(index);
+            toggle(row.toggleKey);
+          }}
+          onDoubleClick={(event) => {
+            event.stopPropagation();
+            onNavigate({ kind: "question", id: row.question.id });
+          }}
+          onKeyDown={(event) => {
+            if (event.key === " ") {
+              event.preventDefault();
+              toggle(row.toggleKey);
+            }
+          }}
+          className={cn(
+            "flex cursor-pointer items-center gap-2 border-b border-border-subtle pr-2 text-left transition-colors",
+            focused
+              ? "bg-surface-hover ring-1 ring-inset ring-accent"
+              : "hover:bg-surface-hover/80",
+          )}
+          style={{ ...pad(row.depth), minHeight: ROW_H }}
+        >
+          <span className="text-text-tertiary">
+            {expanded ? (
+              <ChevronDown className="h-3.5 w-3.5" />
+            ) : (
+              <ChevronRight className="h-3.5 w-3.5" />
+            )}
+          </span>
+          <CircleHelp className="h-3.5 w-3.5 shrink-0 text-text-tertiary" />
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-[12px] font-medium text-text">
+              {row.question.question}
+            </div>
+            <div className="mt-0.5 flex flex-wrap items-center gap-2">
+              <span className="font-mono text-[10px] text-text-quaternary">
+                {row.question.id}
+              </span>
+              <span className="text-[10px] text-text-quaternary">
+                {row.expCount} exp · {row.question.linked_finding_count}{" "}
+                findings
+              </span>
             </div>
           </div>
         </div>
@@ -906,7 +1196,9 @@ export const ResearchTree = memo(function ResearchTree({
           }}
           className={cn(
             "flex cursor-pointer items-center gap-2 border-b border-border-subtle pr-2 text-left transition-colors",
-            focused ? "bg-surface-hover ring-1 ring-inset ring-accent" : "hover:bg-surface-hover/80"
+            focused
+              ? "bg-surface-hover ring-1 ring-inset ring-accent"
+              : "hover:bg-surface-hover/80",
           )}
           style={{ ...pad(row.depth), minHeight: ROW_H }}
         >
@@ -918,14 +1210,18 @@ export const ResearchTree = memo(function ResearchTree({
             )}
           </span>
           <div className="min-w-0 flex-1">
-            <div className="text-[12px] font-medium italic text-text-secondary">No direction</div>
+            <div className="text-[12px] font-medium italic text-text-secondary">
+              No direction
+            </div>
             <div className="mt-0.5 flex items-center gap-1.5">
               {Object.entries(row.statusCounts).map(([status, count]) => (
                 <span
                   key={status}
                   className="flex items-center gap-0.5 text-[10px]"
                   style={{
-                    color: statusColor[status as ExperimentStatus] ?? colors.textQuaternary,
+                    color:
+                      statusColor[status as ExperimentStatus] ??
+                      colors.textQuaternary,
                   }}
                 >
                   <span className="inline-block h-[5px] w-[5px] rounded-full bg-current" />
@@ -949,7 +1245,10 @@ export const ResearchTree = memo(function ResearchTree({
         tabIndex={0}
         onClick={(ev) => {
           setFocusedIndex(index);
-          if (row.hasChildren && (ev.target as HTMLElement).closest("[data-exp-toggle]")) {
+          if (
+            row.hasChildren &&
+            (ev.target as HTMLElement).closest("[data-exp-toggle]")
+          ) {
             toggle(row.toggleKey);
             return;
           }
@@ -964,7 +1263,9 @@ export const ResearchTree = memo(function ResearchTree({
         }}
         className={cn(
           "flex cursor-pointer items-center gap-1.5 border-b border-border-subtle pr-2 text-left transition-colors",
-          focused ? "bg-surface-hover ring-1 ring-inset ring-accent" : "hover:bg-surface-hover/80"
+          focused
+            ? "bg-surface-hover ring-1 ring-inset ring-accent"
+            : "hover:bg-surface-hover/80",
         )}
         style={{
           ...pad(row.depth),
@@ -979,7 +1280,9 @@ export const ResearchTree = memo(function ResearchTree({
               type="button"
               data-exp-toggle
               className="shrink-0 rounded p-0.5 text-text-quaternary hover:bg-surface-raised hover:text-text-secondary"
-              aria-label={expChildrenExpanded ? "Collapse children" : "Expand children"}
+              aria-label={
+                expChildrenExpanded ? "Collapse children" : "Expand children"
+              }
               onClick={(e) => {
                 e.stopPropagation();
                 setFocusedIndex(index);
@@ -995,7 +1298,9 @@ export const ResearchTree = memo(function ResearchTree({
           ) : (
             <span className="w-4 shrink-0" />
           )}
-          <span className="shrink-0 font-mono text-[11px] font-medium text-text">{exp.id}</span>
+          <span className="shrink-0 font-mono text-[11px] font-medium text-text">
+            {exp.id}
+          </span>
           <Badge variant={exp.status}>{exp.status}</Badge>
           {exp.branch_type && (
             <span className="flex shrink-0 items-center gap-0.5 text-[9px] text-text-quaternary">
@@ -1004,7 +1309,10 @@ export const ResearchTree = memo(function ResearchTree({
             </span>
           )}
           {summary && (
-            <span className="min-w-0 flex-1 truncate text-[11px] text-text-tertiary" title={summary}>
+            <span
+              className="min-w-0 flex-1 truncate text-[11px] text-text-tertiary"
+              title={summary}
+            >
               {summary}
             </span>
           )}
@@ -1020,7 +1328,10 @@ export const ResearchTree = memo(function ResearchTree({
                     onNavigate({ kind: "finding", id: f.id });
                   }}
                 >
-                  <Badge variant={confidenceVariant(f.confidence)} className="text-[9px]">
+                  <Badge
+                    variant={confidenceVariant(f.confidence)}
+                    className="text-[9px]"
+                  >
                     {f.id}
                   </Badge>
                 </button>

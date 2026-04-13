@@ -1,4 +1,3 @@
-import type { VerifiedUser } from "../auth.js";
 import { getRuntimeEnvironment } from "../runtime-metadata.js";
 import { createTelemetrySupabaseClient } from "../supabase.js";
 import { getAnthropicCostReport } from "./client.js";
@@ -64,21 +63,21 @@ function parseCostBuckets(payload: unknown): ParsedBucket[] {
 }
 
 export async function reconcileManagedCostBuckets(options: {
-  user: VerifiedUser;
-  accessToken: string;
+  requestedBy?: string | null;
+  accessToken?: string | null;
   days?: number;
+  environment?: string;
 }): Promise<{
   mode: "provider" | "estimated_only";
   syncRunId: number | null;
   bucketCount: number;
   totalCostUsd: number;
 }> {
-  const environment = getRuntimeEnvironment();
+  const environment = options.environment ?? getRuntimeEnvironment();
   const endingAt = new Date();
-  const startingAt = new Date(
-    endingAt.getTime() - (options.days ?? 7) * 24 * 60 * 60_000
-  );
-  const client = createTelemetrySupabaseClient(options.accessToken);
+  const windowDays = options.days ?? 7;
+  const startingAt = new Date(endingAt.getTime() - windowDays * 24 * 60 * 60_000);
+  const client = createTelemetrySupabaseClient(options.accessToken ?? undefined);
 
   const createRun = async (payload: {
     mode: "provider" | "estimated_only";
@@ -91,7 +90,7 @@ export async function reconcileManagedCostBuckets(options: {
     const { data, error } = await client
       .from("anthropic_cost_sync_runs")
       .insert({
-        requested_by: options.user.id,
+        requested_by: options.requestedBy ?? null,
         environment,
         mode: payload.mode,
         success: payload.success,
@@ -100,7 +99,10 @@ export async function reconcileManagedCostBuckets(options: {
         bucket_count: payload.bucketCount ?? 0,
         total_cost_usd: payload.totalCostUsd ?? 0,
         error_message: payload.errorMessage ?? null,
-        summary: payload.summary ?? {},
+        summary: {
+          window_days: windowDays,
+          ...(payload.summary ?? {}),
+        },
         completed_at: new Date().toISOString(),
       })
       .select("id")
@@ -125,54 +127,72 @@ export async function reconcileManagedCostBuckets(options: {
 
   let page: string | null = null;
   const rawPages: unknown[] = [];
-  for (;;) {
-    const response = await getAnthropicCostReport({
-      startingAt: startingAt.toISOString(),
-      endingAt: endingAt.toISOString(),
-      page,
-    });
-    rawPages.push(response);
-    if (!response.next_page) {
-      break;
+
+  try {
+    for (;;) {
+      const response = await getAnthropicCostReport({
+        startingAt: startingAt.toISOString(),
+        endingAt: endingAt.toISOString(),
+        page,
+      });
+      rawPages.push(response);
+      if (!response.next_page) {
+        break;
+      }
+      page = response.next_page;
     }
-    page = response.next_page;
-  }
 
-  const parsedBuckets = rawPages.flatMap((pagePayload) => parseCostBuckets(pagePayload));
-  const totalCostUsd = parsedBuckets.reduce((sum, bucket) => sum + bucket.amountUsd, 0);
-
-  const syncRunId = await createRun({
-    mode: "provider",
-    success: true,
-    bucketCount: parsedBuckets.length,
-    totalCostUsd,
-    summary: {
-      pages: rawPages.length,
-    },
-  });
-
-  if (syncRunId != null) {
-    const { error } = await client.from("anthropic_cost_buckets").insert(
-      parsedBuckets.map((bucket) => ({
-        sync_run_id: syncRunId,
-        bucket_start: bucket.bucketStart,
-        bucket_end: bucket.bucketEnd,
-        workspace_id: bucket.workspaceId,
-        description: bucket.description,
-        currency: "USD",
-        amount_cents: bucket.amountCents,
-        amount_usd: bucket.amountUsd,
-        bucket_width: "1d",
-        raw: bucket.raw,
-      }))
+    const parsedBuckets = rawPages.flatMap((pagePayload) => parseCostBuckets(pagePayload));
+    const totalCostUsd = parsedBuckets.reduce((sum, bucket) => sum + bucket.amountUsd, 0);
+    const workspaceIds = Array.from(
+      new Set(parsedBuckets.map((bucket) => bucket.workspaceId).filter(Boolean))
     );
-    if (error) throw error;
-  }
 
-  return {
-    mode: "provider",
-    syncRunId,
-    bucketCount: parsedBuckets.length,
-    totalCostUsd,
-  };
+    const syncRunId = await createRun({
+      mode: "provider",
+      success: true,
+      bucketCount: parsedBuckets.length,
+      totalCostUsd,
+      summary: {
+        pages: rawPages.length,
+        workspace_ids: workspaceIds,
+      },
+    });
+
+    if (syncRunId != null && parsedBuckets.length > 0) {
+      const { error } = await client.from("anthropic_cost_buckets").insert(
+        parsedBuckets.map((bucket) => ({
+          sync_run_id: syncRunId,
+          bucket_start: bucket.bucketStart,
+          bucket_end: bucket.bucketEnd,
+          workspace_id: bucket.workspaceId,
+          description: bucket.description,
+          currency: "USD",
+          amount_cents: bucket.amountCents,
+          amount_usd: bucket.amountUsd,
+          bucket_width: "1d",
+          raw: bucket.raw,
+        }))
+      );
+      if (error) throw error;
+    }
+
+    return {
+      mode: "provider",
+      syncRunId,
+      bucketCount: parsedBuckets.length,
+      totalCostUsd,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error ?? "");
+    const syncRunId = await createRun({
+      mode: "provider",
+      success: false,
+      errorMessage: message,
+      summary: {
+        pages: rawPages.length,
+      },
+    });
+    throw Object.assign(new Error(message), { syncRunId });
+  }
 }

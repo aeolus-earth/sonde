@@ -1,18 +1,26 @@
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { getRouteApi } from "@tanstack/react-router";
 import { ROUTE_API } from "../route-ids";
+import type { FindingsSearch } from "../findings";
 import { useCurrentFindings } from "@/hooks/use-findings";
 import { useRealtimeInvalidation } from "@/hooks/use-realtime";
 import { useListKeyboardNav } from "@/hooks/use-keyboard";
 import { Badge } from "@/components/ui/badge";
 import { ListRowSkeleton } from "@/components/ui/skeleton";
-import { formatRelativeTime } from "@/lib/utils";
-import type { Finding } from "@/types/sonde";
+import {
+  FINDING_CONFIDENCE_LEVELS,
+  findingConfidenceLabel,
+  parseFindingConfidenceFilter,
+  serializeFindingConfidenceFilter,
+} from "@/lib/finding-confidence";
+import { cn, formatRelativeTime } from "@/lib/utils";
+import type { Finding, FindingConfidence } from "@/types/sonde";
 
 const routeApi = getRouteApi(ROUTE_API.authFindings);
 
 export default function FindingsListPage() {
   const navigate = routeApi.useNavigate();
+  const { confidence } = routeApi.useSearch();
   const { data: findings, isLoading } = useCurrentFindings();
   useRealtimeInvalidation("findings", ["findings"]);
   const handleClick = useCallback(
@@ -23,8 +31,50 @@ export default function FindingsListPage() {
     (f: Finding) => handleClick(f.id),
     [handleClick]
   );
-  const items = findings ?? [];
+  const activeConfidence = useMemo(
+    () => parseFindingConfidenceFilter(confidence),
+    [confidence]
+  );
+  const activeConfidenceSet = useMemo(
+    () => new Set(activeConfidence),
+    [activeConfidence]
+  );
+  const items = useMemo(() => {
+    const source = findings ?? [];
+    if (activeConfidenceSet.size === 0) return source;
+    return source.filter((f) => activeConfidenceSet.has(f.confidence));
+  }, [activeConfidenceSet, findings]);
   const { focusedIndex } = useListKeyboardNav(items, handleSelect);
+
+  const toggleConfidence = useCallback(
+    (level: FindingConfidence) => {
+      const next = new Set(activeConfidence);
+      if (next.has(level)) {
+        next.delete(level);
+      } else {
+        next.add(level);
+      }
+
+      navigate({
+        search: (prev: FindingsSearch) => ({
+          ...prev,
+          confidence: serializeFindingConfidenceFilter(next),
+        }),
+        replace: true,
+      });
+    },
+    [activeConfidence, navigate]
+  );
+
+  const clearConfidenceFilter = useCallback(() => {
+    navigate({
+      search: (prev: FindingsSearch) => ({
+        ...prev,
+        confidence: undefined,
+      }),
+      replace: true,
+    });
+  }, [navigate]);
 
   if (isLoading) {
     return (
@@ -50,8 +100,45 @@ export default function FindingsListPage() {
           Findings
         </h1>
         <span className="text-[12px] text-text-quaternary">
-          {findings?.length ?? 0} current
+          {items.length}
+          {activeConfidence.length > 0 ? ` of ${findings?.length ?? 0}` : ""} current
         </span>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={clearConfidenceFilter}
+          className={cn(
+            "rounded-[5.5px] border px-2.5 py-1 text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent",
+            activeConfidence.length === 0
+              ? "border-border bg-surface-hover text-text"
+              : "border-border bg-surface text-text-quaternary hover:bg-surface-hover hover:text-text"
+          )}
+        >
+          All confidence
+        </button>
+        {FINDING_CONFIDENCE_LEVELS.map((level) => {
+          const active = activeConfidenceSet.has(level);
+          return (
+            <button
+              key={level}
+              type="button"
+              onClick={() => toggleConfidence(level)}
+              className={cn(
+                "rounded-[5.5px] border px-2.5 py-1 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent",
+                active
+                  ? "border-border bg-surface-hover"
+                  : "border-border bg-surface hover:bg-surface-hover"
+              )}
+              aria-pressed={active}
+            >
+              <Badge variant={level} className="text-[11px]">
+                {findingConfidenceLabel(level)}
+              </Badge>
+            </button>
+          );
+        })}
       </div>
 
       <div className="rounded-[8px] border border-border bg-surface">
@@ -66,7 +153,9 @@ export default function FindingsListPage() {
                 <span className="font-mono text-[11px] text-text-quaternary">
                   {f.id}
                 </span>
-                <Badge variant={f.confidence}>{f.confidence}</Badge>
+                <Badge variant={f.confidence}>
+                  {findingConfidenceLabel(f.confidence)}
+                </Badge>
               </div>
               <p className="mt-0.5 text-[13px] font-medium text-text">
                 {f.topic}
@@ -87,7 +176,9 @@ export default function FindingsListPage() {
         ))}
         {items.length === 0 && (
           <div className="py-10 text-center text-[13px] text-text-quaternary">
-            No current findings.
+            {activeConfidence.length > 0
+              ? "No findings match the selected confidence levels."
+              : "No current findings."}
           </div>
         )}
       </div>

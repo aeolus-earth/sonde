@@ -8,6 +8,7 @@ from sonde.cli_options import pass_output_options
 from sonde.config import get_settings
 from sonde.db import findings as db
 from sonde.finding_utils import is_operational_finding, sort_operational_first
+from sonde.models.finding import FINDING_CONFIDENCE_VALUES
 from sonde.output import (
     err,
     print_breadcrumbs,
@@ -21,7 +22,7 @@ from sonde.output import (
 @click.option("--program", "-p", help="Filter by program")
 @click.option(
     "--confidence",
-    type=click.Choice(["low", "medium", "high"]),
+    type=click.Choice(list(FINDING_CONFIDENCE_VALUES)),
     help="Filter by confidence",
 )
 @click.option("--topic", help="Filter by topic (case-insensitive substring match)")

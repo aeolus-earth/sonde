@@ -6,6 +6,7 @@ Scientific discovery management for the Aeolus research platform.
 
 - **Python 3.12+** — check with `python3 --version`
 - **uv** (fast Python package manager) — install with:
+
   ```bash
   # macOS
   brew install uv
@@ -13,11 +14,19 @@ Scientific discovery management for the Aeolus research platform.
   # or any platform
   curl -LsSf https://astral.sh/uv/install.sh | sh
   ```
+
 - **Access to the private repo** — you need GitHub access to `aeolus-earth/sonde`
 
 ## Install
 
-**Option A — Clone and develop (recommended for contributors):**
+**Option A — Install the latest release artifact (recommended):**
+
+```bash
+curl -LsSfO https://github.com/aeolus-earth/sonde/releases/latest/download/sonde-latest-py3-none-any.whl
+uv tool install ./sonde-latest-py3-none-any.whl
+```
+
+**Option B — Clone and develop (recommended for contributors):**
 
 ```bash
 git clone https://github.com/aeolus-earth/sonde.git
@@ -32,25 +41,12 @@ source .venv/bin/activate
 sonde <command>
 ```
 
-**Option B — Install directly from the private repo:**
+**Option C — Install as a global tool from a local clone:**
 
 ```bash
-# uv (recommended)
-uv tool install "sonde @ git+https://github.com/aeolus-earth/sonde.git@main#subdirectory=cli"
-
-# pip — HTTPS (will prompt for credentials or use a GitHub token)
-pip install "sonde @ git+https://github.com/aeolus-earth/sonde.git#subdirectory=cli"
-
-# pip — SSH (if you have SSH keys configured)
-pip install "sonde @ git+ssh://git@github.com/aeolus-earth/sonde.git#subdirectory=cli"
-```
-
-**Option C — Install from a wheel:**
-
-If someone has shared a `.whl` file from `cli/dist/`:
-
-```bash
-pip install sonde-0.1.0-py3-none-any.whl
+git clone https://github.com/aeolus-earth/sonde.git
+cd sonde/cli
+uv tool install .
 ```
 
 ## Getting started

@@ -40,8 +40,10 @@ export type ExperimentsSearch = {
   view?: "list" | "grouped";
   /** ISO date YYYY-MM-DD — filter to experiments created on this calendar day (local). */
   day?: string;
-  /** Sort by `created_at`: newest first (`desc`) or oldest first (`asc`). */
-  created?: "asc" | "desc";
+  /** Sort field for the experiments list. */
+  sort?: "created" | "closed";
+  /** Sort direction: newest first (`desc`) or oldest first (`asc`). */
+  order?: "asc" | "desc";
 };
 
 const routeApi = getRouteApi(ROUTE_API.authExperiments);
@@ -50,16 +52,20 @@ const ExperimentRow = memo(function ExperimentRow({
   exp,
   focused,
   onClick,
+  sortField,
   nested,
   className,
 }: {
   exp: ExperimentSummary;
   focused: boolean;
   onClick: (id: string) => void;
+  sortField: "created" | "closed";
   /** When true, keep bottom border on last row (grouped under direction). */
   nested?: boolean;
   className?: string;
 }) {
+  const closeTime = isTerminalExperiment(exp) ? exp.updated_at : null;
+  const displayTime = sortField === "closed" ? closeTime : exp.created_at;
   return (
     <div
       role="button"
@@ -103,9 +109,9 @@ const ExperimentRow = memo(function ExperimentRow({
       </span>
       <span
         className="text-right text-[12px] text-text-quaternary"
-        title={formatDateTime(exp.created_at)}
+        title={displayTime ? formatDateTime(displayTime) : "Not closed yet"}
       >
-        {formatDateTimeShort(exp.created_at)}
+        {displayTime ? formatDateTimeShort(displayTime) : "\u2014"}
       </span>
     </div>
   );
@@ -122,39 +128,67 @@ function toggleKey(
   setter((m) => ({ ...m, [key]: m[key] === false ? true : false }));
 }
 
-const CreatedSortHeader = memo(function CreatedSortHeader({
-  createdSort,
-  onToggle,
-}: {
-  createdSort: "asc" | "desc";
-  onToggle: () => void;
-}) {
+function isTerminalExperiment(exp: ExperimentSummary): boolean {
   return (
-    <button
-      type="button"
-      onClick={onToggle}
-      className="inline-flex w-full min-w-0 items-center justify-end gap-0.5 rounded-[4px] text-right font-medium text-text-quaternary transition-colors hover:text-text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
-      title={
-        createdSort === "desc"
-          ? "Newest first. Click for oldest first."
-          : "Oldest first. Click for newest first."
-      }
-      aria-sort={createdSort === "desc" ? "descending" : "ascending"}
-      aria-label={
-        createdSort === "desc"
-          ? "Sort by created: newest first. Activate to show oldest first."
-          : "Sort by created: oldest first. Activate to show newest first."
-      }
-    >
-      <span>Created</span>
-      <ArrowDown
-        className={cn(
-          "h-3 w-3 shrink-0 opacity-80",
-          createdSort === "asc" && "rotate-180"
-        )}
-        aria-hidden
-      />
-    </button>
+    exp.status === "complete" ||
+    exp.status === "failed" ||
+    exp.status === "superseded"
+  );
+}
+
+function closedSortTime(exp: ExperimentSummary): number | null {
+  return isTerminalExperiment(exp) ? new Date(exp.updated_at).getTime() : null;
+}
+
+const SortHeader = memo(function SortHeader({
+  sortField,
+  sortOrder,
+  onToggleField,
+  onToggleOrder,
+}: {
+  sortField: "created" | "closed";
+  sortOrder: "asc" | "desc";
+  onToggleField: () => void;
+  onToggleOrder: () => void;
+}) {
+  const label = sortField === "closed" ? "Closed" : "Created";
+  const directionLabel = sortOrder === "desc" ? "newest first" : "oldest first";
+  return (
+    <div className="flex w-full min-w-0 items-center justify-end gap-1.5">
+      <button
+        type="button"
+        onClick={onToggleField}
+        className="inline-flex min-w-0 items-center rounded-[4px] px-1 py-0.5 text-right font-medium text-text-quaternary transition-colors hover:text-text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+        title={
+          sortField === "created"
+            ? "Showing created time. Click to switch to closed time."
+            : "Showing closed time. Click to switch to created time."
+        }
+        aria-label={
+          sortField === "created"
+            ? "Sort column is created. Activate to switch to closed time."
+            : "Sort column is closed. Activate to switch to created time."
+        }
+      >
+        {label}
+      </button>
+      <button
+        type="button"
+        onClick={onToggleOrder}
+        className="inline-flex items-center justify-end gap-0.5 rounded-[4px] px-1 py-0.5 text-right font-medium text-text-quaternary transition-colors hover:text-text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+        title={`${label}: ${directionLabel}. Click to reverse.`}
+        aria-sort={sortOrder === "desc" ? "descending" : "ascending"}
+        aria-label={`${label}: ${directionLabel}. Activate to reverse the sort order.`}
+      >
+        <ArrowDown
+          className={cn(
+            "h-3 w-3 shrink-0 opacity-80",
+            sortOrder === "asc" && "rotate-180"
+          )}
+          aria-hidden
+        />
+      </button>
+    </div>
   );
 });
 
@@ -164,14 +198,15 @@ export default function ExperimentsListPage() {
   const { data: directions } = useDirections();
   const activeProgram = useActiveProgram();
   const navigate = routeApi.useNavigate();
-  const { q, status, artifact, view, day, created } = routeApi.useSearch();
+  const { q, status, artifact, view, day, sort, order } = routeApi.useSearch();
   const filter = q ?? "";
   const deferredFilter = useDeferredValue(filter);
   const statusFilter = status ?? "all";
   const artifactFilter = artifact ?? undefined;
   const viewMode = view ?? "list";
   const dayFilter = day;
-  const createdSort = created ?? "desc";
+  const sortField = sort ?? "created";
+  const sortOrder = order ?? "desc";
 
   const { data: serverMatchIds } = useExperimentSearch(deferredFilter);
 
@@ -213,14 +248,27 @@ export default function ExperimentsListPage() {
 
   const sortedFiltered = useMemo(() => {
     const arr = [...filtered];
-    const asc = createdSort === "asc";
+    const asc = sortOrder === "asc";
     arr.sort((a, b) => {
+      if (sortField === "closed") {
+        const ta = closedSortTime(a);
+        const tb = closedSortTime(b);
+        if (ta === null && tb === null) {
+          const ca = new Date(a.created_at).getTime();
+          const cb = new Date(b.created_at).getTime();
+          return asc ? ca - cb : cb - ca;
+        }
+        if (ta === null) return 1;
+        if (tb === null) return -1;
+        return asc ? ta - tb : tb - ta;
+      }
+
       const ta = new Date(a.created_at).getTime();
       const tb = new Date(b.created_at).getTime();
       return asc ? ta - tb : tb - ta;
     });
     return arr;
-  }, [filtered, createdSort]);
+  }, [filtered, sortField, sortOrder]);
 
   const projectTree = useMemo(
     () =>
@@ -228,9 +276,9 @@ export default function ExperimentsListPage() {
         sortedFiltered,
         projects ?? [],
         directions ?? [],
-        { createdSort }
+        { sortField, sortOrder }
       ),
-    [sortedFiltered, projects, directions, createdSort]
+    [sortedFiltered, projects, directions, sortField, sortOrder]
   );
 
   const keyboardNavItems = useMemo(() => {
@@ -240,14 +288,24 @@ export default function ExperimentsListPage() {
     return sortedFiltered;
   }, [viewMode, projectTree, sortedFiltered]);
 
-  const toggleCreatedSort = useCallback(() => {
+  const toggleSortField = useCallback(() => {
+    navigate({
+      search: (prev: ExperimentsSearch) => ({
+        ...prev,
+        sort: (prev.sort ?? "created") === "created" ? "closed" : undefined,
+      }),
+      replace: true,
+    });
+  }, [navigate]);
+
+  const toggleSortOrder = useCallback(() => {
     navigate({
       search: (prev: ExperimentsSearch) => {
-        const curr = prev.created ?? "desc";
+        const curr = prev.order ?? "desc";
         const next = curr === "desc" ? "asc" : "desc";
         return {
           ...prev,
-          created: next === "desc" ? undefined : next,
+          order: next === "desc" ? undefined : next,
         };
       },
       replace: true,
@@ -303,9 +361,11 @@ export default function ExperimentsListPage() {
             <span>Finding</span>
             <span>Source</span>
             <span>Tags</span>
-            <CreatedSortHeader
-              createdSort={createdSort}
-              onToggle={toggleCreatedSort}
+            <SortHeader
+              sortField={sortField}
+              sortOrder={sortOrder}
+              onToggleField={toggleSortField}
+              onToggleOrder={toggleSortOrder}
             />
           </div>
           {Array.from({ length: 8 }).map((_, i) => (
@@ -466,19 +526,21 @@ export default function ExperimentsListPage() {
         </div>
       </div>
 
-      <div className="rounded-[8px] border border-border bg-surface">
-        <div className="grid grid-cols-[80px_80px_1fr_1fr_100px_auto_120px] gap-1 border-b border-border px-3 py-1.5 text-[11px] font-medium text-text-quaternary">
-          <span>ID</span>
-          <span>Status</span>
-          <span>Hypothesis</span>
-          <span>Finding</span>
-          <span>Source</span>
-          <span>Tags</span>
-          <CreatedSortHeader
-            createdSort={createdSort}
-            onToggle={toggleCreatedSort}
-          />
-        </div>
+        <div className="rounded-[8px] border border-border bg-surface">
+          <div className="grid grid-cols-[80px_80px_1fr_1fr_100px_auto_120px] gap-1 border-b border-border px-3 py-1.5 text-[11px] font-medium text-text-quaternary">
+            <span>ID</span>
+            <span>Status</span>
+            <span>Hypothesis</span>
+            <span>Finding</span>
+            <span>Source</span>
+            <span>Tags</span>
+            <SortHeader
+              sortField={sortField}
+              sortOrder={sortOrder}
+              onToggleField={toggleSortField}
+              onToggleOrder={toggleSortOrder}
+            />
+          </div>
         {viewMode === "grouped" ? (
           <div className="max-h-[600px] space-y-4 overflow-y-auto px-0.5 pb-1 pt-0.5">
             {projectTree.length === 0 ? (
@@ -552,6 +614,7 @@ export default function ExperimentsListPage() {
                               <ExperimentRow
                                 key={exp.id}
                                 exp={exp}
+                                sortField={sortField}
                                 nested
                                 focused={
                                   focusedIndex ===
@@ -592,6 +655,7 @@ export default function ExperimentsListPage() {
                   >
                     <ExperimentRow
                       exp={exp}
+                      sortField={sortField}
                       focused={focusedIndex === vRow.index}
                       onClick={handleRowClick}
                     />
@@ -605,6 +669,7 @@ export default function ExperimentsListPage() {
             <ExperimentRow
               key={exp.id}
               exp={exp}
+              sortField={sortField}
               focused={focusedIndex === idx}
               onClick={handleRowClick}
             />

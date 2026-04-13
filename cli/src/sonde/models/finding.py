@@ -7,6 +7,16 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+type FindingConfidence = Literal["very_low", "low", "medium", "high", "very_high"]
+
+FINDING_CONFIDENCE_VALUES: tuple[FindingConfidence, ...] = (
+    "very_low",
+    "low",
+    "medium",
+    "high",
+    "very_high",
+)
+
 
 class FindingCreate(BaseModel):
     """Input model for creating a finding."""
@@ -14,7 +24,7 @@ class FindingCreate(BaseModel):
     program: str
     topic: str
     finding: str
-    confidence: Literal["low", "medium", "high"] = "medium"
+    confidence: FindingConfidence = "medium"
     evidence: list[str] = Field(default_factory=list)
     source: str
     supersedes: str | None = None

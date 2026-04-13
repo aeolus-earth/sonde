@@ -1,7 +1,8 @@
 import { useCallback } from "react";
 import { getRouteApi, Link } from "@tanstack/react-router";
 import { ROUTE_API } from "../route-ids";
-import { useFinding } from "@/hooks/use-findings";
+import { useFinding, useUpdateFindingConfidence } from "@/hooks/use-findings";
+import { useQuestionsByFinding } from "@/hooks/use-questions";
 import { useRecordActivity } from "@/hooks/use-activity";
 import { useHotkey } from "@/hooks/use-keyboard";
 import { Badge } from "@/components/ui/badge";
@@ -10,8 +11,13 @@ import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { MarkdownView } from "@/components/ui/markdown-view";
 import { Section, DetailRow } from "@/components/shared/detail-layout";
 import { RecordLink } from "@/components/shared/record-link";
+import {
+  FINDING_CONFIDENCE_LEVELS,
+  findingConfidenceLabel,
+} from "@/lib/finding-confidence";
 import { formatDateTime, formatDateTimeShort } from "@/lib/utils";
 import { ArrowLeft } from "lucide-react";
+import type { FindingConfidence } from "@/types/sonde";
 
 const routeApi = getRouteApi(ROUTE_API.authFindingDetail);
 
@@ -23,8 +29,13 @@ export default function FindingDetailPage() {
   const { id } = routeApi.useParams();
   const nav = routeApi.useNavigate();
   const { data: finding, isLoading } = useFinding(id);
+  const { data: linkedQuestions } = useQuestionsByFinding(id);
   const { data: activity } = useRecordActivity(id);
-  useHotkey("Escape", useCallback(() => nav({ to: "/findings" }), [nav]));
+  const updateConfidence = useUpdateFindingConfidence(id);
+  useHotkey(
+    "Escape",
+    useCallback(() => nav({ to: "/findings" }), [nav]),
+  );
 
   if (isLoading || !finding) {
     return (
@@ -50,10 +61,7 @@ export default function FindingDetailPage() {
   return (
     <div className="space-y-4">
       <Breadcrumb
-        items={[
-          { label: "Findings", to: "/findings" },
-          { label: finding.id },
-        ]}
+        items={[{ label: "Findings", to: "/findings" }, { label: finding.id }]}
       />
       <div className="flex items-center gap-2.5">
         <Link
@@ -66,7 +74,9 @@ export default function FindingDetailPage() {
           <h1 className="font-mono text-[15px] font-semibold tracking-[-0.01em] text-text">
             {finding.id}
           </h1>
-          <Badge variant={finding.confidence}>{finding.confidence}</Badge>
+          <Badge variant={finding.confidence}>
+            {findingConfidenceLabel(finding.confidence)}
+          </Badge>
         </div>
         <span
           className="text-[12px] text-text-quaternary"
@@ -104,6 +114,18 @@ export default function FindingDetailPage() {
             </Section>
           )}
 
+          {linkedQuestions && linkedQuestions.length > 0 && (
+            <Section title="Questions" count={linkedQuestions.length}>
+              <div className="space-y-1">
+                {linkedQuestions.map((question) => (
+                  <div key={question.id} className="flex items-center gap-2">
+                    <RecordLink recordId={question.id} />
+                  </div>
+                ))}
+              </div>
+            </Section>
+          )}
+
           {finding.supersedes && (
             <Section title="Supersedes">
               <RecordLink recordId={finding.supersedes} />
@@ -128,7 +150,32 @@ export default function FindingDetailPage() {
               <DetailRow label="Program">{finding.program}</DetailRow>
               <DetailRow label="Source">{finding.source}</DetailRow>
               <DetailRow label="Confidence">
-                <Badge variant={finding.confidence}>{finding.confidence}</Badge>
+                <div className="flex flex-wrap items-center gap-2">
+                  <select
+                    value={finding.confidence}
+                    onChange={(event) =>
+                      updateConfidence.mutate({
+                        confidence: event.target.value as FindingConfidence,
+                      })
+                    }
+                    disabled={updateConfidence.isPending}
+                    className="appearance-none rounded-[5.5px] border border-border bg-surface px-2.5 py-1.5 text-[12px] text-text transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {FINDING_CONFIDENCE_LEVELS.map((level) => (
+                      <option key={level} value={level}>
+                        {findingConfidenceLabel(level)}
+                      </option>
+                    ))}
+                  </select>
+                  <Badge variant={finding.confidence}>
+                    {findingConfidenceLabel(finding.confidence)}
+                  </Badge>
+                  {updateConfidence.isPending && (
+                    <span className="text-[11px] text-text-quaternary">
+                      Saving…
+                    </span>
+                  )}
+                </div>
               </DetailRow>
               <DetailRow label="Valid from">
                 <span title={formatDateTime(finding.valid_from)}>
@@ -142,7 +189,9 @@ export default function FindingDetailPage() {
                   </span>
                 </DetailRow>
               )}
-              <DetailRow label="Evidence">{finding.evidence.length} experiments</DetailRow>
+              <DetailRow label="Evidence">
+                {finding.evidence.length} experiments
+              </DetailRow>
             </div>
           </Section>
 

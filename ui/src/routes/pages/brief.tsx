@@ -12,6 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { RecordLink } from "@/components/shared/record-link";
 import { Section } from "@/components/shared/detail-layout";
 import { MarkdownView } from "@/components/ui/markdown-view";
+import { findingConfidenceLabel } from "@/lib/finding-confidence";
 import { cn, formatDateTimeShort, formatDateTime } from "@/lib/utils";
 import {
   AlertTriangle,
@@ -549,7 +550,9 @@ export default function BriefPage() {
                     <div className="flex items-center gap-1.5">
                       <Lightbulb className="h-3 w-3 text-confidence-high" />
                       <RecordLink recordId={f.id} />
-                      <Badge variant={f.confidence}>{f.confidence}</Badge>
+                      <Badge variant={f.confidence}>
+                        {findingConfidenceLabel(f.confidence)}
+                      </Badge>
                     </div>
                     <p className="mt-0.5 text-[12px] font-medium text-text">{f.topic}</p>
                     <p className="mt-0.5 line-clamp-2 text-[11px] text-text-tertiary">{f.finding}</p>

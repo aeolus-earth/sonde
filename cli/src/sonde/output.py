@@ -81,9 +81,11 @@ DOCTOR_STATUS_STYLE: dict[str, str] = {
 }
 
 CONFIDENCE_STYLE: dict[str, str] = {
+    "very_high": "sonde.success",
     "high": "sonde.success",
     "medium": "sonde.warning",
-    "low": "sonde.muted",
+    "low": "sonde.error",
+    "very_low": "sonde.muted",
 }
 
 

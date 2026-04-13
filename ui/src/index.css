@@ -25,8 +25,10 @@
   --palette-status-complete: #4cb782;
   --palette-status-failed: #d95757;
   --palette-status-superseded: #a4a19b;
+  --palette-confidence-very-high: #188b6b;
   --palette-confidence-high: #4cb782;
   --palette-confidence-medium: #f2c94c;
+  --palette-confidence-very-low: #8f4b4b;
   --palette-confidence-low: #d95757;
 }
 
@@ -54,8 +56,10 @@ html.dark {
   --palette-status-complete: #4cb782;
   --palette-status-failed: #d95757;
   --palette-status-superseded: #848480;
+  --palette-confidence-very-high: #45c49e;
   --palette-confidence-high: #4cb782;
   --palette-confidence-medium: #f2c94c;
+  --palette-confidence-very-low: #b78686;
   --palette-confidence-low: #d95757;
 }
 
@@ -82,8 +86,10 @@ html.dark {
   --color-status-complete: var(--palette-status-complete);
   --color-status-failed: var(--palette-status-failed);
   --color-status-superseded: var(--palette-status-superseded);
+  --color-confidence-very-high: var(--palette-confidence-very-high);
   --color-confidence-high: var(--palette-confidence-high);
   --color-confidence-medium: var(--palette-confidence-medium);
+  --color-confidence-very-low: var(--palette-confidence-very-low);
   --color-confidence-low: var(--palette-confidence-low);
 
   --font-sans: "Inter", "Inter var", ui-sans-serif, system-ui, -apple-system, sans-serif;

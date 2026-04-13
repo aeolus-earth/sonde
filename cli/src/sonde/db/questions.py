@@ -23,7 +23,7 @@ def create(data: QuestionCreate) -> Question:
 def get(question_id: str) -> Question | None:
     """Get a single question by ID."""
     client = get_client()
-    result = client.table("questions").select("*").eq("id", question_id).execute()
+    result = client.table("question_status").select("*").eq("id", question_id).execute()
     data = to_rows(result.data)
     return Question(**data[0]) if data else None
 
@@ -39,7 +39,7 @@ def list_questions(
 ) -> list[Question]:
     """List questions with optional filters. Returns Pydantic models."""
     client = get_client()
-    query = client.table("questions").select("*").order("created_at", desc=True)
+    query = client.table("question_status").select("*").order("created_at", desc=True)
     query = query.range(offset, offset + limit - 1) if offset else query.limit(limit)
     query = _apply_filters(
         query,
@@ -60,7 +60,7 @@ def count_questions(
 ) -> int:
     """Count questions matching filters (no limit)."""
     client = get_client()
-    query = client.table("questions").select("id", count=CountMethod.exact)
+    query = client.table("question_status").select("id", count=CountMethod.exact)
     query = _apply_filters(
         query,
         program=program,
@@ -76,7 +76,9 @@ def update(question_id: str, updates: dict[str, Any]) -> Question | None:
     client = get_client()
     result = client.table("questions").update(updates).eq("id", question_id).execute()
     data = to_rows(result.data)
-    return Question(**data[0]) if data else None
+    if not data:
+        return None
+    return get(str(data[0]["id"]))
 
 
 def delete(question_id: str) -> None:
@@ -88,7 +90,22 @@ def delete(question_id: str) -> None:
 def find_by_promoted_to(experiment_id: str) -> list[Question]:
     """Get questions that were promoted to a specific experiment."""
     client = get_client()
-    result = client.table("questions").select("*").eq("promoted_to_id", experiment_id).execute()
+    result = (
+        client.table("question_status").select("*").eq("promoted_to_id", experiment_id).execute()
+    )
+    return [Question(**row) for row in to_rows(result.data)]
+
+
+def list_by_direction(direction_id: str) -> list[Question]:
+    """List questions whose home direction is the given direction."""
+    client = get_client()
+    result = (
+        client.table("question_status")
+        .select("*")
+        .eq("direction_id", direction_id)
+        .order("created_at")
+        .execute()
+    )
     return [Question(**row) for row in to_rows(result.data)]
 
 

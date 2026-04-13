@@ -10,6 +10,8 @@ export interface ManagedSessionCostEstimate extends ManagedUsageTotals {
   tokenCostUsd: number;
   runtimeCostUsd: number;
   totalCostUsd: number;
+  pricingVersion: string;
+  pricingSource: string;
 }
 
 interface ModelPricing {
@@ -25,6 +27,9 @@ const DEFAULT_MODEL_PRICING: ModelPricing = {
   cacheCreationUsdPerMTok: 3.75,
   cacheReadUsdPerMTok: 0.3,
 };
+const DEFAULT_MANAGED_RUNTIME_USD_PER_HOUR = 0.08;
+const MANAGED_PRICING_VERSION = "anthropic-2026-04";
+const MANAGED_PRICING_SOURCE = "anthropic-published-pricing";
 
 function parseUsageNumber(value: unknown): number {
   if (typeof value === "number" && Number.isFinite(value)) {
@@ -91,7 +96,11 @@ export function estimateManagedSessionCost(options: {
   const runtimeSeconds = Math.max(0, options.runtimeSeconds ?? 0);
   const runtimeUsdPerHour = Math.max(
     0,
-    options.runtimeUsdPerHour ?? Number(process.env.SONDE_MANAGED_RUNTIME_USD_PER_HOUR ?? "0")
+    options.runtimeUsdPerHour ??
+      Number(
+        process.env.SONDE_MANAGED_RUNTIME_USD_PER_HOUR ??
+          String(DEFAULT_MANAGED_RUNTIME_USD_PER_HOUR)
+      )
   );
 
   const tokenCostUsd =
@@ -107,6 +116,8 @@ export function estimateManagedSessionCost(options: {
     tokenCostUsd: roundUsd(tokenCostUsd),
     runtimeCostUsd: roundUsd(runtimeCostUsd),
     totalCostUsd: roundUsd(tokenCostUsd + runtimeCostUsd),
+    pricingVersion: MANAGED_PRICING_VERSION,
+    pricingSource: MANAGED_PRICING_SOURCE,
   };
 }
 

@@ -29,6 +29,7 @@ def _show_finding(ctx: click.Context, finding_id: str) -> None:
     """Display a finding with its evidence and supersession chain."""
     from sonde.db import experiments as exp_db
     from sonde.db import findings as db
+    from sonde.db import question_links as q_links
 
     f = db.get(finding_id)
     if not f:
@@ -41,6 +42,7 @@ def _show_finding(ctx: click.Context, finding_id: str) -> None:
 
     # Fetch evidence experiments
     evidence_exps = exp_db.get_by_ids(f.evidence) if f.evidence else []
+    linked_questions = q_links.list_questions_for_finding(f.id)
 
     # Fetch supersession chain
     from sonde.models.finding import Finding
@@ -58,6 +60,7 @@ def _show_finding(ctx: click.Context, finding_id: str) -> None:
     if ctx.obj.get("json"):
         data = f.model_dump(mode="json")
         data["_evidence_experiments"] = [e.model_dump(mode="json") for e in evidence_exps]
+        data["_questions"] = [q.model_dump(mode="json") for q in linked_questions]
         data["_chain"] = [{"relation": rel, **item.model_dump(mode="json")} for rel, item in chain]
         print_json(data)
         return
@@ -93,6 +96,20 @@ def _show_finding(ctx: click.Context, finding_id: str) -> None:
             title="Evidence",
         )
 
+    if linked_questions:
+        print_table(
+            ["id", "status", "question"],
+            [
+                {
+                    "id": q.id,
+                    "status": q.status,
+                    "question": truncate_text(q.question, 70),
+                }
+                for q in linked_questions
+            ],
+            title="Questions",
+        )
+
     if chain:
         err.print("\n[sonde.heading]Supersession[/]")
         for rel, item in chain:
@@ -112,6 +129,9 @@ def _show_finding(ctx: click.Context, finding_id: str) -> None:
 
 def _show_question(ctx: click.Context, question_id: str) -> None:
     """Display a question with promotion context."""
+    from sonde.db import directions as dir_db
+    from sonde.db import experiments as exp_db
+    from sonde.db import question_links as q_links
     from sonde.db import questions as db
 
     q = db.get(question_id)
@@ -123,8 +143,18 @@ def _show_question(ctx: click.Context, question_id: str) -> None:
         )
         raise SystemExit(1)
 
+    home_direction = dir_db.get(q.direction_id) if q.direction_id else None
+    linked_experiment_ids = q_links.list_experiment_ids_for_question(q.id)
+    linked_experiments = exp_db.get_by_ids(linked_experiment_ids) if linked_experiment_ids else []
+    linked_findings = q_links.list_findings_for_question(q.id)
+
     if ctx.obj.get("json"):
-        print_json(q.model_dump(mode="json"))
+        data = q.model_dump(mode="json")
+        if home_direction:
+            data["_direction"] = home_direction.model_dump(mode="json")
+        data["_experiments"] = [exp.model_dump(mode="json") for exp in linked_experiments]
+        data["_findings"] = [finding.model_dump(mode="json") for finding in linked_findings]
+        print_json(data)
         return
 
     q_created = q.created_at.strftime("%Y-%m-%d") if q.created_at else ""
@@ -132,6 +162,10 @@ def _show_question(ctx: click.Context, question_id: str) -> None:
         f"[sonde.heading]{q.id}[/]  {styled_status(q.status)}  {q.program}",
         f"[sonde.muted]Raised by: {q.source or '—'}  Created: {q_created}[/]",
     ]
+    if home_direction:
+        header.append(
+            f"[sonde.muted]Home direction: {home_direction.id} ({home_direction.title})[/]"
+        )
     if q.tags:
         header.append(f"[sonde.muted]Tags: {', '.join(q.tags)}[/]")
 
@@ -140,19 +174,37 @@ def _show_question(ctx: click.Context, question_id: str) -> None:
     if q.context:
         header.append(f"\n[sonde.heading]Context[/]\n{q.context}")
 
-    if q.promoted_to_id:
-        header.append(
-            f"\n[sonde.success]Promoted to {q.promoted_to_type or 'experiment'}: "
-            f"{q.promoted_to_id}[/]"
-        )
-
     out.print(
         Panel("\n".join(header), title=f"[sonde.brand]{q.id}[/]", border_style="sonde.brand.dim")
     )
 
+    if linked_experiments:
+        print_table(
+            ["id", "status", "summary"],
+            [
+                {"id": exp.id, "status": exp.status, "summary": record_summary(exp, 60)}
+                for exp in linked_experiments
+            ],
+            title="Experiments",
+        )
+
+    if linked_findings:
+        print_table(
+            ["id", "confidence", "finding"],
+            [
+                {
+                    "id": finding.id,
+                    "confidence": finding.confidence,
+                    "finding": truncate_text(finding.finding, 60),
+                }
+                for finding in linked_findings
+            ],
+            title="Findings",
+        )
+
     breadcrumbs = [f"\U0001f517 {ui_url(q.id)}"]
-    if q.promoted_to_id:
-        breadcrumbs.append(f"Promoted to: sonde show {q.promoted_to_id}")
+    if linked_experiments:
+        breadcrumbs.append(f"Spawn: sonde question spawn-experiment {q.id}")
     breadcrumbs.append(f"All: sonde questions -p {q.program}")
     print_breadcrumbs(breadcrumbs)
 
@@ -162,6 +214,7 @@ def _show_direction(ctx: click.Context, direction_id: str) -> None:
     from sonde.db import directions as dir_db
     from sonde.db import experiments as exp_db
     from sonde.db import findings as find_db
+    from sonde.db import questions as q_db
 
     d = dir_db.get(direction_id)
     if not d:
@@ -178,6 +231,7 @@ def _show_direction(ctx: click.Context, direction_id: str) -> None:
     exp_ids = {e.id for e in experiments}
     all_findings = find_db.list_active(program=d.program)
     findings = [f for f in all_findings if exp_ids & set(f.evidence)]
+    questions = q_db.list_by_direction(direction_id)
 
     # Fetch hierarchy info
     children = dir_db.get_children(direction_id)
@@ -192,6 +246,7 @@ def _show_direction(ctx: click.Context, direction_id: str) -> None:
         data = d.model_dump(mode="json")
         data["_experiments"] = [e.model_dump(mode="json") for e in experiments]
         data["_findings"] = [f.model_dump(mode="json") for f in findings]
+        data["_questions"] = [q.model_dump(mode="json") for q in questions]
         if parent_dir:
             data["_parent_direction"] = parent_dir.model_dump(mode="json")
         if spawned_exp:
@@ -255,6 +310,20 @@ def _show_direction(ctx: click.Context, direction_id: str) -> None:
                 {"id": e.id, "status": e.status, "source": source, "summary": record_summary(e, 45)}
             )
         print_table(["id", "status", "source", "summary"], exp_rows, title="Experiments")
+
+    if questions:
+        print_table(
+            ["id", "status", "question"],
+            [
+                {
+                    "id": q.id,
+                    "status": q.status,
+                    "question": truncate_text(q.question, 70),
+                }
+                for q in questions
+            ],
+            title="Questions",
+        )
 
     if children:
         child_rows = [

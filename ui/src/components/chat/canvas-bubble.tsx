@@ -5,28 +5,36 @@ import { cn } from "@/lib/utils";
 import { toCanvasRect } from "@/lib/assistant-canvas-layout";
 import { useSetCanvasBubbleRect } from "@/stores/assistant-canvas-layout";
 import { ChatInput } from "./chat-input";
+import { ChatInstallCta } from "./chat-install-cta";
 
 const SUGGESTIONS = [
   {
     icon: FlaskConical,
     label: "Summarize recent experiments",
-    prompt: "Summarize what we've learned from our most recent experiments across all directions.",
+    prompt:
+      "Summarize what we've learned from our most recent experiments across all directions.",
   },
   {
     icon: BookOpen,
     label: "Surface key findings",
-    prompt: "What are the most significant findings recorded so far? Highlight any that are still unresolved or need follow-up.",
+    prompt:
+      "What are the most significant findings recorded so far? Highlight any that are still unresolved or need follow-up.",
   },
   {
     icon: HelpCircle,
     label: "Open research questions",
-    prompt: "List all open research questions that haven't been answered yet, grouped by direction.",
+    prompt:
+      "List all open research questions that haven't been answered yet, grouped by direction.",
   },
 ] as const;
 
 type CanvasBubbleProps = {
   pageContext: PageContext | null;
-  onSend: (content: string, mentions: MentionRef[], files: File[]) => void | Promise<void>;
+  onSend: (
+    content: string,
+    mentions: MentionRef[],
+    files: File[],
+  ) => void | Promise<void>;
   onCancel: () => void;
   isStreaming: boolean;
   disabled: boolean;
@@ -92,7 +100,6 @@ export const CanvasBubble = memo(function CanvasBubble({
         ref={bubbleFrameRef}
         className="pointer-events-auto relative flex w-full max-w-[min(42rem,70vw)] flex-col items-center gap-4"
       >
-
         <h1 className="mb-1 w-full text-center font-display text-[clamp(1.65rem,3.8vw,2.25rem)] font-normal leading-[1.12] tracking-[0.03em] text-text">
           What should we{" "}
           <em className="italic text-text-secondary">explore?</em>
@@ -147,7 +154,11 @@ export const CanvasBubble = memo(function CanvasBubble({
             </button>
           ))}
         </div>
-
+      </div>
+      <div className="pointer-events-auto absolute bottom-3 right-3 z-10 w-[min(100%,42rem)] sm:bottom-4 sm:right-4">
+        <div className="ml-auto max-w-[42rem]">
+          <ChatInstallCta />
+        </div>
       </div>
     </div>
   );

@@ -226,6 +226,8 @@ function managedSessionRow(state: ManagedTrackedSession) {
     estimated_token_cost_usd: estimate.tokenCostUsd,
     estimated_runtime_cost_usd: estimate.runtimeCostUsd,
     estimated_total_cost_usd: estimate.totalCostUsd,
+    pricing_version: estimate.pricingVersion,
+    pricing_source: estimate.pricingSource,
     latest_usage: state.lastEstimate
       ? {
           input_tokens: state.lastEstimate.inputTokens,
@@ -303,7 +305,7 @@ async function insertManagedSessionEvent(options: {
 
 async function insertCostSample(options: {
   state: ManagedTrackedSession;
-  sampleType: "idle" | "archive" | "delete" | "reconcile";
+  sampleType: "idle" | "archive" | "delete" | "reconcile" | "error";
   status: string;
   estimate: ManagedSessionCostEstimate;
 }): Promise<void> {
@@ -321,6 +323,8 @@ async function insertCostSample(options: {
       estimated_token_cost_usd: options.estimate.tokenCostUsd,
       estimated_runtime_cost_usd: options.estimate.runtimeCostUsd,
       estimated_total_cost_usd: options.estimate.totalCostUsd,
+      pricing_version: options.estimate.pricingVersion,
+      pricing_source: options.estimate.pricingSource,
       usage: {
         input_tokens: options.estimate.inputTokens,
         output_tokens: options.estimate.outputTokens,
@@ -505,7 +509,15 @@ export async function noteManagedSessionError(options: {
     state.runtimeMsAccumulated += Math.max(0, nowMs() - state.runningSinceMs);
     state.runningSinceMs = null;
   }
+  const resource = await getManagedSession(options.sessionId).catch(() => null);
+  const estimate = updateEstimateFromResource(state, resource);
   await persistManagedSession(state);
+  await insertCostSample({
+    state,
+    sampleType: "error",
+    status: "error",
+    estimate,
+  });
   await insertManagedSessionEvent({
     state,
     eventType: "session_error",
@@ -513,13 +525,17 @@ export async function noteManagedSessionError(options: {
     errorCode: options.errorCode,
     errorMessage: options.message,
     requestId: options.requestId ?? state.lastRequestId,
-    details: options.details,
+    details: {
+      ...(options.details ?? {}),
+      estimated_total_cost_usd: estimate.totalCostUsd,
+      runtime_seconds: estimate.runtimeSeconds,
+    },
   });
 }
 
 export async function syncManagedSessionUsage(options: {
   sessionId: string;
-  sampleType: "idle" | "archive" | "delete" | "reconcile";
+  sampleType: "idle" | "archive" | "delete" | "reconcile" | "error";
   status:
     | "idle"
     | "archived"
@@ -563,6 +579,19 @@ export async function syncManagedSessionUsage(options: {
       },
     });
   }
+  const alert = buildManagedCostAlert(state, estimate);
+  if (alert) {
+    await insertManagedSessionEvent({
+      state,
+      eventType: "cost_alert_emitted",
+      severity: alert.severity === "critical" ? "error" : "warn",
+      details: {
+        estimated_total_cost_usd: estimate.totalCostUsd,
+        runtime_seconds: estimate.runtimeSeconds,
+        threshold: alert.severity,
+      },
+    });
+  }
   if (options.status === "idle" || options.status === "awaiting_approval") {
     scheduleManagedSessionArchive(options.sessionId, {
       delayMs: getIdleArchiveDelayMs(),
@@ -571,7 +600,7 @@ export async function syncManagedSessionUsage(options: {
   } else if (options.status === "active") {
     clearArchiveTimer(state);
   }
-  return buildManagedCostAlert(state, estimate);
+  return alert;
 }
 
 async function archiveManagedSessionInternal(options: {
