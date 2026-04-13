@@ -113,7 +113,7 @@ export default function FindingDetailPage() {
           <Skeleton className="h-5 w-28" />
           <Skeleton className="h-5 w-16" />
         </div>
-        <div className="grid gap-3 lg:grid-cols-[1fr_280px]">
+        <div className="grid gap-3 lg:grid-cols-[1fr_minmax(300px,320px)]">
           <div className="space-y-3">
             <DetailSectionSkeleton />
             <DetailSectionSkeleton />
@@ -153,7 +153,7 @@ export default function FindingDetailPage() {
         </span>
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-[1fr_280px]">
+      <div className="grid gap-3 lg:grid-cols-[1fr_minmax(300px,320px)]">
         <div className="space-y-3">
           <Section title="Topic">
             <p className="text-[14px] font-medium text-text">{finding.topic}</p>
@@ -241,6 +241,7 @@ export default function FindingDetailPage() {
                     isPending={updateConfidence.isPending}
                     labelFor={findingConfidenceLabel}
                     buttonStyles={confidenceButtonStyles}
+                    layout="wrapTwoRow"
                     columnsClassName="grid-cols-5"
                     onChange={(confidence) =>
                       updateConfidence.mutate({ value: confidence })
@@ -355,6 +356,7 @@ function SegmentedPicker<T extends string>({
   labelFor,
   buttonStyles,
   columnsClassName,
+  layout = "singleRow",
   onChange,
 }: {
   value: T;
@@ -363,49 +365,66 @@ function SegmentedPicker<T extends string>({
   labelFor: (value: T) => string;
   buttonStyles: Record<T, string>;
   columnsClassName: string;
+  /** Five-level confidence: 3 segments on row 1, 2 on row 2 — wider cells in narrow sidebars. */
+  layout?: "singleRow" | "wrapTwoRow";
   onChange: (value: T) => void;
 }) {
+  const useWrapTwoRow = layout === "wrapTwoRow" && levels.length === 5;
+
+  const renderButton = (level: T, cellClass: string) => {
+    const isActive = value === level;
+    return (
+      <button
+        key={level}
+        type="button"
+        data-active={isActive}
+        disabled={isPending}
+        onClick={() => onChange(level)}
+        className={cn(
+          "relative flex min-h-[52px] min-w-0 items-center justify-center px-2 py-2 text-center text-[10px] font-medium tracking-[-0.01em] leading-[1.2] text-text-tertiary transition-[background-color,color,box-shadow] hover:bg-surface hover:text-text-secondary focus-visible:z-10 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-[56px] sm:text-[11px]",
+          useWrapTwoRow && "bg-surface-raised/95",
+          !useWrapTwoRow && "shrink",
+          buttonStyles[level],
+          cellClass,
+        )}
+        aria-pressed={isActive}
+      >
+        <span className="flex min-w-0 flex-col items-center justify-center gap-1">
+          <span className="w-full max-w-full px-0.5 text-balance text-center leading-tight">
+            {labelFor(level)}
+          </span>
+          <span
+            className={cn(
+              "flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-current/25 opacity-0 transition-opacity",
+              isActive && "opacity-100",
+            )}
+          >
+            <Check className="h-3 w-3" />
+          </span>
+        </span>
+      </button>
+    );
+  };
+
   return (
     <div className="w-full">
       <div className="overflow-hidden rounded-[14px] border border-border-subtle bg-surface-raised/95 shadow-[inset_0_1px_0_color-mix(in_srgb,var(--color-bg)_55%,transparent)]">
-        <div
-          className={cn(
-            "grid divide-x divide-border-subtle",
-            columnsClassName,
-          )}
-        >
-          {levels.map((level) => {
-            const isActive = value === level;
-            return (
-              <button
-                key={level}
-                type="button"
-                data-active={isActive}
-                disabled={isPending}
-                onClick={() => onChange(level)}
-                className={cn(
-                  "relative flex min-h-[60px] min-w-0 shrink items-center justify-center px-1.5 py-2.5 text-center text-[10px] font-medium tracking-[-0.01em] leading-[1.2] text-text-tertiary transition-[background-color,color,box-shadow] hover:bg-surface hover:text-text-secondary focus-visible:z-10 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50 sm:px-2 sm:text-[11px]",
-                  buttonStyles[level],
-                )}
-                aria-pressed={isActive}
-              >
-                <span className="flex min-w-0 flex-col items-center justify-center gap-1">
-                  <span className="max-w-full px-0.5 text-balance text-center leading-tight">
-                    {labelFor(level)}
-                  </span>
-                  <span
-                    className={cn(
-                      "flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-current/25 opacity-0 transition-opacity",
-                      isActive && "opacity-100",
-                    )}
-                  >
-                    <Check className="h-3 w-3" />
-                  </span>
-                </span>
-              </button>
-            );
-          })}
-        </div>
+        {useWrapTwoRow ? (
+          <div className="grid grid-cols-6 gap-px bg-border-subtle p-px">
+            {levels.map((level, i) =>
+              renderButton(level, i < 3 ? "col-span-2" : "col-span-3"),
+            )}
+          </div>
+        ) : (
+          <div
+            className={cn(
+              "grid divide-x divide-border-subtle",
+              columnsClassName,
+            )}
+          >
+            {levels.map((level) => renderButton(level, "shrink"))}
+          </div>
+        )}
       </div>
     </div>
   );
