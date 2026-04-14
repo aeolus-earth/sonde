@@ -262,8 +262,8 @@ jobs:
       - if: steps.gate.outputs.run == 'true'
         name: Run hosted preflight
         env:
-          SONDE_HOSTED_PREFLIGHT_AGENT_HTTP_BASE: ${{ vars.SONDE_AGENT_HTTP_BASE || vars.SONDE_STAGING_AGENT_HTTP_BASE || '' }}
-          SONDE_HOSTED_PREFLIGHT_APP_ORIGIN: ${{ vars.SONDE_UI_URL || vars.SONDE_STAGING_UI_URL || '' }}
+          SONDE_HOSTED_PREFLIGHT_AGENT_HTTP_BASE: ${{ vars.SONDE_STAGING_AGENT_HTTP_BASE || vars.SONDE_AGENT_HTTP_BASE || '' }}
+          SONDE_HOSTED_PREFLIGHT_APP_ORIGIN: ${{ vars.SONDE_STAGING_UI_URL || vars.SONDE_UI_URL || '' }}
           SONDE_HOSTED_PREFLIGHT_REQUIRED: "1"
         run: bash scripts/ci/hosted-preflight.sh
 

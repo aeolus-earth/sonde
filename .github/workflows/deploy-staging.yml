@@ -56,12 +56,12 @@ jobs:
     environment: staging
     needs: changes
     env:
-      HOSTED_UI_URL: ${{ vars.SONDE_UI_URL || vars.SONDE_STAGING_UI_URL || '' }}
-      HOSTED_SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF || vars.SUPABASE_STAGING_PROJECT_REF || '' }}
-      HOSTED_SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY || vars.SUPABASE_STAGING_ANON_KEY || '' }}
+      HOSTED_UI_URL: ${{ vars.SONDE_STAGING_UI_URL || vars.SONDE_UI_URL || '' }}
+      HOSTED_SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_STAGING_PROJECT_REF || vars.SUPABASE_PROJECT_REF || '' }}
+      HOSTED_SUPABASE_ANON_KEY: ${{ vars.SONDE_STAGING_ANON_KEY || vars.SUPABASE_ANON_KEY || '' }}
     if: >-
       ${{
-        (vars.SUPABASE_PROJECT_REF || vars.SUPABASE_STAGING_PROJECT_REF) != '' &&
+        (vars.SUPABASE_STAGING_PROJECT_REF || vars.SUPABASE_PROJECT_REF) != '' &&
         (
           github.event_name == 'workflow_dispatch' ||
           needs.changes.outputs.database == 'true'
