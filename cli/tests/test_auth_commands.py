@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import base64
 import json
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from threading import Thread
 from typing import Any, cast
 from unittest.mock import patch
 
@@ -48,6 +50,129 @@ def test_login_reports_config_error_with_loopback_guidance(runner: CliRunner, mo
     assert result.exit_code == 1
     assert "Login configuration is incomplete" in result.output
     assert "sonde login --method" in result.output
+    assert "loopback" in result.output
+
+
+def test_login_runs_hosted_activation_end_to_end(runner: CliRunner, monkeypatch, tmp_path) -> None:
+    session_payload = {
+        "access_token": "access-token",
+        "refresh_token": "refresh-token",
+        "user": {
+            "id": "user-1",
+            "email": "mason@aeolus.earth",
+            "user_metadata": {"full_name": "Mason Lee"},
+            "app_metadata": {"programs": ["shared"]},
+        },
+    }
+
+    class DeviceAuthHandler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            length = int(self.headers.get("content-length", "0"))
+            raw = self.rfile.read(length).decode("utf-8")
+            body = json.loads(raw) if raw else {}
+
+            if self.path == "/auth/device/start":
+                assert body["login_method"] == auth.LOGIN_METHOD_DEVICE
+                payload = {
+                    "device_code": "device-code",
+                    "user_code": "ABCD-EFGH",
+                    "verification_uri": "https://sonde.example.com/activate",
+                    "verification_uri_complete": "https://sonde.example.com/activate?code=ABCD-EFGH",
+                    "expires_in": 600,
+                    "interval": 2,
+                }
+            elif self.path == "/auth/device/poll":
+                assert body["device_code"] == "device-code"
+                payload = {
+                    "status": "approved",
+                    "interval": 2,
+                    "session": session_payload,
+                }
+            else:
+                self.send_response(404)
+                self.end_headers()
+                return
+
+            encoded = json.dumps(payload).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(encoded)))
+            self.end_headers()
+            self.wfile.write(encoded)
+
+        def log_message(self, format: str, *args) -> None:
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), DeviceAuthHandler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    session_path = tmp_path / "session.json"
+    monkeypatch.setenv("SONDE_AGENT_HTTP_BASE", f"http://127.0.0.1:{server.server_port}")
+    monkeypatch.setattr(auth, "CONFIG_DIR", tmp_path)
+    monkeypatch.setattr(auth, "SESSION_FILE", session_path)
+    monkeypatch.setattr("sonde.auth.is_authenticated", lambda: False)
+    monkeypatch.setattr("sonde.auth._emit_device_login_instructions", lambda **_kwargs: None)
+    monkeypatch.setattr("sonde.commands.auth.print_banner", lambda: None)
+    monkeypatch.setattr("sonde.db.auth_events.record_event", lambda *_args, **_kwargs: None)
+
+    try:
+        result = runner.invoke(cli, ["login"])
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+        server.server_close()
+
+    assert result.exit_code == 0
+    assert "Signed in as" in result.output
+    persisted = json.loads(session_path.read_text())
+    assert persisted["access_token"] == "access-token"
+    assert persisted["user"]["email"] == "mason@aeolus.earth"
+
+
+def test_login_with_loopback_method_forces_loopback_path(
+    runner: CliRunner, monkeypatch
+) -> None:
+    user = auth.UserInfo(email="mason@aeolus.earth", user_id="user-1", name="Mason Lee")
+    seen: list[str] = []
+
+    monkeypatch.setattr("sonde.auth.is_authenticated", lambda: False)
+    monkeypatch.setattr(
+        "sonde.auth._login_loopback",
+        lambda remote=False: seen.append(f"loopback:{remote}") or user,
+    )
+    monkeypatch.setattr(
+        "sonde.auth._login_device",
+        lambda: (_ for _ in ()).throw(AssertionError("device flow should not run")),
+    )
+    monkeypatch.setattr("sonde.commands.auth.print_banner", lambda: None)
+    monkeypatch.setattr("sonde.db.auth_events.record_event", lambda *_args, **_kwargs: None)
+
+    result = runner.invoke(cli, ["login", "--method", "loopback"])
+
+    assert result.exit_code == 0
+    assert seen == ["loopback:False"]
+
+
+def test_login_fail_closed_for_nondefault_supabase_target(
+    runner: CliRunner, monkeypatch
+) -> None:
+    monkeypatch.setattr("sonde.auth.is_authenticated", lambda: False)
+    monkeypatch.setattr(auth, "SUPABASE_URL", "http://127.0.0.1:54321")
+    monkeypatch.delenv("SONDE_AGENT_HTTP_BASE", raising=False)
+    monkeypatch.delenv("SONDE_UI_URL", raising=False)
+    monkeypatch.setattr(
+        auth,
+        "get_settings",
+        lambda: type("Settings", (), {"agent_http_base": "", "ui_url": auth.DEFAULT_UI_URL})(),
+    )
+    monkeypatch.setattr("sonde.commands.auth.print_banner", lambda: None)
+
+    result = runner.invoke(cli, ["login"])
+
+    assert result.exit_code == 1
+    assert "Login configuration is incomplete" in result.output
+    assert "SONDE_UI_URL" in result.output
     assert "loopback" in result.output
 
 
