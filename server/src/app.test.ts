@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { createApp, getAllowedOrigins } from "./app.js";
 import { resetGitHubCachesForTests } from "./github.js";
+import { resetManagedClientStateForTests } from "./managed/client.js";
+import { resetManagedSessionCacheForTests } from "./managed/session-cache.js";
 
 const originalEnv = { ...process.env };
 const originalFetch = globalThis.fetch;
@@ -14,6 +16,8 @@ beforeEach(() => {
   process.env.SONDE_RUNTIME_AUDIT_TOKEN = "test-runtime-token";
   delete process.env.SONDE_COMMIT_SHA;
   resetGitHubCachesForTests();
+  resetManagedClientStateForTests();
+  resetManagedSessionCacheForTests();
   globalThis.fetch = originalFetch;
 });
 
@@ -21,6 +25,8 @@ afterEach(() => {
   process.env = { ...originalEnv };
   globalThis.fetch = originalFetch;
   resetGitHubCachesForTests();
+  resetManagedClientStateForTests();
+  resetManagedSessionCacheForTests();
 });
 
 describe("createApp", () => {
@@ -82,12 +88,16 @@ describe("createApp", () => {
       schemaVersion: string | null;
       agentBackend: string;
       managedConfigured: boolean;
+      managedConfigError: string | null;
       sondeMcpConfigured: boolean;
       githubConfigured: boolean;
       anthropicConfigured: boolean;
+      anthropicConfigError: string | null;
       anthropicAdminConfigured: boolean;
+      anthropicAdminConfigError: string | null;
       costTelemetryConfigured: boolean;
       liveSpendEnabled: boolean;
+      telemetryRequiresServiceRole: boolean;
       cliGitRef: string | null;
       supabaseProjectRef: string | null;
       sharedRateLimitConfigured: boolean;
@@ -101,10 +111,14 @@ describe("createApp", () => {
       schemaVersion: "20260407000123",
       agentBackend: "managed",
       managedConfigured: false,
+      managedConfigError:
+        "SONDE_MANAGED_ENVIRONMENT_ID is not configured.",
       sondeMcpConfigured: true,
       githubConfigured: false,
       anthropicConfigured: true,
+      anthropicConfigError: null,
       anthropicAdminConfigured: false,
+      anthropicAdminConfigError: "ANTHROPIC_ADMIN_API_KEY is not configured.",
       costTelemetryConfigured: false,
       liveSpendEnabled: false,
       telemetryRequiresServiceRole: false,
@@ -332,6 +346,28 @@ describe("createApp", () => {
     assert.equal(body.status, "ready");
     assert.equal(body.backend, "managed");
     assert.equal(body.session_id, "sesn_test_prewarm");
+  });
+
+  it("returns a structured prewarm error when managed auth is malformed", async () => {
+    process.env.ANTHROPIC_API_KEY = "$(python - <<'PY' print('bad') PY)";
+    process.env.SONDE_MANAGED_ENVIRONMENT_ID = "env_123";
+    process.env.SONDE_MANAGED_AGENT_ID = "agent_123";
+    const app = createApp();
+
+    const response = await app.request("http://localhost/chat/prewarm", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${authToken}`,
+      },
+    });
+
+    assert.equal(response.status, 503);
+    const body = (await response.json()) as {
+      error: { type: string; message: string };
+    };
+    assert.equal(body.error.type, "chat_runtime_unavailable");
+    assert.match(body.error.message, /unevaluated shell or template syntax/);
+    assert.doesNotMatch(body.error.message, /python - <<'PY'/);
   });
 
   it("rejects unauthenticated GitHub proxy requests", async () => {

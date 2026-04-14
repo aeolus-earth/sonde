@@ -5,6 +5,10 @@ import { createSondeToolDefinitions } from "../mcp/registry.js";
 import { runSonde } from "../sonde-runner.js";
 import { resolveAgentModel, SYSTEM_PROMPT } from "../agent.js";
 import { z } from "zod";
+import {
+  getAnthropicAdminApiKey,
+  getAnthropicApiKey,
+} from "./config.js";
 
 const ANTHROPIC_API_BASE = "https://api.anthropic.com";
 const ANTHROPIC_VERSION = "2023-06-01";
@@ -82,30 +86,68 @@ export interface AnthropicCostReportResponse {
 }
 
 let ephemeralAgentIdPromise: Promise<string> | null = null;
-const mockManagedPrompts = new Map<string, string>();
+interface MockManagedSessionState {
+  finalText: string;
+  history: ManagedSessionEvent[];
+  pendingToolName: string | null;
+  pendingToolInput: Record<string, unknown>;
+  pendingToolUseId: string | null;
+  phase: "initial" | "awaiting_tool_result" | "final";
+  toolResultText: string | null;
+}
+
+const mockManagedSessions = new Map<string, MockManagedSessionState>();
+
+export function resetManagedClientStateForTests(): void {
+  ephemeralAgentIdPromise = null;
+  mockManagedSessions.clear();
+}
 
 function isMockManagedMode(env: NodeJS.ProcessEnv = process.env): boolean {
   return env.SONDE_TEST_AGENT_MOCK === "1";
 }
 
+function summarizeMockPrompt(text: string): string {
+  const summary = text.replace(/\s+/g, " ").trim().slice(0, 80);
+  return summary || "ok";
+}
+
+function parseMockToolInput(env: NodeJS.ProcessEnv = process.env): Record<string, unknown> {
+  const raw = env.SONDE_TEST_MANAGED_MOCK_TOOL_INPUT?.trim();
+  if (!raw) {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {}
+
+  return {};
+}
+
+function extractMockToolResultText(event: Record<string, unknown>): string | null {
+  const content = event.content;
+  if (!Array.isArray(content)) {
+    return null;
+  }
+
+  const text = content
+    .map((block) =>
+      block && typeof block === "object" && typeof block.text === "string"
+        ? block.text
+        : ""
+    )
+    .filter((value) => value.length > 0)
+    .join("\n")
+    .trim();
+  return text || null;
+}
+
 function getAnthropicBaseUrl(env: NodeJS.ProcessEnv = process.env): string {
   return (env.ANTHROPIC_BASE_URL?.trim() || ANTHROPIC_API_BASE).replace(/\/+$/, "");
-}
-
-function getAnthropicApiKey(env: NodeJS.ProcessEnv = process.env): string {
-  const apiKey = env.ANTHROPIC_API_KEY?.trim();
-  if (!apiKey) {
-    throw new Error("Managed mode requires ANTHROPIC_API_KEY.");
-  }
-  return apiKey;
-}
-
-function getAnthropicAdminApiKey(env: NodeJS.ProcessEnv = process.env): string {
-  const apiKey = env.ANTHROPIC_ADMIN_API_KEY?.trim();
-  if (!apiKey) {
-    throw new Error("Managed cost reconciliation requires ANTHROPIC_ADMIN_API_KEY.");
-  }
-  return apiKey;
 }
 
 function managedHeaders(beta: string = MANAGED_AGENTS_BETA): Record<string, string> {
@@ -351,10 +393,16 @@ export async function createManagedSession(
 ): Promise<string> {
   if (isMockManagedMode()) {
     const sessionId = `sesn_mock_${crypto.randomUUID()}`;
-    mockManagedPrompts.set(
-      sessionId,
-      `Mock response: ${options.user.name ?? options.user.email ?? options.user.id}`,
-    );
+    const pendingToolName = process.env.SONDE_TEST_MANAGED_MOCK_TOOL?.trim() || null;
+    mockManagedSessions.set(sessionId, {
+      finalText: `Mock response: ${options.user.name ?? options.user.email ?? options.user.id}`,
+      history: [],
+      pendingToolName,
+      pendingToolInput: parseMockToolInput(),
+      pendingToolUseId: pendingToolName ? `tool-${crypto.randomUUID()}` : null,
+      phase: pendingToolName ? "initial" : "final",
+      toolResultText: null,
+    });
     return sessionId;
   }
 
@@ -409,19 +457,30 @@ export async function sendManagedEvents(
   events: Record<string, unknown>[]
 ): Promise<void> {
   if (isMockManagedMode()) {
+    const state = mockManagedSessions.get(sessionId);
     for (const event of events) {
-      if (event.type !== "user.message") continue;
-      const content = Array.isArray(event.content) ? event.content : [];
-      const text = content
-        .map((block) =>
-          block && typeof block === "object" && typeof block.text === "string"
-            ? block.text
-            : ""
-        )
-        .join(" ")
-        .trim();
-      const summary = text.replace(/\s+/g, " ").slice(0, 80);
-      mockManagedPrompts.set(sessionId, `Mock response: ${summary || "ok"}`);
+      if (event.type === "user.message" && state) {
+        const content = Array.isArray(event.content) ? event.content : [];
+        const text = content
+          .map((block) =>
+            block && typeof block === "object" && typeof block.text === "string"
+              ? block.text
+              : ""
+          )
+          .join(" ")
+          .trim();
+        state.finalText = `Mock response: ${summarizeMockPrompt(text)}`;
+      }
+
+      if (
+        state &&
+        state.pendingToolName &&
+        event.type === "user.custom_tool_result" &&
+        event.custom_tool_use_id === state.pendingToolUseId
+      ) {
+        state.toolResultText = extractMockToolResultText(event);
+        state.phase = "final";
+      }
     }
     return;
   }
@@ -485,7 +544,10 @@ export async function listManagedSessionEvents(
   sessionId: string
 ): Promise<ManagedSessionEvent[]> {
   if (isMockManagedMode()) {
-    return [];
+    if (!mockManagedSessions.has(sessionId)) {
+      throw new Error(`Invalid session ID: ${sessionId}`);
+    }
+    return mockManagedSessions.get(sessionId)?.history ?? [];
   }
   const response = await fetchManagedJson<ManagedEventListResponse>(
     `/v1/sessions/${sessionId}/events`
@@ -600,16 +662,51 @@ export async function* streamManagedSessionEvents(
 ): AsyncIterable<ManagedSessionEvent> {
   if (isMockManagedMode()) {
     if (signal.aborted) return;
-    yield {
+    const state = mockManagedSessions.get(sessionId);
+    if (!state) {
+      return;
+    }
+
+    if (state.pendingToolName && state.phase === "initial") {
+      state.phase = "awaiting_tool_result";
+      const toolEvent: ManagedSessionEvent = {
+        id: state.pendingToolUseId ?? `tool-${sessionId}`,
+        type: "agent.custom_tool_use",
+        name: state.pendingToolName,
+        input: state.pendingToolInput,
+      };
+      const idleEvent: ManagedSessionEvent = {
+        id: `mock-idle-awaiting-${sessionId}`,
+        type: "session.status_idle",
+        stop_reason: {
+          type: "requires_action",
+          event_ids: [state.pendingToolUseId ?? `tool-${sessionId}`],
+        },
+      };
+      state.history = [...state.history.filter((event) => event.id !== toolEvent.id), toolEvent];
+      state.history = [...state.history.filter((event) => event.id !== idleEvent.id), idleEvent];
+      yield toolEvent;
+      yield idleEvent;
+      return;
+    }
+
+    const finalText = state.toolResultText
+      ? process.env.SONDE_TEST_MANAGED_MOCK_FINAL_TEXT?.trim() || state.toolResultText
+      : state.finalText;
+    const messageEvent: ManagedSessionEvent = {
       id: `mock-msg-${sessionId}`,
       type: "agent.message",
-      content: [{ type: "text", text: mockManagedPrompts.get(sessionId) ?? "Mock response: ok" }],
+      content: [{ type: "text", text: finalText || "Mock response: ok" }],
     };
-    yield {
-      id: `mock-idle-${sessionId}`,
+    const idleEvent: ManagedSessionEvent = {
+      id: `mock-idle-final-${sessionId}`,
       type: "session.status_idle",
       stop_reason: { type: "end_turn" },
     };
+    state.history = [...state.history.filter((event) => event.id !== messageEvent.id), messageEvent];
+    state.history = [...state.history.filter((event) => event.id !== idleEvent.id), idleEvent];
+    yield messageEvent;
+    yield idleEvent;
     return;
   }
   const response = await fetch(`${getAnthropicBaseUrl()}/v1/sessions/${sessionId}/stream?beta=true`, {

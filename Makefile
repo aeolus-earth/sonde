@@ -1,4 +1,4 @@
-.PHONY: setup dev test lint clean ci-local ci-browser ci-data ci-all install-hooks
+.PHONY: setup dev test lint clean ci-local ci-browser ci-data ci-auth ci-all install-hooks
 
 # ── One-command setup for new contributors ──────────────────────────
 
@@ -61,10 +61,14 @@ ci-browser:
 ci-data:
 	@bash scripts/ci/data.sh
 
+ci-auth:
+	@bash scripts/ci/auth.sh
+
 ci-all:
 	@bash scripts/ci/core.sh all
 	@bash scripts/ci/browser.sh all
 	@bash scripts/ci/data.sh
+	@bash scripts/ci/auth.sh
 
 install-hooks:
 	@git config core.hooksPath .githooks

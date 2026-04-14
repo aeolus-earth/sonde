@@ -6,6 +6,7 @@ import {
 import { hasGitHubAccess } from "./github.js";
 import { hasSupabaseTelemetryConfig, telemetryRequiresServiceRole } from "./supabase.js";
 import { getManagedSessionCostThresholds } from "./managed/pricing.js";
+import { getManagedRuntimeConfigStatus } from "./managed/config.js";
 
 export interface RuntimeMetadata {
   status: "ok";
@@ -17,7 +18,10 @@ export interface RuntimeMetadata {
   sondeMcpConfigured: boolean;
   githubConfigured: boolean;
   anthropicConfigured: boolean;
+  anthropicConfigError: string | null;
   anthropicAdminConfigured: boolean;
+  anthropicAdminConfigError: string | null;
+  managedConfigError: string | null;
   costTelemetryConfigured: boolean;
   liveSpendEnabled: boolean;
   telemetryRequiresServiceRole: boolean;
@@ -57,11 +61,7 @@ export function getSupabaseProjectRef(
 export function getRuntimeMetadata(
   env: NodeJS.ProcessEnv = process.env
 ): RuntimeMetadata {
-  const managedConfigured =
-    Boolean(env.ANTHROPIC_API_KEY?.trim()) &&
-    Boolean(env.SONDE_MANAGED_ENVIRONMENT_ID?.trim()) &&
-    (Boolean(env.SONDE_MANAGED_AGENT_ID?.trim()) ||
-      env.SONDE_MANAGED_ALLOW_EPHEMERAL_AGENT === "1");
+  const managedStatus = getManagedRuntimeConfigStatus(env);
   const thresholds = getManagedSessionCostThresholds(env);
   return {
     status: "ok",
@@ -69,16 +69,16 @@ export function getRuntimeMetadata(
     commitSha: env.SONDE_COMMIT_SHA?.trim() || null,
     schemaVersion: env.SONDE_SCHEMA_VERSION?.trim() || null,
     agentBackend: getAgentBackend(env),
-    managedConfigured,
-    sondeMcpConfigured:
-      Boolean(env.SONDE_PUBLIC_AGENT_BASE_URL?.trim()) ||
-      Boolean(env.SONDE_MANAGED_SONDE_MCP_URL?.trim()) ||
-      true,
+    managedConfigured: managedStatus.managedConfigured,
+    sondeMcpConfigured: true,
     githubConfigured: hasGitHubAccess(env),
-    anthropicConfigured: Boolean(env.ANTHROPIC_API_KEY?.trim()),
-    anthropicAdminConfigured: Boolean(env.ANTHROPIC_ADMIN_API_KEY?.trim()),
+    anthropicConfigured: managedStatus.anthropic.valid,
+    anthropicConfigError: managedStatus.anthropic.error,
+    anthropicAdminConfigured: managedStatus.anthropicAdmin.valid,
+    anthropicAdminConfigError: managedStatus.anthropicAdmin.error,
+    managedConfigError: managedStatus.managedConfigError,
     costTelemetryConfigured: hasSupabaseTelemetryConfig(env),
-    liveSpendEnabled: Boolean(env.ANTHROPIC_API_KEY?.trim()) && managedConfigured,
+    liveSpendEnabled: managedStatus.managedConfigured,
     telemetryRequiresServiceRole: telemetryRequiresServiceRole(env),
     managedSessionWarnUsd: thresholds.warnUsd,
     managedSessionCriticalUsd: thresholds.criticalUsd,

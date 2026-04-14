@@ -27,6 +27,7 @@ jobs:
   staging:
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.target == 'all' || inputs.target == 'staging' }}
     runs-on: ubuntu-latest
+    environment: staging
     steps:
       - uses: actions/checkout@v6
 
@@ -37,8 +38,8 @@ jobs:
       - name: Reconcile staging managed costs
         working-directory: server
         env:
-          MANAGED_COST_RECONCILE_HTTP_BASE: ${{ vars.SONDE_STAGING_AGENT_HTTP_BASE }}
-          MANAGED_COST_RECONCILE_TOKEN: ${{ secrets.SONDE_STAGING_INTERNAL_ADMIN_TOKEN }}
+          MANAGED_COST_RECONCILE_HTTP_BASE: ${{ vars.SONDE_AGENT_HTTP_BASE || vars.SONDE_STAGING_AGENT_HTTP_BASE || '' }}
+          MANAGED_COST_RECONCILE_TOKEN: ${{ secrets.SONDE_INTERNAL_ADMIN_TOKEN || secrets.SONDE_STAGING_INTERNAL_ADMIN_TOKEN || '' }}
           MANAGED_COST_RECONCILE_DAYS: ${{ inputs.days || '7' }}
         run: |
           if [ -z "$MANAGED_COST_RECONCILE_HTTP_BASE" ] || [ -z "$MANAGED_COST_RECONCILE_TOKEN" ]; then
@@ -50,6 +51,7 @@ jobs:
   production:
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.target == 'all' || inputs.target == 'production' }}
     runs-on: ubuntu-latest
+    environment: production
     steps:
       - uses: actions/checkout@v6
 
@@ -60,8 +62,8 @@ jobs:
       - name: Reconcile production managed costs
         working-directory: server
         env:
-          MANAGED_COST_RECONCILE_HTTP_BASE: ${{ vars.SONDE_AGENT_HTTP_BASE }}
-          MANAGED_COST_RECONCILE_TOKEN: ${{ secrets.SONDE_PRODUCTION_INTERNAL_ADMIN_TOKEN }}
+          MANAGED_COST_RECONCILE_HTTP_BASE: ${{ vars.SONDE_AGENT_HTTP_BASE || '' }}
+          MANAGED_COST_RECONCILE_TOKEN: ${{ secrets.SONDE_INTERNAL_ADMIN_TOKEN || secrets.SONDE_PRODUCTION_INTERNAL_ADMIN_TOKEN || '' }}
           MANAGED_COST_RECONCILE_DAYS: ${{ inputs.days || '7' }}
         run: |
           if [ -z "$MANAGED_COST_RECONCILE_HTTP_BASE" ] || [ -z "$MANAGED_COST_RECONCILE_TOKEN" ]; then
