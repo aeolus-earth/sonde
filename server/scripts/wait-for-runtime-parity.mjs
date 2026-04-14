@@ -66,7 +66,7 @@ async function main() {
   const expectedSchemaVersion = process.env.PARITY_EXPECT_SCHEMA_VERSION?.trim() || null;
   const requiredKeys = parseCsv(
     process.env.PARITY_REQUIRED_KEYS,
-    "managedConfigError,anthropicConfigError,anthropicAdminConfigError",
+    "managedConfigured,managedConfigError,sondeMcpConfigured,githubConfigured,anthropicConfigured,anthropicConfigError,anthropicAdminConfigured,anthropicAdminConfigError,cliGitRef,supabaseProjectRef,sharedRateLimitConfigured,sharedRateLimitRequired,deviceAuthEnabled,deviceAuthConfigError",
   );
   const waitTimeoutMs = parseNumber(process.env.PARITY_WAIT_TIMEOUT_MS, 300000);
   const waitIntervalMs = parseNumber(process.env.PARITY_WAIT_INTERVAL_MS, 10000);

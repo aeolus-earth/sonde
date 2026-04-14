@@ -246,7 +246,7 @@ def build_local_section(*, deep: bool = False) -> DoctorSection:
 
 def build_auth_section(*, deep: bool = False) -> DoctorSection:
     """Inspect current auth state."""
-    checks = [check_auth_session()]
+    checks = [check_auth_session(), check_device_login_base()]
     return build_section("auth", checks, required=True)
 
 
@@ -531,6 +531,63 @@ def check_auth_session() -> DoctorCheck:
         }
 
     return _timed_check("auth-session", "Current session", build, required=True)
+
+
+def check_device_login_base() -> DoctorCheck:
+    """Report which hosted Sonde origin standard login will use."""
+
+    def build() -> dict[str, Any]:
+        resolved, source = auth._resolve_hosted_login_origin()
+        normalized = auth._normalize_hosted_login_origin(resolved)
+
+        if not normalized:
+            return {
+                "status": "warn",
+                "summary": "Hosted activation login is missing a public Sonde origin.",
+                "details": [
+                    "sonde login now uses hosted activation by default.",
+                    "Set SONDE_AGENT_HTTP_BASE for a direct API host, or "
+                    "configure ui_url/SONDE_UI_URL.",
+                ],
+                "fix": "export SONDE_AGENT_HTTP_BASE=https://your-sonde-host",
+            }
+
+        if source == "default-ui" and auth._uses_nondefault_supabase_target():
+            return {
+                "status": "warn",
+                "summary": (
+                    "Hosted activation needs an explicit Sonde origin for this Supabase target."
+                ),
+                "details": [
+                    auth._hosted_login_origin_mismatch_message(),
+                    "Use the hosted origin for the same staging/custom environment, "
+                    "or run 'sonde login --method loopback'.",
+                ],
+                "fix": "export SONDE_UI_URL=https://your-sonde-host",
+            }
+
+        status = "ok" if source != "default-ui" else "info"
+        summary = (
+            f"Standard login will use {normalized}"
+            if status == "ok"
+            else f"Standard login will use the default hosted Sonde origin {normalized}"
+        )
+        details = [
+            "sonde login now uses hosted activation by default. "
+            "Use 'sonde login --method loopback' only for localhost fallback."
+        ]
+        if source == "default-ui":
+            details.append(
+                "Override SONDE_AGENT_HTTP_BASE only if your hosted API lives "
+                "on a different origin than the UI."
+            )
+        return {
+            "status": status,
+            "summary": summary,
+            "details": details,
+        }
+
+    return _timed_check("device-login-base", "Login transport", build, required=False)
 
 
 def check_project_root(project_root: Path | None) -> DoctorCheck:

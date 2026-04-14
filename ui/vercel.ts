@@ -11,6 +11,17 @@ function agentConnectSources(): string[] {
   }
 }
 
+function agentHttpBase(): string | null {
+  const raw = process.env.VITE_AGENT_WS_URL?.trim();
+  if (!raw) return null;
+
+  try {
+    return raw.replace(/^ws/i, "http").replace(/\/$/, "");
+  } catch {
+    return null;
+  }
+}
+
 function buildConfig() {
   const connectSrc = [
     "'self'",
@@ -19,6 +30,15 @@ function buildConfig() {
     "wss://*.supabase.co",
     ...agentConnectSources(),
   ].join(" ");
+  const authProxyTarget = agentHttpBase();
+  const rewrites = [];
+  if (authProxyTarget) {
+    rewrites.push({
+      source: "/auth/device/:path*",
+      destination: `${authProxyTarget}/auth/device/:path*`,
+    });
+  }
+  rewrites.push({ source: "/((?!.*\\.).*)", destination: "/index.html" });
 
   return {
     $schema: "https://openapi.vercel.sh/vercel.json",
@@ -51,7 +71,7 @@ function buildConfig() {
         ],
       },
     ],
-    rewrites: [{ source: "/((?!.*\\.).*)", destination: "/index.html" }],
+    rewrites,
   };
 }
 

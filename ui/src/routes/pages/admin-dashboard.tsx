@@ -171,12 +171,14 @@ export default function AdminDashboard() {
             runtimeMetadata?.managedConfigError,
             runtimeMetadata?.anthropicConfigError,
             runtimeMetadata?.anthropicAdminConfigError,
+            runtimeMetadata?.deviceAuthConfigError,
           ].filter((issue): issue is string => Boolean(issue))
         )
       ),
     [
       runtimeMetadata?.anthropicAdminConfigError,
       runtimeMetadata?.anthropicConfigError,
+      runtimeMetadata?.deviceAuthConfigError,
       runtimeMetadata?.managedConfigError,
     ],
   );
@@ -384,6 +386,17 @@ export default function AdminDashboard() {
                 <p className="mt-1 font-medium text-text">
                   {runtimeMetadata?.telemetryRequiresServiceRole ? "Service role required" : "User-token fallback allowed"}
                 </p>
+              </div>
+              <div className="rounded-[8px] border border-border-subtle bg-surface-raised px-3 py-2 text-[12px]">
+                <p className="text-text-tertiary">Remote CLI login</p>
+                <p className="mt-1 font-medium text-text">
+                  {runtimeMetadata?.deviceAuthEnabled ? "Hosted activation ready" : "Activation unavailable"}
+                </p>
+                {runtimeMetadata?.deviceAuthConfigError && (
+                  <p className="mt-1 text-[11px] leading-relaxed text-status-failed">
+                    {runtimeMetadata.deviceAuthConfigError}
+                  </p>
+                )}
               </div>
               <div className="rounded-[8px] border border-border-subtle bg-surface-raised px-3 py-2 text-[12px]">
                 <p className="text-text-tertiary">Unallocated provider charges</p>

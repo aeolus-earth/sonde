@@ -430,6 +430,8 @@ export interface AdminRuntimeMetadata {
   supabaseProjectRef: string | null;
   sharedRateLimitConfigured: boolean;
   sharedRateLimitRequired: boolean;
+  deviceAuthEnabled: boolean;
+  deviceAuthConfigError: string | null;
 }
 
 export interface ManagedCostSummaryResponse {

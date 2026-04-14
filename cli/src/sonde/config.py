@@ -18,9 +18,12 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # -- Supabase project (public defaults, overridable for CI / local dev) --
+DEFAULT_SUPABASE_URL = "https://utvmqjssbkzpumsdpgdy.supabase.co"
+DEFAULT_UI_URL = "https://sonde-neon.vercel.app"
+
 SUPABASE_URL = os.environ.get(
     "AEOLUS_SUPABASE_URL",
-    "https://utvmqjssbkzpumsdpgdy.supabase.co",
+    DEFAULT_SUPABASE_URL,
 )
 SUPABASE_ANON_KEY = os.environ.get(
     "AEOLUS_SUPABASE_ANON_KEY",
@@ -74,8 +77,15 @@ class Settings(BaseSettings):
     source: str = Field(default="", description="Default source attribution")
     default_direction: str = Field(default="", description="Default research direction ID")
     ui_url: str = Field(
-        default="https://sonde-neon.vercel.app",
+        default=DEFAULT_UI_URL,
         description="Base URL of the Sonde web UI (for clickable links in CLI output)",
+    )
+    agent_http_base: str = Field(
+        default="",
+        description=(
+            "Optional override for the hosted Sonde auth/API base. "
+            "Defaults to the public UI origin for device-style login."
+        ),
     )
     supabase_service_role_key: str = Field(
         default="",

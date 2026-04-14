@@ -23,6 +23,7 @@ export interface ResolvedHostedEnvironment {
   googleClientIdConfigured: boolean;
   googleClientSecretConfigured: boolean;
   requireSharedRateLimit: boolean;
+  agentRuntimeSecretNames: string[];
   requirements: {
     agentUrlRequired: boolean;
     supabaseProjectRefRequired: boolean;
@@ -42,6 +43,7 @@ export interface ResolvedHostedEnvironment {
     requireAnthropic: boolean;
     requireAgentCommitMatch: boolean;
     requireFirstPartyAgent: boolean;
+    requiredRuntimeKeys: string[];
     waitTimeoutMs: number;
     waitIntervalMs: number;
   };

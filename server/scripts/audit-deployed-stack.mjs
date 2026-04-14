@@ -26,6 +26,13 @@ function parseCsv(value) {
     .filter(Boolean);
 }
 
+function parseCsvList(value) {
+  return (value ?? "")
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
 async function fetchJson(url, init) {
   const response = await fetch(url, init);
   const bodyText = await response.text();
@@ -126,6 +133,10 @@ async function main() {
     (process.env.AUDIT_REQUIRE_FIRST_PARTY_AGENT || "1").trim().toLowerCase()
   );
   const disallowedHostSuffixes = parseCsv(process.env.AUDIT_DISALLOWED_HOST_SUFFIXES);
+  const requiredRuntimeKeys = parseCsvList(
+    process.env.AUDIT_REQUIRED_RUNTIME_KEYS ??
+      "managedConfigured,managedConfigError,sondeMcpConfigured,githubConfigured,anthropicConfigured,anthropicConfigError,anthropicAdminConfigured,anthropicAdminConfigError,cliGitRef,supabaseProjectRef,sharedRateLimitConfigured,sharedRateLimitRequired,deviceAuthEnabled,deviceAuthConfigError",
+  );
   const requireSharedRateLimit = parseBooleanFlag(
     (process.env.AUDIT_REQUIRE_SHARED_RATE_LIMIT ?? "").trim().toLowerCase()
   );
@@ -186,54 +197,12 @@ async function main() {
         Object.prototype.hasOwnProperty.call(agentRuntime ?? {}, "schemaVersion"),
         "Agent runtime metadata is missing schemaVersion"
       );
-      ensure(
-        Object.prototype.hasOwnProperty.call(agentRuntime ?? {}, "managedConfigured"),
-        "Agent runtime metadata is missing managedConfigured"
-      );
-      ensure(
-        Object.prototype.hasOwnProperty.call(agentRuntime ?? {}, "managedConfigError"),
-        "Agent runtime metadata is missing managedConfigError"
-      );
-      ensure(
-        Object.prototype.hasOwnProperty.call(agentRuntime ?? {}, "sondeMcpConfigured"),
-        "Agent runtime metadata is missing sondeMcpConfigured"
-      );
-      ensure(
-        Object.prototype.hasOwnProperty.call(agentRuntime ?? {}, "githubConfigured"),
-        "Agent runtime metadata is missing githubConfigured"
-      );
-      ensure(
-        Object.prototype.hasOwnProperty.call(agentRuntime ?? {}, "anthropicConfigured"),
-        "Agent runtime metadata is missing anthropicConfigured"
-      );
-      ensure(
-        Object.prototype.hasOwnProperty.call(agentRuntime ?? {}, "anthropicConfigError"),
-        "Agent runtime metadata is missing anthropicConfigError"
-      );
-      ensure(
-        Object.prototype.hasOwnProperty.call(agentRuntime ?? {}, "anthropicAdminConfigured"),
-        "Agent runtime metadata is missing anthropicAdminConfigured"
-      );
-      ensure(
-        Object.prototype.hasOwnProperty.call(agentRuntime ?? {}, "anthropicAdminConfigError"),
-        "Agent runtime metadata is missing anthropicAdminConfigError"
-      );
-      ensure(
-        Object.prototype.hasOwnProperty.call(agentRuntime ?? {}, "cliGitRef"),
-        "Agent runtime metadata is missing cliGitRef"
-      );
-      ensure(
-        Object.prototype.hasOwnProperty.call(agentRuntime ?? {}, "supabaseProjectRef"),
-        "Agent runtime metadata is missing supabaseProjectRef"
-      );
-      ensure(
-        Object.prototype.hasOwnProperty.call(agentRuntime ?? {}, "sharedRateLimitConfigured"),
-        "Agent runtime metadata is missing sharedRateLimitConfigured"
-      );
-      ensure(
-        Object.prototype.hasOwnProperty.call(agentRuntime ?? {}, "sharedRateLimitRequired"),
-        "Agent runtime metadata is missing sharedRateLimitRequired"
-      );
+      for (const key of requiredRuntimeKeys) {
+        ensure(
+          Object.prototype.hasOwnProperty.call(agentRuntime ?? {}, key),
+          `Agent runtime metadata is missing ${key}`
+        );
+      }
 
       if (expectedEnvironment) {
         ensure(
@@ -319,6 +288,50 @@ async function main() {
           `Agent managed runtime config is invalid: ${agentRuntime.managedConfigError}`,
         );
       }
+
+      ensure(agentRuntime.deviceAuthEnabled, "Agent hosted device login is not configured");
+      ensure(
+        !agentRuntime.deviceAuthConfigError,
+        `Agent device login config is invalid: ${agentRuntime.deviceAuthConfigError}`,
+      );
+      const deviceStart = await fetchJson(`${agentBase}/auth/device/start`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          cli_version: "audit",
+          host_label: "runtime-audit",
+          remote_hint: true,
+          login_method: "device",
+        }),
+      });
+      ensure(
+        typeof deviceStart?.device_code === "string" && deviceStart.device_code.length > 0,
+        "Device auth start is missing device_code",
+      );
+      ensure(
+        typeof deviceStart?.user_code === "string" && deviceStart.user_code.length > 0,
+        "Device auth start is missing user_code",
+      );
+      ensure(
+        deviceStart?.verification_uri === `${uiBase}/activate`,
+        `Device auth verification URI mismatch: expected ${uiBase}/activate, got ${deviceStart?.verification_uri}`,
+      );
+      ensure(
+        typeof deviceStart?.verification_uri_complete === "string" &&
+          deviceStart.verification_uri_complete.startsWith(`${uiBase}/activate?code=`),
+        "Device auth verification_uri_complete is missing the hosted activation link",
+      );
+      ensure(
+        Number.isFinite(deviceStart?.expires_in) && deviceStart.expires_in > 0,
+        "Device auth start returned an invalid expires_in",
+      );
+      ensure(
+        Number.isFinite(deviceStart?.interval) && deviceStart.interval > 0,
+        "Device auth start returned an invalid interval",
+      );
+      await fetchText(deviceStart.verification_uri);
 
       if (requireSharedRateLimit) {
         ensure(

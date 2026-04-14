@@ -4,6 +4,8 @@ import { createApp, getAllowedOrigins } from "./app.js";
 import { resetGitHubCachesForTests } from "./github.js";
 import { resetManagedClientStateForTests } from "./managed/client.js";
 import { resetManagedSessionCacheForTests } from "./managed/session-cache.js";
+import { resetDeviceAuthStateForTests } from "./device-auth.js";
+import { resetRequestGuardsForTests } from "./request-guard.js";
 
 const originalEnv = { ...process.env };
 const originalFetch = globalThis.fetch;
@@ -18,6 +20,8 @@ beforeEach(() => {
   resetGitHubCachesForTests();
   resetManagedClientStateForTests();
   resetManagedSessionCacheForTests();
+  resetDeviceAuthStateForTests();
+  resetRequestGuardsForTests();
   globalThis.fetch = originalFetch;
 });
 
@@ -27,6 +31,8 @@ afterEach(() => {
   resetGitHubCachesForTests();
   resetManagedClientStateForTests();
   resetManagedSessionCacheForTests();
+  resetDeviceAuthStateForTests();
+  resetRequestGuardsForTests();
 });
 
 describe("createApp", () => {
@@ -102,6 +108,8 @@ describe("createApp", () => {
       supabaseProjectRef: string | null;
       sharedRateLimitConfigured: boolean;
       sharedRateLimitRequired: boolean;
+      deviceAuthEnabled: boolean;
+      deviceAuthConfigError: string | null;
     };
 
     assert.deepEqual(body, {
@@ -128,6 +136,147 @@ describe("createApp", () => {
       supabaseProjectRef: "oxajsxoedrmvrcatqser",
       sharedRateLimitConfigured: false,
       sharedRateLimitRequired: false,
+      deviceAuthEnabled: true,
+      deviceAuthConfigError: null,
+    });
+  });
+
+  it("completes a device login request without a localhost callback", async () => {
+    const app = createApp();
+
+    const startResponse = await app.request("http://localhost/auth/device/start", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        cli_version: "0.1.0",
+        host_label: "ssh://stormbox",
+        remote_hint: true,
+        login_method: "device",
+        request_metadata: {
+          platform: "linux",
+        },
+      }),
+    });
+    assert.equal(startResponse.status, 200);
+    const started = (await startResponse.json()) as {
+      device_code: string;
+      user_code: string;
+      verification_uri: string;
+      verification_uri_complete: string;
+      expires_in: number;
+      interval: number;
+    };
+    assert.match(started.user_code, /^[A-Z2-9]{4}-[A-Z2-9]{4}$/);
+    assert.equal(started.verification_uri, "http://localhost:5173/activate");
+    assert.match(
+      started.verification_uri_complete,
+      /^http:\/\/localhost:5173\/activate\?code=/,
+    );
+
+    const pendingPoll = await app.request("http://localhost/auth/device/poll", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        device_code: started.device_code,
+      }),
+    });
+    assert.equal(pendingPoll.status, 200);
+    assert.deepEqual(await pendingPoll.json(), {
+      status: "authorization_pending",
+      interval: started.interval,
+    });
+
+    const introspectResponse = await app.request("http://localhost/auth/device/introspect", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${authToken}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        user_code: started.user_code,
+      }),
+    });
+    assert.equal(introspectResponse.status, 200);
+    const details = (await introspectResponse.json()) as {
+      status: string;
+      host_label: string | null;
+      cli_version: string | null;
+      remote_hint: boolean;
+      login_method: string | null;
+    };
+    assert.equal(details.status, "pending");
+    assert.equal(details.host_label, "ssh://stormbox");
+    assert.equal(details.cli_version, "0.1.0");
+    assert.equal(details.remote_hint, true);
+    assert.equal(details.login_method, "device");
+
+    const approveResponse = await app.request("http://localhost/auth/device/approve", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${authToken}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        user_code: started.user_code,
+        decision: "approve",
+        session: {
+          access_token: authToken,
+          refresh_token: "refresh-token",
+          user: {
+            id: "e2e-user",
+            email: "ci-smoke@aeolus.earth",
+            app_metadata: { programs: ["shared"] },
+            user_metadata: { full_name: "CI Smoke" },
+          },
+        },
+      }),
+    });
+    assert.equal(approveResponse.status, 200);
+    const approved = (await approveResponse.json()) as { status: string };
+    assert.equal(approved.status, "approved");
+
+    const approvedPoll = await app.request("http://localhost/auth/device/poll", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        device_code: started.device_code,
+      }),
+    });
+    assert.equal(approvedPoll.status, 200);
+    const completed = (await approvedPoll.json()) as {
+      status: string;
+      interval: number;
+      session?: {
+        access_token: string;
+        refresh_token: string;
+        user: { id: string; email?: string | null };
+      };
+    };
+    assert.equal(completed.status, "approved");
+    assert.equal(completed.interval, started.interval);
+    assert.equal(completed.session?.access_token, authToken);
+    assert.equal(completed.session?.refresh_token, "refresh-token");
+    assert.equal(completed.session?.user.id, "e2e-user");
+
+    const consumedPoll = await app.request("http://localhost/auth/device/poll", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        device_code: started.device_code,
+      }),
+    });
+    assert.equal(consumedPoll.status, 200);
+    assert.deepEqual(await consumedPoll.json(), {
+      status: "expired_token",
+      interval: started.interval,
     });
   });
 

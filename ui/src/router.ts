@@ -3,6 +3,8 @@ import { Route as rootRoute } from "./routes/__root";
 import { Route as authenticatedRoute } from "./routes/_authenticated";
 import { Route as loginRoute } from "./routes/login";
 import { Route as authCallbackRoute } from "./routes/auth/callback";
+import { Route as activateRoute } from "./routes/activate";
+import { Route as activateCallbackRoute } from "./routes/activate-callback";
 import { Route as indexRoute } from "./routes/index";
 import { Route as dashboardRoute } from "./routes/dashboard";
 import { Route as experimentsRoute } from "./routes/experiments/index";
@@ -25,6 +27,8 @@ import { Route as notFoundRoute } from "./routes/$";
 const routeTree = rootRoute.addChildren([
   loginRoute,
   authCallbackRoute,
+  activateRoute,
+  activateCallbackRoute,
   adminRoute,
   authenticatedRoute.addChildren([
     indexRoute,

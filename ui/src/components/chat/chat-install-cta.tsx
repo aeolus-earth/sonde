@@ -144,9 +144,9 @@ export const ChatInstallCta = memo(function ChatInstallCta({
               <code className="font-mono text-[11px]">~/.local/bin/uv</code>{" "}
               once before the install step. If{" "}
               <code className="font-mono text-[11px]">sonde login</code> is
-              running on SSH, a VM, or a headless shell, use{" "}
-              <code className="font-mono text-[11px]">sonde login --remote</code>
-              .
+              running on SSH, a VM, or a headless shell, it will automatically
+              print a short activation code and a hosted Sonde link instead of
+              asking for a localhost callback.
             </div>
           </div>
         </div>
