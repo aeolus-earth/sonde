@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "parity": {
+    "agentBackend": "managed",
+    "agentUrlRequired": true,
+    "supabaseProjectRefRequired": true,
+    "supabaseAnonKeyRequired": true,
+    "smokeUserRequired": true,
+    "cliAuditTokenRequired": true,
+    "runtimeAuditTokenRequired": true,
+    "googleOAuthRequired": true,
+    "requireManagedAuth": true,
+    "requireSharedRateLimit": false,
+    "storageFileSizeLimit": "50MiB",
+    "expectedProgramId": "shared",
+    "expectedTimelineAuthMode": "server token",
+    "audit": {
+      "requireAnthropic": true,
+      "requireAgentCommitMatch": true,
+      "requireFirstPartyAgent": false,
+      "waitTimeoutMs": 600000,
+      "waitIntervalMs": 10000
+    },
+    "managedAuthAudit": {
+      "prompt": "Use Sonde tools to list one accessible program id, then reply with SONDE_SMOKE_OK.",
+      "expectSubstring": "SONDE_SMOKE_OK",
+      "staleSession": true,
+      "requireToolUse": true,
+      "timeoutMs": 180000,
+      "prewarmTimeoutMs": 300000,
+      "retryIntervalMs": 10000
+    }
+  },
+  "environments": {
+    "staging": {
+      "githubEnvironment": "staging",
+      "runtimeEnvironment": "staging",
+      "uiDefaultUrl": "https://sonde-staging.vercel.app",
+      "supabaseRedirectUrls": [
+        "https://sonde-staging.vercel.app/auth/callback",
+        "http://localhost:5173/auth/callback",
+        "http://127.0.0.1:5173/auth/callback",
+        "http://localhost:*/callback",
+        "http://127.0.0.1:*/callback"
+      ],
+      "expectedExperimentId": "EXP-9001"
+    },
+    "production": {
+      "githubEnvironment": "production",
+      "runtimeEnvironment": "production",
+      "uiDefaultUrl": "https://sonde-neon.vercel.app",
+      "supabaseRedirectUrls": [
+        "https://sonde-neon.vercel.app/auth/callback",
+        "https://*.vercel.app/**",
+        "http://localhost:5173/auth/callback",
+        "http://127.0.0.1:5173/auth/callback",
+        "http://localhost:*/callback",
+        "http://127.0.0.1:*/callback"
+      ],
+      "expectedExperimentId": "EXP-0128"
+    }
+  }
+}

@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import { memo } from "react";
 import { useArtifacts } from "@/hooks/use-artifacts";
 import { Skeleton } from "@/components/ui/skeleton";

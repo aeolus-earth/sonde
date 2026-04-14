@@ -1,0 +1,167 @@
+name: Load Hosted Environment
+description: Export and validate hosted environment inputs, then resolve hosted contract outputs.
+
+inputs:
+  environment-name:
+    description: Hosted environment name (staging or production)
+    required: true
+  ui-url:
+    required: false
+    default: ""
+  default-ui-url:
+    required: false
+    default: ""
+  agent-url:
+    required: false
+    default: ""
+  default-agent-url:
+    required: false
+    default: ""
+  supabase-project-ref:
+    required: false
+    default: ""
+  default-supabase-project-ref:
+    required: false
+    default: ""
+  supabase-anon-key:
+    required: false
+    default: ""
+  default-supabase-anon-key:
+    required: false
+    default: ""
+  smoke-user-email:
+    required: false
+    default: ""
+  default-smoke-user-email:
+    required: false
+    default: ""
+  smoke-user-password:
+    required: false
+    default: ""
+  default-smoke-user-password:
+    required: false
+    default: ""
+  cli-audit-token:
+    required: false
+    default: ""
+  default-cli-audit-token:
+    required: false
+    default: ""
+  runtime-audit-token:
+    required: false
+    default: ""
+  default-runtime-audit-token:
+    required: false
+    default: ""
+  redis-url:
+    required: false
+    default: ""
+  default-redis-url:
+    required: false
+    default: ""
+  redis-token:
+    required: false
+    default: ""
+  default-redis-token:
+    required: false
+    default: ""
+  require-shared-rate-limit:
+    required: false
+    default: ""
+  google-client-id:
+    required: false
+    default: ""
+  google-client-secret:
+    required: false
+    default: ""
+
+outputs:
+  schema_version:
+    value: ${{ steps.contract.outputs.schema_version }}
+  github_environment:
+    value: ${{ steps.contract.outputs.github_environment }}
+  runtime_environment:
+    value: ${{ steps.contract.outputs.runtime_environment }}
+  agent_backend:
+    value: ${{ steps.contract.outputs.agent_backend }}
+  ui_url:
+    value: ${{ steps.contract.outputs.ui_url }}
+  agent_url:
+    value: ${{ steps.contract.outputs.agent_url }}
+  supabase_project_ref:
+    value: ${{ steps.contract.outputs.supabase_project_ref }}
+  supabase_anon_key:
+    value: ${{ steps.contract.outputs.supabase_anon_key }}
+  require_shared_rate_limit:
+    value: ${{ steps.contract.outputs.require_shared_rate_limit }}
+  site_url:
+    value: ${{ steps.contract.outputs.site_url }}
+  redirect_urls_csv:
+    value: ${{ steps.contract.outputs.redirect_urls_csv }}
+  storage_file_size_limit:
+    value: ${{ steps.contract.outputs.storage_file_size_limit }}
+  smoke_expected_program_id:
+    value: ${{ steps.contract.outputs.smoke_expected_program_id }}
+  smoke_expected_experiment_id:
+    value: ${{ steps.contract.outputs.smoke_expected_experiment_id }}
+  smoke_expected_timeline_auth_mode:
+    value: ${{ steps.contract.outputs.smoke_expected_timeline_auth_mode }}
+  audit_require_anthropic:
+    value: ${{ steps.contract.outputs.audit_require_anthropic }}
+  audit_require_agent_commit_match:
+    value: ${{ steps.contract.outputs.audit_require_agent_commit_match }}
+  audit_require_first_party_agent:
+    value: ${{ steps.contract.outputs.audit_require_first_party_agent }}
+  audit_wait_timeout_ms:
+    value: ${{ steps.contract.outputs.audit_wait_timeout_ms }}
+  audit_wait_interval_ms:
+    value: ${{ steps.contract.outputs.audit_wait_interval_ms }}
+  managed_auth_audit_prompt:
+    value: ${{ steps.contract.outputs.managed_auth_audit_prompt }}
+  managed_auth_audit_expect_substring:
+    value: ${{ steps.contract.outputs.managed_auth_audit_expect_substring }}
+  managed_auth_audit_stale_session:
+    value: ${{ steps.contract.outputs.managed_auth_audit_stale_session }}
+  managed_auth_audit_require_tool_use:
+    value: ${{ steps.contract.outputs.managed_auth_audit_require_tool_use }}
+  managed_auth_audit_timeout_ms:
+    value: ${{ steps.contract.outputs.managed_auth_audit_timeout_ms }}
+  managed_auth_audit_prewarm_timeout_ms:
+    value: ${{ steps.contract.outputs.managed_auth_audit_prewarm_timeout_ms }}
+  managed_auth_audit_retry_interval_ms:
+    value: ${{ steps.contract.outputs.managed_auth_audit_retry_interval_ms }}
+
+runs:
+  using: composite
+  steps:
+    - id: export
+      shell: bash
+      env:
+        SOURCE_UI_URL: ${{ inputs.ui-url }}
+        SOURCE_DEFAULT_UI_URL: ${{ inputs.default-ui-url }}
+        SOURCE_AGENT_URL: ${{ inputs.agent-url }}
+        SOURCE_DEFAULT_AGENT_URL: ${{ inputs.default-agent-url }}
+        SOURCE_SUPABASE_PROJECT_REF: ${{ inputs.supabase-project-ref }}
+        SOURCE_DEFAULT_SUPABASE_PROJECT_REF: ${{ inputs.default-supabase-project-ref }}
+        SOURCE_SUPABASE_ANON_KEY: ${{ inputs.supabase-anon-key }}
+        SOURCE_DEFAULT_SUPABASE_ANON_KEY: ${{ inputs.default-supabase-anon-key }}
+        SOURCE_SMOKE_USER_EMAIL: ${{ inputs.smoke-user-email }}
+        SOURCE_DEFAULT_SMOKE_USER_EMAIL: ${{ inputs.default-smoke-user-email }}
+        SOURCE_SMOKE_USER_PASSWORD: ${{ inputs.smoke-user-password }}
+        SOURCE_DEFAULT_SMOKE_USER_PASSWORD: ${{ inputs.default-smoke-user-password }}
+        SOURCE_CLI_AUDIT_TOKEN: ${{ inputs.cli-audit-token }}
+        SOURCE_DEFAULT_CLI_AUDIT_TOKEN: ${{ inputs.default-cli-audit-token }}
+        SOURCE_RUNTIME_AUDIT_TOKEN: ${{ inputs.runtime-audit-token }}
+        SOURCE_DEFAULT_RUNTIME_AUDIT_TOKEN: ${{ inputs.default-runtime-audit-token }}
+        SOURCE_REDIS_URL: ${{ inputs.redis-url }}
+        SOURCE_DEFAULT_REDIS_URL: ${{ inputs.default-redis-url }}
+        SOURCE_REDIS_TOKEN: ${{ inputs.redis-token }}
+        SOURCE_DEFAULT_REDIS_TOKEN: ${{ inputs.default-redis-token }}
+        SOURCE_REQUIRE_SHARED_RATE_LIMIT: ${{ inputs.require-shared-rate-limit }}
+        SOURCE_GOOGLE_CLIENT_ID: ${{ inputs.google-client-id }}
+        SOURCE_GOOGLE_CLIENT_SECRET: ${{ inputs.google-client-secret }}
+      run: node server/scripts/hosted-env-contract.mjs export-github-env "${{ inputs.environment-name }}" >> "$GITHUB_ENV"
+
+    - id: contract
+      shell: bash
+      run: node server/scripts/hosted-env-contract.mjs resolve-github-outputs "${{ inputs.environment-name }}" >> "$GITHUB_OUTPUT"

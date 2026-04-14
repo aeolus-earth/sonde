@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import { memo } from "react";
 import { GitCommit, GitBranch, AlertTriangle, ExternalLink } from "lucide-react";
 import type { ExperimentSummary } from "@/types/sonde";

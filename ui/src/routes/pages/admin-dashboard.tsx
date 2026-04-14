@@ -163,6 +163,23 @@ export default function AdminDashboard() {
   const selectedSessionSamples = selectedSessionDetail?.samples ?? [];
   const selectedSessionEvents = selectedSessionDetail?.events ?? [];
   const latestSyncRun = managedSummary?.latestSuccessfulSync ?? managedSummary?.latestAttemptedSync ?? null;
+  const runtimeConfigIssues = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          [
+            runtimeMetadata?.managedConfigError,
+            runtimeMetadata?.anthropicConfigError,
+            runtimeMetadata?.anthropicAdminConfigError,
+          ].filter((issue): issue is string => Boolean(issue))
+        )
+      ),
+    [
+      runtimeMetadata?.anthropicAdminConfigError,
+      runtimeMetadata?.anthropicConfigError,
+      runtimeMetadata?.managedConfigError,
+    ],
+  );
 
   useEffect(() => {
     if (runtimeMetadata?.environment && managedEnvironment === "") {
@@ -339,12 +356,22 @@ export default function AdminDashboard() {
                 <p className="mt-1 font-medium text-text">
                   {runtimeMetadata?.managedConfigured ? "Configured" : "Missing managed config"}
                 </p>
+                {runtimeMetadata?.managedConfigError && (
+                  <p className="mt-1 text-[11px] leading-relaxed text-status-failed">
+                    {runtimeMetadata.managedConfigError}
+                  </p>
+                )}
               </div>
               <div className="rounded-[8px] border border-border-subtle bg-surface-raised px-3 py-2 text-[12px]">
                 <p className="text-text-tertiary">Admin reconciliation</p>
                 <p className="mt-1 font-medium text-text">
                   {runtimeMetadata?.anthropicAdminConfigured ? "Provider-backed" : "Estimated only"}
                 </p>
+                {runtimeMetadata?.anthropicAdminConfigError && (
+                  <p className="mt-1 text-[11px] leading-relaxed text-status-failed">
+                    {runtimeMetadata.anthropicAdminConfigError}
+                  </p>
+                )}
               </div>
               <div className="rounded-[8px] border border-border-subtle bg-surface-raised px-3 py-2 text-[12px]">
                 <p className="text-text-tertiary">Telemetry writes</p>
@@ -379,6 +406,18 @@ export default function AdminDashboard() {
                 </p>
               </div>
             </div>
+            {runtimeConfigIssues.length > 0 && (
+              <div className="mt-3 rounded-[8px] border border-status-failed/20 bg-status-failed/5 px-3 py-3">
+                <p className="text-[11px] font-medium text-status-failed">
+                  Managed runtime issues
+                </p>
+                <div className="mt-1 space-y-1 text-[11px] leading-relaxed text-status-failed">
+                  {runtimeConfigIssues.map((issue) => (
+                    <p key={issue}>{issue}</p>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           <div className={cardClass}>

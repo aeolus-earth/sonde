@@ -12,7 +12,7 @@
     "test:e2e:smoke": "playwright test e2e/ci-smoke.spec.ts --project=chromium --project=firefox",
     "test:e2e:hosted": "playwright test e2e/hosted-smoke.spec.ts --project=chromium --project=firefox --reporter=github",
     "test:e2e:headed": "playwright test --headed",
-    "lint": "eslint .",
+    "lint": "eslint . --max-warnings=0",
     "preview": "vite preview"
   },
   "dependencies": {

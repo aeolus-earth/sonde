@@ -5,6 +5,8 @@ import { serve } from "@hono/node-server";
 import { createNodeWebSocket } from "@hono/node-ws";
 import WebSocket from "ws";
 import { createApp, handleWebSocket } from "./app.js";
+import { resetManagedClientStateForTests } from "./managed/client.js";
+import { resetManagedSessionCacheForTests } from "./managed/session-cache.js";
 import { issueWsSessionToken } from "./ws-session-token.js";
 
 const originalEnv = { ...process.env };
@@ -156,12 +158,16 @@ beforeEach(() => {
     SONDE_MANAGED_ENVIRONMENT_ID: "env_test_managed",
     SONDE_MANAGED_ALLOW_EPHEMERAL_AGENT: "1",
   };
+  resetManagedClientStateForTests();
+  resetManagedSessionCacheForTests();
   globalThis.fetch = originalFetch;
 });
 
 afterEach(() => {
   process.env = { ...originalEnv };
   globalThis.fetch = originalFetch;
+  resetManagedClientStateForTests();
+  resetManagedSessionCacheForTests();
 });
 
 describe("managed chat websocket", () => {

@@ -106,6 +106,8 @@ export async function runChatConversation({
     let finalText = "";
     let lastEventType = null;
     let disallowedFailureMarker = null;
+    let failurePhase = null;
+    let failurePreview = null;
 
     const timer = setTimeout(() => {
       ws.close();
@@ -131,8 +133,24 @@ export async function runChatConversation({
         sawVisibleOutput,
         receivedDone,
         finalText,
+        failurePhase,
+        failurePreview,
         durationMs: Date.now() - startedAt,
       });
+    }
+
+    function rememberFailure(text, phase) {
+      if (!text) {
+        return;
+      }
+      const marker =
+        DISALLOWED_CHAT_FAILURE_MARKERS.find((candidate) => text.includes(candidate)) ?? null;
+      if (!marker) {
+        return;
+      }
+      disallowedFailureMarker = disallowedFailureMarker ?? marker;
+      failurePhase = failurePhase ?? phase;
+      failurePreview = failurePreview ?? summarizeText(text);
     }
 
     ws.on("open", () => {});
@@ -160,10 +178,7 @@ export async function runChatConversation({
 
       if (message.type === "text_done") {
         finalText = message.content ?? streamedText;
-        disallowedFailureMarker =
-          disallowedFailureMarker ??
-          DISALLOWED_CHAT_FAILURE_MARKERS.find((marker) => finalText.includes(marker)) ??
-          null;
+        rememberFailure(finalText, "text_done");
       }
 
       if (message.type === "ping") {
@@ -192,8 +207,17 @@ export async function runChatConversation({
       }
 
       if (message.type === "error") {
+        rememberFailure(message.message ?? "", "server_error");
         finish(new Error(`Server returned error: ${message.message}`));
         return;
+      }
+
+      if (message.type === "tool_use_end") {
+        rememberFailure(message.output ?? "", "tool_use_end");
+      }
+
+      if (message.type === "tool_use_error") {
+        rememberFailure(message.error ?? "", "tool_use_error");
       }
 
       if (message.type === "done") {
@@ -220,7 +244,7 @@ export async function runChatConversation({
         if (requireToolUse && disallowedFailureMarker) {
           finish(
             new Error(
-              `Chat completed after surfacing an auth/config failure (${disallowedFailureMarker}). Final text: ${summarizeText(finalText)}`
+              `Chat completed after surfacing an auth/config failure (${disallowedFailureMarker}) during ${failurePhase ?? "chat"}: ${failurePreview ?? summarizeText(finalText)}`
             )
           );
           return;

@@ -7,4 +7,4 @@ cd "$ROOT"
 
 echo "[sonde pre-push] Running make ci-local"
 make ci-local
-echo "[sonde pre-push] Passed. For deeper pre-PR coverage, also run: make ci-browser ci-data"
+echo "[sonde pre-push] Passed. For deeper pre-PR coverage, also run: make ci-browser ci-data ci-auth"

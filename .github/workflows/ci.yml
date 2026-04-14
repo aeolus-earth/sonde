@@ -40,11 +40,105 @@ jobs:
               - "supabase/**"
             infra:
               - ".github/workflows/**"
+              - "config/hosted-environments.json"
               - "vercel.ts"
               - "ui/vercel.ts"
               - "scripts/**"
               - ".githooks/**"
               - "Makefile"
+
+  hosted-contract:
+    name: hosted-contract
+    runs-on: ubuntu-latest
+    needs: changes
+
+    steps:
+      - id: gate
+        run: |
+          if [[ "${{ needs.changes.outputs.infra }}" == "true" || "${{ needs.changes.outputs.server }}" == "true" ]]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.gate.outputs.run != 'true'
+        run: echo "No server or infra changes; skipping hosted contract checks."
+
+      - if: steps.gate.outputs.run == 'true'
+        uses: actions/checkout@v6
+
+      - if: steps.gate.outputs.run == 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - if: steps.gate.outputs.run == 'true'
+        name: Validate hosted environment contract
+        run: node server/scripts/hosted-env-contract.mjs check-parity
+
+      - if: steps.gate.outputs.run == 'true'
+        name: Validate hosted workflow action usage
+        run: bash scripts/ci/check-hosted-workflow-action.sh
+
+      - if: steps.gate.outputs.run == 'true'
+        name: Validate hosted environment export logic with fixtures
+        run: |
+          node --input-type=module - <<'NODE'
+          import {
+            loadHostedEnvironmentContract,
+            resolveHostedEnvironment,
+            resolveHostedGithubEnvironmentEnv,
+            validateHostedEnvironmentContract,
+            validateResolvedHostedEnvironment,
+          } from "./server/scripts/lib/hosted-env-contract.mjs";
+
+          const contract = loadHostedEnvironmentContract();
+          const contractErrors = validateHostedEnvironmentContract(contract);
+          if (contractErrors.length > 0) {
+            throw new Error(contractErrors.join("\n"));
+          }
+
+          const fixtures = {
+            staging: {
+              SOURCE_UI_URL: "https://staging-ui.example.com",
+              SOURCE_AGENT_URL: "https://staging-agent.example.com",
+              SOURCE_SUPABASE_PROJECT_REF: "stageprojref",
+              SOURCE_SUPABASE_ANON_KEY: "sb_publishable_stage_test",
+              SOURCE_SMOKE_USER_EMAIL: "stage-smoke@example.com",
+              SOURCE_SMOKE_USER_PASSWORD: "not-a-real-password",
+              SOURCE_CLI_AUDIT_TOKEN: "stage-cli-token",
+              SOURCE_RUNTIME_AUDIT_TOKEN: "stage-runtime-token",
+              SOURCE_GOOGLE_CLIENT_ID: "google-client-id",
+              SOURCE_GOOGLE_CLIENT_SECRET: "google-client-secret",
+            },
+            production: {
+              SOURCE_UI_URL: "https://prod-ui.example.com",
+              SOURCE_AGENT_URL: "https://prod-agent.example.com",
+              SOURCE_SUPABASE_PROJECT_REF: "prodprojref",
+              SOURCE_SUPABASE_ANON_KEY: "sb_publishable_prod_test",
+              SOURCE_SMOKE_USER_EMAIL: "prod-smoke@example.com",
+              SOURCE_SMOKE_USER_PASSWORD: "not-a-real-password",
+              SOURCE_CLI_AUDIT_TOKEN: "prod-cli-token",
+              SOURCE_RUNTIME_AUDIT_TOKEN: "prod-runtime-token",
+              SOURCE_GOOGLE_CLIENT_ID: "google-client-id",
+              SOURCE_GOOGLE_CLIENT_SECRET: "google-client-secret",
+            },
+          };
+
+          for (const [name, fixture] of Object.entries(fixtures)) {
+            const hostedEnv = resolveHostedGithubEnvironmentEnv(fixture);
+            const resolved = resolveHostedEnvironment(
+              name,
+              { ...fixture, ...hostedEnv },
+              contract,
+            );
+            const errors = validateResolvedHostedEnvironment(resolved);
+            if (errors.length > 0) {
+              throw new Error(`${name} fixture failed validation:\n${errors.join("\n")}`);
+            }
+          }
+          console.log("hosted export fixtures ok");
+          NODE
 
   cli-core:
     name: cli-core
@@ -193,6 +287,7 @@ jobs:
     name: hosted-preflight
     runs-on: ubuntu-latest
     needs: [changes]
+    environment: staging
 
     steps:
       - id: gate
@@ -231,8 +326,8 @@ jobs:
       - if: steps.gate.outputs.run == 'true'
         name: Run hosted preflight
         env:
-          SONDE_HOSTED_PREFLIGHT_AGENT_HTTP_BASE: ${{ vars.SONDE_STAGING_AGENT_HTTP_BASE }}
-          SONDE_HOSTED_PREFLIGHT_APP_ORIGIN: ${{ vars.SONDE_STAGING_UI_URL }}
+          SONDE_HOSTED_PREFLIGHT_AGENT_HTTP_BASE: ${{ vars.SONDE_STAGING_AGENT_HTTP_BASE || vars.SONDE_AGENT_HTTP_BASE || '' }}
+          SONDE_HOSTED_PREFLIGHT_APP_ORIGIN: ${{ vars.SONDE_STAGING_UI_URL || vars.SONDE_UI_URL || '' }}
           SONDE_HOSTED_PREFLIGHT_REQUIRED: "1"
         run: bash scripts/ci/hosted-preflight.sh
 
@@ -349,6 +444,61 @@ jobs:
           path: |
             ui/playwright-report/
             /tmp/sonde-agent-smoke.log
+
+  managed-auth-parity:
+    name: managed-auth-parity
+    runs-on: ubuntu-latest
+    needs: [changes, cli-core, server-core]
+
+    steps:
+      - id: gate
+        run: |
+          if [[ "${{ needs.changes.outputs.cli }}" == "true" || "${{ needs.changes.outputs.server }}" == "true" || "${{ needs.changes.outputs.data }}" == "true" || "${{ needs.changes.outputs.infra }}" == "true" ]]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.gate.outputs.run != 'true'
+        run: echo "No CLI, server, data, or CI changes; skipping managed auth parity."
+
+      - if: steps.gate.outputs.run == 'true'
+        uses: actions/checkout@v6
+
+      - if: steps.gate.outputs.run == 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: |
+            server/package-lock.json
+            ui/package-lock.json
+
+      - if: steps.gate.outputs.run == 'true'
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "latest"
+          enable-cache: true
+          cache-dependency-glob: "cli/uv.lock"
+
+      - if: steps.gate.outputs.run == 'true'
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - if: steps.gate.outputs.run == 'true'
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - if: steps.gate.outputs.run == 'true'
+        name: Install server dependencies
+        working-directory: server
+        run: npm ci
+
+      - if: steps.gate.outputs.run == 'true'
+        name: Run managed auth parity
+        run: bash scripts/ci/auth.sh
 
   data-integration:
     name: data-integration

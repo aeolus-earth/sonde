@@ -191,12 +191,32 @@ async function main() {
         "Agent runtime metadata is missing managedConfigured"
       );
       ensure(
+        Object.prototype.hasOwnProperty.call(agentRuntime ?? {}, "managedConfigError"),
+        "Agent runtime metadata is missing managedConfigError"
+      );
+      ensure(
         Object.prototype.hasOwnProperty.call(agentRuntime ?? {}, "sondeMcpConfigured"),
         "Agent runtime metadata is missing sondeMcpConfigured"
       );
       ensure(
         Object.prototype.hasOwnProperty.call(agentRuntime ?? {}, "githubConfigured"),
         "Agent runtime metadata is missing githubConfigured"
+      );
+      ensure(
+        Object.prototype.hasOwnProperty.call(agentRuntime ?? {}, "anthropicConfigured"),
+        "Agent runtime metadata is missing anthropicConfigured"
+      );
+      ensure(
+        Object.prototype.hasOwnProperty.call(agentRuntime ?? {}, "anthropicConfigError"),
+        "Agent runtime metadata is missing anthropicConfigError"
+      );
+      ensure(
+        Object.prototype.hasOwnProperty.call(agentRuntime ?? {}, "anthropicAdminConfigured"),
+        "Agent runtime metadata is missing anthropicAdminConfigured"
+      );
+      ensure(
+        Object.prototype.hasOwnProperty.call(agentRuntime ?? {}, "anthropicAdminConfigError"),
+        "Agent runtime metadata is missing anthropicAdminConfigError"
       );
       ensure(
         Object.prototype.hasOwnProperty.call(agentRuntime ?? {}, "cliGitRef"),
@@ -286,6 +306,18 @@ async function main() {
 
       if (requireAnthropic) {
         ensure(agentRuntime.anthropicConfigured, "Agent is missing Anthropic configuration");
+        ensure(
+          !agentRuntime.anthropicConfigError,
+          `Agent Anthropic config is invalid: ${agentRuntime.anthropicConfigError}`,
+        );
+        ensure(
+          agentRuntime.managedConfigured,
+          "Agent managed runtime configuration is invalid",
+        );
+        ensure(
+          !agentRuntime.managedConfigError,
+          `Agent managed runtime config is invalid: ${agentRuntime.managedConfigError}`,
+        );
       }
 
       if (requireSharedRateLimit) {

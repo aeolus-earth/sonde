@@ -38,6 +38,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: validate-ref
     outputs:
+      agent: ${{ steps.filter.outputs.agent }}
       database: ${{ steps.filter.outputs.database }}
     steps:
       - uses: actions/checkout@v6
@@ -48,14 +49,37 @@ jobs:
           filters: |
             database:
               - 'supabase/**'
+              - 'config/hosted-environments.json'
+              - '.github/workflows/deploy-staging.yml'
+            agent:
+              - 'Dockerfile'
+              - '.dockerignore'
+              - 'cli/**'
+              - 'server/**'
+              - 'config/hosted-environments.json'
               - '.github/workflows/deploy-staging.yml'
 
   push-staging-database:
     runs-on: ubuntu-latest
+    environment: staging
     needs: changes
+    env:
+      HOSTED_UI_URL: ${{ vars.SONDE_STAGING_UI_URL || vars.SONDE_UI_URL || '' }}
+      HOSTED_SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_STAGING_PROJECT_REF || vars.SUPABASE_PROJECT_REF || '' }}
+      HOSTED_SUPABASE_ANON_KEY: ${{ vars.SUPABASE_STAGING_ANON_KEY || vars.SUPABASE_ANON_KEY || '' }}
+      HOSTED_AGENT_URL: ${{ vars.SONDE_STAGING_AGENT_HTTP_BASE || vars.SONDE_AGENT_HTTP_BASE || '' }}
+      HOSTED_SMOKE_USER_EMAIL: ${{ secrets.SONDE_STAGING_SMOKE_USER_EMAIL || secrets.SONDE_SMOKE_USER_EMAIL || '' }}
+      HOSTED_SMOKE_USER_PASSWORD: ${{ secrets.SONDE_STAGING_SMOKE_USER_PASSWORD || secrets.SONDE_SMOKE_USER_PASSWORD || '' }}
+      HOSTED_CLI_AUDIT_TOKEN: ${{ secrets.SONDE_STAGING_CLI_AUDIT_TOKEN || secrets.SONDE_CLI_AUDIT_TOKEN || '' }}
+      HOSTED_RUNTIME_AUDIT_TOKEN: ${{ secrets.SONDE_STAGING_AGENT_RUNTIME_AUDIT_TOKEN || secrets.SONDE_AGENT_RUNTIME_AUDIT_TOKEN || '' }}
+      HOSTED_REDIS_URL: ${{ vars.SONDE_STAGING_UPSTASH_REDIS_REST_URL || vars.SONDE_UPSTASH_REDIS_REST_URL || '' }}
+      HOSTED_REDIS_TOKEN: ${{ secrets.SONDE_STAGING_UPSTASH_REDIS_REST_TOKEN || secrets.SONDE_UPSTASH_REDIS_REST_TOKEN || '' }}
+      HOSTED_REQUIRE_SHARED_RATE_LIMIT: ${{ vars.SONDE_REQUIRE_SHARED_RATE_LIMIT || '' }}
+      HOSTED_GOOGLE_CLIENT_ID: ${{ secrets.SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID || '' }}
+      HOSTED_GOOGLE_CLIENT_SECRET: ${{ secrets.SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET || '' }}
     if: >-
       ${{
-        vars.SUPABASE_STAGING_PROJECT_REF != '' &&
+        (vars.SUPABASE_STAGING_PROJECT_REF || vars.SUPABASE_PROJECT_REF) != '' &&
         (
           github.event_name == 'workflow_dispatch' ||
           needs.changes.outputs.database == 'true'
@@ -65,12 +89,35 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Load hosted staging contract
+        id: contract
+        uses: ./.github/actions/load-hosted-env
+        with:
+          environment-name: staging
+          ui-url: ${{ env.HOSTED_UI_URL }}
+          agent-url: ${{ env.HOSTED_AGENT_URL }}
+          supabase-project-ref: ${{ env.HOSTED_SUPABASE_PROJECT_REF }}
+          supabase-anon-key: ${{ env.HOSTED_SUPABASE_ANON_KEY }}
+          smoke-user-email: ${{ env.HOSTED_SMOKE_USER_EMAIL }}
+          smoke-user-password: ${{ env.HOSTED_SMOKE_USER_PASSWORD }}
+          cli-audit-token: ${{ env.HOSTED_CLI_AUDIT_TOKEN }}
+          runtime-audit-token: ${{ env.HOSTED_RUNTIME_AUDIT_TOKEN }}
+          redis-url: ${{ env.HOSTED_REDIS_URL }}
+          redis-token: ${{ env.HOSTED_REDIS_TOKEN }}
+          require-shared-rate-limit: ${{ env.HOSTED_REQUIRE_SHARED_RATE_LIMIT }}
+          google-client-id: ${{ env.HOSTED_GOOGLE_CLIENT_ID }}
+          google-client-secret: ${{ env.HOSTED_GOOGLE_CLIENT_SECRET }}
+
       - uses: supabase/setup-cli@v1
         with:
           version: latest
 
       - name: Link to staging project
-        run: supabase link --project-ref ${{ vars.SUPABASE_STAGING_PROJECT_REF }}
+        run: supabase link --project-ref ${{ steps.contract.outputs.supabase_project_ref }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
@@ -96,7 +143,7 @@ jobs:
           supabase config push --workdir "$TMPDIR" --project-ref "${SUPABASE_PROJECT_REF}" --yes
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_STAGING_PROJECT_REF }}
+          SUPABASE_PROJECT_REF: ${{ steps.contract.outputs.supabase_project_ref }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || '' }}
           SUPABASE_AUTH_SMS_TWILIO_AUTH_TOKEN: ${{ secrets.SUPABASE_AUTH_SMS_TWILIO_AUTH_TOKEN || '' }}
           SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID: ${{ secrets.SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID }}
@@ -106,18 +153,168 @@ jobs:
           S3_REGION: ${{ secrets.S3_REGION || '' }}
           S3_ACCESS_KEY: ${{ secrets.S3_ACCESS_KEY || '' }}
           S3_SECRET_KEY: ${{ secrets.S3_SECRET_KEY || '' }}
-          SUPABASE_HOSTED_SITE_URL: ${{ vars.SONDE_STAGING_UI_URL }}
-          SUPABASE_HOSTED_ADDITIONAL_REDIRECT_URLS: https://sonde-staging.vercel.app/auth/callback,http://localhost:5173/auth/callback,http://127.0.0.1:5173/auth/callback,http://localhost:*/callback,http://127.0.0.1:*/callback
-          SUPABASE_HOSTED_STORAGE_FILE_SIZE_LIMIT: 50MiB
+          SUPABASE_HOSTED_SITE_URL: ${{ steps.contract.outputs.site_url }}
+          SUPABASE_HOSTED_ADDITIONAL_REDIRECT_URLS: ${{ steps.contract.outputs.redirect_urls_csv }}
+          SUPABASE_HOSTED_STORAGE_FILE_SIZE_LIMIT: ${{ steps.contract.outputs.storage_file_size_limit }}
 
       - name: Verify schema version after staging deploy
-        if: ${{ vars.SUPABASE_STAGING_ANON_KEY != '' }}
+        if: ${{ steps.contract.outputs.supabase_anon_key != '' }}
         run: |
           if VERSION=$(curl -sf \
-            -H "apikey: ${{ vars.SUPABASE_STAGING_ANON_KEY }}" \
-            -H "Authorization: Bearer ${{ vars.SUPABASE_STAGING_ANON_KEY }}" \
-            "https://${{ vars.SUPABASE_STAGING_PROJECT_REF }}.supabase.co/rest/v1/rpc/get_schema_version"); then
+            -H "apikey: ${{ steps.contract.outputs.supabase_anon_key }}" \
+            -H "Authorization: Bearer ${{ steps.contract.outputs.supabase_anon_key }}" \
+            "https://${{ steps.contract.outputs.supabase_project_ref }}.supabase.co/rest/v1/rpc/get_schema_version"); then
             echo "Schema version after staging deploy: $VERSION"
           else
             echo "::notice::Skipping strict schema verification because get_schema_version is not reachable with the configured staging publishable key"
           fi
+
+  deploy-staging-agent:
+    runs-on: ubuntu-latest
+    environment: staging
+    needs:
+      - changes
+      - push-staging-database
+    env:
+      HOSTED_UI_URL: ${{ vars.SONDE_STAGING_UI_URL || vars.SONDE_UI_URL || '' }}
+      HOSTED_AGENT_URL: ${{ vars.SONDE_STAGING_AGENT_HTTP_BASE || vars.SONDE_AGENT_HTTP_BASE || '' }}
+      HOSTED_SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_STAGING_PROJECT_REF || vars.SUPABASE_PROJECT_REF || '' }}
+      HOSTED_SUPABASE_ANON_KEY: ${{ vars.SUPABASE_STAGING_ANON_KEY || vars.SUPABASE_ANON_KEY || '' }}
+      HOSTED_SMOKE_USER_EMAIL: ${{ secrets.SONDE_STAGING_SMOKE_USER_EMAIL || secrets.SONDE_SMOKE_USER_EMAIL || '' }}
+      HOSTED_SMOKE_USER_PASSWORD: ${{ secrets.SONDE_STAGING_SMOKE_USER_PASSWORD || secrets.SONDE_SMOKE_USER_PASSWORD || '' }}
+      HOSTED_CLI_AUDIT_TOKEN: ${{ secrets.SONDE_STAGING_CLI_AUDIT_TOKEN || secrets.SONDE_CLI_AUDIT_TOKEN || '' }}
+      HOSTED_RUNTIME_AUDIT_TOKEN: ${{ secrets.SONDE_STAGING_AGENT_RUNTIME_AUDIT_TOKEN || secrets.SONDE_AGENT_RUNTIME_AUDIT_TOKEN || '' }}
+      HOSTED_REDIS_URL: ${{ vars.SONDE_STAGING_UPSTASH_REDIS_REST_URL || vars.SONDE_UPSTASH_REDIS_REST_URL || '' }}
+      HOSTED_REDIS_TOKEN: ${{ secrets.SONDE_STAGING_UPSTASH_REDIS_REST_TOKEN || secrets.SONDE_UPSTASH_REDIS_REST_TOKEN || '' }}
+      HOSTED_REQUIRE_SHARED_RATE_LIMIT: ${{ vars.SONDE_REQUIRE_SHARED_RATE_LIMIT || '' }}
+      HOSTED_GOOGLE_CLIENT_ID: ${{ secrets.SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID || '' }}
+      HOSTED_GOOGLE_CLIENT_SECRET: ${{ secrets.SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET || '' }}
+    if: >-
+      ${{
+        always() &&
+        (
+          needs.push-staging-database.result == 'success' ||
+          needs.push-staging-database.result == 'skipped'
+        ) &&
+        (
+          needs.changes.outputs.agent == 'true' ||
+          (
+            github.event_name == 'workflow_dispatch' &&
+            !inputs.seed_only
+          )
+        )
+      }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Load hosted staging contract
+        id: contract
+        uses: ./.github/actions/load-hosted-env
+        with:
+          environment-name: staging
+          ui-url: ${{ env.HOSTED_UI_URL }}
+          agent-url: ${{ env.HOSTED_AGENT_URL }}
+          supabase-project-ref: ${{ env.HOSTED_SUPABASE_PROJECT_REF }}
+          supabase-anon-key: ${{ env.HOSTED_SUPABASE_ANON_KEY }}
+          smoke-user-email: ${{ env.HOSTED_SMOKE_USER_EMAIL }}
+          smoke-user-password: ${{ env.HOSTED_SMOKE_USER_PASSWORD }}
+          cli-audit-token: ${{ env.HOSTED_CLI_AUDIT_TOKEN }}
+          runtime-audit-token: ${{ env.HOSTED_RUNTIME_AUDIT_TOKEN }}
+          redis-url: ${{ env.HOSTED_REDIS_URL }}
+          redis-token: ${{ env.HOSTED_REDIS_TOKEN }}
+          require-shared-rate-limit: ${{ env.HOSTED_REQUIRE_SHARED_RATE_LIMIT }}
+          google-client-id: ${{ env.HOSTED_GOOGLE_CLIENT_ID }}
+          google-client-secret: ${{ env.HOSTED_GOOGLE_CLIENT_SECRET }}
+
+      - name: Resolve staging schema version
+        id: schema
+        if: ${{ steps.contract.outputs.supabase_project_ref != '' && steps.contract.outputs.supabase_anon_key != '' }}
+        run: |
+          VERSION=$(curl -sf \
+            -H "apikey: ${{ steps.contract.outputs.supabase_anon_key }}" \
+            -H "Authorization: Bearer ${{ steps.contract.outputs.supabase_anon_key }}" \
+            "https://${{ steps.contract.outputs.supabase_project_ref }}.supabase.co/rest/v1/rpc/get_schema_version" | tr -d '"')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Verify Railway staging token
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_STAGING_PROJECT_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_STAGING_PROJECT_ID }}
+        run: |
+          if [ -z "$RAILWAY_TOKEN" ] || [ -z "$RAILWAY_PROJECT_ID" ]; then
+            echo "::error::Missing Railway staging project token or project id"
+            exit 1
+          fi
+          railway service status \
+            -e "${{ vars.RAILWAY_STAGING_ENVIRONMENT_ID }}" \
+            -s "${{ vars.RAILWAY_STAGING_SERVICE_NAME }}" \
+            --json >/tmp/railway-staging-status.json
+
+      - name: Pin staged agent runtime metadata
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_STAGING_PROJECT_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_STAGING_PROJECT_ID }}
+          SONDE_MANAGED_ENVIRONMENT_ID: ${{ vars.SONDE_ANTHROPIC_MANAGED_ENVIRONMENT_ID }}
+          SONDE_SCHEMA_VERSION: ${{ steps.schema.outputs.version }}
+          SONDE_RUNTIME_AUDIT_TOKEN: ${{ secrets.SONDE_STAGING_AGENT_RUNTIME_AUDIT_TOKEN }}
+          SONDE_WS_TOKEN_SECRET: ${{ secrets.SONDE_STAGING_WS_TOKEN_SECRET }}
+          SONDE_GITHUB_ALLOWED_REPOS: ${{ vars.SONDE_GITHUB_ALLOWED_REPOS }}
+        run: |
+          if [ -z "$SONDE_MANAGED_ENVIRONMENT_ID" ]; then
+            echo "::error::Missing SONDE_ANTHROPIC_MANAGED_ENVIRONMENT_ID repository variable"
+            exit 1
+          fi
+          SCHEMA_VERSION="${SONDE_SCHEMA_VERSION:-unknown}"
+          railway variable delete \
+            -s "${{ vars.RAILWAY_STAGING_SERVICE_NAME }}" \
+            -e "${{ vars.RAILWAY_STAGING_ENVIRONMENT_ID }}" \
+            SONDE_MANAGED_AGENT_ID || true
+          railway variable set \
+            -s "${{ vars.RAILWAY_STAGING_SERVICE_NAME }}" \
+            -e "${{ vars.RAILWAY_STAGING_ENVIRONMENT_ID }}" \
+            --skip-deploys \
+            VITE_SUPABASE_URL="https://${{ steps.contract.outputs.supabase_project_ref }}.supabase.co" \
+            VITE_SUPABASE_ANON_KEY="${{ steps.contract.outputs.supabase_anon_key }}" \
+            SONDE_AGENT_BACKEND="managed" \
+            SONDE_MANAGED_ENVIRONMENT_ID="${SONDE_MANAGED_ENVIRONMENT_ID}" \
+            SONDE_MANAGED_AGENT_ID=" " \
+            SONDE_MANAGED_ALLOW_EPHEMERAL_AGENT="1" \
+            SONDE_ALLOWED_ORIGINS="${{ steps.contract.outputs.site_url }}" \
+            SONDE_ENVIRONMENT="staging" \
+            SONDE_COMMIT_SHA="${GITHUB_SHA}" \
+            SONDE_CLI_GIT_REF="${GITHUB_SHA}" \
+            SONDE_SCHEMA_VERSION="${SCHEMA_VERSION}" \
+            SONDE_RUNTIME_AUDIT_TOKEN="${SONDE_RUNTIME_AUDIT_TOKEN}" \
+            SONDE_WS_TOKEN_SECRET="${SONDE_WS_TOKEN_SECRET}" \
+            SONDE_GITHUB_ALLOWED_REPOS="${SONDE_GITHUB_ALLOWED_REPOS}"
+
+      - name: Deploy staging agent
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_STAGING_PROJECT_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_STAGING_PROJECT_ID }}
+        run: |
+          railway up \
+            -e "${{ vars.RAILWAY_STAGING_ENVIRONMENT_ID }}" \
+            -s "${{ vars.RAILWAY_STAGING_SERVICE_NAME }}" \
+            --detach \
+            --ci
+
+      - name: Wait for staged agent runtime parity
+        working-directory: server
+        env:
+          PARITY_AGENT_BASE: ${{ steps.contract.outputs.agent_url }}
+          PARITY_RUNTIME_TOKEN: ${{ secrets.SONDE_STAGING_AGENT_RUNTIME_AUDIT_TOKEN }}
+          PARITY_EXPECT_COMMIT_SHA: ${{ github.sha }}
+          PARITY_EXPECT_ENVIRONMENT: ${{ steps.contract.outputs.runtime_environment }}
+          PARITY_EXPECT_SCHEMA_VERSION: ${{ steps.schema.outputs.version }}
+          PARITY_WAIT_TIMEOUT_MS: 300000
+          PARITY_WAIT_INTERVAL_MS: 10000
+        run: node scripts/wait-for-runtime-parity.mjs

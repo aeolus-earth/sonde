@@ -2,7 +2,6 @@ import { memo } from "react";
 import { getWelcomeGreeting } from "@/lib/welcome-name";
 import { useAuthStore } from "@/stores/auth";
 import { cn } from "@/lib/utils";
-import { ChatInstallCta } from "./chat-install-cta";
 
 interface ChatEmptyStateProps {
   /** Embedded column: tighter vertical rhythm (experiment page, etc.). */
@@ -39,11 +38,6 @@ export const ChatEmptyState = memo(function ChatEmptyState({
             Use <kbd className="rounded-[2px] border border-border px-1">@</kbd>{" "}
             to reference projects, directions, experiments, findings, or programs
           </p>
-        </div>
-      </div>
-      <div className="pointer-events-auto absolute bottom-3 right-3 z-10 w-[min(100%,34rem)] sm:bottom-4 sm:right-4">
-        <div className="ml-auto max-w-[34rem]">
-          <ChatInstallCta compact />
         </div>
       </div>
     </div>

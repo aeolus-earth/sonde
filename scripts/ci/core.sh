@@ -34,6 +34,9 @@ run_guard() {
     } | sort
   )
   echo "shell syntax ok"
+
+  log_section "Hosted workflow action usage"
+  bash scripts/ci/check-hosted-workflow-action.sh
 }
 
 run_cli() {

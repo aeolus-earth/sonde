@@ -414,8 +414,11 @@ export interface AdminRuntimeMetadata {
   environment: string;
   agentBackend: "managed";
   managedConfigured: boolean;
+  managedConfigError: string | null;
   anthropicConfigured: boolean;
+  anthropicConfigError: string | null;
   anthropicAdminConfigured: boolean;
+  anthropicAdminConfigError: string | null;
   costTelemetryConfigured: boolean;
   liveSpendEnabled: boolean;
   telemetryRequiresServiceRole: boolean;

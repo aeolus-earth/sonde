@@ -137,6 +137,7 @@ async function main() {
   const sondeToken = process.env.CLI_AUDIT_SONDE_TOKEN?.trim() || "";
   const email = process.env.SMOKE_USER_EMAIL?.trim() || "";
   const password = process.env.SMOKE_USER_PASSWORD?.trim() || "";
+  const requestedAuthMode = (process.env.CLI_AUDIT_AUTH_MODE?.trim() || "auto").toLowerCase();
   const auditEnvironment = process.env.CLI_AUDIT_ENV?.trim() || "staging";
   const auditProgram = process.env.CLI_AUDIT_PROGRAM?.trim() || "shared";
   const expectedExperimentId = process.env.CLI_AUDIT_EXPECT_EXPERIMENT_ID?.trim() || "";
@@ -154,13 +155,23 @@ async function main() {
     AEOLUS_SUPABASE_URL: supabaseUrl,
     AEOLUS_SUPABASE_ANON_KEY: supabaseAnonKey,
   };
+  const authMode =
+    requestedAuthMode === "auto" ? (sondeToken ? "token" : "session") : requestedAuthMode;
 
-  if (sondeToken) {
+  if (!["token", "session"].includes(authMode)) {
+    throw new Error("CLI_AUDIT_AUTH_MODE must be one of: auto, token, session.");
+  }
+
+  if (authMode === "token") {
+    if (!sondeToken) {
+      throw new Error("CLI_AUDIT_AUTH_MODE=token requires CLI_AUDIT_SONDE_TOKEN.");
+    }
     cliEnv.SONDE_TOKEN = sondeToken;
   } else {
+    delete cliEnv.SONDE_TOKEN;
     if (!email || !password) {
       throw new Error(
-        "Set CLI_AUDIT_SONDE_TOKEN or provide SMOKE_USER_EMAIL and SMOKE_USER_PASSWORD."
+        "CLI_AUDIT_AUTH_MODE=session requires SMOKE_USER_EMAIL and SMOKE_USER_PASSWORD."
       );
     }
 
@@ -203,11 +214,11 @@ async function main() {
     }
   }
 
-  if (sondeToken && !whoami.is_agent) {
+  if (authMode === "token" && !whoami.is_agent) {
     throw new Error("CLI audit expected agent-token auth, but whoami reported a human session");
   }
 
-  if (!sondeToken && email && whoami.email !== email) {
+  if (authMode === "session" && email && whoami.email !== email) {
     throw new Error(`CLI authenticated as ${whoami.email}, expected ${email}`);
   }
 
@@ -218,10 +229,11 @@ async function main() {
   const summary = {
     environment: auditEnvironment,
     email: whoami.email,
+    isAgent: whoami.is_agent === true,
     programCount: programs.length,
     allowWrite,
     briefKeys: Object.keys(brief),
-    authMode: sondeToken ? "token" : "session",
+    authMode,
   };
 
   if (expectedExperimentId) {

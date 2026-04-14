@@ -232,13 +232,13 @@ export default function BriefPage() {
   const { data: projectTakeawayRows, isLoading: loadingProjectTakeaways } =
     useProjectTakeawaysInProgram(program);
 
-  const exps = experiments ?? [];
+  const exps = useMemo(() => experiments ?? [], [experiments]);
   const finds = useMemo(
     () => sortFindingsByImportanceAndRecency(findings ?? []),
     [findings]
   );
-  const dirs = directions ?? [];
-  const projs = projects ?? [];
+  const dirs = useMemo(() => directions ?? [], [directions]);
+  const projs = useMemo(() => projects ?? [], [projects]);
 
   const projectById = useMemo(() => new Map(projs.map((p) => [p.id, p])), [projs]);
   const directionById = useMemo(() => new Map(dirs.map((d) => [d.id, d])), [dirs]);
