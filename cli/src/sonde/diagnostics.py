@@ -534,53 +534,61 @@ def check_auth_session() -> DoctorCheck:
 
 
 def check_device_login_base() -> DoctorCheck:
-    """Report which hosted Sonde origin remote login will use."""
+    """Report which hosted Sonde origin standard login will use."""
 
-    def build() -> DoctorCheck:
-        settings = get_settings()
-        explicit_agent = os.environ.get("SONDE_AGENT_HTTP_BASE", "").strip()
-        configured = explicit_agent or settings.agent_http_base.strip()
-        ui_fallback = os.environ.get("SONDE_UI_URL", "").strip() or settings.ui_url.strip()
-        resolved = configured or ui_fallback
+    def build() -> dict[str, Any]:
+        resolved, source = auth._resolve_hosted_login_origin()
+        normalized = auth._normalize_hosted_login_origin(resolved)
 
-        if not resolved:
-            return DoctorCheck(
-                id="device-login-base-missing",
-                title="Remote login",
-                status="warn",
-                summary="Hosted activation login is missing a public Sonde origin.",
-                details=[
-                    "SSH and headless shells now use a hosted activation flow by default.",
+        if not normalized:
+            return {
+                "status": "warn",
+                "summary": "Hosted activation login is missing a public Sonde origin.",
+                "details": [
+                    "sonde login now uses hosted activation by default.",
                     "Set SONDE_AGENT_HTTP_BASE for a direct API host, or "
                     "configure ui_url/SONDE_UI_URL.",
                 ],
-                fix="export SONDE_AGENT_HTTP_BASE=https://your-sonde-host",
-            )
+                "fix": "export SONDE_AGENT_HTTP_BASE=https://your-sonde-host",
+            }
 
-        status = "ok" if configured else "info"
+        if source == "default-ui" and auth._uses_nondefault_supabase_target():
+            return {
+                "status": "warn",
+                "summary": (
+                    "Hosted activation needs an explicit Sonde origin for this "
+                    "Supabase target."
+                ),
+                "details": [
+                    auth._hosted_login_origin_mismatch_message(),
+                    "Use the hosted origin for the same staging/custom environment, "
+                    "or run 'sonde login --method loopback'.",
+                ],
+                "fix": "export SONDE_UI_URL=https://your-sonde-host",
+            }
+
+        status = "ok" if source != "default-ui" else "info"
         summary = (
-            f"Remote login will use {resolved}"
-            if configured
-            else f"Remote login will use the public Sonde origin {resolved}"
+            f"Standard login will use {normalized}"
+            if status == "ok"
+            else f"Standard login will use the default hosted Sonde origin {normalized}"
         )
         details = [
-            "sonde login auto-detects SSH/headless shells and uses a browser "
-            "activation code instead of localhost callbacks."
+            "sonde login now uses hosted activation by default. "
+            "Use 'sonde login --method loopback' only for localhost fallback."
         ]
-        if not configured:
+        if source == "default-ui":
             details.append(
                 "Override SONDE_AGENT_HTTP_BASE only if your hosted API lives "
-                "on a different origin."
+                "on a different origin than the UI."
             )
-        return DoctorCheck(
-            id="device-login-base",
-            title="Remote login",
-            status=status,
-            summary=summary,
-            details=details,
-        )
+        return {
+            "status": status,
+            "summary": summary,
+            "details": details,
+        }
 
-    return _timed_check("device-login-base", "Remote login", build, required=False)
+    return _timed_check("device-login-base", "Login transport", build, required=False)
 
 
 def check_project_root(project_root: Path | None) -> DoctorCheck:

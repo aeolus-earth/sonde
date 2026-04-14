@@ -1,23 +1,23 @@
 # OAuth: CLI vs web UI
 
-Sonde uses one Supabase project and Google OAuth for both the CLI and the web UI, but there are now two distinct CLI login transports:
+Sonde uses one Supabase project and Google OAuth for both the CLI and the web UI, but there are two distinct CLI login transports:
 
-- Hosted activation for SSH, VM, and headless shells.
-- Loopback PKCE for local desktop shells and break-glass fallback.
+- Hosted activation as the standard `sonde login` flow.
+- Loopback PKCE as the explicit `--method loopback` fallback.
 
 ## Two flows
 
 | Surface | Redirect after Google | Callback path | Implementation |
 |--------|------------------------|---------------|----------------|
-| **CLI** (`sonde login`, remote/headless) | `{origin}/activate/callback` | `/activate/callback` on the hosted Sonde UI | [`cli/src/sonde/auth.py`](../cli/src/sonde/auth.py), [`server/src/device-auth.ts`](../server/src/device-auth.ts), [`ui/src/routes/activate.tsx`](../ui/src/routes/activate.tsx) |
+| **CLI** (`sonde login`) | `{origin}/activate/callback` | `/activate/callback` on the hosted Sonde UI | [`cli/src/sonde/auth.py`](../cli/src/sonde/auth.py), [`server/src/device-auth.ts`](../server/src/device-auth.ts), [`ui/src/routes/activate.tsx`](../ui/src/routes/activate.tsx) |
 | **CLI** (`sonde login --method loopback`) | `http://localhost:{port}/callback` | `/callback` on the machine running the CLI | [`cli/src/sonde/auth.py`](../cli/src/sonde/auth.py) |
 | **Web UI** | `{origin}/auth/callback` | `/auth/callback` on the app origin | [`ui/src/stores/auth.ts`](../ui/src/stores/auth.ts), [`ui/src/routes/auth/callback.tsx`](../ui/src/routes/auth/callback.tsx) |
 
 Both browser-facing Google authorization URLs keep the `hd=aeolus.earth` workspace hint.
 
-## Remote shells
+## Standard CLI login
 
-`sonde login` now auto-detects SSH, VM, Codespaces, and headless shells and switches to the hosted activation flow automatically:
+`sonde login` now uses the hosted activation flow by default:
 
 ```text
 $ sonde login
@@ -38,6 +38,8 @@ The user opens the hosted Sonde link in any browser, signs in, approves the requ
 - optionally `http://127.0.0.1:*/callback`
 
 Those redirect patterns must stay allowlisted in Supabase for local desktop login and break-glass troubleshooting.
+
+If `AEOLUS_SUPABASE_URL` points at a local or alternate Supabase project, configure the matching hosted Sonde origin with `SONDE_UI_URL` or `SONDE_AGENT_HTTP_BASE`. Otherwise the CLI will stop with guidance instead of silently falling back to localhost.
 
 ## Supabase redirect checklist
 

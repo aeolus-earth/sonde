@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import os
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from threading import Thread
 from typing import cast
 
 import pytest
@@ -82,12 +85,22 @@ def test_resolve_login_method_prefers_device_for_remote(monkeypatch: pytest.Monk
     assert auth.resolve_login_method() == auth.LOGIN_METHOD_DEVICE
 
 
-def test_resolve_login_method_keeps_loopback_for_local_gui(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_resolve_login_method_defaults_to_device_for_local_gui(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     _clear_remote_env(monkeypatch)
     monkeypatch.setattr(auth.os, "name", "posix", raising=False)
     monkeypatch.setattr(auth.sys, "platform", "darwin", raising=False)
     monkeypatch.setenv("TERM_PROGRAM", "Apple_Terminal")
-    assert auth.resolve_login_method() == auth.LOGIN_METHOD_LOOPBACK
+    assert auth.resolve_login_method() == auth.LOGIN_METHOD_DEVICE
+
+
+def test_resolve_login_method_keeps_loopback_when_explicit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_remote_env(monkeypatch)
+    monkeypatch.setenv("SSH_CONNECTION", "1.2.3.4 123 5.6.7.8 22")
+    assert auth.resolve_login_method(auth.LOGIN_METHOD_LOOPBACK) == auth.LOGIN_METHOD_LOOPBACK
 
 
 def test_device_auth_base_uses_explicit_agent_base(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -106,6 +119,98 @@ def test_device_auth_base_falls_back_to_ui_url(monkeypatch: pytest.MonkeyPatch) 
         )(),
     )
     assert auth._device_auth_base_url() == "https://sonde.example.com"
+
+
+def test_device_auth_base_requires_explicit_origin_for_nondefault_supabase(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("SONDE_AGENT_HTTP_BASE", raising=False)
+    monkeypatch.delenv("SONDE_UI_URL", raising=False)
+    monkeypatch.setattr(auth, "SUPABASE_URL", "http://127.0.0.1:54321")
+    monkeypatch.setattr(
+        auth,
+        "get_settings",
+        lambda: type("Settings", (), {"agent_http_base": "", "ui_url": auth.DEFAULT_UI_URL})(),
+    )
+
+    with pytest.raises(auth.LoginConfigurationError, match="sonde login --method loopback"):
+        auth._device_auth_base_url()
+
+
+def test_login_persists_session_via_hosted_activation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    session_payload = {
+        "access_token": "access-token",
+        "refresh_token": "refresh-token",
+        "user": {
+            "id": "user-1",
+            "email": "mason@aeolus.earth",
+            "user_metadata": {"full_name": "Mason Lee"},
+            "app_metadata": {"programs": ["shared"]},
+        },
+    }
+
+    class DeviceAuthHandler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            length = int(self.headers.get("content-length", "0"))
+            raw = self.rfile.read(length).decode("utf-8")
+            body = json.loads(raw) if raw else {}
+
+            if self.path == "/auth/device/start":
+                assert body["login_method"] == auth.LOGIN_METHOD_DEVICE
+                payload = {
+                    "device_code": "device-code",
+                    "user_code": "ABCD-EFGH",
+                    "verification_uri": "https://sonde.example.com/activate",
+                    "verification_uri_complete": "https://sonde.example.com/activate?code=ABCD-EFGH",
+                    "expires_in": 600,
+                    "interval": 2,
+                }
+            elif self.path == "/auth/device/poll":
+                assert body["device_code"] == "device-code"
+                payload = {
+                    "status": "approved",
+                    "interval": 2,
+                    "session": session_payload,
+                }
+            else:
+                self.send_response(404)
+                self.end_headers()
+                return
+
+            encoded = json.dumps(payload).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(encoded)))
+            self.end_headers()
+            self.wfile.write(encoded)
+
+        def log_message(self, format: str, *args) -> None:
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), DeviceAuthHandler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    session_path = tmp_path / "session.json"
+    monkeypatch.setenv("SONDE_AGENT_HTTP_BASE", f"http://127.0.0.1:{server.server_port}")
+    monkeypatch.setattr(auth, "CONFIG_DIR", tmp_path)
+    monkeypatch.setattr(auth, "SESSION_FILE", session_path)
+    monkeypatch.setattr(auth, "_emit_device_login_instructions", lambda **_kwargs: None)
+
+    try:
+        user = auth.login()
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+        server.server_close()
+
+    assert user.email == "mason@aeolus.earth"
+    persisted = json.loads(session_path.read_text())
+    assert persisted["access_token"] == "access-token"
+    assert persisted["refresh_token"] == "refresh-token"
 
 
 def test_poll_for_device_session_returns_completed_session(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -31,6 +31,24 @@ def test_login_help_emphasizes_plain_login(runner: CliRunner) -> None:
     assert "sonde login" in result.output
     assert "sonde login --remote" not in result.output
     assert "--method" in result.output
+    assert "sonde login --method loopback" in result.output
+
+
+def test_login_reports_config_error_with_loopback_guidance(runner: CliRunner, monkeypatch) -> None:
+    monkeypatch.setattr("sonde.auth.is_authenticated", lambda: False)
+    monkeypatch.setattr(
+        "sonde.auth.login",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            auth.LoginConfigurationError("Hosted activation is not configured.")
+        ),
+    )
+
+    result = runner.invoke(cli, ["login"])
+
+    assert result.exit_code == 1
+    assert "Login configuration is incomplete" in result.output
+    assert "sonde login --method" in result.output
+    assert "loopback" in result.output
 
 
 def test_whoami_json(runner: CliRunner, authenticated: None):

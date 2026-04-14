@@ -1,7 +1,7 @@
 """Authentication — login, logout, token management.
 
 Two auth paths, one interface:
-  Human: sonde login → OAuth URL on stderr, browser when available, callback → session
+  Human: sonde login → hosted Sonde activation by default, loopback fallback when requested
   Agent: SONDE_TOKEN env var → custom JWT → flows through RLS
 """
 
@@ -36,6 +36,8 @@ from supabase_auth.types import CodeExchangeParams
 from sonde import __version__
 from sonde.config import (
     CONFIG_DIR,
+    DEFAULT_SUPABASE_URL,
+    DEFAULT_UI_URL,
     SESSION_FILE,
     SUPABASE_ANON_KEY,
     SUPABASE_URL,
@@ -77,6 +79,10 @@ class UserInfo:
 
 
 class NotAuthenticatedError(Exception):
+    pass
+
+
+class LoginConfigurationError(Exception):
     pass
 
 
@@ -351,12 +357,8 @@ def resolve_login_method(
     normalized = (method or LOGIN_METHOD_AUTO).strip().lower()
     if normalized not in {LOGIN_METHOD_AUTO, LOGIN_METHOD_DEVICE, LOGIN_METHOD_LOOPBACK}:
         raise ValueError(f"Unsupported login method: {method}")
-    if remote:
+    if remote or normalized in {LOGIN_METHOD_AUTO, LOGIN_METHOD_DEVICE}:
         return LOGIN_METHOD_DEVICE
-    if normalized == LOGIN_METHOD_AUTO:
-        if _is_remote_environment() or _is_headless_unix():
-            return LOGIN_METHOD_DEVICE
-        return LOGIN_METHOD_LOOPBACK
     return normalized
 
 
@@ -414,7 +416,7 @@ def _login_loopback(remote: bool = False) -> UserInfo:
 
 
 def _login_device() -> UserInfo:
-    """Run the hosted Sonde activation flow for SSH/headless environments."""
+    """Run the hosted Sonde activation flow."""
     base = _device_auth_base_url()
     started = _post_json(
         f"{base}{DEVICE_AUTH_PATH}/start",
@@ -481,27 +483,63 @@ def _user_info_from_session_data(session_data: dict[str, Any]) -> UserInfo:
 
 
 def _device_auth_base_url() -> str:
-    explicit = os.environ.get("SONDE_AGENT_HTTP_BASE", "").strip()
-    if explicit:
-        base = explicit
-    else:
-        settings = get_settings()
-        base = settings.agent_http_base.strip() or os.environ.get("SONDE_UI_URL", "").strip()
-        if not base:
-            base = settings.ui_url.strip()
-
+    base, source = _resolve_hosted_login_origin()
     if not base:
-        raise RuntimeError(
+        raise LoginConfigurationError(
             "Device login is missing a hosted Sonde origin. "
             "Set SONDE_AGENT_HTTP_BASE or configure agent_http_base/ui_url."
         )
+    if source == "default-ui" and _uses_nondefault_supabase_target():
+        raise LoginConfigurationError(_hosted_login_origin_mismatch_message())
 
-    normalized = base
+    return _normalize_hosted_login_origin(base)
+
+
+def _resolve_hosted_login_origin() -> tuple[str, str]:
+    """Return the hosted login origin and whether it is explicit or defaulted."""
+    explicit_agent = os.environ.get("SONDE_AGENT_HTTP_BASE", "").strip()
+    if explicit_agent:
+        return explicit_agent, "agent-http-base"
+
+    settings = get_settings()
+    configured_agent = settings.agent_http_base.strip()
+    if configured_agent:
+        return configured_agent, "agent-http-base"
+
+    explicit_ui = os.environ.get("SONDE_UI_URL", "").strip()
+    if explicit_ui:
+        return explicit_ui, "ui-url"
+
+    configured_ui = settings.ui_url.strip()
+    if configured_ui and configured_ui.rstrip("/") != DEFAULT_UI_URL.rstrip("/"):
+        return configured_ui, "ui-url"
+
+    return configured_ui or DEFAULT_UI_URL, "default-ui"
+
+
+def _normalize_hosted_login_origin(base: str) -> str:
+    """Normalize UI or agent origins into an HTTP base URL."""
+    normalized = base.strip()
+    if not normalized:
+        return ""
+
     if normalized.startswith("ws://"):
         normalized = "http://" + normalized.removeprefix("ws://")
     elif normalized.startswith("wss://"):
         normalized = "https://" + normalized.removeprefix("wss://")
     return normalized.rstrip("/")
+
+
+def _uses_nondefault_supabase_target() -> bool:
+    return SUPABASE_URL.rstrip("/") != DEFAULT_SUPABASE_URL.rstrip("/")
+
+
+def _hosted_login_origin_mismatch_message() -> str:
+    return (
+        "Hosted activation defaults to the production Sonde app, but this CLI is pointing at a "
+        f"different Supabase target ({SUPABASE_URL}). Set SONDE_UI_URL or SONDE_AGENT_HTTP_BASE "
+        "for the matching hosted environment, or use 'sonde login --method loopback'."
+    )
 
 
 def _device_host_label() -> str:
