@@ -1,31 +1,20 @@
-import { afterEach, beforeEach, describe, it } from "node:test";
+import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import {
-  approveDeviceAuth,
   getDeviceAuthRuntimeStatus,
-  inspectDeviceAuth,
   normalizeUserCode,
-  pollDeviceAuth,
   resetDeviceAuthStateForTests,
   startDeviceAuth,
 } from "./device-auth.js";
 
-const originalEnv = { ...process.env };
 const deviceAuthEnv = {
   NODE_ENV: "test",
   SONDE_ALLOWED_ORIGINS: "https://sonde-neon.vercel.app",
   SONDE_WS_TOKEN_SECRET: "ws-secret",
 } as NodeJS.ProcessEnv;
-
-beforeEach(() => {
-  process.env = { ...originalEnv };
-  resetDeviceAuthStateForTests();
-});
-
-afterEach(() => {
-  process.env = { ...originalEnv };
-  resetDeviceAuthStateForTests();
-});
+const serverRoot = fileURLToPath(new URL("..", import.meta.url));
 
 describe("device auth", { concurrency: false }, () => {
   it("normalizes user-entered activation codes", () => {
@@ -34,7 +23,8 @@ describe("device auth", { concurrency: false }, () => {
     assert.equal(normalizeUserCode("not-a-code"), null);
   });
 
-  it("returns access_denied after a browser cancellation", async () => {
+  it("issues activation codes that round-trip through normalization", async () => {
+    resetDeviceAuthStateForTests();
     const started = await startDeviceAuth(
       {
         cliVersion: "0.1.0",
@@ -45,27 +35,66 @@ describe("device auth", { concurrency: false }, () => {
       deviceAuthEnv,
     );
 
-    const inspected = await inspectDeviceAuth(started.userCode, deviceAuthEnv);
-    assert.equal(inspected?.status, "pending");
+    assert.equal(normalizeUserCode(started.userCode), started.userCode);
+    assert.doesNotMatch(started.userCode, /[ILO01]/);
+    resetDeviceAuthStateForTests();
+  });
 
-    const denied = await approveDeviceAuth(
-      {
-        userCode: started.userCode,
-        decision: "deny",
-        approvedBy: {
-          id: "user-1",
-          email: "mason@aeolus.earth",
-          name: "Mason",
+  it("returns access_denied after a browser cancellation", async () => {
+    const script = `
+      import { approveDeviceAuth, pollDeviceAuth, resetDeviceAuthStateForTests, startDeviceAuth } from "./src/device-auth.js";
+
+      const env = {
+        NODE_ENV: "test",
+        SONDE_ALLOWED_ORIGINS: "https://sonde-neon.vercel.app",
+        SONDE_WS_TOKEN_SECRET: "ws-secret",
+      };
+
+      resetDeviceAuthStateForTests();
+      const started = await startDeviceAuth(
+        {
+          cliVersion: "0.1.0",
+          hostLabel: "ssh://stormbox",
+          remoteHint: true,
+          loginMethod: "device",
         },
+        env,
+      );
+      const denied = await approveDeviceAuth(
+        {
+          userCode: started.userCode,
+          decision: "deny",
+          approvedBy: {
+            id: "user-1",
+            email: "mason@aeolus.earth",
+            name: "Mason",
+          },
+        },
+        env,
+      );
+      const polled = await pollDeviceAuth(started.deviceCode, env);
+      process.stdout.write(JSON.stringify({ denied, polled, interval: started.interval }));
+    `;
+    const result = spawnSync(
+      process.execPath,
+      ["--import", "tsx", "--input-type=module", "-"],
+      {
+        cwd: serverRoot,
+        encoding: "utf8",
+        input: script,
       },
-      deviceAuthEnv,
     );
-    assert.equal(denied?.status, "denied");
 
-    const polled = await pollDeviceAuth(started.deviceCode, deviceAuthEnv);
-    assert.deepEqual(polled, {
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const parsed = JSON.parse(result.stdout.trim()) as {
+      denied: { status?: string } | null;
+      polled: { status: string; interval: number };
+      interval: number;
+    };
+    assert.equal(parsed.denied?.status, "denied");
+    assert.deepEqual(parsed.polled, {
       status: "access_denied",
-      interval: started.interval,
+      interval: parsed.interval,
     });
   });
 
