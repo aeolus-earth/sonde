@@ -9,7 +9,7 @@
     "start": "node dist/index.js",
     "lint": "tsc --noEmit",
     "test:tool-policy": "node --import tsx --test src/mcp/tool-policy.test.ts",
-    "test": "node --import tsx --test src/*.test.ts src/**/*.test.ts",
+    "test": "node --import tsx --test --test-concurrency=1 src/*.test.ts src/**/*.test.ts",
     "smoke": "npm run build && node scripts/smoke.mjs"
   },
   "dependencies": {
