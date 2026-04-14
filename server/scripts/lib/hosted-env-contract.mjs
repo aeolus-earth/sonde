@@ -367,3 +367,32 @@ export function formatHostedEnvironmentForGithubOutputs(resolved) {
     ),
   };
 }
+
+export function formatHostedEnvironmentForLogs(resolved) {
+  return {
+    schemaVersion: resolved.schemaVersion,
+    name: resolved.name,
+    githubEnvironment: resolved.githubEnvironment,
+    runtimeEnvironment: resolved.runtimeEnvironment,
+    agentBackend: resolved.agentBackend,
+    uiUrl: resolved.uiUrl,
+    agentUrl: resolved.agentUrl,
+    supabaseProjectRef: resolved.supabaseProjectRef,
+    requireSharedRateLimit: resolved.requireSharedRateLimit,
+    storageFileSizeLimit: resolved.storageFileSizeLimit,
+    supabaseRedirectUrls: resolved.supabaseRedirectUrls,
+    expectedProgramId: resolved.expectedProgramId,
+    expectedExperimentId: resolved.expectedExperimentId,
+    expectedTimelineAuthMode: resolved.expectedTimelineAuthMode,
+    audit: resolved.audit,
+    managedAuthAudit: {
+      promptConfigured: Boolean(resolved.managedAuthAudit.prompt),
+      expectSubstringConfigured: Boolean(resolved.managedAuthAudit.expectSubstring),
+      staleSession: resolved.managedAuthAudit.staleSession,
+      requireToolUse: resolved.managedAuthAudit.requireToolUse,
+      timeoutMs: resolved.managedAuthAudit.timeoutMs,
+      prewarmTimeoutMs: resolved.managedAuthAudit.prewarmTimeoutMs,
+      retryIntervalMs: resolved.managedAuthAudit.retryIntervalMs,
+    },
+  };
+}

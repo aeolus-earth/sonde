@@ -1,4 +1,5 @@
 import {
+  formatHostedEnvironmentForLogs,
   formatHostedEnvironmentForGithubOutputs,
   loadHostedEnvironmentContract,
   resolveHostedEnvironment,
@@ -61,16 +62,7 @@ function runValidate(environmentName) {
   const summary = {
     status: errors.length === 0 ? "ok" : "error",
     environment: environmentName,
-    uiUrl: resolved.uiUrl,
-    agentUrlConfigured: Boolean(resolved.agentUrl),
-    supabaseProjectRefConfigured: Boolean(resolved.supabaseProjectRef),
-    supabaseAnonKeyConfigured: Boolean(resolved.supabaseAnonKey),
-    smokeUserConfigured:
-      resolved.smokeUserEmailConfigured && resolved.smokeUserPasswordConfigured,
-    cliAuditTokenConfigured: resolved.cliAuditTokenConfigured,
-    runtimeAuditTokenConfigured: resolved.runtimeAuditTokenConfigured,
-    requireSharedRateLimit: resolved.requireSharedRateLimit,
-    redisConfigured: resolved.redisUrlConfigured && resolved.redisTokenConfigured,
+    resolved: formatHostedEnvironmentForLogs(resolved),
     errors,
   };
 
@@ -99,7 +91,7 @@ function runResolveGithubOutputs(environmentName) {
 
 function runPrintJson(environmentName) {
   const resolved = resolveHostedEnvironment(environmentName);
-  console.log(JSON.stringify(resolved, null, 2));
+  console.log(JSON.stringify(formatHostedEnvironmentForLogs(resolved), null, 2));
 }
 
 const command = process.argv[2];
