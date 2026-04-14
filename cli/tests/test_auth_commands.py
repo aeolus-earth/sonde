@@ -30,7 +30,7 @@ def test_login_help_emphasizes_plain_login(runner: CliRunner) -> None:
     assert result.exit_code == 0
     assert "sonde login" in result.output
     assert "sonde login --remote" not in result.output
-    assert "Force the assisted login flow" in result.output
+    assert "--method" in result.output
 
 
 def test_whoami_json(runner: CliRunner, authenticated: None):

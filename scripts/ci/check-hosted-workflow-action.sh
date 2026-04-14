@@ -20,11 +20,33 @@ for workflow in "${workflows[@]}"; do
     echo "::error file=${workflow}::Hosted workflow must use ./.github/actions/load-hosted-env"
     exit 1
   fi
+  if ! grep -Eq 'validation-profile:[[:space:]]+[A-Za-z-]+' "$workflow"; then
+    echo "::error file=${workflow}::Hosted workflow must set validation-profile on ./.github/actions/load-hosted-env"
+    exit 1
+  fi
 done
 
 if grep -REn 'run:[[:space:]]+node server/scripts/hosted-env-contract\.mjs resolve-github-outputs' .github/workflows >/tmp/hosted-workflow-direct-calls.txt; then
   echo "::error::Hosted workflows should load contract outputs through ./.github/actions/load-hosted-env, not direct resolve-github-outputs calls."
   cat /tmp/hosted-workflow-direct-calls.txt
+  exit 1
+fi
+
+if grep -REn '\${{\s*(vars|secrets)\.[^}|]+\|\|[[:space:]]*(vars|secrets)\.' "${workflows[@]}" >/tmp/hosted-workflow-fallbacks.txt; then
+  echo "::error::Hosted workflows must fail closed and may not chain staging and production vars/secrets together."
+  cat /tmp/hosted-workflow-fallbacks.txt
+  exit 1
+fi
+
+if grep -REn '\${{\s*env\.HOSTED_' "${workflows[@]}" >/tmp/hosted-workflow-env-usage.txt; then
+  echo "::error::Hosted workflows must use load-hosted-env outputs and explicit secrets, not raw env.HOSTED_* references."
+  cat /tmp/hosted-workflow-env-usage.txt
+  exit 1
+fi
+
+if grep -REn '^[[:space:]]+HOSTED_[A-Z0-9_]+:' "${workflows[@]}" >/tmp/hosted-workflow-hosted-env-defs.txt; then
+  echo "::error::Hosted workflows may not define ad-hoc HOSTED_* env blocks; pass strict inputs to the shared loader action."
+  cat /tmp/hosted-workflow-hosted-env-defs.txt
   exit 1
 fi
 

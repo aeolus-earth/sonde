@@ -28,9 +28,19 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Require promotion token
+        env:
+          PROMOTION_GITHUB_TOKEN: ${{ secrets.SONDE_PROMOTION_GITHUB_TOKEN }}
+        run: |
+          if [ -z "${PROMOTION_GITHUB_TOKEN}" ]; then
+            echo "::error title=Missing SONDE_PROMOTION_GITHUB_TOKEN::Add a fine-grained GitHub token with Contents: Read and write and Pull requests: Read and write to the SONDE_PROMOTION_GITHUB_TOKEN repo secret."
+            exit 1
+          fi
+
       - name: Open or update staging promotion PR
         uses: actions/github-script@v8
         with:
+          github-token: ${{ secrets.SONDE_PROMOTION_GITHUB_TOKEN }}
           script: |
             const owner = context.repo.owner;
             const repo = context.repo.repo;
@@ -55,6 +65,7 @@ jobs:
             }
 
             const requiredWorkflows = [
+              { workflowId: "smoke-staging.yml", name: "Staging Smoke" },
               { workflowId: "deploy-staging.yml", name: "Sync Staging Infra" },
               { workflowId: "config-audit.yml", name: "Config Audit" },
               { workflowId: "cli-hosted-audit.yml", name: "CLI Hosted Audit" },

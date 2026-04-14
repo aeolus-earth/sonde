@@ -12,6 +12,7 @@ import hashlib
 import json
 import logging
 import os
+import platform
 import secrets
 import shutil
 import socket
@@ -24,12 +25,15 @@ from importlib import resources
 from pathlib import Path
 from threading import Event, Lock, Thread
 from typing import Any
+from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlparse
+from urllib.request import Request, urlopen
 
 from supabase import Client, create_client
 from supabase_auth.errors import AuthApiError
 from supabase_auth.types import CodeExchangeParams
 
+from sonde import __version__
 from sonde.config import (
     CONFIG_DIR,
     SESSION_FILE,
@@ -48,6 +52,10 @@ BOT_TOKEN_PREFIX = "sonde_bt_"
 BOT_SESSION_FILE = CONFIG_DIR / "bot-session.json"
 LOGIN_MODE_AUTO = "auto"
 LOGIN_MODE_ASSISTED = "assisted"
+LOGIN_METHOD_AUTO = "auto"
+LOGIN_METHOD_DEVICE = "device"
+LOGIN_METHOD_LOOPBACK = "loopback"
+DEVICE_AUTH_PATH = "/auth/device"
 
 
 def _load_callback_html() -> bytes:
@@ -330,18 +338,47 @@ def _is_expired(token: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# OAuth PKCE login flow
+# OAuth login flows
 # ---------------------------------------------------------------------------
 
 
-def login(remote: bool = False) -> UserInfo:
-    """Run OAuth PKCE: print sign-in URL, open browser when possible, wait for callback."""
+def resolve_login_method(
+    method: str = LOGIN_METHOD_AUTO,
+    *,
+    remote: bool = False,
+) -> str:
+    """Resolve the concrete login method for this environment."""
+    normalized = (method or LOGIN_METHOD_AUTO).strip().lower()
+    if normalized not in {LOGIN_METHOD_AUTO, LOGIN_METHOD_DEVICE, LOGIN_METHOD_LOOPBACK}:
+        raise ValueError(f"Unsupported login method: {method}")
+    if remote:
+        return LOGIN_METHOD_DEVICE
+    if normalized == LOGIN_METHOD_AUTO:
+        if _is_remote_environment() or _is_headless_unix():
+            return LOGIN_METHOD_DEVICE
+        return LOGIN_METHOD_LOOPBACK
+    return normalized
+
+
+def login(
+    remote: bool = False,
+    *,
+    method: str = LOGIN_METHOD_AUTO,
+) -> UserInfo:
+    """Run the best available login flow for the current environment."""
+    resolved_method = resolve_login_method(method, remote=remote)
+    if resolved_method == LOGIN_METHOD_DEVICE:
+        return _login_device()
+    return _login_loopback(remote=remote)
+
+
+def _login_loopback(remote: bool = False) -> UserInfo:
+    """Run the localhost callback PKCE flow for local desktop shells."""
     client = _anon_client()
 
     port = _find_open_port()
     redirect_url = f"http://localhost:{port}/callback"
 
-    # Start OAuth — get the URL to open (keep Google query_params in sync with ui auth store)
     auth_response = client.auth.sign_in_with_oauth(
         {
             "provider": "google",
@@ -361,10 +398,9 @@ def login(remote: bool = False) -> UserInfo:
     assisted = _login_mode(remote=remote) == LOGIN_MODE_ASSISTED
     code = _wait_for_callback(port, auth_url, assisted=assisted)
 
-    # Exchange code for session
     params = CodeExchangeParams(
         auth_code=code,
-        code_verifier="",  # Supabase client fills from storage if empty
+        code_verifier="",
         redirect_to=redirect_url,
     )
     session_response = client.auth.exchange_code_for_session(params)
@@ -372,18 +408,52 @@ def login(remote: bool = False) -> UserInfo:
     if not session_response or not session_response.session:
         raise RuntimeError("Failed to exchange auth code for session")
 
-    session = session_response.session
-    session_data = {
-        "access_token": session.access_token,
-        "refresh_token": session.refresh_token,
-        "user": _user_dict(session.user),
-    }
+    session_data = _session_payload(session_response.session)
     save_session(session_data)
+    return _user_info_from_session_data(session_data)
 
-    return UserInfo(
-        email=session.user.email or "unknown",
-        user_id=session.user.id,
+
+def _login_device() -> UserInfo:
+    """Run the hosted Sonde activation flow for SSH/headless environments."""
+    base = _device_auth_base_url()
+    started = _post_json(
+        f"{base}{DEVICE_AUTH_PATH}/start",
+        {
+            "cli_version": __version__,
+            "host_label": _device_host_label(),
+            "remote_hint": _is_remote_environment() or _is_headless_unix(),
+            "login_method": LOGIN_METHOD_DEVICE,
+            "request_metadata": {
+                "platform": platform.platform(),
+                "python": platform.python_version(),
+            },
+        },
     )
+
+    device_code = str(started.get("device_code") or "").strip()
+    user_code = str(started.get("user_code") or "").strip()
+    verification_uri = str(started.get("verification_uri") or "").strip()
+    verification_uri_complete = str(started.get("verification_uri_complete") or "").strip()
+    expires_in = int(started.get("expires_in") or 0)
+    interval = max(2, int(started.get("interval") or 5))
+
+    if not all((device_code, user_code, verification_uri, verification_uri_complete, expires_in)):
+        raise RuntimeError("Hosted device login returned an incomplete activation response.")
+
+    _emit_device_login_instructions(
+        user_code=user_code,
+        verification_uri=verification_uri,
+        verification_uri_complete=verification_uri_complete,
+        expires_in=expires_in,
+    )
+    session_data = _poll_for_device_session(
+        base,
+        device_code=device_code,
+        initial_interval=interval,
+        expires_in=expires_in,
+    )
+    save_session(session_data)
+    return _user_info_from_session_data(session_data)
 
 
 # ---------------------------------------------------------------------------
@@ -394,6 +464,166 @@ def login(remote: bool = False) -> UserInfo:
 def _anon_client() -> Client:
     """Create an unauthenticated Supabase client for auth operations."""
     return create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+
+
+def _user_info_from_session_data(session_data: dict[str, Any]) -> UserInfo:
+    user = session_data.get("user", {})
+    user_meta = user.get("user_metadata", {}) if isinstance(user, dict) else {}
+    return UserInfo(
+        email=str(user.get("email") or "unknown"),
+        user_id=str(user.get("id") or "unknown"),
+        name=str(user_meta.get("full_name") or user_meta.get("name") or ""),
+        is_admin=bool(user.get("app_metadata", {}).get("is_admin", False))
+        if isinstance(user, dict)
+        else False,
+        programs=user.get("app_metadata", {}).get("programs") if isinstance(user, dict) else None,
+    )
+
+
+def _device_auth_base_url() -> str:
+    explicit = os.environ.get("SONDE_AGENT_HTTP_BASE", "").strip()
+    if explicit:
+        base = explicit
+    else:
+        settings = get_settings()
+        base = settings.agent_http_base.strip() or os.environ.get("SONDE_UI_URL", "").strip()
+        if not base:
+            base = settings.ui_url.strip()
+
+    if not base:
+        raise RuntimeError(
+            "Device login is missing a hosted Sonde origin. "
+            "Set SONDE_AGENT_HTTP_BASE or configure agent_http_base/ui_url."
+        )
+
+    normalized = base
+    if normalized.startswith("ws://"):
+        normalized = "http://" + normalized.removeprefix("ws://")
+    elif normalized.startswith("wss://"):
+        normalized = "https://" + normalized.removeprefix("wss://")
+    return normalized.rstrip("/")
+
+
+def _device_host_label() -> str:
+    host = socket.gethostname().strip() or "remote-shell"
+    if _is_remote_environment():
+        return f"ssh://{host}"
+    return host
+
+
+def _post_json(
+    url: str,
+    payload: dict[str, Any],
+    *,
+    bearer_token: str | None = None,
+    timeout: float = 30.0,
+) -> dict[str, Any]:
+    data = json.dumps(payload).encode("utf-8")
+    headers = {"content-type": "application/json"}
+    if bearer_token:
+        headers["Authorization"] = f"Bearer {bearer_token}"
+    request = Request(url, data=data, headers=headers, method="POST")
+
+    try:
+        with urlopen(request, timeout=timeout) as response:
+            raw = response.read().decode("utf-8")
+    except HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        message = _error_message_from_json(body) or f"HTTP {exc.code} from {url}"
+        raise RuntimeError(message) from None
+    except URLError as exc:
+        raise RuntimeError(f"Could not reach {url}: {exc.reason}") from None
+
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"Device login returned invalid JSON from {url}: {exc}") from None
+
+    if not isinstance(parsed, dict):
+        raise RuntimeError(f"Device login returned an unexpected response from {url}.")
+
+    return parsed
+
+
+def _error_message_from_json(raw: str) -> str | None:
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return raw.strip() or None
+
+    if not isinstance(parsed, dict):
+        return raw.strip() or None
+
+    error = parsed.get("error")
+    if isinstance(error, dict):
+        message = error.get("message")
+        if isinstance(message, str) and message.strip():
+            return message.strip()
+    message = parsed.get("message")
+    return message.strip() if isinstance(message, str) and message.strip() else None
+
+
+def _emit_device_login_instructions(
+    *,
+    user_code: str,
+    verification_uri: str,
+    verification_uri_complete: str,
+    expires_in: int,
+) -> None:
+    err.print("[sonde.muted]Sign in with your Aeolus Google Workspace account.[/]")
+    err.print("  [sonde.muted]Open this link in any browser to continue:[/]")
+    err.print(f"  [link={verification_uri_complete}]Open Sonde activation[/link]")
+    err.print(f"  [sonde.muted]{verification_uri_complete}[/]")
+    err.print(f"  [sonde.muted]If the code is not prefilled, enter:[/] [bold]{user_code}[/bold]")
+    minutes = max(1, expires_in // 60)
+    err.print(f"  [sonde.muted]This activation code expires in about {minutes} minutes.[/]")
+    err.print("  [sonde.muted]Waiting for authorization...[/]")
+
+
+def _poll_for_device_session(
+    base_url: str,
+    *,
+    device_code: str,
+    initial_interval: int,
+    expires_in: int,
+) -> dict[str, Any]:
+    interval = max(2, initial_interval)
+    deadline = time.monotonic() + max(60, expires_in)
+
+    while time.monotonic() < deadline:
+        response = _post_json(
+            f"{base_url}{DEVICE_AUTH_PATH}/poll",
+            {"device_code": device_code},
+            timeout=35.0,
+        )
+        status = str(response.get("status") or "").strip()
+        if status == "approved":
+            session = response.get("session")
+            if not isinstance(session, dict):
+                raise RuntimeError("Hosted device login completed without a usable session.")
+            if not session.get("access_token") or not session.get("refresh_token"):
+                raise RuntimeError("Hosted device login returned an incomplete session payload.")
+            return session
+        if status == "authorization_pending":
+            time.sleep(interval)
+            continue
+        if status == "slow_down":
+            interval = max(interval + 1, int(response.get("interval") or interval + 1))
+            time.sleep(interval)
+            continue
+        if status == "access_denied":
+            raise PermissionError("Sign-in was cancelled before Sonde could finish the activation.")
+        if status == "expired_token":
+            raise TimeoutError(
+                "Activation code expired before sign-in finished. Run 'sonde login' again."
+            )
+        raise RuntimeError(
+            f"Hosted device login returned an unexpected status: {status or 'unknown'}"
+        )
+
+    raise TimeoutError(
+        "Login timed out before activation completed. Re-run 'sonde login' for a fresh code."
+    )
 
 
 def encode_bot_token(bundle: dict[str, Any]) -> str:

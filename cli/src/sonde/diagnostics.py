@@ -246,7 +246,7 @@ def build_local_section(*, deep: bool = False) -> DoctorSection:
 
 def build_auth_section(*, deep: bool = False) -> DoctorSection:
     """Inspect current auth state."""
-    checks = [check_auth_session()]
+    checks = [check_auth_session(), check_device_login_base()]
     return build_section("auth", checks, required=True)
 
 
@@ -531,6 +531,56 @@ def check_auth_session() -> DoctorCheck:
         }
 
     return _timed_check("auth-session", "Current session", build, required=True)
+
+
+def check_device_login_base() -> DoctorCheck:
+    """Report which hosted Sonde origin remote login will use."""
+
+    def build() -> DoctorCheck:
+        settings = get_settings()
+        explicit_agent = os.environ.get("SONDE_AGENT_HTTP_BASE", "").strip()
+        configured = explicit_agent or settings.agent_http_base.strip()
+        ui_fallback = os.environ.get("SONDE_UI_URL", "").strip() or settings.ui_url.strip()
+        resolved = configured or ui_fallback
+
+        if not resolved:
+            return DoctorCheck(
+                id="device-login-base-missing",
+                title="Remote login",
+                status="warn",
+                summary="Hosted activation login is missing a public Sonde origin.",
+                details=[
+                    "SSH and headless shells now use a hosted activation flow by default.",
+                    "Set SONDE_AGENT_HTTP_BASE for a direct API host, or "
+                    "configure ui_url/SONDE_UI_URL.",
+                ],
+                fix="export SONDE_AGENT_HTTP_BASE=https://your-sonde-host",
+            )
+
+        status = "ok" if configured else "info"
+        summary = (
+            f"Remote login will use {resolved}"
+            if configured
+            else f"Remote login will use the public Sonde origin {resolved}"
+        )
+        details = [
+            "sonde login auto-detects SSH/headless shells and uses a browser "
+            "activation code instead of localhost callbacks."
+        ]
+        if not configured:
+            details.append(
+                "Override SONDE_AGENT_HTTP_BASE only if your hosted API lives "
+                "on a different origin."
+            )
+        return DoctorCheck(
+            id="device-login-base",
+            title="Remote login",
+            status=status,
+            summary=summary,
+            details=details,
+        )
+
+    return _timed_check("device-login-base", "Remote login", build, required=False)
 
 
 def check_project_root(project_root: Path | None) -> DoctorCheck:

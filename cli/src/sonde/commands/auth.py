@@ -14,13 +14,24 @@ from sonde.output import err, print_banner, print_error, print_json, print_succe
 @click.option(
     "--remote",
     is_flag=True,
+    hidden=True,
+    help=("Compatibility alias for the hosted device-style login flow."),
+)
+@click.option(
+    "--method",
+    type=click.Choice(
+        [auth.LOGIN_METHOD_AUTO, auth.LOGIN_METHOD_DEVICE, auth.LOGIN_METHOD_LOOPBACK],
+        case_sensitive=False,
+    ),
+    default=auth.LOGIN_METHOD_AUTO,
+    show_default=True,
     help=(
-        "Force the assisted login flow when the browser cannot reach the "
-        "local callback automatically."
+        "Login transport. 'auto' picks the hosted activation flow for SSH/headless shells "
+        "and keeps localhost PKCE for local desktop shells."
     ),
 )
 @click.pass_context
-def login(ctx: click.Context, remote: bool) -> None:
+def login(ctx: click.Context, remote: bool, method: str) -> None:
     """Sign in with your Aeolus Google Workspace account.
 
     \b
@@ -35,8 +46,9 @@ def login(ctx: click.Context, remote: bool) -> None:
             return
 
     print_banner()
+    resolved_method = auth.resolve_login_method(method, remote=remote)
     try:
-        user = auth.login(remote=remote)
+        user = auth.login(remote=remote, method=method)
     except TimeoutError as e:
         print_error("Login timed out", str(e), "Try again: sonde login")
         raise SystemExit(1) from None
@@ -64,7 +76,7 @@ def login(ctx: click.Context, remote: bool) -> None:
         actor_name=user.name,
         user_id=user.user_id,
         programs=user.programs,
-        details={"remote": remote},
+        details={"remote": resolved_method == auth.LOGIN_METHOD_DEVICE, "method": resolved_method},
     )
 
     if ctx.obj.get("json"):

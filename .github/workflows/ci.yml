@@ -85,6 +85,7 @@ jobs:
         run: |
           node --input-type=module - <<'NODE'
           import {
+            formatHostedEnvironmentForGithubOutputs,
             loadHostedEnvironmentContract,
             resolveHostedEnvironment,
             resolveHostedGithubEnvironmentEnv,
@@ -98,43 +99,133 @@ jobs:
             throw new Error(contractErrors.join("\n"));
           }
 
-          const fixtures = {
-            staging: {
-              SOURCE_UI_URL: "https://staging-ui.example.com",
-              SOURCE_AGENT_URL: "https://staging-agent.example.com",
-              SOURCE_SUPABASE_PROJECT_REF: "stageprojref",
-              SOURCE_SUPABASE_ANON_KEY: "sb_publishable_stage_test",
-              SOURCE_SMOKE_USER_EMAIL: "stage-smoke@example.com",
-              SOURCE_SMOKE_USER_PASSWORD: "not-a-real-password",
-              SOURCE_CLI_AUDIT_TOKEN: "stage-cli-token",
-              SOURCE_RUNTIME_AUDIT_TOKEN: "stage-runtime-token",
-              SOURCE_GOOGLE_CLIENT_ID: "google-client-id",
-              SOURCE_GOOGLE_CLIENT_SECRET: "google-client-secret",
-            },
-            production: {
-              SOURCE_UI_URL: "https://prod-ui.example.com",
-              SOURCE_AGENT_URL: "https://prod-agent.example.com",
-              SOURCE_SUPABASE_PROJECT_REF: "prodprojref",
-              SOURCE_SUPABASE_ANON_KEY: "sb_publishable_prod_test",
-              SOURCE_SMOKE_USER_EMAIL: "prod-smoke@example.com",
-              SOURCE_SMOKE_USER_PASSWORD: "not-a-real-password",
-              SOURCE_CLI_AUDIT_TOKEN: "prod-cli-token",
-              SOURCE_RUNTIME_AUDIT_TOKEN: "prod-runtime-token",
-              SOURCE_GOOGLE_CLIENT_ID: "google-client-id",
-              SOURCE_GOOGLE_CLIENT_SECRET: "google-client-secret",
-            },
+          const baseFixture = {
+            SOURCE_UI_URL: "https://staging-ui.example.com",
+            SOURCE_AGENT_URL: "https://staging-agent.example.com",
+            SOURCE_SUPABASE_PROJECT_REF: "stageprojref",
+            SOURCE_SUPABASE_ANON_KEY: "sb_publishable_stage_test",
+            SOURCE_SMOKE_USER_EMAIL: "stage-smoke@example.com",
+            SOURCE_SMOKE_USER_PASSWORD: "not-a-real-password",
+            SOURCE_CLI_AUDIT_TOKEN: "stage-cli-token",
+            SOURCE_RUNTIME_AUDIT_TOKEN: "stage-runtime-token",
+            SOURCE_GOOGLE_CLIENT_ID: "google-client-id",
+            SOURCE_GOOGLE_CLIENT_SECRET: "google-client-secret",
           };
 
-          for (const [name, fixture] of Object.entries(fixtures)) {
-            const hostedEnv = resolveHostedGithubEnvironmentEnv(fixture);
+          const cases = [
+            {
+              name: "deploy-db allows missing smoke creds",
+              environment: "staging",
+              profile: "deploy-db",
+              fixture: {
+                ...baseFixture,
+                SOURCE_SMOKE_USER_EMAIL: "",
+                SOURCE_SMOKE_USER_PASSWORD: "",
+                SOURCE_CLI_AUDIT_TOKEN: "",
+                SOURCE_RUNTIME_AUDIT_TOKEN: "",
+              },
+              shouldPass: true,
+            },
+            {
+              name: "deploy-agent requires runtime token",
+              environment: "staging",
+              profile: "deploy-agent",
+              fixture: {
+                ...baseFixture,
+                SOURCE_RUNTIME_AUDIT_TOKEN: "",
+              },
+              shouldPass: false,
+              expectedError: "HOSTED_RUNTIME_AUDIT_TOKEN is required.",
+            },
+            {
+              name: "config-audit requires smoke creds",
+              environment: "staging",
+              profile: "config-audit",
+              fixture: {
+                ...baseFixture,
+                SOURCE_SMOKE_USER_EMAIL: "",
+              },
+              shouldPass: false,
+              expectedError: "HOSTED_SMOKE_USER_EMAIL is required.",
+            },
+            {
+              name: "cli-audit requires cli token",
+              environment: "staging",
+              profile: "cli-audit",
+              fixture: {
+                ...baseFixture,
+                SOURCE_CLI_AUDIT_TOKEN: "",
+              },
+              shouldPass: false,
+              expectedError: "HOSTED_CLI_AUDIT_TOKEN is required.",
+            },
+            {
+              name: "smoke requires runtime token",
+              environment: "staging",
+              profile: "smoke",
+              fixture: {
+                ...baseFixture,
+                SOURCE_RUNTIME_AUDIT_TOKEN: "",
+              },
+              shouldPass: false,
+              expectedError: "HOSTED_RUNTIME_AUDIT_TOKEN is required.",
+            },
+            {
+              name: "soak allows missing UI and smoke creds",
+              environment: "staging",
+              profile: "soak",
+              fixture: {
+                ...baseFixture,
+                SOURCE_UI_URL: "",
+                SOURCE_SMOKE_USER_EMAIL: "",
+                SOURCE_SMOKE_USER_PASSWORD: "",
+                SOURCE_CLI_AUDIT_TOKEN: "",
+                SOURCE_RUNTIME_AUDIT_TOKEN: "",
+              },
+              shouldPass: true,
+            },
+          ];
+
+          for (const testCase of cases) {
+            const hostedEnv = resolveHostedGithubEnvironmentEnv(testCase.fixture);
             const resolved = resolveHostedEnvironment(
-              name,
-              { ...fixture, ...hostedEnv },
+              testCase.environment,
+              { ...testCase.fixture, ...hostedEnv },
               contract,
             );
-            const errors = validateResolvedHostedEnvironment(resolved);
-            if (errors.length > 0) {
-              throw new Error(`${name} fixture failed validation:\n${errors.join("\n")}`);
+            const errors = validateResolvedHostedEnvironment(
+              resolved,
+              testCase.profile,
+            );
+
+            if (testCase.shouldPass && errors.length > 0) {
+              throw new Error(
+                `${testCase.name} unexpectedly failed:\n${errors.join("\n")}`,
+              );
+            }
+
+            if (!testCase.shouldPass) {
+              if (errors.length === 0) {
+                throw new Error(`${testCase.name} unexpectedly passed`);
+              }
+              if (
+                testCase.expectedError &&
+                !errors.includes(testCase.expectedError)
+              ) {
+                throw new Error(
+                  `${testCase.name} failed, but not for the expected reason.\nExpected: ${testCase.expectedError}\nActual:\n${errors.join("\n")}`,
+                );
+              }
+            }
+
+            if (testCase.shouldPass) {
+              const outputs = formatHostedEnvironmentForGithubOutputs(resolved);
+              if (!outputs.agent_runtime_secret_names_csv.includes("SUPABASE_SERVICE_ROLE_KEY")) {
+                throw new Error(`${testCase.name} is missing agent runtime secret outputs`);
+              }
+              if (!outputs.audit_required_runtime_keys_csv.includes("deviceAuthEnabled")) {
+                throw new Error(`${testCase.name} is missing audit runtime key outputs`);
+              }
             }
           }
           console.log("hosted export fixtures ok");
@@ -326,8 +417,8 @@ jobs:
       - if: steps.gate.outputs.run == 'true'
         name: Run hosted preflight
         env:
-          SONDE_HOSTED_PREFLIGHT_AGENT_HTTP_BASE: ${{ vars.SONDE_STAGING_AGENT_HTTP_BASE || vars.SONDE_AGENT_HTTP_BASE || '' }}
-          SONDE_HOSTED_PREFLIGHT_APP_ORIGIN: ${{ vars.SONDE_STAGING_UI_URL || vars.SONDE_UI_URL || '' }}
+          SONDE_HOSTED_PREFLIGHT_AGENT_HTTP_BASE: ${{ vars.SONDE_STAGING_AGENT_HTTP_BASE }}
+          SONDE_HOSTED_PREFLIGHT_APP_ORIGIN: ${{ vars.SONDE_STAGING_UI_URL }}
           SONDE_HOSTED_PREFLIGHT_REQUIRED: "1"
         run: bash scripts/ci/hosted-preflight.sh
 

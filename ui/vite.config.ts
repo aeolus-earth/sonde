@@ -74,6 +74,10 @@ export default defineConfig({
   /** Same-origin WebSocket in dev (localhost vs 127.0.0.1, no cross-origin upgrade issues). */
   server: {
     proxy: {
+      "/auth/device": {
+        target: devAgentTarget,
+        changeOrigin: true,
+      },
       "/agent": {
         target: devAgentTarget,
         ws: true,

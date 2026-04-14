@@ -5,6 +5,15 @@
     "agentUrlRequired": true,
     "supabaseProjectRefRequired": true,
     "supabaseAnonKeyRequired": true,
+    "agentRuntimeSecretNames": [
+      "SUPABASE_SERVICE_ROLE_KEY",
+      "SONDE_WS_TOKEN_SECRET",
+      "SONDE_DEVICE_AUTH_ENCRYPTION_KEY",
+      "SONDE_RUNTIME_AUDIT_TOKEN",
+      "ANTHROPIC_API_KEY",
+      "DAYTONA_API_KEY",
+      "SONDE_AGENT_GITHUB_TOKEN"
+    ],
     "smokeUserRequired": true,
     "cliAuditTokenRequired": true,
     "runtimeAuditTokenRequired": true,
@@ -18,6 +27,22 @@
       "requireAnthropic": true,
       "requireAgentCommitMatch": true,
       "requireFirstPartyAgent": false,
+      "requiredRuntimeKeys": [
+        "managedConfigured",
+        "managedConfigError",
+        "sondeMcpConfigured",
+        "githubConfigured",
+        "anthropicConfigured",
+        "anthropicConfigError",
+        "anthropicAdminConfigured",
+        "anthropicAdminConfigError",
+        "cliGitRef",
+        "supabaseProjectRef",
+        "sharedRateLimitConfigured",
+        "sharedRateLimitRequired",
+        "deviceAuthEnabled",
+        "deviceAuthConfigError"
+      ],
       "waitTimeoutMs": 600000,
       "waitIntervalMs": 10000
     },
@@ -38,8 +63,11 @@
       "uiDefaultUrl": "https://sonde-staging.vercel.app",
       "supabaseRedirectUrls": [
         "https://sonde-staging.vercel.app/auth/callback",
+        "https://sonde-staging.vercel.app/activate/callback",
         "http://localhost:5173/auth/callback",
+        "http://localhost:5173/activate/callback",
         "http://127.0.0.1:5173/auth/callback",
+        "http://127.0.0.1:5173/activate/callback",
         "http://localhost:*/callback",
         "http://127.0.0.1:*/callback"
       ],
@@ -51,9 +79,12 @@
       "uiDefaultUrl": "https://sonde-neon.vercel.app",
       "supabaseRedirectUrls": [
         "https://sonde-neon.vercel.app/auth/callback",
+        "https://sonde-neon.vercel.app/activate/callback",
         "https://*.vercel.app/**",
         "http://localhost:5173/auth/callback",
+        "http://localhost:5173/activate/callback",
         "http://127.0.0.1:5173/auth/callback",
+        "http://127.0.0.1:5173/activate/callback",
         "http://localhost:*/callback",
         "http://127.0.0.1:*/callback"
       ],

@@ -23,7 +23,7 @@ function printGithubOutput(name, value) {
 
 function usage() {
   console.error(
-    "Usage: node server/scripts/hosted-env-contract.mjs <check-parity|validate|resolve-github-outputs|export-github-env|print-json> [environment]",
+    "Usage: node server/scripts/hosted-env-contract.mjs <check-parity|validate|resolve-github-outputs|export-github-env|print-json> [environment] [validation-profile]",
   );
   process.exit(1);
 }
@@ -51,13 +51,13 @@ function runCheckParity() {
   );
 }
 
-function runValidate(environmentName) {
+function runValidate(environmentName, validationProfile) {
   const contract = loadHostedEnvironmentContract();
   const contractErrors = validateHostedEnvironmentContract(contract);
   const resolved = resolveHostedEnvironment(environmentName, process.env, contract);
   const errors = [
     ...contractErrors,
-    ...validateResolvedHostedEnvironment(resolved),
+    ...validateResolvedHostedEnvironment(resolved, validationProfile),
   ];
 
   const summary = {
@@ -90,7 +90,7 @@ function runResolveGithubOutputs(environmentName) {
   }
 }
 
-function runExportGithubEnv(environmentName) {
+function runExportGithubEnv(environmentName, validationProfile) {
   const contract = loadHostedEnvironmentContract();
   const contractErrors = validateHostedEnvironmentContract(contract);
   const hostedEnv = resolveHostedGithubEnvironmentEnv(process.env);
@@ -101,7 +101,7 @@ function runExportGithubEnv(environmentName) {
   );
   const errors = [
     ...contractErrors,
-    ...validateResolvedHostedEnvironment(resolved),
+    ...validateResolvedHostedEnvironment(resolved, validationProfile),
   ];
 
   if (errors.length > 0) {
@@ -123,6 +123,7 @@ function runPrintJson(environmentName) {
 
 const command = process.argv[2];
 const environmentName = process.argv[3];
+const validationProfile = process.argv[4];
 
 if (!command) {
   usage();
@@ -134,7 +135,7 @@ switch (command) {
     break;
   case "validate":
     if (!environmentName) usage();
-    runValidate(environmentName);
+    runValidate(environmentName, validationProfile);
     break;
   case "resolve-github-outputs":
     if (!environmentName) usage();
@@ -142,7 +143,7 @@ switch (command) {
     break;
   case "export-github-env":
     if (!environmentName) usage();
-    runExportGithubEnv(environmentName);
+    runExportGithubEnv(environmentName, validationProfile);
     break;
   case "print-json":
     if (!environmentName) usage();

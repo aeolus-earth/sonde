@@ -76,6 +76,83 @@ def test_login_mode_assisted_for_vscode_headless_terminal(monkeypatch: pytest.Mo
     assert auth._login_mode() == auth.LOGIN_MODE_ASSISTED
 
 
+def test_resolve_login_method_prefers_device_for_remote(monkeypatch: pytest.MonkeyPatch) -> None:
+    _clear_remote_env(monkeypatch)
+    monkeypatch.setenv("SSH_CONNECTION", "1.2.3.4 123 5.6.7.8 22")
+    assert auth.resolve_login_method() == auth.LOGIN_METHOD_DEVICE
+
+
+def test_resolve_login_method_keeps_loopback_for_local_gui(monkeypatch: pytest.MonkeyPatch) -> None:
+    _clear_remote_env(monkeypatch)
+    monkeypatch.setattr(auth.os, "name", "posix", raising=False)
+    monkeypatch.setattr(auth.sys, "platform", "darwin", raising=False)
+    monkeypatch.setenv("TERM_PROGRAM", "Apple_Terminal")
+    assert auth.resolve_login_method() == auth.LOGIN_METHOD_LOOPBACK
+
+
+def test_device_auth_base_uses_explicit_agent_base(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SONDE_AGENT_HTTP_BASE", "https://agent.example.com/")
+    assert auth._device_auth_base_url() == "https://agent.example.com"
+
+
+def test_device_auth_base_falls_back_to_ui_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("SONDE_AGENT_HTTP_BASE", raising=False)
+    monkeypatch.delenv("SONDE_UI_URL", raising=False)
+    monkeypatch.setattr(
+        auth,
+        "get_settings",
+        lambda: type(
+            "Settings", (), {"agent_http_base": "", "ui_url": "https://sonde.example.com/"}
+        )(),
+    )
+    assert auth._device_auth_base_url() == "https://sonde.example.com"
+
+
+def test_poll_for_device_session_returns_completed_session(monkeypatch: pytest.MonkeyPatch) -> None:
+    responses = iter(
+        [
+            {"status": "authorization_pending", "interval": 5},
+            {
+                "status": "approved",
+                "interval": 5,
+                "session": {
+                    "access_token": "access-token",
+                    "refresh_token": "refresh-token",
+                    "user": {"id": "user-1", "email": "mason@aeolus.earth"},
+                },
+            },
+        ]
+    )
+    monkeypatch.setattr(auth, "_post_json", lambda *_args, **_kwargs: next(responses))
+    monkeypatch.setattr(auth.time, "sleep", lambda _seconds: None)
+
+    session = auth._poll_for_device_session(
+        "https://sonde.example.com",
+        device_code="device-code",
+        initial_interval=5,
+        expires_in=600,
+    )
+
+    assert session["access_token"] == "access-token"
+    assert session["refresh_token"] == "refresh-token"
+
+
+def test_poll_for_device_session_reports_denied(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        auth,
+        "_post_json",
+        lambda *_args, **_kwargs: {"status": "access_denied", "interval": 5},
+    )
+
+    with pytest.raises(PermissionError, match="cancelled"):
+        auth._poll_for_device_session(
+            "https://sonde.example.com",
+            device_code="device-code",
+            initial_interval=5,
+            expires_in=600,
+        )
+
+
 def test_extract_code_from_url_full_callback() -> None:
     assert (
         auth._extract_code_from_url(

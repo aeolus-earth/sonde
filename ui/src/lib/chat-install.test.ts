@@ -34,7 +34,7 @@ describe("CHAT_INSTALL_STEPS", () => {
       (step) => step.label === "Authenticate",
     );
 
-    expect(loginStep?.hint).toContain("sonde login --remote");
+    expect(loginStep?.hint).toContain("activation code");
   });
 
   it("does not reference the old wheel download flow", () => {

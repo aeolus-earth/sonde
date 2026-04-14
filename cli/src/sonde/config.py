@@ -77,6 +77,13 @@ class Settings(BaseSettings):
         default="https://sonde-neon.vercel.app",
         description="Base URL of the Sonde web UI (for clickable links in CLI output)",
     )
+    agent_http_base: str = Field(
+        default="",
+        description=(
+            "Optional override for the hosted Sonde auth/API base. "
+            "Defaults to the public UI origin for device-style login."
+        ),
+    )
     supabase_service_role_key: str = Field(
         default="",
         description="Privileged Supabase service-role key for admin reconciliation commands",

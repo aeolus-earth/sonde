@@ -7,6 +7,7 @@ import { hasGitHubAccess } from "./github.js";
 import { hasSupabaseTelemetryConfig, telemetryRequiresServiceRole } from "./supabase.js";
 import { getManagedSessionCostThresholds } from "./managed/pricing.js";
 import { getManagedRuntimeConfigStatus } from "./managed/config.js";
+import { getDeviceAuthRuntimeStatus } from "./device-auth.js";
 
 export interface RuntimeMetadata {
   status: "ok";
@@ -31,6 +32,8 @@ export interface RuntimeMetadata {
   supabaseProjectRef: string | null;
   sharedRateLimitConfigured: boolean;
   sharedRateLimitRequired: boolean;
+  deviceAuthEnabled: boolean;
+  deviceAuthConfigError: string | null;
 }
 
 export function getRuntimeEnvironment(
@@ -62,6 +65,7 @@ export function getRuntimeMetadata(
   env: NodeJS.ProcessEnv = process.env
 ): RuntimeMetadata {
   const managedStatus = getManagedRuntimeConfigStatus(env);
+  const deviceAuthStatus = getDeviceAuthRuntimeStatus(env);
   const thresholds = getManagedSessionCostThresholds(env);
   return {
     status: "ok",
@@ -86,5 +90,7 @@ export function getRuntimeMetadata(
     supabaseProjectRef: getSupabaseProjectRef(env),
     sharedRateLimitConfigured: hasSharedRateLimitConfig(env),
     sharedRateLimitRequired: isSharedRateLimitRequired(env),
+    deviceAuthEnabled: deviceAuthStatus.enabled,
+    deviceAuthConfigError: deviceAuthStatus.configError,
   };
 }
