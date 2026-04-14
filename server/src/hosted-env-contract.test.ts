@@ -37,7 +37,6 @@ describe("hosted environment contract", () => {
       "SONDE_DEVICE_AUTH_ENCRYPTION_KEY",
       "SONDE_RUNTIME_AUDIT_TOKEN",
       "ANTHROPIC_API_KEY",
-      "DAYTONA_API_KEY",
       "SONDE_AGENT_GITHUB_TOKEN",
     ]);
     assert.equal(
