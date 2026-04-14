@@ -89,6 +89,7 @@ jobs:
       - name: Run staging CLI audit (human session)
         working-directory: server
         env:
+          CLI_AUDIT_AGENT_BASE: ${{ steps.contract.outputs.agent_url }}
           SUPABASE_URL: https://${{ steps.contract.outputs.supabase_project_ref }}.supabase.co
           SUPABASE_ANON_KEY: ${{ steps.contract.outputs.supabase_anon_key }}
           CLI_AUDIT_AUTH_MODE: session
@@ -171,6 +172,7 @@ jobs:
       - name: Run production CLI audit (human session)
         working-directory: server
         env:
+          CLI_AUDIT_AGENT_BASE: ${{ steps.contract.outputs.agent_url }}
           SUPABASE_URL: https://${{ steps.contract.outputs.supabase_project_ref }}.supabase.co
           SUPABASE_ANON_KEY: ${{ steps.contract.outputs.supabase_anon_key }}
           CLI_AUDIT_AUTH_MODE: session
