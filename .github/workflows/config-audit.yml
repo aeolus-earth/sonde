@@ -55,7 +55,22 @@ jobs:
 
       - name: Load hosted staging contract
         id: contract
-        run: node server/scripts/hosted-env-contract.mjs resolve-github-outputs staging >> "$GITHUB_OUTPUT"
+        uses: ./.github/actions/load-hosted-env
+        with:
+          environment-name: staging
+          ui-url: ${{ env.HOSTED_UI_URL }}
+          agent-url: ${{ env.HOSTED_AGENT_URL }}
+          supabase-project-ref: ${{ env.HOSTED_SUPABASE_PROJECT_REF }}
+          supabase-anon-key: ${{ env.HOSTED_SUPABASE_ANON_KEY }}
+          smoke-user-email: ${{ env.HOSTED_SMOKE_USER_EMAIL }}
+          smoke-user-password: ${{ env.HOSTED_SMOKE_USER_PASSWORD }}
+          cli-audit-token: ${{ env.HOSTED_CLI_AUDIT_TOKEN }}
+          runtime-audit-token: ${{ env.HOSTED_RUNTIME_AUDIT_TOKEN }}
+          redis-url: ${{ env.HOSTED_REDIS_URL }}
+          redis-token: ${{ env.HOSTED_REDIS_TOKEN }}
+          require-shared-rate-limit: ${{ env.HOSTED_REQUIRE_SHARED_RATE_LIMIT }}
+          google-client-id: ${{ env.HOSTED_GOOGLE_CLIENT_ID }}
+          google-client-secret: ${{ env.HOSTED_GOOGLE_CLIENT_SECRET }}
 
       - name: Validate required staging config
         run: node server/scripts/hosted-env-contract.mjs validate staging
@@ -163,7 +178,22 @@ jobs:
 
       - name: Load hosted production contract
         id: contract
-        run: node server/scripts/hosted-env-contract.mjs resolve-github-outputs production >> "$GITHUB_OUTPUT"
+        uses: ./.github/actions/load-hosted-env
+        with:
+          environment-name: production
+          ui-url: ${{ env.HOSTED_UI_URL }}
+          agent-url: ${{ env.HOSTED_AGENT_URL }}
+          supabase-project-ref: ${{ env.HOSTED_SUPABASE_PROJECT_REF }}
+          supabase-anon-key: ${{ env.HOSTED_SUPABASE_ANON_KEY }}
+          smoke-user-email: ${{ env.HOSTED_SMOKE_USER_EMAIL }}
+          smoke-user-password: ${{ env.HOSTED_SMOKE_USER_PASSWORD }}
+          cli-audit-token: ${{ env.HOSTED_CLI_AUDIT_TOKEN }}
+          runtime-audit-token: ${{ env.HOSTED_RUNTIME_AUDIT_TOKEN }}
+          redis-url: ${{ env.HOSTED_REDIS_URL }}
+          redis-token: ${{ env.HOSTED_REDIS_TOKEN }}
+          require-shared-rate-limit: ${{ env.HOSTED_REQUIRE_SHARED_RATE_LIMIT }}
+          google-client-id: ${{ env.HOSTED_GOOGLE_CLIENT_ID }}
+          google-client-secret: ${{ env.HOSTED_GOOGLE_CLIENT_SECRET }}
 
       - name: Validate required production config
         run: node server/scripts/hosted-env-contract.mjs validate production

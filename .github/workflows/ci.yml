@@ -76,6 +76,70 @@ jobs:
         name: Validate hosted environment contract
         run: node server/scripts/hosted-env-contract.mjs check-parity
 
+      - if: steps.gate.outputs.run == 'true'
+        name: Validate hosted workflow action usage
+        run: bash scripts/ci/check-hosted-workflow-action.sh
+
+      - if: steps.gate.outputs.run == 'true'
+        name: Validate hosted environment export logic with fixtures
+        run: |
+          node --input-type=module - <<'NODE'
+          import {
+            loadHostedEnvironmentContract,
+            resolveHostedEnvironment,
+            resolveHostedGithubEnvironmentEnv,
+            validateHostedEnvironmentContract,
+            validateResolvedHostedEnvironment,
+          } from "./server/scripts/lib/hosted-env-contract.mjs";
+
+          const contract = loadHostedEnvironmentContract();
+          const contractErrors = validateHostedEnvironmentContract(contract);
+          if (contractErrors.length > 0) {
+            throw new Error(contractErrors.join("\n"));
+          }
+
+          const fixtures = {
+            staging: {
+              SOURCE_UI_URL: "https://staging-ui.example.com",
+              SOURCE_AGENT_URL: "https://staging-agent.example.com",
+              SOURCE_SUPABASE_PROJECT_REF: "stageprojref",
+              SOURCE_SUPABASE_ANON_KEY: "sb_publishable_stage_test",
+              SOURCE_SMOKE_USER_EMAIL: "stage-smoke@example.com",
+              SOURCE_SMOKE_USER_PASSWORD: "not-a-real-password",
+              SOURCE_CLI_AUDIT_TOKEN: "stage-cli-token",
+              SOURCE_RUNTIME_AUDIT_TOKEN: "stage-runtime-token",
+              SOURCE_GOOGLE_CLIENT_ID: "google-client-id",
+              SOURCE_GOOGLE_CLIENT_SECRET: "google-client-secret",
+            },
+            production: {
+              SOURCE_UI_URL: "https://prod-ui.example.com",
+              SOURCE_AGENT_URL: "https://prod-agent.example.com",
+              SOURCE_SUPABASE_PROJECT_REF: "prodprojref",
+              SOURCE_SUPABASE_ANON_KEY: "sb_publishable_prod_test",
+              SOURCE_SMOKE_USER_EMAIL: "prod-smoke@example.com",
+              SOURCE_SMOKE_USER_PASSWORD: "not-a-real-password",
+              SOURCE_CLI_AUDIT_TOKEN: "prod-cli-token",
+              SOURCE_RUNTIME_AUDIT_TOKEN: "prod-runtime-token",
+              SOURCE_GOOGLE_CLIENT_ID: "google-client-id",
+              SOURCE_GOOGLE_CLIENT_SECRET: "google-client-secret",
+            },
+          };
+
+          for (const [name, fixture] of Object.entries(fixtures)) {
+            const hostedEnv = resolveHostedGithubEnvironmentEnv(fixture);
+            const resolved = resolveHostedEnvironment(
+              name,
+              { ...fixture, ...hostedEnv },
+              contract,
+            );
+            const errors = validateResolvedHostedEnvironment(resolved);
+            if (errors.length > 0) {
+              throw new Error(`${name} fixture failed validation:\n${errors.join("\n")}`);
+            }
+          }
+          console.log("hosted export fixtures ok");
+          NODE
+
   cli-core:
     name: cli-core
     runs-on: ubuntu-latest

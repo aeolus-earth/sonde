@@ -45,6 +45,10 @@ function normalizeCsv(values) {
   return values.map((value) => value.trim()).filter(Boolean).join(",");
 }
 
+function chooseSource(primary, fallback = "") {
+  return trim(primary) || trim(fallback);
+}
+
 export function loadHostedEnvironmentContract(
   contractPath = DEFAULT_CONTRACT_PATH,
 ) {
@@ -225,6 +229,51 @@ export function resolveHostedEnvironment(
         10000,
       ),
     },
+  };
+}
+
+export function resolveHostedGithubEnvironmentEnv(env = process.env) {
+  return {
+    HOSTED_UI_URL: chooseSource(env.SOURCE_UI_URL, env.SOURCE_DEFAULT_UI_URL),
+    HOSTED_AGENT_URL: chooseSource(
+      env.SOURCE_AGENT_URL,
+      env.SOURCE_DEFAULT_AGENT_URL,
+    ),
+    HOSTED_SUPABASE_PROJECT_REF: chooseSource(
+      env.SOURCE_SUPABASE_PROJECT_REF,
+      env.SOURCE_DEFAULT_SUPABASE_PROJECT_REF,
+    ),
+    HOSTED_SUPABASE_ANON_KEY: chooseSource(
+      env.SOURCE_SUPABASE_ANON_KEY,
+      env.SOURCE_DEFAULT_SUPABASE_ANON_KEY,
+    ),
+    HOSTED_SMOKE_USER_EMAIL: chooseSource(
+      env.SOURCE_SMOKE_USER_EMAIL,
+      env.SOURCE_DEFAULT_SMOKE_USER_EMAIL,
+    ),
+    HOSTED_SMOKE_USER_PASSWORD: chooseSource(
+      env.SOURCE_SMOKE_USER_PASSWORD,
+      env.SOURCE_DEFAULT_SMOKE_USER_PASSWORD,
+    ),
+    HOSTED_CLI_AUDIT_TOKEN: chooseSource(
+      env.SOURCE_CLI_AUDIT_TOKEN,
+      env.SOURCE_DEFAULT_CLI_AUDIT_TOKEN,
+    ),
+    HOSTED_RUNTIME_AUDIT_TOKEN: chooseSource(
+      env.SOURCE_RUNTIME_AUDIT_TOKEN,
+      env.SOURCE_DEFAULT_RUNTIME_AUDIT_TOKEN,
+    ),
+    HOSTED_REDIS_URL: chooseSource(
+      env.SOURCE_REDIS_URL,
+      env.SOURCE_DEFAULT_REDIS_URL,
+    ),
+    HOSTED_REDIS_TOKEN: chooseSource(
+      env.SOURCE_REDIS_TOKEN,
+      env.SOURCE_DEFAULT_REDIS_TOKEN,
+    ),
+    HOSTED_REQUIRE_SHARED_RATE_LIMIT: trim(env.SOURCE_REQUIRE_SHARED_RATE_LIMIT),
+    HOSTED_GOOGLE_CLIENT_ID: trim(env.SOURCE_GOOGLE_CLIENT_ID),
+    HOSTED_GOOGLE_CLIENT_SECRET: trim(env.SOURCE_GOOGLE_CLIENT_SECRET),
   };
 }
 

@@ -29,11 +29,19 @@ jobs:
     runs-on: ubuntu-latest
     environment: staging
     env:
+      HOSTED_UI_URL: ${{ vars.SONDE_STAGING_UI_URL || vars.SONDE_UI_URL || '' }}
+      HOSTED_AGENT_URL: ${{ vars.SONDE_STAGING_AGENT_HTTP_BASE || vars.SONDE_AGENT_HTTP_BASE || '' }}
       HOSTED_SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_STAGING_PROJECT_REF || vars.SUPABASE_PROJECT_REF || '' }}
       HOSTED_SUPABASE_ANON_KEY: ${{ vars.SUPABASE_STAGING_ANON_KEY || vars.SUPABASE_ANON_KEY || '' }}
       HOSTED_SMOKE_USER_EMAIL: ${{ secrets.SONDE_STAGING_SMOKE_USER_EMAIL || secrets.SONDE_SMOKE_USER_EMAIL || '' }}
       HOSTED_SMOKE_USER_PASSWORD: ${{ secrets.SONDE_STAGING_SMOKE_USER_PASSWORD || secrets.SONDE_SMOKE_USER_PASSWORD || '' }}
       HOSTED_CLI_AUDIT_TOKEN: ${{ secrets.SONDE_STAGING_CLI_AUDIT_TOKEN || secrets.SONDE_CLI_AUDIT_TOKEN || '' }}
+      HOSTED_RUNTIME_AUDIT_TOKEN: ${{ secrets.SONDE_STAGING_AGENT_RUNTIME_AUDIT_TOKEN || secrets.SONDE_AGENT_RUNTIME_AUDIT_TOKEN || '' }}
+      HOSTED_REDIS_URL: ${{ vars.SONDE_STAGING_UPSTASH_REDIS_REST_URL || vars.SONDE_UPSTASH_REDIS_REST_URL || '' }}
+      HOSTED_REDIS_TOKEN: ${{ secrets.SONDE_STAGING_UPSTASH_REDIS_REST_TOKEN || secrets.SONDE_UPSTASH_REDIS_REST_TOKEN || '' }}
+      HOSTED_REQUIRE_SHARED_RATE_LIMIT: ${{ vars.SONDE_REQUIRE_SHARED_RATE_LIMIT || '' }}
+      HOSTED_GOOGLE_CLIENT_ID: ${{ secrets.SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID || '' }}
+      HOSTED_GOOGLE_CLIENT_SECRET: ${{ secrets.SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET || '' }}
 
     steps:
       - uses: actions/checkout@v6
@@ -54,7 +62,22 @@ jobs:
 
       - name: Load hosted staging contract
         id: contract
-        run: node server/scripts/hosted-env-contract.mjs resolve-github-outputs staging >> "$GITHUB_OUTPUT"
+        uses: ./.github/actions/load-hosted-env
+        with:
+          environment-name: staging
+          ui-url: ${{ env.HOSTED_UI_URL }}
+          agent-url: ${{ env.HOSTED_AGENT_URL }}
+          supabase-project-ref: ${{ env.HOSTED_SUPABASE_PROJECT_REF }}
+          supabase-anon-key: ${{ env.HOSTED_SUPABASE_ANON_KEY }}
+          smoke-user-email: ${{ env.HOSTED_SMOKE_USER_EMAIL }}
+          smoke-user-password: ${{ env.HOSTED_SMOKE_USER_PASSWORD }}
+          cli-audit-token: ${{ env.HOSTED_CLI_AUDIT_TOKEN }}
+          runtime-audit-token: ${{ env.HOSTED_RUNTIME_AUDIT_TOKEN }}
+          redis-url: ${{ env.HOSTED_REDIS_URL }}
+          redis-token: ${{ env.HOSTED_REDIS_TOKEN }}
+          require-shared-rate-limit: ${{ env.HOSTED_REQUIRE_SHARED_RATE_LIMIT }}
+          google-client-id: ${{ env.HOSTED_GOOGLE_CLIENT_ID }}
+          google-client-secret: ${{ env.HOSTED_GOOGLE_CLIENT_SECRET }}
 
       - name: Install Sonde CLI
         run: |
@@ -102,11 +125,19 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     env:
+      HOSTED_UI_URL: ${{ vars.SONDE_UI_URL || '' }}
+      HOSTED_AGENT_URL: ${{ vars.SONDE_AGENT_HTTP_BASE || '' }}
       HOSTED_SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF || secrets.SUPABASE_PROJECT_REF || '' }}
       HOSTED_SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY || '' }}
       HOSTED_SMOKE_USER_EMAIL: ${{ secrets.SONDE_SMOKE_USER_EMAIL || secrets.SONDE_PRODUCTION_SMOKE_USER_EMAIL || '' }}
       HOSTED_SMOKE_USER_PASSWORD: ${{ secrets.SONDE_SMOKE_USER_PASSWORD || secrets.SONDE_PRODUCTION_SMOKE_USER_PASSWORD || '' }}
       HOSTED_CLI_AUDIT_TOKEN: ${{ secrets.SONDE_CLI_AUDIT_TOKEN || secrets.SONDE_PRODUCTION_CLI_AUDIT_TOKEN || '' }}
+      HOSTED_RUNTIME_AUDIT_TOKEN: ${{ secrets.SONDE_AGENT_RUNTIME_AUDIT_TOKEN || secrets.SONDE_PRODUCTION_AGENT_RUNTIME_AUDIT_TOKEN || '' }}
+      HOSTED_REDIS_URL: ${{ vars.SONDE_UPSTASH_REDIS_REST_URL || vars.SONDE_PRODUCTION_UPSTASH_REDIS_REST_URL || '' }}
+      HOSTED_REDIS_TOKEN: ${{ secrets.SONDE_UPSTASH_REDIS_REST_TOKEN || secrets.SONDE_PRODUCTION_UPSTASH_REDIS_REST_TOKEN || '' }}
+      HOSTED_REQUIRE_SHARED_RATE_LIMIT: ${{ vars.SONDE_REQUIRE_SHARED_RATE_LIMIT || '' }}
+      HOSTED_GOOGLE_CLIENT_ID: ${{ secrets.SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID || '' }}
+      HOSTED_GOOGLE_CLIENT_SECRET: ${{ secrets.SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET || '' }}
 
     steps:
       - uses: actions/checkout@v6
@@ -127,7 +158,22 @@ jobs:
 
       - name: Load hosted production contract
         id: contract
-        run: node server/scripts/hosted-env-contract.mjs resolve-github-outputs production >> "$GITHUB_OUTPUT"
+        uses: ./.github/actions/load-hosted-env
+        with:
+          environment-name: production
+          ui-url: ${{ env.HOSTED_UI_URL }}
+          agent-url: ${{ env.HOSTED_AGENT_URL }}
+          supabase-project-ref: ${{ env.HOSTED_SUPABASE_PROJECT_REF }}
+          supabase-anon-key: ${{ env.HOSTED_SUPABASE_ANON_KEY }}
+          smoke-user-email: ${{ env.HOSTED_SMOKE_USER_EMAIL }}
+          smoke-user-password: ${{ env.HOSTED_SMOKE_USER_PASSWORD }}
+          cli-audit-token: ${{ env.HOSTED_CLI_AUDIT_TOKEN }}
+          runtime-audit-token: ${{ env.HOSTED_RUNTIME_AUDIT_TOKEN }}
+          redis-url: ${{ env.HOSTED_REDIS_URL }}
+          redis-token: ${{ env.HOSTED_REDIS_TOKEN }}
+          require-shared-rate-limit: ${{ env.HOSTED_REQUIRE_SHARED_RATE_LIMIT }}
+          google-client-id: ${{ env.HOSTED_GOOGLE_CLIENT_ID }}
+          google-client-secret: ${{ env.HOSTED_GOOGLE_CLIENT_SECRET }}
 
       - name: Install Sonde CLI
         run: |
