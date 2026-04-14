@@ -271,10 +271,20 @@ function hashValue(value: string): string {
 }
 
 function randomAlphabetCode(length: number): string {
-  const bytes = randomBytes(length);
+  const alphabetLength = USER_CODE_ALPHABET.length;
+  const maxUnbiasedByte = Math.floor(256 / alphabetLength) * alphabetLength;
   let code = "";
-  for (let index = 0; index < length; index += 1) {
-    code += USER_CODE_ALPHABET[bytes[index]! % USER_CODE_ALPHABET.length];
+  while (code.length < length) {
+    const bytes = randomBytes(length - code.length);
+    for (const byte of bytes) {
+      if (byte >= maxUnbiasedByte) {
+        continue;
+      }
+      code += USER_CODE_ALPHABET[byte % alphabetLength];
+      if (code.length === length) {
+        break;
+      }
+    }
   }
   return code;
 }
