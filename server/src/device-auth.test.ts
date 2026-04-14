@@ -11,6 +11,11 @@ import {
 } from "./device-auth.js";
 
 const originalEnv = { ...process.env };
+const deviceAuthEnv = {
+  NODE_ENV: "test",
+  SONDE_ALLOWED_ORIGINS: "https://sonde-neon.vercel.app",
+  SONDE_WS_TOKEN_SECRET: "ws-secret",
+} as NodeJS.ProcessEnv;
 
 beforeEach(() => {
   process.env = { ...originalEnv };
@@ -22,7 +27,7 @@ afterEach(() => {
   resetDeviceAuthStateForTests();
 });
 
-describe("device auth", () => {
+describe("device auth", { concurrency: false }, () => {
   it("normalizes user-entered activation codes", () => {
     assert.equal(normalizeUserCode("abcd-2345"), "ABCD-2345");
     assert.equal(normalizeUserCode("ab cd 23 45"), "ABCD-2345");
@@ -37,18 +42,10 @@ describe("device auth", () => {
         remoteHint: true,
         loginMethod: "device",
       },
-      {
-        NODE_ENV: "test",
-        SONDE_ALLOWED_ORIGINS: "https://sonde-neon.vercel.app",
-        SONDE_WS_TOKEN_SECRET: "ws-secret",
-      } as NodeJS.ProcessEnv,
+      deviceAuthEnv,
     );
 
-    const inspected = await inspectDeviceAuth(started.userCode, {
-      NODE_ENV: "test",
-      SONDE_ALLOWED_ORIGINS: "https://sonde-neon.vercel.app",
-      SONDE_WS_TOKEN_SECRET: "ws-secret",
-    } as NodeJS.ProcessEnv);
+    const inspected = await inspectDeviceAuth(started.userCode, deviceAuthEnv);
     assert.equal(inspected?.status, "pending");
 
     const denied = await approveDeviceAuth(
@@ -61,19 +58,11 @@ describe("device auth", () => {
           name: "Mason",
         },
       },
-      {
-        NODE_ENV: "test",
-        SONDE_ALLOWED_ORIGINS: "https://sonde-neon.vercel.app",
-        SONDE_WS_TOKEN_SECRET: "ws-secret",
-      } as NodeJS.ProcessEnv,
+      deviceAuthEnv,
     );
     assert.equal(denied?.status, "denied");
 
-    const polled = await pollDeviceAuth(started.deviceCode, {
-      NODE_ENV: "test",
-      SONDE_ALLOWED_ORIGINS: "https://sonde-neon.vercel.app",
-      SONDE_WS_TOKEN_SECRET: "ws-secret",
-    } as NodeJS.ProcessEnv);
+    const polled = await pollDeviceAuth(started.deviceCode, deviceAuthEnv);
     assert.deepEqual(polled, {
       status: "access_denied",
       interval: started.interval,
