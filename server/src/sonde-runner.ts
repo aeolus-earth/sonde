@@ -13,6 +13,57 @@ export function getResolvedSondeCliDir(): string | null {
   return memoizedCliDir;
 }
 
+function firstNonEmpty(...values: Array<string | undefined | null>): string | undefined {
+  for (const value of values) {
+    const trimmed = value?.trim();
+    if (trimmed) {
+      return trimmed;
+    }
+  }
+  return undefined;
+}
+
+export function buildSondeEnv(
+  baseEnv: NodeJS.ProcessEnv,
+  sondeToken: string
+): Record<string, string> {
+  const env: Record<string, string> = {
+    ...(baseEnv as Record<string, string>),
+    SONDE_TOKEN: sondeToken,
+  };
+
+  const supabaseUrl = firstNonEmpty(
+    baseEnv.AEOLUS_SUPABASE_URL,
+    baseEnv.SUPABASE_URL,
+    baseEnv.VITE_SUPABASE_URL
+  );
+  if (supabaseUrl) {
+    env.AEOLUS_SUPABASE_URL = supabaseUrl;
+  }
+
+  const supabaseAnonKey = firstNonEmpty(
+    baseEnv.AEOLUS_SUPABASE_ANON_KEY,
+    baseEnv.AEOLUS_SUPABASE_KEY,
+    baseEnv.SUPABASE_ANON_KEY,
+    baseEnv.VITE_SUPABASE_ANON_KEY,
+    baseEnv.SUPABASE_KEY,
+    baseEnv.VITE_SUPABASE_KEY
+  );
+  if (supabaseAnonKey) {
+    env.AEOLUS_SUPABASE_ANON_KEY = supabaseAnonKey;
+  }
+
+  const serviceRoleKey = firstNonEmpty(
+    baseEnv.AEOLUS_SUPABASE_SERVICE_ROLE_KEY,
+    baseEnv.SUPABASE_SERVICE_ROLE_KEY
+  );
+  if (serviceRoleKey) {
+    env.AEOLUS_SUPABASE_SERVICE_ROLE_KEY = serviceRoleKey;
+  }
+
+  return env;
+}
+
 /**
  * Run a sonde CLI command and return the result as an MCP CallToolResult.
  * Pass the session Supabase access token as `sondeToken` (same as SONDE_TOKEN for the CLI).
@@ -36,10 +87,7 @@ export async function runSonde(
     };
   }
 
-  const env: Record<string, string> = {
-    ...(process.env as Record<string, string>),
-    SONDE_TOKEN: sondeToken,
-  };
+  const env = buildSondeEnv(process.env, sondeToken);
 
   try {
     const { stdout, stderr, exitCode } = await execFileWithExitCode("uv", ["run", "sonde", ...args], {

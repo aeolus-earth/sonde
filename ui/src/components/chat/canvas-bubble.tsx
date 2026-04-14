@@ -5,7 +5,6 @@ import { cn } from "@/lib/utils";
 import { toCanvasRect } from "@/lib/assistant-canvas-layout";
 import { useSetCanvasBubbleRect } from "@/stores/assistant-canvas-layout";
 import { ChatInput } from "./chat-input";
-import { ChatInstallCta } from "./chat-install-cta";
 
 const SUGGESTIONS = [
   {
@@ -153,11 +152,6 @@ export const CanvasBubble = memo(function CanvasBubble({
               {label}
             </button>
           ))}
-        </div>
-      </div>
-      <div className="pointer-events-auto absolute bottom-3 right-3 z-10 w-[min(100%,42rem)] sm:bottom-4 sm:right-4">
-        <div className="ml-auto max-w-[42rem]">
-          <ChatInstallCta />
         </div>
       </div>
     </div>

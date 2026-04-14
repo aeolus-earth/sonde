@@ -48,4 +48,31 @@ describe("assertSecurityConfig", () => {
       /Shared Redis rate limiting is required/,
     );
   });
+
+  it("requires managed Anthropic runtime config in strict environments", () => {
+    assert.throws(
+      () =>
+        assertSecurityConfig({
+          NODE_ENV: "production",
+          SONDE_WS_TOKEN_SECRET: "ws",
+          SONDE_RUNTIME_AUDIT_TOKEN: "audit",
+        }),
+      /ANTHROPIC_API_KEY is not configured/,
+    );
+  });
+
+  it("rejects malformed managed Anthropic auth in strict environments", () => {
+    assert.throws(
+      () =>
+        assertSecurityConfig({
+          NODE_ENV: "production",
+          SONDE_WS_TOKEN_SECRET: "ws",
+          SONDE_RUNTIME_AUDIT_TOKEN: "audit",
+          ANTHROPIC_API_KEY: "$(python - <<'PY' print('bad') PY)",
+          SONDE_MANAGED_ENVIRONMENT_ID: "env_prod",
+          SONDE_MANAGED_AGENT_ID: "agent_prod",
+        }),
+      /unevaluated shell or template syntax/,
+    );
+  });
 });

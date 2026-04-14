@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import { Download, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
 

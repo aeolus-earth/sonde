@@ -3,7 +3,6 @@ name: Production Smoke
 on:
   push:
     branches: [main]
-  # Manual trigger for on-demand verification
   workflow_dispatch:
     inputs:
       url:
@@ -18,9 +17,18 @@ on:
 jobs:
   smoke:
     runs-on: ubuntu-latest
+    environment: production
     defaults:
       run:
         working-directory: ui
+    env:
+      HOSTED_UI_URL: ${{ vars.SONDE_UI_URL || '' }}
+      HOSTED_AGENT_URL: ${{ vars.SONDE_AGENT_HTTP_BASE || '' }}
+      HOSTED_SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF || secrets.SUPABASE_PROJECT_REF || '' }}
+      HOSTED_SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY || '' }}
+      HOSTED_SMOKE_USER_EMAIL: ${{ secrets.SONDE_SMOKE_USER_EMAIL || secrets.SONDE_PRODUCTION_SMOKE_USER_EMAIL || '' }}
+      HOSTED_SMOKE_USER_PASSWORD: ${{ secrets.SONDE_SMOKE_USER_PASSWORD || secrets.SONDE_PRODUCTION_SMOKE_USER_PASSWORD || '' }}
+      HOSTED_RUNTIME_AUDIT_TOKEN: ${{ secrets.SONDE_AGENT_RUNTIME_AUDIT_TOKEN || secrets.SONDE_PRODUCTION_AGENT_RUNTIME_AUDIT_TOKEN || '' }}
 
     steps:
       - uses: actions/checkout@v6
@@ -36,6 +44,10 @@ jobs:
             ui/package-lock.json
             server/package-lock.json
 
+      - name: Load hosted production contract
+        id: contract
+        run: node server/scripts/hosted-env-contract.mjs resolve-github-outputs production >> "$GITHUB_OUTPUT"
+
       - name: Install dependencies
         run: npm ci
 
@@ -49,15 +61,15 @@ jobs:
       - name: Resolve target URL
         id: targets
         env:
-          DEFAULT_UI_URL: ${{ vars.SONDE_UI_URL }}
-          DEFAULT_AGENT_URL: ${{ vars.SONDE_AGENT_HTTP_BASE }}
+          DEFAULT_UI_URL: ${{ steps.contract.outputs.ui_url }}
+          DEFAULT_AGENT_URL: ${{ steps.contract.outputs.agent_url }}
         run: |
           RAW_URL="$(jq -r '.inputs.url // empty' "$GITHUB_EVENT_PATH")"
           RAW_AGENT_URL="$(jq -r '.inputs.agent_url // empty' "$GITHUB_EVENT_PATH")"
           UI_URL="${RAW_URL:-$DEFAULT_UI_URL}"
           AGENT_URL="${RAW_AGENT_URL:-$DEFAULT_AGENT_URL}"
           if [ -z "$UI_URL" ]; then
-            echo "::error::No URL to test. Set SONDE_UI_URL in repo variables or pass a URL via workflow dispatch."
+            echo "::error::No URL to test. Set SONDE_UI_URL for the production environment or pass a URL via workflow dispatch."
             exit 1
           fi
           echo "ui_url=$UI_URL" >> "$GITHUB_OUTPUT"
@@ -116,17 +128,12 @@ jobs:
       - name: Mint production smoke session
         working-directory: server
         env:
-          SUPABASE_URL: https://${{ secrets.SUPABASE_PROJECT_REF }}.supabase.co
-          SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
-          SMOKE_USER_EMAIL: ${{ secrets.SONDE_PRODUCTION_SMOKE_USER_EMAIL }}
-          SMOKE_USER_PASSWORD: ${{ secrets.SONDE_PRODUCTION_SMOKE_USER_PASSWORD }}
+          SUPABASE_URL: https://${{ steps.contract.outputs.supabase_project_ref }}.supabase.co
+          SUPABASE_ANON_KEY: ${{ steps.contract.outputs.supabase_anon_key }}
+          SMOKE_USER_EMAIL: ${{ env.HOSTED_SMOKE_USER_EMAIL }}
+          SMOKE_USER_PASSWORD: ${{ env.HOSTED_SMOKE_USER_PASSWORD }}
           SMOKE_SESSION_FILE: ${{ env.PRODUCTION_SMOKE_SESSION_FILE }}
-        run: |
-          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_ANON_KEY" ] || [ -z "$SMOKE_USER_EMAIL" ] || [ -z "$SMOKE_USER_PASSWORD" ]; then
-            echo "::notice::Skipping production smoke session mint because production auth inputs are not fully configured"
-            exit 0
-          fi
-          node scripts/mint-smoke-session.mjs >/dev/null
+        run: node scripts/mint-smoke-session.mjs >/dev/null
 
       - name: Audit deployed production stack
         if: ${{ steps.targets.outputs.agent_url != '' }}
@@ -134,58 +141,44 @@ jobs:
         env:
           AUDIT_UI_BASE: ${{ steps.targets.outputs.ui_url }}
           AUDIT_AGENT_BASE: ${{ steps.targets.outputs.agent_url }}
-          AUDIT_RUNTIME_TOKEN: ${{ secrets.SONDE_PRODUCTION_AGENT_RUNTIME_AUDIT_TOKEN }}
-          AUDIT_EXPECT_ENVIRONMENT: production
+          AUDIT_RUNTIME_TOKEN: ${{ env.HOSTED_RUNTIME_AUDIT_TOKEN }}
+          AUDIT_EXPECT_ENVIRONMENT: ${{ steps.contract.outputs.runtime_environment }}
           AUDIT_EXPECT_COMMIT_SHA: ${{ github.sha }}
           AUDIT_EXPECT_SCHEMA_VERSION: ${{ steps.schema.outputs.version }}
-          AUDIT_EXPECT_SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
-          AUDIT_REQUIRE_AGENT_COMMIT_MATCH: "0"
-          AUDIT_REQUIRE_FIRST_PARTY_AGENT: "0"
-          AUDIT_WAIT_TIMEOUT_MS: "600000"
-          AUDIT_WAIT_INTERVAL_MS: "10000"
+          AUDIT_EXPECT_SUPABASE_PROJECT_REF: ${{ steps.contract.outputs.supabase_project_ref }}
+          AUDIT_REQUIRE_ANTHROPIC: ${{ steps.contract.outputs.audit_require_anthropic }}
+          AUDIT_REQUIRE_AGENT_COMMIT_MATCH: ${{ steps.contract.outputs.audit_require_agent_commit_match }}
+          AUDIT_REQUIRE_FIRST_PARTY_AGENT: ${{ steps.contract.outputs.audit_require_first_party_agent }}
+          AUDIT_WAIT_TIMEOUT_MS: ${{ steps.contract.outputs.audit_wait_timeout_ms }}
+          AUDIT_WAIT_INTERVAL_MS: ${{ steps.contract.outputs.audit_wait_interval_ms }}
         run: node scripts/audit-deployed-stack.mjs
 
-      - name: Run production agent chat smoke
+      - name: Run production managed auth audit
         if: ${{ steps.targets.outputs.agent_url != '' }}
         working-directory: server
         env:
-          CHAT_PREWARM_HTTP_BASE: ${{ steps.targets.outputs.agent_url }}
-          CHAT_PREWARM_TIMEOUT_MS: "300000"
-          CHAT_PREWARM_RETRY_INTERVAL_MS: "10000"
-          CHAT_SMOKE_HTTP_BASE: ${{ steps.targets.outputs.agent_url }}
-          CHAT_SMOKE_PROMPT: "Use Sonde tools to list one accessible program id, then reply with SONDE_SMOKE_OK."
-          CHAT_SMOKE_STALE_SESSION: "1"
-          CHAT_SMOKE_REQUIRE_TOOL_USE: "1"
-          CHAT_SMOKE_EXPECT_SUBSTRING: "SONDE_SMOKE_OK"
-          CHAT_SMOKE_TIMEOUT_MS: "180000"
-          PRODUCTION_SMOKE_SESSION_FILE: ${{ env.PRODUCTION_SMOKE_SESSION_FILE }}
-          FALLBACK_CHAT_SMOKE_TOKEN: ${{ secrets.SONDE_AGENT_CHAT_TOKEN }}
-        run: |
-          if [ -f "$PRODUCTION_SMOKE_SESSION_FILE" ]; then
-            CHAT_SMOKE_TOKEN="$(node -e 'const fs = require("node:fs"); const data = JSON.parse(fs.readFileSync(process.env.PRODUCTION_SMOKE_SESSION_FILE, "utf8")); process.stdout.write((data.access_token ?? "").trim());')"
-            export CHAT_SMOKE_TOKEN
-          fi
-          if [ -z "$CHAT_SMOKE_TOKEN" ]; then
-            export CHAT_SMOKE_TOKEN="$FALLBACK_CHAT_SMOKE_TOKEN"
-          fi
-          if [ -z "$CHAT_SMOKE_TOKEN" ]; then
-            echo "::notice::Skipping production agent chat smoke because no session token or SONDE_AGENT_CHAT_TOKEN is configured"
-            exit 0
-          fi
-          export CHAT_PREWARM_TOKEN="$CHAT_SMOKE_TOKEN"
-          node scripts/prewarm-chat-session.mjs
-          node scripts/chat-smoke.mjs
+          MANAGED_AUTH_AUDIT_HTTP_BASE: ${{ steps.targets.outputs.agent_url }}
+          MANAGED_AUTH_AUDIT_PROMPT: ${{ steps.contract.outputs.managed_auth_audit_prompt }}
+          MANAGED_AUTH_AUDIT_STALE_SESSION: ${{ steps.contract.outputs.managed_auth_audit_stale_session }}
+          MANAGED_AUTH_AUDIT_REQUIRE_TOOL_USE: ${{ steps.contract.outputs.managed_auth_audit_require_tool_use }}
+          MANAGED_AUTH_AUDIT_EXPECT_SUBSTRING: ${{ steps.contract.outputs.managed_auth_audit_expect_substring }}
+          MANAGED_AUTH_AUDIT_TIMEOUT_MS: ${{ steps.contract.outputs.managed_auth_audit_timeout_ms }}
+          MANAGED_AUTH_AUDIT_PREWARM_TIMEOUT_MS: ${{ steps.contract.outputs.managed_auth_audit_prewarm_timeout_ms }}
+          MANAGED_AUTH_AUDIT_RETRY_INTERVAL_MS: ${{ steps.contract.outputs.managed_auth_audit_retry_interval_ms }}
+          MANAGED_AUTH_AUDIT_SESSION_FILE: ${{ env.PRODUCTION_SMOKE_SESSION_FILE }}
+        run: node scripts/run-managed-auth-audit.mjs
 
       - name: Run production smoke tests
         env:
           E2E_BASE_URL: ${{ steps.targets.outputs.ui_url }}
-          E2E_DEPLOY_ENVIRONMENT: production
+          E2E_DEPLOY_ENVIRONMENT: ${{ steps.contract.outputs.runtime_environment }}
           E2E_AGENT_HTTP_BASE: ${{ steps.targets.outputs.agent_url }}
-          E2E_AGENT_RUNTIME_AUDIT_TOKEN: ${{ secrets.SONDE_PRODUCTION_AGENT_RUNTIME_AUDIT_TOKEN }}
-          E2E_SUPABASE_URL: https://${{ secrets.SUPABASE_PROJECT_REF }}.supabase.co
-          E2E_EXPECT_PROGRAM_ID: shared
-          E2E_EXPECT_TIMELINE_AUTH_MODE: server token
-          E2E_CHAT_PROMPT: "Use Sonde tools to list one accessible program id, then reply with SONDE_SMOKE_OK."
+          E2E_AGENT_RUNTIME_AUDIT_TOKEN: ${{ env.HOSTED_RUNTIME_AUDIT_TOKEN }}
+          E2E_SUPABASE_URL: https://${{ steps.contract.outputs.supabase_project_ref }}.supabase.co
+          E2E_EXPECT_PROGRAM_ID: ${{ steps.contract.outputs.smoke_expected_program_id }}
+          E2E_EXPECT_EXPERIMENT_ID: ${{ steps.contract.outputs.smoke_expected_experiment_id }}
+          E2E_EXPECT_TIMELINE_AUTH_MODE: ${{ steps.contract.outputs.smoke_expected_timeline_auth_mode }}
+          E2E_CHAT_PROMPT: ${{ steps.contract.outputs.managed_auth_audit_prompt }}
           PRODUCTION_SMOKE_SESSION_FILE: ${{ env.PRODUCTION_SMOKE_SESSION_FILE }}
         run: |
           if [ -f "$PRODUCTION_SMOKE_SESSION_FILE" ]; then

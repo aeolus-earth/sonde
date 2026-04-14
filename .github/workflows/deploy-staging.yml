@@ -48,14 +48,20 @@ jobs:
           filters: |
             database:
               - 'supabase/**'
+              - 'config/hosted-environments.json'
               - '.github/workflows/deploy-staging.yml'
 
   push-staging-database:
     runs-on: ubuntu-latest
+    environment: staging
     needs: changes
+    env:
+      HOSTED_UI_URL: ${{ vars.SONDE_UI_URL || vars.SONDE_STAGING_UI_URL || '' }}
+      HOSTED_SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF || vars.SUPABASE_STAGING_PROJECT_REF || '' }}
+      HOSTED_SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY || vars.SUPABASE_STAGING_ANON_KEY || '' }}
     if: >-
       ${{
-        vars.SUPABASE_STAGING_PROJECT_REF != '' &&
+        (vars.SUPABASE_PROJECT_REF || vars.SUPABASE_STAGING_PROJECT_REF) != '' &&
         (
           github.event_name == 'workflow_dispatch' ||
           needs.changes.outputs.database == 'true'
@@ -65,12 +71,20 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Load hosted staging contract
+        id: contract
+        run: node server/scripts/hosted-env-contract.mjs resolve-github-outputs staging >> "$GITHUB_OUTPUT"
+
       - uses: supabase/setup-cli@v1
         with:
           version: latest
 
       - name: Link to staging project
-        run: supabase link --project-ref ${{ vars.SUPABASE_STAGING_PROJECT_REF }}
+        run: supabase link --project-ref ${{ steps.contract.outputs.supabase_project_ref }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
@@ -96,7 +110,7 @@ jobs:
           supabase config push --workdir "$TMPDIR" --project-ref "${SUPABASE_PROJECT_REF}" --yes
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_STAGING_PROJECT_REF }}
+          SUPABASE_PROJECT_REF: ${{ steps.contract.outputs.supabase_project_ref }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || '' }}
           SUPABASE_AUTH_SMS_TWILIO_AUTH_TOKEN: ${{ secrets.SUPABASE_AUTH_SMS_TWILIO_AUTH_TOKEN || '' }}
           SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID: ${{ secrets.SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID }}
@@ -106,17 +120,17 @@ jobs:
           S3_REGION: ${{ secrets.S3_REGION || '' }}
           S3_ACCESS_KEY: ${{ secrets.S3_ACCESS_KEY || '' }}
           S3_SECRET_KEY: ${{ secrets.S3_SECRET_KEY || '' }}
-          SUPABASE_HOSTED_SITE_URL: ${{ vars.SONDE_STAGING_UI_URL }}
-          SUPABASE_HOSTED_ADDITIONAL_REDIRECT_URLS: https://sonde-staging.vercel.app/auth/callback,http://localhost:5173/auth/callback,http://127.0.0.1:5173/auth/callback,http://localhost:*/callback,http://127.0.0.1:*/callback
-          SUPABASE_HOSTED_STORAGE_FILE_SIZE_LIMIT: 50MiB
+          SUPABASE_HOSTED_SITE_URL: ${{ steps.contract.outputs.site_url }}
+          SUPABASE_HOSTED_ADDITIONAL_REDIRECT_URLS: ${{ steps.contract.outputs.redirect_urls_csv }}
+          SUPABASE_HOSTED_STORAGE_FILE_SIZE_LIMIT: ${{ steps.contract.outputs.storage_file_size_limit }}
 
       - name: Verify schema version after staging deploy
-        if: ${{ vars.SUPABASE_STAGING_ANON_KEY != '' }}
+        if: ${{ steps.contract.outputs.supabase_anon_key != '' }}
         run: |
           if VERSION=$(curl -sf \
-            -H "apikey: ${{ vars.SUPABASE_STAGING_ANON_KEY }}" \
-            -H "Authorization: Bearer ${{ vars.SUPABASE_STAGING_ANON_KEY }}" \
-            "https://${{ vars.SUPABASE_STAGING_PROJECT_REF }}.supabase.co/rest/v1/rpc/get_schema_version"); then
+            -H "apikey: ${{ steps.contract.outputs.supabase_anon_key }}" \
+            -H "Authorization: Bearer ${{ steps.contract.outputs.supabase_anon_key }}" \
+            "https://${{ steps.contract.outputs.supabase_project_ref }}.supabase.co/rest/v1/rpc/get_schema_version"); then
             echo "Schema version after staging deploy: $VERSION"
           else
             echo "::notice::Skipping strict schema verification because get_schema_version is not reachable with the configured staging publishable key"

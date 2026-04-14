@@ -30,7 +30,9 @@ resolve_agent_http_base() {
   fi
 
   if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
-    gh variable get SONDE_STAGING_AGENT_HTTP_BASE 2>/dev/null || true
+    gh variable get SONDE_AGENT_HTTP_BASE 2>/dev/null ||
+      gh variable get SONDE_STAGING_AGENT_HTTP_BASE 2>/dev/null ||
+      true
     return 0
   fi
 
@@ -44,11 +46,14 @@ resolve_app_origin() {
   fi
 
   if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
-    gh variable get SONDE_STAGING_UI_URL 2>/dev/null || true
+    gh variable get SONDE_UI_URL 2>/dev/null ||
+      gh variable get SONDE_STAGING_UI_URL 2>/dev/null ||
+      true
     return 0
   fi
 
-  printf 'https://sonde-staging.vercel.app\n'
+  node server/scripts/hosted-env-contract.mjs print-json staging 2>/dev/null |
+    node -e 'const fs = require("node:fs"); const body = JSON.parse(fs.readFileSync(0, "utf8")); console.log(body.uiUrl);'
 }
 
 agent_http_base="$(resolve_agent_http_base | tr -d '\r')"
@@ -56,7 +61,7 @@ app_origin="$(resolve_app_origin | tr -d '\r')"
 
 if [[ -z "$agent_http_base" ]]; then
   if [[ "${SONDE_HOSTED_PREFLIGHT_REQUIRED:-0}" == "1" || -n "${CI:-}" ]]; then
-    echo "::error::Unable to resolve an agent base for hosted preflight. Set SONDE_HOSTED_PREFLIGHT_AGENT_HTTP_BASE or authenticate gh so the script can read SONDE_STAGING_AGENT_HTTP_BASE."
+    echo "::error::Unable to resolve an agent base for hosted preflight. Set SONDE_HOSTED_PREFLIGHT_AGENT_HTTP_BASE or authenticate gh so the script can read SONDE_AGENT_HTTP_BASE/SONDE_STAGING_AGENT_HTTP_BASE."
     exit 1
   fi
   echo "Skipping hosted preflight locally because no hosted agent base could be resolved. Set SONDE_HOSTED_PREFLIGHT_AGENT_HTTP_BASE to enable it."

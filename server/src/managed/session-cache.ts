@@ -154,3 +154,13 @@ export function takePrewarmedManagedSession(userId: string): string | null {
 export function rememberManagedSession(sessionId: string): void {
   getReplayState(sessionId);
 }
+
+export function resetManagedSessionCacheForTests(): void {
+  for (const timer of prewarmTimers.values()) {
+    clearTimeout(timer);
+  }
+  prewarmedSessions.clear();
+  knownSessions.clear();
+  prewarmInFlight.clear();
+  prewarmTimers.clear();
+}

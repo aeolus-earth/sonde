@@ -5,7 +5,7 @@
 
 /** Matches EXP-0123, find-0001, proj-001, q-42, etc. */
 export const SONDE_RECORD_ID_REGEX =
-  /\b(EXP|FIND|DIR|Q|PROJ|ART)-[A-Za-z0-9]+\b/g;
+  /(?<![A-Za-z0-9])(EXP|FIND|DIR|Q|PROJ|ART)-[A-Za-z0-9]+(?![A-Za-z0-9])/g;
 
 export type SondeRecordLinkTarget =
   | { to: "/experiments/$id"; params: { id: string } }
@@ -68,12 +68,35 @@ function mask(text: string, pattern: RegExp, chunks: string[]): string {
   });
 }
 
+function linkifyBracketedRecordRefs(text: string): string {
+  return text.replace(/\[([^[\]\n]+)\](?!\()/g, (full, label: string) => {
+    const ids = [...label.matchAll(new RegExp(SONDE_RECORD_ID_REGEX.source, "gi"))];
+    if (ids.length !== 1) return full;
+
+    const id = ids[0]?.[0];
+    if (!id) return full;
+
+    const href = recordIdToHref(id);
+    if (!href) return full;
+
+    const stripped = label.replace(
+      new RegExp(SONDE_RECORD_ID_REGEX.source, "gi"),
+      "",
+    );
+    if (!/^[\s*_~`]*$/.test(stripped)) return full;
+
+    return `[${label}](${href})`;
+  });
+}
+
 export function linkifySondeRecordIds(text: string): string {
   const chunks: string[] = [];
 
   let masked = text;
   masked = mask(masked, /```[\s\S]*?```/g, chunks);
   masked = mask(masked, /`[^`]+`/g, chunks);
+  masked = mask(masked, /\[([^\]]*)\]\(([^)]*)\)/g, chunks);
+  masked = linkifyBracketedRecordRefs(masked);
   masked = mask(masked, /\[([^\]]*)\]\(([^)]*)\)/g, chunks);
 
   const idRe = new RegExp(SONDE_RECORD_ID_REGEX.source, "gi");

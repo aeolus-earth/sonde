@@ -43,11 +43,15 @@ jobs:
           filters: |
             database:
               - 'supabase/**'
+              - 'config/hosted-environments.json'
               - '.github/workflows/deploy.yml'
 
   push-migrations:
     runs-on: ubuntu-latest
+    environment: production
     needs: changes
+    env:
+      HOSTED_UI_URL: ${{ vars.SONDE_UI_URL || '' }}
     if: >-
       ${{
         needs.changes.outputs.database == 'true' ||
@@ -56,6 +60,14 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Load hosted production contract
+        id: contract
+        run: node server/scripts/hosted-env-contract.mjs resolve-github-outputs production >> "$GITHUB_OUTPUT"
 
       - uses: supabase/setup-cli@v1
         with:
@@ -90,9 +102,9 @@ jobs:
           S3_REGION: ${{ secrets.S3_REGION || '' }}
           S3_ACCESS_KEY: ${{ secrets.S3_ACCESS_KEY || '' }}
           S3_SECRET_KEY: ${{ secrets.S3_SECRET_KEY || '' }}
-          SUPABASE_HOSTED_SITE_URL: ${{ vars.SONDE_UI_URL }}
-          SUPABASE_HOSTED_ADDITIONAL_REDIRECT_URLS: https://sonde-neon.vercel.app/auth/callback,https://*.vercel.app/**,http://localhost:5173/auth/callback,http://127.0.0.1:5173/auth/callback,http://localhost:*/callback,http://127.0.0.1:*/callback
-          SUPABASE_HOSTED_STORAGE_FILE_SIZE_LIMIT: 50MiB
+          SUPABASE_HOSTED_SITE_URL: ${{ steps.contract.outputs.site_url }}
+          SUPABASE_HOSTED_ADDITIONAL_REDIRECT_URLS: ${{ steps.contract.outputs.redirect_urls_csv }}
+          SUPABASE_HOSTED_STORAGE_FILE_SIZE_LIMIT: ${{ steps.contract.outputs.storage_file_size_limit }}
 
       - name: Verify schema version after deploy
         run: |

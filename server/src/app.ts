@@ -17,6 +17,7 @@ import {
   fetchManagedSessions,
 } from "./admin-managed-costs.js";
 import { constantTimeSecretEquals, getInternalAdminToken } from "./security-config.js";
+import { isManagedConfigError } from "./managed/config.js";
 
 const LOCAL_UI_ORIGINS = [
   "http://localhost:5173",
@@ -407,19 +408,28 @@ export function createApp(): Hono {
       return user;
     }
 
-    const startedAt = Date.now();
-    const { prewarmManagedSession } = await import("./managed/session-cache.js");
-    const result = await prewarmManagedSession({
-      user,
-      sondeToken: accessToken,
-    });
-    return c.json({
-      status: "ready",
-      backend: getAgentBackend(),
-      reused: result.reused,
-      duration_ms: Date.now() - startedAt,
-      session_id: result.sessionId,
-    });
+    try {
+      const startedAt = Date.now();
+      const { prewarmManagedSession } = await import("./managed/session-cache.js");
+      const result = await prewarmManagedSession({
+        user,
+        sondeToken: accessToken,
+      });
+      return c.json({
+        status: "ready",
+        backend: getAgentBackend(),
+        reused: result.reused,
+        duration_ms: Date.now() - startedAt,
+        session_id: result.sessionId,
+      });
+    } catch (error) {
+      return errorResponse(
+        c,
+        isManagedConfigError(error) ? 503 : 500,
+        isManagedConfigError(error) ? "chat_runtime_unavailable" : "chat_prewarm_failed",
+        error instanceof Error ? error.message : "Failed to prepare chat runtime.",
+      );
+    }
   });
 
   registerGitHubRoutes(app);

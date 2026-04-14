@@ -109,4 +109,32 @@ describe("normalizeManagedSessionEvent", () => {
     assert.equal(Array.isArray(sessionBodies[0]?.resources), true);
     assert.equal("resources" in sessionBodies[1]!, false);
   });
+
+  it("fails before fetch when the Anthropic API key is malformed", async () => {
+    process.env.ANTHROPIC_API_KEY = "$(python - <<'PY' print('bad') PY)";
+
+    let fetchCalls = 0;
+    globalThis.fetch = async () => {
+      fetchCalls += 1;
+      return new Response("{}");
+    };
+
+    await assert.rejects(
+      () =>
+        createManagedSession({
+          user: {
+            id: "user-1",
+            email: "ci-smoke@aeolus.earth",
+            name: "CI Smoke",
+          },
+          sondeToken: "sonde-token",
+        }),
+      (error) =>
+        error instanceof Error &&
+        error.message.includes("unevaluated shell or template syntax") &&
+        !error.message.includes("python - <<'PY'"),
+    );
+
+    assert.equal(fetchCalls, 0);
+  });
 });

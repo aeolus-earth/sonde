@@ -1,4 +1,5 @@
 import { timingSafeEqual, createHash } from "node:crypto";
+import { assertManagedRuntimeConfig } from "./managed/config.js";
 
 function getEnvironment(env: NodeJS.ProcessEnv = process.env): string {
   return (
@@ -129,6 +130,8 @@ export function assertSecurityConfig(
       "SONDE_GITHUB_ALLOWED_REPOS must be set when a server GitHub token is configured",
     );
   }
+
+  assertManagedRuntimeConfig(env);
 }
 
 export function constantTimeSecretEquals(
