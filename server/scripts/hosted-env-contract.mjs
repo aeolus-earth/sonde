@@ -3,6 +3,7 @@ import {
   formatHostedEnvironmentForGithubOutputs,
   loadHostedEnvironmentContract,
   resolveHostedEnvironment,
+  resolveHostedGithubEnvironmentEnv,
   validateHostedEnvironmentContract,
   validateResolvedHostedEnvironment,
 } from "./lib/hosted-env-contract.mjs";
@@ -22,7 +23,7 @@ function printGithubOutput(name, value) {
 
 function usage() {
   console.error(
-    "Usage: node server/scripts/hosted-env-contract.mjs <check-parity|validate|resolve-github-outputs|print-json> [environment]",
+    "Usage: node server/scripts/hosted-env-contract.mjs <check-parity|validate|resolve-github-outputs|export-github-env|print-json> [environment]",
   );
   process.exit(1);
 }
@@ -89,6 +90,32 @@ function runResolveGithubOutputs(environmentName) {
   }
 }
 
+function runExportGithubEnv(environmentName) {
+  const contract = loadHostedEnvironmentContract();
+  const contractErrors = validateHostedEnvironmentContract(contract);
+  const hostedEnv = resolveHostedGithubEnvironmentEnv(process.env);
+  const resolved = resolveHostedEnvironment(
+    environmentName,
+    { ...process.env, ...hostedEnv },
+    contract,
+  );
+  const errors = [
+    ...contractErrors,
+    ...validateResolvedHostedEnvironment(resolved),
+  ];
+
+  if (errors.length > 0) {
+    for (const error of errors) {
+      console.error(`[hosted-env-contract] ${error}`);
+    }
+    process.exit(1);
+  }
+
+  for (const [name, value] of Object.entries(hostedEnv)) {
+    printGithubOutput(name, value);
+  }
+}
+
 function runPrintJson(environmentName) {
   const resolved = resolveHostedEnvironment(environmentName);
   console.log(JSON.stringify(formatHostedEnvironmentForLogs(resolved), null, 2));
@@ -112,6 +139,10 @@ switch (command) {
   case "resolve-github-outputs":
     if (!environmentName) usage();
     runResolveGithubOutputs(environmentName);
+    break;
+  case "export-github-env":
+    if (!environmentName) usage();
+    runExportGithubEnv(environmentName);
     break;
   case "print-json":
     if (!environmentName) usage();
