@@ -16,7 +16,7 @@
     "expectedTimelineAuthMode": "server token",
     "audit": {
       "requireAnthropic": true,
-      "requireAgentCommitMatch": false,
+      "requireAgentCommitMatch": true,
       "requireFirstPartyAgent": false,
       "waitTimeoutMs": 600000,
       "waitIntervalMs": 10000
