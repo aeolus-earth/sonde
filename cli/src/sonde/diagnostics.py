@@ -556,8 +556,7 @@ def check_device_login_base() -> DoctorCheck:
             return {
                 "status": "warn",
                 "summary": (
-                    "Hosted activation needs an explicit Sonde origin for this "
-                    "Supabase target."
+                    "Hosted activation needs an explicit Sonde origin for this Supabase target."
                 ),
                 "details": [
                     auth._hosted_login_origin_mismatch_message(),

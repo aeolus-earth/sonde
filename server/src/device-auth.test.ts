@@ -44,7 +44,11 @@ describe("device auth", () => {
       } as NodeJS.ProcessEnv,
     );
 
-    const inspected = await inspectDeviceAuth(started.userCode);
+    const inspected = await inspectDeviceAuth(started.userCode, {
+      NODE_ENV: "test",
+      SONDE_ALLOWED_ORIGINS: "https://sonde-neon.vercel.app",
+      SONDE_WS_TOKEN_SECRET: "ws-secret",
+    } as NodeJS.ProcessEnv);
     assert.equal(inspected?.status, "pending");
 
     const denied = await approveDeviceAuth(
@@ -65,7 +69,11 @@ describe("device auth", () => {
     );
     assert.equal(denied?.status, "denied");
 
-    const polled = await pollDeviceAuth(started.deviceCode);
+    const polled = await pollDeviceAuth(started.deviceCode, {
+      NODE_ENV: "test",
+      SONDE_ALLOWED_ORIGINS: "https://sonde-neon.vercel.app",
+      SONDE_WS_TOKEN_SECRET: "ws-secret",
+    } as NodeJS.ProcessEnv);
     assert.deepEqual(polled, {
       status: "access_denied",
       interval: started.interval,

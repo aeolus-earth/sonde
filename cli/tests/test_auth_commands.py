@@ -130,9 +130,7 @@ def test_login_runs_hosted_activation_end_to_end(runner: CliRunner, monkeypatch,
     assert persisted["user"]["email"] == "mason@aeolus.earth"
 
 
-def test_login_with_loopback_method_forces_loopback_path(
-    runner: CliRunner, monkeypatch
-) -> None:
+def test_login_with_loopback_method_forces_loopback_path(runner: CliRunner, monkeypatch) -> None:
     user = auth.UserInfo(email="mason@aeolus.earth", user_id="user-1", name="Mason Lee")
     seen: list[str] = []
 
@@ -154,9 +152,7 @@ def test_login_with_loopback_method_forces_loopback_path(
     assert seen == ["loopback:False"]
 
 
-def test_login_fail_closed_for_nondefault_supabase_target(
-    runner: CliRunner, monkeypatch
-) -> None:
+def test_login_fail_closed_for_nondefault_supabase_target(runner: CliRunner, monkeypatch) -> None:
     monkeypatch.setattr("sonde.auth.is_authenticated", lambda: False)
     monkeypatch.setattr(auth, "SUPABASE_URL", "http://127.0.0.1:54321")
     monkeypatch.delenv("SONDE_AGENT_HTTP_BASE", raising=False)
