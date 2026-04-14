@@ -83,7 +83,7 @@ jobs:
       - if: steps.gate.outputs.run == 'true'
         name: Validate hosted environment export logic with fixtures
         run: |
-          node - <<'NODE'
+          node --input-type=module - <<'NODE'
           import {
             loadHostedEnvironmentContract,
             resolveHostedEnvironment,

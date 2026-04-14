@@ -16,16 +16,15 @@ workflows=(
 )
 
 for workflow in "${workflows[@]}"; do
-  if ! rg -q 'uses:\s+\./\.github/actions/load-hosted-env' "$workflow"; then
+  if ! grep -Eq 'uses:[[:space:]]+\./\.github/actions/load-hosted-env' "$workflow"; then
     echo "::error file=${workflow}::Hosted workflow must use ./.github/actions/load-hosted-env"
     exit 1
   fi
 done
 
-if rg -n 'run:\s+node server/scripts/hosted-env-contract\.mjs resolve-github-outputs' .github/workflows \
-  | grep -v '^$' >/dev/null; then
+if grep -REn 'run:[[:space:]]+node server/scripts/hosted-env-contract\.mjs resolve-github-outputs' .github/workflows >/tmp/hosted-workflow-direct-calls.txt; then
   echo "::error::Hosted workflows should load contract outputs through ./.github/actions/load-hosted-env, not direct resolve-github-outputs calls."
-  rg -n 'run:\s+node server/scripts/hosted-env-contract\.mjs resolve-github-outputs' .github/workflows
+  cat /tmp/hosted-workflow-direct-calls.txt
   exit 1
 fi
 
