@@ -100,6 +100,18 @@ jobs:
             done
           done
 
+      - name: Wait for staging agent runtime parity
+        working-directory: server
+        env:
+          PARITY_AGENT_BASE: ${{ steps.contract.outputs.agent_url }}
+          PARITY_RUNTIME_TOKEN: ${{ env.HOSTED_RUNTIME_AUDIT_TOKEN }}
+          PARITY_EXPECT_COMMIT_SHA: ${{ github.sha }}
+          PARITY_EXPECT_ENVIRONMENT: ${{ steps.contract.outputs.runtime_environment }}
+          PARITY_EXPECT_SCHEMA_VERSION: ${{ steps.schema.outputs.version }}
+          PARITY_WAIT_TIMEOUT_MS: 600000
+          PARITY_WAIT_INTERVAL_MS: 10000
+        run: node scripts/wait-for-runtime-parity.mjs
+
       - name: Audit staging deployed stack
         working-directory: server
         env:
@@ -195,6 +207,18 @@ jobs:
               sleep 10
             done
           done
+
+      - name: Wait for production agent runtime parity
+        working-directory: server
+        env:
+          PARITY_AGENT_BASE: ${{ steps.contract.outputs.agent_url }}
+          PARITY_RUNTIME_TOKEN: ${{ env.HOSTED_RUNTIME_AUDIT_TOKEN }}
+          PARITY_EXPECT_COMMIT_SHA: ${{ github.sha }}
+          PARITY_EXPECT_ENVIRONMENT: ${{ steps.contract.outputs.runtime_environment }}
+          PARITY_EXPECT_SCHEMA_VERSION: ${{ steps.schema.outputs.version }}
+          PARITY_WAIT_TIMEOUT_MS: 600000
+          PARITY_WAIT_INTERVAL_MS: 10000
+        run: node scripts/wait-for-runtime-parity.mjs
 
       - name: Audit production deployed stack
         working-directory: server
