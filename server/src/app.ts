@@ -18,6 +18,13 @@ import {
 } from "./admin-managed-costs.js";
 import { constantTimeSecretEquals, getInternalAdminToken } from "./security-config.js";
 import { isManagedConfigError } from "./managed/config.js";
+import {
+  approveDeviceAuth,
+  getDeviceAuthRuntimeStatus,
+  inspectDeviceAuth,
+  pollDeviceAuth,
+  startDeviceAuth,
+} from "./device-auth.js";
 
 const LOCAL_UI_ORIGINS = [
   "http://localhost:5173",
@@ -154,6 +161,8 @@ export function createApp(): Hono {
   app.use("/chat", chatCors);
   app.use("/chat/*", chatCors);
   app.use("/mcp/*", chatCors);
+  app.use("/auth/device", chatCors);
+  app.use("/auth/device/*", chatCors);
 
   app.use(
     "/github/*",
@@ -232,6 +241,312 @@ export function createApp(): Hono {
 
   app.get("/health", (c) => c.json({ status: "ok" }));
   app.get("/health/runtime", (c) => c.json(getRuntimeMetadata()));
+
+  app.post("/auth/device/start", async (c) => {
+    const ipRateLimit = await checkUserRateLimit(
+      "device-auth-start-ip",
+      getClientAddress(c),
+      5,
+      15 * 60_000,
+    );
+    if (!ipRateLimit.allowed) {
+      return c.json(
+        {
+          error: {
+            type: "rate_limited",
+            message: "Too many device login attempts. Please retry shortly.",
+          },
+        },
+        429,
+      );
+    }
+
+    const config = getDeviceAuthRuntimeStatus();
+    if (!config.enabled) {
+      return c.json(
+        {
+          error: {
+            type: "device_auth_unavailable",
+            message: config.configError ?? "Device login is not configured.",
+          },
+        },
+        503,
+      );
+    }
+
+    let body: Record<string, unknown> = {};
+    try {
+      body = (await c.req.json()) as Record<string, unknown>;
+    } catch {
+      body = {};
+    }
+
+    try {
+      const result = await startDeviceAuth({
+        cliVersion: typeof body.cli_version === "string" ? body.cli_version : null,
+        hostLabel: typeof body.host_label === "string" ? body.host_label : null,
+        remoteHint: body.remote_hint === true,
+        loginMethod: typeof body.login_method === "string" ? body.login_method : null,
+        requestMetadata:
+          body.request_metadata && typeof body.request_metadata === "object"
+            ? (body.request_metadata as Record<string, unknown>)
+            : undefined,
+      });
+      return c.json({
+        device_code: result.deviceCode,
+        user_code: result.userCode,
+        verification_uri: result.verificationUri,
+        verification_uri_complete: result.verificationUriComplete,
+        expires_in: result.expiresIn,
+        interval: result.interval,
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to start device login.";
+      return c.json(
+        {
+          error: {
+            type: "device_auth_start_failed",
+            message,
+          },
+        },
+        500,
+      );
+    }
+  });
+
+  app.post("/auth/device/poll", async (c) => {
+    const ipRateLimit = await checkUserRateLimit(
+      "device-auth-poll-ip",
+      getClientAddress(c),
+      180,
+      15 * 60_000,
+    );
+    if (!ipRateLimit.allowed) {
+      return c.json(
+        {
+          status: "slow_down",
+          interval: getDeviceAuthRuntimeStatus().pollIntervalSeconds,
+        },
+        200,
+      );
+    }
+
+    let body: Record<string, unknown>;
+    try {
+      body = (await c.req.json()) as Record<string, unknown>;
+    } catch {
+      return c.json(
+        {
+          error: {
+            type: "bad_request",
+            message: "device_code is required.",
+          },
+        },
+        400,
+      );
+    }
+
+    const deviceCode =
+      typeof body.device_code === "string" ? body.device_code.trim() : "";
+    if (!deviceCode) {
+      return c.json(
+        {
+          error: {
+            type: "bad_request",
+            message: "device_code is required.",
+          },
+        },
+        400,
+      );
+    }
+
+    try {
+      const result = await pollDeviceAuth(deviceCode);
+      if (result.status !== "approved") {
+        return c.json({
+          status: result.status,
+          interval: result.interval,
+        });
+      }
+      return c.json({
+        status: "approved",
+        interval: result.interval,
+        session: result.session,
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to poll device login.";
+      return c.json(
+        {
+          error: {
+            type: "device_auth_poll_failed",
+            message,
+          },
+        },
+        500,
+      );
+    }
+  });
+
+  app.post("/auth/device/introspect", async (c) => {
+    const user = await requireVerifiedUser(c);
+    if (user instanceof Response) {
+      return user;
+    }
+    const userRateLimit = await checkUserRateLimit(
+      "device-auth-introspect-user",
+      user.id,
+      60,
+      5 * 60_000,
+    );
+    if (!userRateLimit.allowed) {
+      return c.json(
+        {
+          error: {
+            type: "rate_limited",
+            message: "Too many activation checks. Please retry shortly.",
+          },
+        },
+        429,
+      );
+    }
+
+    let body: Record<string, unknown>;
+    try {
+      body = (await c.req.json()) as Record<string, unknown>;
+    } catch {
+      return c.json(
+        {
+          error: {
+            type: "bad_request",
+            message: "user_code is required.",
+          },
+        },
+        400,
+      );
+    }
+
+    const userCode = typeof body.user_code === "string" ? body.user_code : "";
+    const details = await inspectDeviceAuth(userCode);
+    if (!details) {
+      return c.json(
+        {
+          error: {
+            type: "not_found",
+            message: "Activation code not found or already expired.",
+          },
+        },
+        404,
+      );
+    }
+    return c.json({
+      status: details.status,
+      host_label: details.hostLabel,
+      cli_version: details.cliVersion,
+      remote_hint: details.remoteHint,
+      login_method: details.loginMethod,
+      requested_at: details.requestedAt,
+      expires_at: details.expiresAt,
+    });
+  });
+
+  app.post("/auth/device/approve", async (c) => {
+    const user = await requireVerifiedUser(c);
+    if (user instanceof Response) {
+      return user;
+    }
+    const userRateLimit = await checkUserRateLimit(
+      "device-auth-approve-user",
+      user.id,
+      30,
+      5 * 60_000,
+    );
+    if (!userRateLimit.allowed) {
+      return c.json(
+        {
+          error: {
+            type: "rate_limited",
+            message: "Too many activation approvals. Please retry shortly.",
+          },
+        },
+        429,
+      );
+    }
+
+    let body: Record<string, unknown>;
+    try {
+      body = (await c.req.json()) as Record<string, unknown>;
+    } catch {
+      return c.json(
+        {
+          error: {
+            type: "bad_request",
+            message: "user_code is required.",
+          },
+        },
+        400,
+      );
+    }
+
+    const userCode = typeof body.user_code === "string" ? body.user_code : "";
+    const decision =
+      body.decision === "deny" ? "deny" : ("approve" as "approve" | "deny");
+
+    try {
+      const details = await approveDeviceAuth({
+        userCode,
+        decision,
+        session:
+          body.session && typeof body.session === "object"
+            ? (body.session as {
+                access_token: string;
+                refresh_token: string;
+                user: {
+                  id: string;
+                  email?: string | null;
+                  app_metadata?: Record<string, unknown>;
+                  user_metadata?: Record<string, unknown>;
+                };
+              })
+            : undefined,
+        approvedBy: user,
+      });
+      if (!details) {
+        return c.json(
+          {
+            error: {
+              type: "not_found",
+              message: "Activation code not found or already expired.",
+            },
+          },
+          404,
+        );
+      }
+
+      return c.json({
+        status: details.status,
+        host_label: details.hostLabel,
+        cli_version: details.cliVersion,
+        remote_hint: details.remoteHint,
+        login_method: details.loginMethod,
+        requested_at: details.requestedAt,
+        expires_at: details.expiresAt,
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to complete device login.";
+      return c.json(
+        {
+          error: {
+            type: "device_auth_approval_failed",
+            message,
+          },
+        },
+        400,
+      );
+    }
+  });
 
   app.get("/admin/runtime", async (c) => {
     const admin = await requireAdminUser(c);

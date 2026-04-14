@@ -31,11 +31,35 @@ describe("hosted environment contract", () => {
     assert.equal(resolved.agentUrl, "https://agent-staging.example.com");
     assert.equal(resolved.expectedProgramId, "shared");
     assert.equal(resolved.expectedExperimentId, "EXP-9001");
+    assert.deepEqual(resolved.agentRuntimeSecretNames, [
+      "SUPABASE_SERVICE_ROLE_KEY",
+      "SONDE_WS_TOKEN_SECRET",
+      "SONDE_DEVICE_AUTH_ENCRYPTION_KEY",
+      "SONDE_RUNTIME_AUDIT_TOKEN",
+      "ANTHROPIC_API_KEY",
+      "SONDE_AGENT_GITHUB_TOKEN",
+    ]);
     assert.equal(
       resolved.managedAuthAudit.expectSubstring,
       "SONDE_SMOKE_OK",
     );
     assert.equal(resolved.storageFileSizeLimit, "50MiB");
+    assert.deepEqual(resolved.audit.requiredRuntimeKeys, [
+      "managedConfigured",
+      "managedConfigError",
+      "sondeMcpConfigured",
+      "githubConfigured",
+      "anthropicConfigured",
+      "anthropicConfigError",
+      "anthropicAdminConfigured",
+      "anthropicAdminConfigError",
+      "cliGitRef",
+      "supabaseProjectRef",
+      "sharedRateLimitConfigured",
+      "sharedRateLimitRequired",
+      "deviceAuthEnabled",
+      "deviceAuthConfigError",
+    ]);
     assert.deepEqual(validateResolvedHostedEnvironment(resolved), []);
   });
 
@@ -70,6 +94,14 @@ describe("hosted environment contract", () => {
     assert.equal(outputs.runtime_environment, "production");
     assert.equal(outputs.site_url, "https://sonde-neon.vercel.app");
     assert.equal(outputs.smoke_expected_experiment_id, "EXP-0128");
+    assert.match(
+      outputs.agent_runtime_secret_names_csv,
+      /SUPABASE_SERVICE_ROLE_KEY/,
+    );
+    assert.match(
+      outputs.audit_required_runtime_keys_csv,
+      /deviceAuthEnabled/,
+    );
     assert.match(outputs.redirect_urls_csv, /https:\/\/sonde-neon\.vercel\.app\/auth\/callback/);
   });
 });

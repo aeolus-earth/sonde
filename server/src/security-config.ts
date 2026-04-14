@@ -1,5 +1,6 @@
 import { timingSafeEqual, createHash } from "node:crypto";
 import { assertManagedRuntimeConfig } from "./managed/config.js";
+import { assertDeviceAuthConfig } from "./device-auth.js";
 
 function getEnvironment(env: NodeJS.ProcessEnv = process.env): string {
   return (
@@ -132,6 +133,7 @@ export function assertSecurityConfig(
   }
 
   assertManagedRuntimeConfig(env);
+  assertDeviceAuthConfig(env);
 }
 
 export function constantTimeSecretEquals(

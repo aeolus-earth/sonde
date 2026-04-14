@@ -5,6 +5,9 @@ inputs:
   environment-name:
     description: Hosted environment name (staging or production)
     required: true
+  validation-profile:
+    description: Validation profile for the consuming workflow
+    required: true
   ui-url:
     required: false
     default: ""
@@ -112,10 +115,14 @@ outputs:
     value: ${{ steps.contract.outputs.audit_require_agent_commit_match }}
   audit_require_first_party_agent:
     value: ${{ steps.contract.outputs.audit_require_first_party_agent }}
+  audit_required_runtime_keys_csv:
+    value: ${{ steps.contract.outputs.audit_required_runtime_keys_csv }}
   audit_wait_timeout_ms:
     value: ${{ steps.contract.outputs.audit_wait_timeout_ms }}
   audit_wait_interval_ms:
     value: ${{ steps.contract.outputs.audit_wait_interval_ms }}
+  agent_runtime_secret_names_csv:
+    value: ${{ steps.contract.outputs.agent_runtime_secret_names_csv }}
   managed_auth_audit_prompt:
     value: ${{ steps.contract.outputs.managed_auth_audit_prompt }}
   managed_auth_audit_expect_substring:
@@ -160,7 +167,7 @@ runs:
         SOURCE_REQUIRE_SHARED_RATE_LIMIT: ${{ inputs.require-shared-rate-limit }}
         SOURCE_GOOGLE_CLIENT_ID: ${{ inputs.google-client-id }}
         SOURCE_GOOGLE_CLIENT_SECRET: ${{ inputs.google-client-secret }}
-      run: node server/scripts/hosted-env-contract.mjs export-github-env "${{ inputs.environment-name }}" >> "$GITHUB_ENV"
+      run: node server/scripts/hosted-env-contract.mjs export-github-env "${{ inputs.environment-name }}" "${{ inputs.validation-profile }}" >> "$GITHUB_ENV"
 
     - id: contract
       shell: bash

@@ -1,52 +1,52 @@
 # OAuth: CLI vs web UI
 
-Sonde uses **one Supabase project** and **Google OAuth** for both the CLI and the Vite web app. The **callback URLs differ by design** — they cannot be merged into a single redirect without a different product (for example device-code flow).
+Sonde uses one Supabase project and Google OAuth for both the CLI and the web UI, but there are two distinct CLI login transports:
+
+- Hosted activation as the standard `sonde login` flow.
+- Loopback PKCE as the explicit `--method loopback` fallback.
 
 ## Two flows
 
 | Surface | Redirect after Google | Callback path | Implementation |
 |--------|------------------------|---------------|----------------|
-| **CLI** (`sonde login`) | `http://localhost:{port}/callback` | `/callback` on the machine running the CLI | [`cli/src/sonde/auth.py`](../cli/src/sonde/auth.py) — local HTTP server + `exchange_code_for_session` |
-| **Web UI** | `{origin}/auth/callback` | `/auth/callback` on the app origin | [`ui/src/stores/auth.ts`](../ui/src/stores/auth.ts), [`ui/src/routes/auth/callback.tsx`](../ui/src/routes/auth/callback.tsx) — PKCE in the browser |
+| **CLI** (`sonde login`) | `{origin}/activate/callback` | `/activate/callback` on the hosted Sonde UI | [`cli/src/sonde/auth.py`](../cli/src/sonde/auth.py), [`server/src/device-auth.ts`](../server/src/device-auth.ts), [`ui/src/routes/activate.tsx`](../ui/src/routes/activate.tsx) |
+| **CLI** (`sonde login --method loopback`) | `http://localhost:{port}/callback` | `/callback` on the machine running the CLI | [`cli/src/sonde/auth.py`](../cli/src/sonde/auth.py) |
+| **Web UI** | `{origin}/auth/callback` | `/auth/callback` on the app origin | [`ui/src/stores/auth.ts`](../ui/src/stores/auth.ts), [`ui/src/routes/auth/callback.tsx`](../ui/src/routes/auth/callback.tsx) |
 
-Both pass **`hd=aeolus.earth`** on the Google authorization URL (workspace hint). Enforcement remains server-side (access token hook / RLS).
+Both browser-facing Google authorization URLs keep the `hd=aeolus.earth` workspace hint.
 
-**VM / SSH:** If you run `sonde login` on a remote machine, the browser must reach the **same** loopback port where the CLI listens (browser on the machine, or `ssh -L` port forwarding). The CLI prints that guidance when `SSH_CONNECTION` is set. When you already know the callback will not reach the shell automatically, use `sonde login --remote` to force the assisted flow and keep the manual callback prompt visible from the start.
+## Standard CLI login
 
-**Do not confuse flows:** A URL like `https://*.vercel.app/auth/callback?code=...` is the **web UI** flow. The CLI never uses `/auth/callback` on Vercel.
+`sonde login` now uses the hosted activation flow by default:
 
-## CLI: Supabase redirect allowlist (required for hosted projects)
+```text
+$ sonde login
+Open Sonde activation
+Enter code: ABCD-EFGH
+Waiting for authorization...
+```
 
-`sonde login` uses a **random** high port each run (`redirect_to=http://localhost:<port>/callback`). Supabase only honors `redirect_to` if it **matches** an entry under **Authentication → URL configuration → Redirect URLs**.
+The user opens the hosted Sonde link in any browser, signs in, approves the request, and the CLI finishes without any localhost callback or SSH port forwarding.
 
-If **`http://localhost:<port>/callback` is not allowlisted**, Auth may send the browser to your **Site URL** instead (for example `https://…vercel.app/auth/callback`). The web UI can work while the CLI appears “broken,” because the hosted `/auth/callback` pattern is allowlisted but dynamic localhost is not.
+`sonde login --remote` remains as a compatibility alias for the hosted activation flow.
 
-**Fix (Supabase Dashboard — production/staging projects):** add this pattern:
+## Loopback fallback
 
-- **`http://localhost:*/callback`**
+`sonde login --method loopback` still uses a random localhost callback URL:
 
-Optionally also **`http://127.0.0.1:*/callback`** if you standardize the CLI on loopback IP later.
+- `http://localhost:*/callback`
+- optionally `http://127.0.0.1:*/callback`
 
-Wildcards follow [Supabase Redirect URLs](https://supabase.com/docs/guides/auth/redirect-urls) (`*` matches the port segment). Local `supabase start` mirrors these patterns in [`supabase/config.toml`](../supabase/config.toml) (`auth.additional_redirect_urls`).
+Those redirect patterns must stay allowlisted in Supabase for local desktop login and break-glass troubleshooting.
 
-## Vercel: `404 NOT_FOUND` on `/auth/callback`
+If `AEOLUS_SUPABASE_URL` points at a local or alternate Supabase project, configure the matching hosted Sonde origin with `SONDE_UI_URL` or `SONDE_AGENT_HTTP_BASE`. Otherwise the CLI will stop with guidance instead of silently falling back to localhost.
 
-If the browser shows a **plain Vercel 404** (not the Sonde UI) at `/auth/callback?code=...`, OAuth already returned a `code`; the failure is **static hosting / SPA routing**. The app bundle never loads, so the client cannot exchange the code.
+## Supabase redirect checklist
 
-**Checklist:**
+Production and staging Supabase projects should allow all three callback families:
 
-1. **Root Directory** in the Vercel project must match where `vercel.json` applies:
-   - **Repository root** as deploy root: use root [`vercel.json`](../vercel.json) (`outputDirectory: ui/dist`, `rewrites` → `/index.html`).
-   - **Root Directory = `ui`**: use [`ui/vercel.json`](../ui/vercel.json) (same SPA rewrite).
-2. **Redeploy** after changing Root Directory or `vercel.json`.
-3. Confirm `GET /auth/callback` returns `200` with `index.html` (not 404).
+1. CLI loopback fallback: `http://localhost:*/callback`
+2. Hosted CLI activation: `https://<your-ui-origin>/activate/callback`
+3. Web UI auth: `https://<your-ui-origin>/auth/callback`
 
-## Supabase: redirect URLs
-
-**Checklist:**
-
-1. **CLI** — `http://localhost:*/callback` (see [CLI: Supabase redirect allowlist](#cli-supabase-redirect-allowlist-required-for-hosted-projects) above).
-2. **Web UI** — every origin you use (`localhost` for Vite, production hostname, preview hosts or a supported wildcard). See [Web UI auth deploy (detailed)](../ui/docs/auth-deploy.md).
-3. **Site URL** — set to your **canonical** deployed origin when production web sign-in matters, not only localhost.
-
-Full dashboard steps and Google Cloud Console notes: [`ui/docs/auth-deploy.md`](../ui/docs/auth-deploy.md).
+See [Web UI auth deploy](../ui/docs/auth-deploy.md) for the hosted browser callback setup.

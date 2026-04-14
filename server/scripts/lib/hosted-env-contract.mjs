@@ -49,6 +49,151 @@ function chooseSource(primary, fallback = "") {
   return trim(primary) || trim(fallback);
 }
 
+const VALIDATION_PROFILES = new Set([
+  "full",
+  "deploy-db",
+  "deploy-agent",
+  "config-audit",
+  "cli-audit",
+  "smoke",
+  "soak",
+]);
+
+function getValidationProfile(profile = "full") {
+  const normalized = trim(profile) || "full";
+  if (!VALIDATION_PROFILES.has(normalized)) {
+    throw new Error(
+      `Unsupported hosted environment validation profile '${normalized}'.`,
+    );
+  }
+  return normalized;
+}
+
+function profileFlags(profile) {
+  switch (getValidationProfile(profile)) {
+    case "deploy-db":
+      return {
+        requireUiUrl: true,
+        requireAgentUrl: false,
+        requireSupabaseProjectRef: true,
+        requireSupabaseAnonKey: true,
+        requireSmokeUser: false,
+        requireCliAuditToken: false,
+        requireRuntimeAuditToken: false,
+        requireGoogleOAuth: false,
+        requireSharedRateLimit: false,
+        requireExpectedProgram: false,
+        requireExpectedExperiment: false,
+        requireExpectedTimelineAuthMode: false,
+        requireManagedAuthAudit: false,
+        requireRedirectUrls: false,
+      };
+    case "deploy-agent":
+      return {
+        requireUiUrl: true,
+        requireAgentUrl: true,
+        requireSupabaseProjectRef: true,
+        requireSupabaseAnonKey: true,
+        requireSmokeUser: false,
+        requireCliAuditToken: false,
+        requireRuntimeAuditToken: true,
+        requireGoogleOAuth: false,
+        requireSharedRateLimit: false,
+        requireExpectedProgram: false,
+        requireExpectedExperiment: false,
+        requireExpectedTimelineAuthMode: false,
+        requireManagedAuthAudit: false,
+        requireRedirectUrls: true,
+      };
+    case "config-audit":
+      return {
+        requireUiUrl: true,
+        requireAgentUrl: true,
+        requireSupabaseProjectRef: true,
+        requireSupabaseAnonKey: true,
+        requireSmokeUser: true,
+        requireCliAuditToken: false,
+        requireRuntimeAuditToken: true,
+        requireGoogleOAuth: true,
+        requireSharedRateLimit: true,
+        requireExpectedProgram: true,
+        requireExpectedExperiment: true,
+        requireExpectedTimelineAuthMode: true,
+        requireManagedAuthAudit: true,
+        requireRedirectUrls: true,
+      };
+    case "cli-audit":
+      return {
+        requireUiUrl: false,
+        requireAgentUrl: false,
+        requireSupabaseProjectRef: true,
+        requireSupabaseAnonKey: true,
+        requireSmokeUser: true,
+        requireCliAuditToken: true,
+        requireRuntimeAuditToken: false,
+        requireGoogleOAuth: false,
+        requireSharedRateLimit: false,
+        requireExpectedProgram: true,
+        requireExpectedExperiment: true,
+        requireExpectedTimelineAuthMode: false,
+        requireManagedAuthAudit: false,
+        requireRedirectUrls: false,
+      };
+    case "smoke":
+      return {
+        requireUiUrl: true,
+        requireAgentUrl: true,
+        requireSupabaseProjectRef: true,
+        requireSupabaseAnonKey: true,
+        requireSmokeUser: true,
+        requireCliAuditToken: false,
+        requireRuntimeAuditToken: true,
+        requireGoogleOAuth: false,
+        requireSharedRateLimit: false,
+        requireExpectedProgram: true,
+        requireExpectedExperiment: true,
+        requireExpectedTimelineAuthMode: true,
+        requireManagedAuthAudit: true,
+        requireRedirectUrls: false,
+      };
+    case "soak":
+      return {
+        requireUiUrl: false,
+        requireAgentUrl: true,
+        requireSupabaseProjectRef: true,
+        requireSupabaseAnonKey: true,
+        requireSmokeUser: false,
+        requireCliAuditToken: false,
+        requireRuntimeAuditToken: false,
+        requireGoogleOAuth: false,
+        requireSharedRateLimit: false,
+        requireExpectedProgram: false,
+        requireExpectedExperiment: false,
+        requireExpectedTimelineAuthMode: false,
+        requireManagedAuthAudit: false,
+        requireRedirectUrls: false,
+      };
+    case "full":
+    default:
+      return {
+        requireUiUrl: true,
+        requireAgentUrl: resolvedBoolean => resolvedBoolean,
+        requireSupabaseProjectRef: resolvedBoolean => resolvedBoolean,
+        requireSupabaseAnonKey: resolvedBoolean => resolvedBoolean,
+        requireSmokeUser: resolvedBoolean => resolvedBoolean,
+        requireCliAuditToken: resolvedBoolean => resolvedBoolean,
+        requireRuntimeAuditToken: resolvedBoolean => resolvedBoolean,
+        requireGoogleOAuth: resolvedBoolean => resolvedBoolean,
+        requireSharedRateLimit: true,
+        requireExpectedProgram: true,
+        requireExpectedExperiment: true,
+        requireExpectedTimelineAuthMode: true,
+        requireManagedAuthAudit: true,
+        requireRedirectUrls: true,
+      };
+  }
+}
+
 export function loadHostedEnvironmentContract(
   contractPath = DEFAULT_CONTRACT_PATH,
 ) {
@@ -117,6 +262,7 @@ export function validateHostedEnvironmentContract(contract) {
       "agentUrlRequired",
       "supabaseProjectRefRequired",
       "supabaseAnonKeyRequired",
+      "agentRuntimeSecretNames",
       "smokeUserRequired",
       "cliAuditTokenRequired",
       "runtimeAuditTokenRequired",
@@ -133,6 +279,20 @@ export function validateHostedEnvironmentContract(contract) {
       if (!(key in parity)) {
         errors.push(`Hosted environment parity is missing '${key}'.`);
       }
+    }
+  }
+
+  if (parity) {
+    if (!Array.isArray(parity.agentRuntimeSecretNames)) {
+      errors.push("Hosted environment parity is missing agentRuntimeSecretNames.");
+    } else if (parity.agentRuntimeSecretNames.length === 0) {
+      errors.push("Hosted environment parity must declare agentRuntimeSecretNames.");
+    }
+
+    if (!Array.isArray(parity.audit?.requiredRuntimeKeys)) {
+      errors.push("Hosted environment parity audit is missing requiredRuntimeKeys.");
+    } else if (parity.audit.requiredRuntimeKeys.length === 0) {
+      errors.push("Hosted environment parity audit must declare requiredRuntimeKeys.");
     }
   }
 
@@ -172,6 +332,9 @@ export function resolveHostedEnvironment(
       env.HOSTED_REQUIRE_SHARED_RATE_LIMIT,
       Boolean(parity.requireSharedRateLimit),
     ),
+    agentRuntimeSecretNames: Array.isArray(parity.agentRuntimeSecretNames)
+      ? parity.agentRuntimeSecretNames.map((value) => trim(value)).filter(Boolean)
+      : [],
     requirements: {
       agentUrlRequired: Boolean(parity.agentUrlRequired),
       supabaseProjectRefRequired: Boolean(parity.supabaseProjectRefRequired),
@@ -202,6 +365,9 @@ export function resolveHostedEnvironment(
       requireFirstPartyAgent: Boolean(
         parity.audit?.requireFirstPartyAgent ?? false,
       ),
+      requiredRuntimeKeys: Array.isArray(parity.audit?.requiredRuntimeKeys)
+        ? parity.audit.requiredRuntimeKeys.map((value) => trim(value)).filter(Boolean)
+        : [],
       waitTimeoutMs: parsePositiveInt(
         String(parity.audit?.waitTimeoutMs ?? ""),
         600000,
@@ -277,16 +443,49 @@ export function resolveHostedGithubEnvironmentEnv(env = process.env) {
   };
 }
 
-export function validateResolvedHostedEnvironment(resolved) {
+export function validateResolvedHostedEnvironment(resolved, profile = "full") {
   const errors = [];
+  const flags = profileFlags(profile);
+  const requireAgentUrl =
+    typeof flags.requireAgentUrl === "function"
+      ? flags.requireAgentUrl(resolved.requirements.agentUrlRequired)
+      : flags.requireAgentUrl;
+  const requireSupabaseProjectRef =
+    typeof flags.requireSupabaseProjectRef === "function"
+      ? flags.requireSupabaseProjectRef(
+          resolved.requirements.supabaseProjectRefRequired,
+        )
+      : flags.requireSupabaseProjectRef;
+  const requireSupabaseAnonKey =
+    typeof flags.requireSupabaseAnonKey === "function"
+      ? flags.requireSupabaseAnonKey(resolved.requirements.supabaseAnonKeyRequired)
+      : flags.requireSupabaseAnonKey;
+  const requireSmokeUser =
+    typeof flags.requireSmokeUser === "function"
+      ? flags.requireSmokeUser(resolved.requirements.smokeUserRequired)
+      : flags.requireSmokeUser;
+  const requireCliAuditToken =
+    typeof flags.requireCliAuditToken === "function"
+      ? flags.requireCliAuditToken(resolved.requirements.cliAuditTokenRequired)
+      : flags.requireCliAuditToken;
+  const requireRuntimeAuditToken =
+    typeof flags.requireRuntimeAuditToken === "function"
+      ? flags.requireRuntimeAuditToken(
+          resolved.requirements.runtimeAuditTokenRequired,
+        )
+      : flags.requireRuntimeAuditToken;
+  const requireGoogleOAuth =
+    typeof flags.requireGoogleOAuth === "function"
+      ? flags.requireGoogleOAuth(resolved.requirements.googleOAuthRequired)
+      : flags.requireGoogleOAuth;
 
-  if (!resolved.uiUrl) {
+  if (flags.requireUiUrl && !resolved.uiUrl) {
     errors.push("HOSTED_UI_URL is required.");
-  } else if (!isValidUrl(resolved.uiUrl)) {
+  } else if (resolved.uiUrl && !isValidUrl(resolved.uiUrl)) {
     errors.push("HOSTED_UI_URL must be a valid http(s) URL.");
   }
 
-  if (resolved.requirements.agentUrlRequired) {
+  if (requireAgentUrl) {
     if (!resolved.agentUrl) {
       errors.push("HOSTED_AGENT_URL is required.");
     } else if (!isValidUrl(resolved.agentUrl)) {
@@ -296,11 +495,11 @@ export function validateResolvedHostedEnvironment(resolved) {
     errors.push("HOSTED_AGENT_URL must be a valid http(s) URL.");
   }
 
-  if (resolved.requirements.supabaseProjectRefRequired && !resolved.supabaseProjectRef) {
+  if (requireSupabaseProjectRef && !resolved.supabaseProjectRef) {
     errors.push("HOSTED_SUPABASE_PROJECT_REF is required.");
   }
 
-  if (resolved.requirements.supabaseAnonKeyRequired) {
+  if (requireSupabaseAnonKey) {
     if (!resolved.supabaseAnonKey) {
       errors.push("HOSTED_SUPABASE_ANON_KEY is required.");
     } else if (!resolved.supabaseAnonKey.startsWith("sb_publishable_")) {
@@ -308,7 +507,7 @@ export function validateResolvedHostedEnvironment(resolved) {
     }
   }
 
-  if (resolved.requirements.smokeUserRequired) {
+  if (requireSmokeUser) {
     if (!resolved.smokeUserEmailConfigured) {
       errors.push("HOSTED_SMOKE_USER_EMAIL is required.");
     }
@@ -317,18 +516,15 @@ export function validateResolvedHostedEnvironment(resolved) {
     }
   }
 
-  if (resolved.requirements.cliAuditTokenRequired && !resolved.cliAuditTokenConfigured) {
+  if (requireCliAuditToken && !resolved.cliAuditTokenConfigured) {
     errors.push("HOSTED_CLI_AUDIT_TOKEN is required.");
   }
 
-  if (
-    resolved.requirements.runtimeAuditTokenRequired &&
-    !resolved.runtimeAuditTokenConfigured
-  ) {
+  if (requireRuntimeAuditToken && !resolved.runtimeAuditTokenConfigured) {
     errors.push("HOSTED_RUNTIME_AUDIT_TOKEN is required.");
   }
 
-  if (resolved.requirements.googleOAuthRequired) {
+  if (requireGoogleOAuth) {
     if (!resolved.googleClientIdConfigured) {
       errors.push("HOSTED_GOOGLE_CLIENT_ID is required.");
     }
@@ -337,7 +533,7 @@ export function validateResolvedHostedEnvironment(resolved) {
     }
   }
 
-  if (resolved.requireSharedRateLimit) {
+  if (flags.requireSharedRateLimit && resolved.requireSharedRateLimit) {
     if (!resolved.redisUrlConfigured) {
       errors.push("HOSTED_REDIS_URL is required when shared rate limiting is enabled.");
     }
@@ -348,24 +544,30 @@ export function validateResolvedHostedEnvironment(resolved) {
     }
   }
 
-  if (!resolved.expectedProgramId) {
+  if (flags.requireExpectedProgram && !resolved.expectedProgramId) {
     errors.push("Hosted environment contract is missing expectedProgramId.");
   }
-  if (!resolved.expectedExperimentId) {
+  if (flags.requireExpectedExperiment && !resolved.expectedExperimentId) {
     errors.push("Hosted environment contract is missing expectedExperimentId.");
   }
-  if (!resolved.expectedTimelineAuthMode) {
+  if (
+    flags.requireExpectedTimelineAuthMode &&
+    !resolved.expectedTimelineAuthMode
+  ) {
     errors.push("Hosted environment contract is missing expectedTimelineAuthMode.");
   }
-  if (!resolved.managedAuthAudit.prompt) {
+  if (flags.requireManagedAuthAudit && !resolved.managedAuthAudit.prompt) {
     errors.push("Hosted environment contract is missing managedAuthAudit.prompt.");
   }
-  if (!resolved.managedAuthAudit.expectSubstring) {
+  if (
+    flags.requireManagedAuthAudit &&
+    !resolved.managedAuthAudit.expectSubstring
+  ) {
     errors.push(
       "Hosted environment contract is missing managedAuthAudit.expectSubstring.",
     );
   }
-  if (!resolved.supabaseRedirectUrls.length) {
+  if (flags.requireRedirectUrls && !resolved.supabaseRedirectUrls.length) {
     errors.push("Hosted environment contract is missing Supabase redirect URLs.");
   }
 
@@ -396,8 +598,14 @@ export function formatHostedEnvironmentForGithubOutputs(resolved) {
     audit_require_first_party_agent: String(
       resolved.audit.requireFirstPartyAgent,
     ),
+    audit_required_runtime_keys_csv: normalizeCsv(
+      resolved.audit.requiredRuntimeKeys,
+    ),
     audit_wait_timeout_ms: String(resolved.audit.waitTimeoutMs),
     audit_wait_interval_ms: String(resolved.audit.waitIntervalMs),
+    agent_runtime_secret_names_csv: normalizeCsv(
+      resolved.agentRuntimeSecretNames,
+    ),
     managed_auth_audit_prompt: resolved.managedAuthAudit.prompt,
     managed_auth_audit_expect_substring:
       resolved.managedAuthAudit.expectSubstring,
@@ -430,6 +638,7 @@ export function formatHostedEnvironmentForLogs(resolved) {
     requireSharedRateLimit: resolved.requireSharedRateLimit,
     storageFileSizeLimit: resolved.storageFileSizeLimit,
     supabaseRedirectUrls: resolved.supabaseRedirectUrls,
+    agentRuntimeSecretNames: resolved.agentRuntimeSecretNames,
     expectedProgramId: resolved.expectedProgramId,
     expectedExperimentId: resolved.expectedExperimentId,
     expectedTimelineAuthMode: resolved.expectedTimelineAuthMode,

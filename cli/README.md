@@ -87,14 +87,23 @@ Reinstall the current CLI:
 uv tool install --force "git+https://github.com/aeolus-earth/sonde.git@main#subdirectory=cli"
 ```
 
-For remote or headless shells, prefer the assisted login flow:
+`sonde login` now uses the hosted activation flow by default and prints a short code
+plus a browser URL. The compatibility alias still works if you want to force that path
+explicitly:
 
 ```bash
 sonde login --remote
 ```
 
-If sign-in opens the hosted app instead of `localhost`, add `http://localhost:*/callback`
-to Supabase → Authentication → Redirect URLs.
+For localhost troubleshooting or local/non-hosted Supabase targets, the old callback
+flow remains available explicitly:
+
+```bash
+sonde login --method loopback
+```
+
+Keep both `http://localhost:*/callback` and your hosted `/activate/callback`
+origin allowlisted in Supabase → Authentication → Redirect URLs.
 
 ## Configuration
 

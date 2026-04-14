@@ -18,7 +18,7 @@ export const CHAT_INSTALL_STEPS = [
   {
     label: "Authenticate",
     command: "sonde login",
-    hint: "On SSH, VM, or headless shells, use `sonde login --remote` instead.",
+    hint: "SSH, VM, and headless shells automatically switch to a browser activation code instead of localhost callbacks.",
   },
   {
     label: "Set up runtimes",

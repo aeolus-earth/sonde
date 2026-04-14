@@ -10,6 +10,7 @@ from urllib.error import URLError
 from sonde.cli import cli
 from sonde.diagnostics import (
     GIT_TOOL_INSTALL_COMMAND,
+    check_device_login_base,
     check_install_shadows,
     check_s3_settings,
     check_stac_settings,
@@ -175,6 +176,44 @@ def test_stac_deep_warns_when_unreachable(monkeypatch):
 
     assert check.status == "warn"
     assert "not reachable" in check.summary.lower()
+
+
+def test_check_device_login_base_reports_hosted_default(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "sonde.diagnostics.auth._resolve_hosted_login_origin",
+        lambda: ("https://sonde-neon.vercel.app", "default-ui"),
+    )
+    monkeypatch.setattr(
+        "sonde.diagnostics.auth._normalize_hosted_login_origin", lambda value: value
+    )
+    monkeypatch.setattr("sonde.diagnostics.auth._uses_nondefault_supabase_target", lambda: False)
+
+    check = check_device_login_base()
+
+    assert check.status == "info"
+    assert "hosted activation" in check.details[0]
+    assert "loopback" in check.details[0]
+
+
+def test_check_device_login_base_warns_on_supabase_mismatch(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "sonde.diagnostics.auth._resolve_hosted_login_origin",
+        lambda: ("https://sonde-neon.vercel.app", "default-ui"),
+    )
+    monkeypatch.setattr(
+        "sonde.diagnostics.auth._normalize_hosted_login_origin", lambda value: value
+    )
+    monkeypatch.setattr("sonde.diagnostics.auth._uses_nondefault_supabase_target", lambda: True)
+    monkeypatch.setattr(
+        "sonde.diagnostics.auth._hosted_login_origin_mismatch_message",
+        lambda: "Mismatch message",
+    )
+
+    check = check_device_login_base()
+
+    assert check.status == "warn"
+    assert "explicit Sonde origin" in check.summary
+    assert "Mismatch message" in check.details[0]
 
 
 def test_check_install_shadows_reports_shadowed_binary(monkeypatch):
