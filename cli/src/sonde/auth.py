@@ -68,6 +68,13 @@ class UserInfo:
     programs: list[str] | None = None
 
 
+@dataclass(frozen=True)
+class ManualCallbackParseResult:
+    kind: str
+    code: str | None = None
+    message: str | None = None
+
+
 class NotAuthenticatedError(Exception):
     pass
 
@@ -641,7 +648,7 @@ def _is_remote_environment() -> bool:
 
 def _extract_code_from_url(raw: str) -> str | None:
     """Parse OAuth `code` from a callback URL, or accept a bare code string."""
-    s = raw.strip()
+    s = raw.strip().strip("'\"")
     if not s:
         return None
     if "://" in s or s.startswith("http"):
@@ -704,7 +711,12 @@ def _emit_login_browser_instructions(port: int, auth_url: str, *, assisted: bool
     err.print("[sonde.muted]Sign in with your Aeolus Google Workspace account.[/]")
     err.print("  [sonde.muted]Open this link to continue:[/]")
     err.print(f"  [link={auth_url}]Open Sonde sign-in[/link]")
-    err.print(f"  [sonde.muted]{auth_url}[/]")
+    err.print(f"  {auth_url}", style="sonde.muted", markup=False, highlight=False, soft_wrap=True)
+    err.print(
+        "  [sonde.muted]If you need to paste something back here later, use the redirected "
+        f"http://localhost:{port}/callback?code=... URL or just the code value, not the "
+        "original sign-in link.[/]"
+    )
 
     if os.environ.get("SSH_CONNECTION"):
         err.print(
@@ -734,19 +746,81 @@ def _emit_login_browser_instructions(port: int, auth_url: str, *, assisted: bool
 
 def _extract_auth_code(value: str) -> str | None:
     """Extract an auth code from raw input or a redirected callback URL."""
-    candidate = value.strip().strip("'\"")
-    if not candidate:
-        return None
+    return _extract_code_from_url(value)
 
+
+def _parse_manual_callback_input(value: str, port: int) -> ManualCallbackParseResult:
+    """Classify manual callback input and return a code or actionable guidance."""
+    candidate = value.strip().strip("'\"")
+    code = _extract_auth_code(candidate)
+    if code:
+        return ManualCallbackParseResult(kind="code", code=code)
+
+    if not candidate:
+        return ManualCallbackParseResult(
+            kind="invalid",
+            message=(
+                "[sonde.warning]No auth code found in that input.[/] "
+                "[sonde.muted]Paste the redirected localhost callback URL or the raw code "
+                "value.[/]"
+            ),
+        )
+
+    lowered = candidate.lower()
     parsed = urlparse(candidate)
     if parsed.scheme and parsed.netloc:
-        query = parse_qs(parsed.query)
-        codes = query.get("code")
-        if codes and codes[0]:
-            return codes[0]
-        return None
+        path = parsed.path.rstrip("/")
+        if path.endswith("/auth/v1/authorize"):
+            if "unsupported provider" in lowered or "provider=google" not in lowered:
+                return ManualCallbackParseResult(
+                    kind="authorize_url",
+                    message=(
+                        "[sonde.warning]That was the original sign-in URL, not the redirected "
+                        "callback.[/] "
+                        "[sonde.muted]It also looks truncated before provider=google, which can "
+                        "trigger 'Unsupported provider'. Re-open the sign-in link, finish Google "
+                        f"sign-in, then paste http://localhost:{port}/callback?code=... or just "
+                        "the code value.[/]"
+                    ),
+                )
+            return ManualCallbackParseResult(
+                kind="authorize_url",
+                message=(
+                    "[sonde.warning]That was the original sign-in URL, not the redirected "
+                    "callback.[/] "
+                    "[sonde.muted]Open that link in a browser, finish Google sign-in, then paste "
+                    f"http://localhost:{port}/callback?code=... or just the code value.[/]"
+                ),
+            )
+        if path.endswith("/callback"):
+            return ManualCallbackParseResult(
+                kind="callback_missing_code",
+                message=(
+                    "[sonde.warning]That callback URL does not include an auth code.[/] "
+                    "[sonde.muted]After sign-in, paste the full redirected URL that starts with "
+                    f"http://localhost:{port}/callback?code=... or paste just the code value.[/]"
+                ),
+            )
 
-    return candidate
+    if "unsupported provider" in lowered:
+        return ManualCallbackParseResult(
+            kind="authorize_url",
+            message=(
+                "[sonde.warning]That input includes Supabase's 'Unsupported provider' error, "
+                "which usually means the original sign-in URL was copied incompletely.[/] "
+                "[sonde.muted]Re-open the sign-in link, finish Google sign-in, then paste the "
+                f"redirected http://localhost:{port}/callback?code=... URL or just the code "
+                "value.[/]"
+            ),
+        )
+
+    return ManualCallbackParseResult(
+        kind="invalid",
+        message=(
+            "[sonde.warning]No auth code found in that input.[/] "
+            "[sonde.muted]Paste the redirected localhost callback URL or the raw code value.[/]"
+        ),
+    )
 
 
 def _prompt_for_manual_callback(
@@ -758,8 +832,9 @@ def _prompt_for_manual_callback(
     """Ask the user for the redirected callback URL when localhost is unreachable."""
     if immediate:
         err.print(
-            "  [sonde.muted]Paste the callback URL or auth code below at any time. Sonde is "
-            "still listening on localhost.[/]"
+            "  [sonde.muted]Paste the redirected localhost callback URL or auth code below at "
+            "any time. Do not paste the original sign-in link. Sonde is still listening on "
+            "localhost.[/]"
         )
     else:
         err.print(
@@ -770,6 +845,10 @@ def _prompt_for_manual_callback(
             "  [sonde.muted]If the browser is showing a localhost page or error page, copy the "
             "full URL from the address bar and paste it here. You can also paste just the "
             "code value.[/]"
+        )
+        err.print(
+            "  [sonde.muted]Paste the redirected localhost callback URL or just the code value. "
+            "Do not paste the original sign-in link.[/]"
         )
         err.print(f"  [sonde.muted]Expected callback: http://localhost:{port}/callback?code=...[/]")
         err.print(
@@ -788,14 +867,11 @@ def _prompt_for_manual_callback(
         if stop_event and stop_event.is_set():
             return None
 
-        code = _extract_auth_code(response)
-        if code:
-            return code
-
-        err.print(
-            "[sonde.warning]No auth code found in that input.[/] "
-            "[sonde.muted]Paste the full redirected URL or the raw code value.[/]"
-        )
+        parsed = _parse_manual_callback_input(response, port)
+        if parsed.code:
+            return parsed.code
+        if parsed.message:
+            err.print(parsed.message)
 
     return None
 

@@ -175,6 +175,81 @@ def test_extract_auth_code_accepts_raw_code() -> None:
     assert auth._extract_auth_code("manual-123") == "manual-123"
 
 
+def test_parse_manual_callback_input_accepts_callback_url() -> None:
+    parsed = auth._parse_manual_callback_input(
+        "http://localhost:8123/callback?code=manual-123&state=abc",
+        8123,
+    )
+    assert parsed.kind == "code"
+    assert parsed.code == "manual-123"
+
+
+def test_parse_manual_callback_input_accepts_raw_code() -> None:
+    parsed = auth._parse_manual_callback_input("manual-123", 8123)
+    assert parsed.kind == "code"
+    assert parsed.code == "manual-123"
+
+
+def test_parse_manual_callback_input_rejects_authorize_url() -> None:
+    parsed = auth._parse_manual_callback_input(
+        (
+            "https://utvmqjssbkzpumsdpgdy.supabase.co/auth/v1/authorize"
+            "?hd=aeolus.earth"
+            "&redirect_to=http%3A%2F%2Flocalhost%3A8123%2Fcallback"
+            "&code_challenge=abc"
+            "&code_challenge_method=s256"
+            "&provider=google"
+        ),
+        8123,
+    )
+    assert parsed.kind == "authorize_url"
+    assert parsed.code is None
+    assert parsed.message is not None
+    assert "original sign-in URL" in parsed.message
+
+
+def test_parse_manual_callback_input_rejects_truncated_authorize_url() -> None:
+    parsed = auth._parse_manual_callback_input(
+        (
+            "https://utvmqjssbkzpumsdpgdy.supabase.co/auth/v1/authorize"
+            "?hd=aeolus.earth"
+            "&redirect_to=http%3A%2F%2Flocalhost%3A8123%2Fcallback"
+            "&code_challenge=abc"
+        ),
+        8123,
+    )
+    assert parsed.kind == "authorize_url"
+    assert parsed.code is None
+    assert parsed.message is not None
+    assert "provider=google" in parsed.message
+
+
+def test_parse_manual_callback_input_rejects_authorize_url_with_json_blob() -> None:
+    parsed = auth._parse_manual_callback_input(
+        (
+            "https://utvmqjssbkzpumsdpgdy.supabase.co/auth/v1/authorize"
+            "?hd=aeolus.earth"
+            "&redirect_to=http%3A%2F%2Flocalhost%3A8123%2Fcallback"
+            "&code_challenge=abc "
+            '{"code":400,"error_code":"validation_failed","msg":"Unsupported provider: '
+            'Provider  could not be found"}'
+        ),
+        8123,
+    )
+    assert parsed.kind == "authorize_url"
+    assert parsed.code is None
+    assert parsed.message is not None
+    assert "Unsupported provider" in parsed.message
+
+
+def test_parse_manual_callback_input_rejects_callback_without_code() -> None:
+    parsed = auth._parse_manual_callback_input("http://localhost:8123/callback?error=denied", 8123)
+    assert parsed.kind == "callback_missing_code"
+    assert parsed.code is None
+    assert parsed.message is not None
+    assert "does not include an auth code" in parsed.message
+
+
 def test_prompt_for_manual_callback_retries_until_code(monkeypatch, capfd) -> None:
     responses = iter(
         [
@@ -188,7 +263,50 @@ def test_prompt_for_manual_callback_retries_until_code(monkeypatch, capfd) -> No
 
     assert code == "manual-456"
     captured = capfd.readouterr()
-    assert "No auth code found in that input" in captured.err
+    assert "does not include an auth code" in captured.err
+
+
+def test_prompt_for_manual_callback_authorize_url_shows_targeted_guidance(
+    monkeypatch, capfd
+) -> None:
+    responses = iter(
+        [
+            (
+                "https://utvmqjssbkzpumsdpgdy.supabase.co/auth/v1/authorize"
+                "?hd=aeolus.earth"
+                "&redirect_to=http%3A%2F%2Flocalhost%3A8123%2Fcallback"
+                "&code_challenge=abc"
+            ),
+            "manual-456",
+        ]
+    )
+    monkeypatch.setattr(auth.err, "input", lambda _prompt: next(responses))
+
+    code = auth._prompt_for_manual_callback(8123)
+
+    assert code == "manual-456"
+    captured = capfd.readouterr()
+    assert "original sign-in URL" in captured.err
+    assert "provider=google" in captured.err
+
+
+def test_prompt_for_manual_callback_callback_without_code_shows_targeted_guidance(
+    monkeypatch,
+    capfd,
+) -> None:
+    responses = iter(
+        [
+            "http://localhost:8123/callback?error=access_denied",
+            "manual-456",
+        ]
+    )
+    monkeypatch.setattr(auth.err, "input", lambda _prompt: next(responses))
+
+    code = auth._prompt_for_manual_callback(8123)
+
+    assert code == "manual-456"
+    captured = capfd.readouterr()
+    assert "does not include an auth code" in captured.err
 
 
 def test_prompt_for_manual_callback_immediate_copy(monkeypatch, capfd) -> None:
@@ -198,7 +316,9 @@ def test_prompt_for_manual_callback_immediate_copy(monkeypatch, capfd) -> None:
 
     assert code is None
     captured = capfd.readouterr()
-    assert "Paste the callback URL or auth code below at any time" in captured.err
+    assert (
+        "Paste the redirected localhost callback URL or auth code below at any time" in captured.err
+    )
 
 
 def test_extract_auth_code_strips_quotes() -> None:
@@ -246,7 +366,8 @@ def test_prompt_for_manual_callback_exhausts_retries(monkeypatch, capfd) -> None
     code = auth._prompt_for_manual_callback(8123)
     assert code is None
     captured = capfd.readouterr()
-    assert captured.err.count("No auth code found") == 3
+    assert captured.err.count("does not include an auth code") == 2
+    assert captured.err.count("No auth code found") == 1
 
 
 def test_login_timeout_message_includes_redirect_guidance() -> None:

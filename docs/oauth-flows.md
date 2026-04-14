@@ -29,6 +29,8 @@ Optionally also **`http://127.0.0.1:*/callback`** if you standardize the CLI on 
 
 Wildcards follow [Supabase Redirect URLs](https://supabase.com/docs/guides/auth/redirect-urls) (`*` matches the port segment). Local `supabase start` mirrors these patterns in [`supabase/config.toml`](../supabase/config.toml) (`auth.additional_redirect_urls`).
 
+If the CLI prompt shows **`Unsupported provider: Provider  could not be found`** after you paste something manually, that usually means you pasted the original `.../auth/v1/authorize?...` link, or a truncated copy of it, instead of the redirected `http://localhost:{port}/callback?code=...` URL. The callback prompt accepts the redirected localhost URL or the raw `code` value only.
+
 ## Vercel: `404 NOT_FOUND` on `/auth/callback`
 
 If the browser shows a **plain Vercel 404** (not the Sonde UI) at `/auth/callback?code=...`, OAuth already returned a `code`; the failure is **static hosting / SPA routing**. The app bundle never loads, so the client cannot exchange the code.
