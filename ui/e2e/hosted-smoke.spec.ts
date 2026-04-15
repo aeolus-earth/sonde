@@ -17,6 +17,11 @@ import {
   seedActiveProgram,
   seedConfiguredSession,
 } from "./helpers";
+import {
+  seedActivationSession,
+  seedActiveProgram,
+  seedConfiguredSession,
+} from "./helpers";
 
 const BASE_URL = process.env.E2E_BASE_URL;
 const DEPLOY_ENVIRONMENT = process.env.E2E_DEPLOY_ENVIRONMENT?.trim() || "hosted";
@@ -50,10 +55,28 @@ interface DeviceActivationStartResponse {
   interval: number;
 }
 
+const TIMELINE_PROXY_REPO = {
+  owner: "aeolus-earth",
+  repo: "sonde",
+};
+
 function agentOrigin(value: string | null): string | null {
   if (!value) return null;
   return new URL(value).origin;
 }
+
+function normalizeAuthMode(value: string): string {
+  return value.toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function readAccessToken(sessionJson: string | null): string | null {
+  if (!sessionJson) return null;
+  const parsed = JSON.parse(sessionJson) as { access_token?: string | null };
+  const token = parsed.access_token?.trim() || "";
+  return token || null;
+}
+
+const AUTH_ACCESS_TOKEN = readAccessToken(AUTH_SESSION_JSON);
 
 async function readVisibleText(page: Page, selector: string): Promise<string | null> {
   const locator = page.locator(selector).first();
@@ -62,6 +85,46 @@ async function readVisibleText(page: Page, selector: string): Promise<string | n
   }
   const text = await locator.textContent().catch(() => "");
   return text?.trim() || null;
+}
+
+async function assertTimelineProxyAvailable(request: APIRequestContext): Promise<void> {
+  if (!AGENT_HTTP_BASE) {
+    throw new Error("Timeline proxy smoke requires E2E_AGENT_HTTP_BASE.");
+  }
+  if (!AUTH_ACCESS_TOKEN) {
+    throw new Error("Timeline proxy smoke requires E2E_AUTH_SESSION_JSON with an access token.");
+  }
+
+  const response = await request.get(
+    `${AGENT_HTTP_BASE}/github/repos/${TIMELINE_PROXY_REPO.owner}/${TIMELINE_PROXY_REPO.repo}/commits?per_page=25`,
+    {
+      headers: {
+        Authorization: `Bearer ${AUTH_ACCESS_TOKEN}`,
+      },
+    }
+  );
+  const bodyText = await response.text();
+  expect(
+    response.ok(),
+    `Timeline proxy request failed: ${response.status()} ${bodyText.slice(0, 240)}`
+  ).toBeTruthy();
+
+  const body = JSON.parse(bodyText) as {
+    commits: Array<{ sha: string }>;
+    repo: { owner: string; repo: string };
+    diagnostics: {
+      authMode: string;
+      upstreamRequests: number;
+    };
+  };
+
+  expect(body.repo.owner).toBe(TIMELINE_PROXY_REPO.owner);
+  expect(body.repo.repo).toBe(TIMELINE_PROXY_REPO.repo);
+  expect(body.commits.length).toBeGreaterThan(0);
+  expect(normalizeAuthMode(body.diagnostics.authMode)).toBe(
+    normalizeAuthMode(EXPECT_TIMELINE_AUTH_MODE)
+  );
+  expect(body.diagnostics.upstreamRequests).toBeGreaterThanOrEqual(0);
 }
 
 async function waitForHostedChatResponse(
@@ -445,25 +508,48 @@ test.describe(`${SUITE_LABEL} authenticated flows`, () => {
     });
   });
 
-  test("timeline loads commit history through the server proxy", async ({ page }) => {
+  test("timeline loads commit history through the server proxy", async ({
+    page,
+    request,
+  }) => {
     await page.goto("/timeline");
 
-    const loadButton = page.getByRole("button", { name: "Load commit history" }).first();
-    await expect(loadButton).toBeVisible({ timeout: 20_000 });
-    await loadButton.click();
+    const diagnosticsAuthMode = page.getByText(new RegExp(EXPECT_TIMELINE_AUTH_MODE, "i")).first();
+    if (await diagnosticsAuthMode.isVisible().catch(() => false)) {
+      await expect(page.getByText(/upstream GitHub request/i)).toBeVisible({
+        timeout: 60_000,
+      });
+      return;
+    }
 
-    const timelineError = page.getByText(/Failed to load commit history|Sign in again|Repository not accessible|Server GitHub token is invalid|Hosted Sonde UI is missing VITE_AGENT_WS_URL/i);
+    const loadButton = page.getByRole("button", { name: "Load commit history" }).first();
+    if (await loadButton.isVisible().catch(() => false)) {
+      await loadButton.click();
+
+      const timelineError = page.getByText(/Failed to load commit history|Sign in again|Repository not accessible|Server GitHub token is invalid|Hosted Sonde UI is missing VITE_AGENT_WS_URL/i);
+      await expect(
+        page.getByText(new RegExp(EXPECT_TIMELINE_AUTH_MODE, "i"))
+      ).toBeVisible({ timeout: 60_000 }).catch(async () => {
+        const errorText = await timelineError.first().textContent().catch(() => "");
+        throw new Error(
+          `Timeline diagnostics never loaded expected auth mode (${EXPECT_TIMELINE_AUTH_MODE}). Visible error: ${errorText || "(none)"}`
+        );
+      });
+      await expect(page.getByText(/upstream GitHub request/i)).toBeVisible({
+        timeout: 60_000,
+      });
+      return;
+    }
+
+    await expect(page.getByText("No git-linked experiments found")).toBeVisible({
+      timeout: 20_000,
+    });
     await expect(
-      page.getByText(new RegExp(EXPECT_TIMELINE_AUTH_MODE, "i"))
-    ).toBeVisible({ timeout: 60_000 }).catch(async () => {
-      const errorText = await timelineError.first().textContent().catch(() => "");
-      throw new Error(
-        `Timeline diagnostics never loaded expected auth mode (${EXPECT_TIMELINE_AUTH_MODE}). Visible error: ${errorText || "(none)"}`
-      );
-    });
-    await expect(page.getByText(/upstream GitHub request/i)).toBeVisible({
-      timeout: 60_000,
-    });
+      page.getByText(
+        "Experiments logged with sonde log from inside a git repo will appear here."
+      )
+    ).toBeVisible();
+    await assertTimelineProxyAvailable(request);
   });
 
   test("chat connects and renders a hosted agent response on the first turn", async ({
