@@ -158,11 +158,17 @@ export function createApp(): Hono {
     origin: allowedOrigins,
     credentials: true,
   });
+  const adminCors = cors({
+    origin: allowedOrigins,
+    credentials: true,
+  });
   app.use("/chat", chatCors);
   app.use("/chat/*", chatCors);
   app.use("/mcp/*", chatCors);
   app.use("/auth/device", chatCors);
   app.use("/auth/device/*", chatCors);
+  app.use("/admin", adminCors);
+  app.use("/admin/*", adminCors);
 
   app.use(
     "/github/*",

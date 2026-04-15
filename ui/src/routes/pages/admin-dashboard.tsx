@@ -144,15 +144,23 @@ export default function AdminDashboard() {
   const { data: dbSizes, isLoading: dbSizesLoading } = useDbSizes();
   const { data: dbSnapshots, isLoading: dbSnapshotsLoading } = useDbSnapshots(30);
   const { data: authEvents } = useAuthEvents(50);
-  const { data: runtimeMetadata } = useAdminRuntimeMetadata();
+  const { data: runtimeMetadata, error: runtimeMetadataError } = useAdminRuntimeMetadata();
   const activeManagedEnvironment = managedEnvironment || runtimeMetadata?.environment || "all";
   const managedScope = managedStatus === "__live__" ? "live" : "recent";
   const managedStatusFilter = managedStatus === "__live__" ? "" : managedStatus;
-  const { data: managedSummary, isLoading: managedSummaryLoading } = useManagedCostSummary({
+  const {
+    data: managedSummary,
+    isLoading: managedSummaryLoading,
+    error: managedSummaryError,
+  } = useManagedCostSummary({
     days: managedWindowDays,
     environment: activeManagedEnvironment,
   });
-  const { data: managedSessionsResponse, isLoading: managedSessionsLoading } = useManagedSessionsQuery({
+  const {
+    data: managedSessionsResponse,
+    isLoading: managedSessionsLoading,
+    error: managedSessionsError,
+  } = useManagedSessionsQuery({
     days: Math.max(30, managedWindowDays),
     environment: activeManagedEnvironment,
     scope: managedScope,
@@ -173,6 +181,38 @@ export default function AdminDashboard() {
   const selectedSessionEvents = selectedSessionDetail?.events ?? [];
   const latestSyncRun = managedSummary?.latestSuccessfulSync ?? managedSummary?.latestAttemptedSync ?? null;
   const providerStatus = managedSummary?.providerStatus ?? null;
+  const managedFetchIssue = useMemo(
+    () =>
+      [runtimeMetadataError, managedSummaryError, managedSessionsError].find(
+        (issue): issue is Error => issue instanceof Error,
+      ) ?? null,
+    [managedSessionsError, managedSummaryError, runtimeMetadataError],
+  );
+  const runtimeStatusLabel = runtimeMetadataError
+    ? "Failed to load"
+    : runtimeMetadata?.managedConfigured
+      ? "Configured"
+      : "Missing managed config";
+  const providerConfigLabel = runtimeMetadataError
+    ? "Failed to load"
+    : runtimeMetadata?.managedCostProviderConfigured
+      ? "Provider-backed"
+      : "Estimated only";
+  const reconcileConfigLabel = runtimeMetadataError
+    ? "Failed to load"
+    : runtimeMetadata?.managedCostReconcileConfigured
+      ? "Configured"
+      : "Missing token";
+  const telemetryConfigLabel = runtimeMetadataError
+    ? "Failed to load"
+    : runtimeMetadata?.costTelemetryConfigured
+      ? "Configured"
+      : "Missing Supabase telemetry config";
+  const activationLabel = runtimeMetadataError
+    ? "Failed to load"
+    : runtimeMetadata?.deviceAuthEnabled
+      ? "Hosted activation ready"
+      : "Activation unavailable";
   const runtimeConfigIssues = useMemo(
     () =>
       Array.from(
@@ -302,27 +342,42 @@ export default function AdminDashboard() {
             loading={managedSummaryLoading}
           />
           <StatCard
-            value={managedProviderHeadlineValue(
-              providerStatus ?? {
-                mode: "unavailable",
-                configured: false,
-                reconcileConfigured: false,
-                reason: "no_provider_sync",
-                stale: false,
-                latestSuccessfulAt: null,
-                latestAttemptedAt: null,
-              },
-              formatUsd(managedSummary?.providerSelectedWindowUsd ?? 0),
-            )}
+            value={
+              managedSummaryError
+                ? "Unavailable"
+                : managedProviderHeadlineValue(
+                    providerStatus ?? {
+                      mode: "unavailable",
+                      configured: false,
+                      reconcileConfigured: false,
+                      reason: "no_provider_sync",
+                      stale: false,
+                      latestSuccessfulAt: null,
+                      latestAttemptedAt: null,
+                    },
+                    formatUsd(managedSummary?.providerSelectedWindowUsd ?? 0),
+                  )
+            }
             label={`Provider spend (${managedWindowDays}d)`}
             loading={managedSummaryLoading}
           />
           <StatCard
-            value={managedSummary?.activeSessions ?? 0}
+            value={managedSummaryError ? "—" : managedSummary?.activeSessions ?? 0}
             label="Active managed sessions"
             loading={managedSummaryLoading}
           />
         </div>
+
+        {managedFetchIssue && (
+          <div className="rounded-[8px] border border-status-failed/30 bg-status-failed/5 px-3 py-3">
+            <p className="text-[12px] font-medium text-status-failed">
+              Admin diagnostics failed to load
+            </p>
+            <p className="mt-1 text-[11px] leading-relaxed text-text-quaternary">
+              {managedFetchIssue.message}
+            </p>
+          </div>
+        )}
 
         <div className="grid gap-3 lg:grid-cols-3">
           <div className="rounded-[8px] border border-border-subtle bg-surface-raised px-3 py-3">
@@ -372,17 +427,25 @@ export default function AdminDashboard() {
                 </p>
               </div>
               <Badge
-                variant={runtimeMetadata?.liveSpendEnabled ? "running" : "tag"}
+                variant={
+                  runtimeMetadataError
+                    ? "failed"
+                    : runtimeMetadata?.liveSpendEnabled
+                      ? "running"
+                      : "tag"
+                }
               >
-                {runtimeMetadata?.liveSpendEnabled ? "live spend enabled" : "live spend disabled"}
+                {runtimeMetadataError
+                  ? "runtime unavailable"
+                  : runtimeMetadata?.liveSpendEnabled
+                    ? "live spend enabled"
+                    : "live spend disabled"}
               </Badge>
             </div>
             <div className="mt-3 grid gap-2 sm:grid-cols-2">
               <div className="rounded-[8px] border border-border-subtle bg-surface-raised px-3 py-2 text-[12px]">
                 <p className="text-text-tertiary">Anthropic runtime</p>
-                <p className="mt-1 font-medium text-text">
-                  {runtimeMetadata?.managedConfigured ? "Configured" : "Missing managed config"}
-                </p>
+                <p className="mt-1 font-medium text-text">{runtimeStatusLabel}</p>
                 {runtimeMetadata?.managedConfigError && (
                   <p className="mt-1 text-[11px] leading-relaxed text-status-failed">
                     {runtimeMetadata.managedConfigError}
@@ -391,9 +454,7 @@ export default function AdminDashboard() {
               </div>
               <div className="rounded-[8px] border border-border-subtle bg-surface-raised px-3 py-2 text-[12px]">
                 <p className="text-text-tertiary">Admin reconciliation</p>
-                <p className="mt-1 font-medium text-text">
-                  {runtimeMetadata?.managedCostProviderConfigured ? "Provider-backed" : "Estimated only"}
-                </p>
+                <p className="mt-1 font-medium text-text">{providerConfigLabel}</p>
                 {runtimeMetadata?.managedCostProviderConfigError && (
                   <p className="mt-1 text-[11px] leading-relaxed text-status-failed">
                     {runtimeMetadata.managedCostProviderConfigError}
@@ -402,9 +463,7 @@ export default function AdminDashboard() {
               </div>
               <div className="rounded-[8px] border border-border-subtle bg-surface-raised px-3 py-2 text-[12px]">
                 <p className="text-text-tertiary">Background reconcile</p>
-                <p className="mt-1 font-medium text-text">
-                  {runtimeMetadata?.managedCostReconcileConfigured ? "Configured" : "Missing token"}
-                </p>
+                <p className="mt-1 font-medium text-text">{reconcileConfigLabel}</p>
                 {runtimeMetadata?.managedCostReconcileConfigError && (
                   <p className="mt-1 text-[11px] leading-relaxed text-status-failed">
                     {runtimeMetadata.managedCostReconcileConfigError}
@@ -413,9 +472,7 @@ export default function AdminDashboard() {
               </div>
               <div className="rounded-[8px] border border-border-subtle bg-surface-raised px-3 py-2 text-[12px]">
                 <p className="text-text-tertiary">Telemetry writes</p>
-                <p className="mt-1 font-medium text-text">
-                  {runtimeMetadata?.costTelemetryConfigured ? "Configured" : "Missing Supabase telemetry config"}
-                </p>
+                <p className="mt-1 font-medium text-text">{telemetryConfigLabel}</p>
               </div>
               <div className="rounded-[8px] border border-border-subtle bg-surface-raised px-3 py-2 text-[12px]">
                 <p className="text-text-tertiary">Telemetry auth mode</p>
@@ -425,9 +482,7 @@ export default function AdminDashboard() {
               </div>
               <div className="rounded-[8px] border border-border-subtle bg-surface-raised px-3 py-2 text-[12px]">
                 <p className="text-text-tertiary">Remote CLI login</p>
-                <p className="mt-1 font-medium text-text">
-                  {runtimeMetadata?.deviceAuthEnabled ? "Hosted activation ready" : "Activation unavailable"}
-                </p>
+                <p className="mt-1 font-medium text-text">{activationLabel}</p>
                 {runtimeMetadata?.deviceAuthConfigError && (
                   <p className="mt-1 text-[11px] leading-relaxed text-status-failed">
                     {runtimeMetadata.deviceAuthConfigError}
