@@ -26,7 +26,9 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Set smoke temp paths
-        run: echo "PRODUCTION_SMOKE_SESSION_FILE=$RUNNER_TEMP/sonde-production-smoke-session.json" >> "$GITHUB_ENV"
+        run: |
+          echo "PRODUCTION_SMOKE_SESSION_FILE=$RUNNER_TEMP/sonde-production-smoke-session.json" >> "$GITHUB_ENV"
+          echo "PRODUCTION_ACTIVATION_SESSION_FILE=$RUNNER_TEMP/sonde-production-activation-session.json" >> "$GITHUB_ENV"
 
       - uses: actions/setup-node@v6
         with:
@@ -143,6 +145,19 @@ jobs:
           SMOKE_SESSION_FILE: ${{ env.PRODUCTION_SMOKE_SESSION_FILE }}
         run: node scripts/mint-smoke-session.mjs >/dev/null
 
+      - name: Mint production activation session
+        working-directory: server
+        env:
+          SUPABASE_URL: https://${{ steps.contract.outputs.supabase_project_ref }}.supabase.co
+          SUPABASE_ANON_KEY: ${{ steps.contract.outputs.supabase_anon_key }}
+          SMOKE_USER_EMAIL: ${{ secrets.SONDE_PRODUCTION_SMOKE_USER_EMAIL }}
+          SMOKE_USER_PASSWORD: ${{ secrets.SONDE_PRODUCTION_SMOKE_USER_PASSWORD }}
+          SMOKE_SESSION_FILE: ${{ env.PRODUCTION_ACTIVATION_SESSION_FILE }}
+        # Hosted activation smoke signs the activation session out on success,
+        # so it must not reuse the browser session that later chat/timeline
+        # tests depend on.
+        run: node scripts/mint-smoke-session.mjs >/dev/null
+
       - name: Wait for production agent runtime parity
         if: ${{ steps.targets.outputs.agent_url != '' }}
         working-directory: server
@@ -203,10 +218,15 @@ jobs:
           E2E_EXPECT_TIMELINE_AUTH_MODE: ${{ steps.contract.outputs.smoke_expected_timeline_auth_mode }}
           E2E_CHAT_PROMPT: ${{ steps.contract.outputs.managed_auth_audit_prompt }}
           PRODUCTION_SMOKE_SESSION_FILE: ${{ env.PRODUCTION_SMOKE_SESSION_FILE }}
+          PRODUCTION_ACTIVATION_SESSION_FILE: ${{ env.PRODUCTION_ACTIVATION_SESSION_FILE }}
         run: |
           if [ -f "$PRODUCTION_SMOKE_SESSION_FILE" ]; then
             E2E_AUTH_SESSION_JSON="$(cat "$PRODUCTION_SMOKE_SESSION_FILE")"
             export E2E_AUTH_SESSION_JSON
+          fi
+          if [ -f "$PRODUCTION_ACTIVATION_SESSION_FILE" ]; then
+            E2E_ACTIVATION_SESSION_JSON="$(cat "$PRODUCTION_ACTIVATION_SESSION_FILE")"
+            export E2E_ACTIVATION_SESSION_JSON
           fi
           npm run test:e2e:hosted
 

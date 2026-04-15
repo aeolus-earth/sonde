@@ -24,6 +24,10 @@ const AGENT_HTTP_BASE = process.env.E2E_AGENT_HTTP_BASE ?? null;
 const AGENT_RUNTIME_AUDIT_TOKEN =
   process.env.E2E_AGENT_RUNTIME_AUDIT_TOKEN?.trim() || null;
 const AUTH_SESSION_JSON = process.env.E2E_AUTH_SESSION_JSON?.trim() || null;
+// Activation cleanup signs its Supabase session out after approval, so use a
+// separate seeded browser session when the workflow provides one.
+const ACTIVATION_SESSION_JSON =
+  process.env.E2E_ACTIVATION_SESSION_JSON?.trim() || AUTH_SESSION_JSON;
 const EXPECT_PROGRAM_ID = process.env.E2E_EXPECT_PROGRAM_ID?.trim() || null;
 const EXPECT_EXPERIMENT_ID = process.env.E2E_EXPECT_EXPERIMENT_ID?.trim() || null;
 const EXPECT_TIMELINE_AUTH_MODE =
@@ -441,11 +445,11 @@ test.describe(SUITE_LABEL, () => {
     browserName,
   }) => {
     test.skip(!AGENT_HTTP_BASE, "Skipped: no agent host configured");
-    test.skip(!AUTH_SESSION_JSON, "Skipped: no smoke auth session configured");
+    test.skip(!ACTIVATION_SESSION_JSON, "Skipped: no smoke activation session configured");
     test.skip(browserName !== "chromium", "Run hosted activation smoke once to keep it lean.");
 
     const activation = await startHostedDeviceActivation(request);
-    await seedActivationSession(page, AUTH_SESSION_JSON);
+    await seedActivationSession(page, ACTIVATION_SESSION_JSON);
 
     await page.goto(`/activate/callback?user_code=${encodeURIComponent(activation.user_code)}`);
     await page.waitForURL(/\/activate(\?|$)/, { timeout: 20_000 });
@@ -465,11 +469,11 @@ test.describe(SUITE_LABEL, () => {
     browserName,
   }) => {
     test.skip(!AGENT_HTTP_BASE, "Skipped: no agent host configured");
-    test.skip(!AUTH_SESSION_JSON, "Skipped: no smoke auth session configured");
+    test.skip(!ACTIVATION_SESSION_JSON, "Skipped: no smoke activation session configured");
     test.skip(browserName !== "chromium", "Run hosted activation smoke once to keep it lean.");
 
     const activation = await startHostedDeviceActivation(request);
-    await seedActivationSession(page, AUTH_SESSION_JSON);
+    await seedActivationSession(page, ACTIVATION_SESSION_JSON);
 
     await page.goto(activation.verification_uri_complete);
     await expect(
