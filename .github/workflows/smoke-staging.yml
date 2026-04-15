@@ -135,16 +135,6 @@ jobs:
           echo "::error::Staging agent did not become reachable in time"
           exit 1
 
-      - name: Mint staging smoke session
-        working-directory: server
-        env:
-          SUPABASE_URL: https://${{ steps.contract.outputs.supabase_project_ref }}.supabase.co
-          SUPABASE_ANON_KEY: ${{ steps.contract.outputs.supabase_anon_key }}
-          SMOKE_USER_EMAIL: ${{ secrets.SONDE_STAGING_SMOKE_USER_EMAIL }}
-          SMOKE_USER_PASSWORD: ${{ secrets.SONDE_STAGING_SMOKE_USER_PASSWORD }}
-          SMOKE_SESSION_FILE: ${{ env.STAGING_SMOKE_SESSION_FILE }}
-        run: node scripts/mint-smoke-session.mjs >/dev/null
-
       - name: Mint staging activation session
         working-directory: server
         env:
@@ -191,6 +181,38 @@ jobs:
           AUDIT_WAIT_INTERVAL_MS: ${{ steps.contract.outputs.audit_wait_interval_ms }}
         run: node scripts/audit-deployed-stack.mjs
 
+      - name: Run staging base and activation smoke tests
+        env:
+          E2E_BASE_URL: ${{ steps.targets.outputs.ui_url }}
+          E2E_DEPLOY_ENVIRONMENT: ${{ steps.contract.outputs.runtime_environment }}
+          E2E_AGENT_HTTP_BASE: ${{ steps.targets.outputs.agent_url }}
+          E2E_AGENT_RUNTIME_AUDIT_TOKEN: ${{ secrets.SONDE_RUNTIME_AUDIT_TOKEN }}
+          E2E_SUPABASE_URL: https://${{ steps.contract.outputs.supabase_project_ref }}.supabase.co
+          E2E_EXPECT_PROGRAM_ID: ${{ steps.contract.outputs.smoke_expected_program_id }}
+          E2E_EXPECT_EXPERIMENT_ID: ${{ steps.contract.outputs.smoke_expected_experiment_id }}
+          E2E_EXPECT_TIMELINE_AUTH_MODE: ${{ steps.contract.outputs.smoke_expected_timeline_auth_mode }}
+          E2E_CHAT_PROMPT: ${{ steps.contract.outputs.managed_auth_audit_prompt }}
+          STAGING_SMOKE_SESSION_FILE: ${{ env.STAGING_SMOKE_SESSION_FILE }}
+          STAGING_ACTIVATION_SESSION_FILE: ${{ env.STAGING_ACTIVATION_SESSION_FILE }}
+        run: |
+          if [ -f "$STAGING_ACTIVATION_SESSION_FILE" ]; then
+            E2E_ACTIVATION_SESSION_JSON="$(cat "$STAGING_ACTIVATION_SESSION_FILE")"
+            export E2E_ACTIVATION_SESSION_JSON
+          fi
+          npm run test:e2e:hosted -- --grep-invert @authenticated
+
+      - name: Mint staging smoke session
+        working-directory: server
+        env:
+          SUPABASE_URL: https://${{ steps.contract.outputs.supabase_project_ref }}.supabase.co
+          SUPABASE_ANON_KEY: ${{ steps.contract.outputs.supabase_anon_key }}
+          SMOKE_USER_EMAIL: ${{ secrets.SONDE_STAGING_SMOKE_USER_EMAIL }}
+          SMOKE_USER_PASSWORD: ${{ secrets.SONDE_STAGING_SMOKE_USER_PASSWORD }}
+          SMOKE_SESSION_FILE: ${{ env.STAGING_SMOKE_SESSION_FILE }}
+        # Supabase can revoke earlier sessions for the same user, so mint the
+        # authenticated-app session only after the activation suite completes.
+        run: node scripts/mint-smoke-session.mjs >/dev/null
+
       - name: Run staging managed auth audit
         if: ${{ steps.targets.outputs.agent_url != '' }}
         working-directory: server
@@ -206,7 +228,7 @@ jobs:
           MANAGED_AUTH_AUDIT_SESSION_FILE: ${{ env.STAGING_SMOKE_SESSION_FILE }}
         run: node scripts/run-managed-auth-audit.mjs
 
-      - name: Run staging smoke tests
+      - name: Run staging authenticated smoke tests
         env:
           E2E_BASE_URL: ${{ steps.targets.outputs.ui_url }}
           E2E_DEPLOY_ENVIRONMENT: ${{ steps.contract.outputs.runtime_environment }}
@@ -218,17 +240,12 @@ jobs:
           E2E_EXPECT_TIMELINE_AUTH_MODE: ${{ steps.contract.outputs.smoke_expected_timeline_auth_mode }}
           E2E_CHAT_PROMPT: ${{ steps.contract.outputs.managed_auth_audit_prompt }}
           STAGING_SMOKE_SESSION_FILE: ${{ env.STAGING_SMOKE_SESSION_FILE }}
-          STAGING_ACTIVATION_SESSION_FILE: ${{ env.STAGING_ACTIVATION_SESSION_FILE }}
         run: |
           if [ -f "$STAGING_SMOKE_SESSION_FILE" ]; then
             E2E_AUTH_SESSION_JSON="$(cat "$STAGING_SMOKE_SESSION_FILE")"
             export E2E_AUTH_SESSION_JSON
           fi
-          if [ -f "$STAGING_ACTIVATION_SESSION_FILE" ]; then
-            E2E_ACTIVATION_SESSION_JSON="$(cat "$STAGING_ACTIVATION_SESSION_FILE")"
-            export E2E_ACTIVATION_SESSION_JSON
-          fi
-          npm run test:e2e:hosted
+          npm run test:e2e:hosted -- --grep @authenticated
 
       - name: Upload report on failure
         uses: actions/upload-artifact@v7
