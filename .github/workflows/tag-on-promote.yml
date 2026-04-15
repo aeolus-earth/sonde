@@ -1,0 +1,74 @@
+name: Tag on Promote
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tag-on-promote
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # need all tags to compute the next patch
+          # Use the promotion token so the pushed tag triggers the Release workflow
+          # (the default GITHUB_TOKEN cannot trigger other workflows).
+          token: ${{ secrets.SONDE_PROMOTION_GITHUB_TOKEN }}
+
+      - name: Skip non-promote pushes
+        id: gate
+        run: |
+          set -euo pipefail
+          SUBJECT=$(git log -1 --pretty=%s)
+          echo "Commit subject: ${SUBJECT}"
+          # promote-main.yml opens PRs titled "Promote staging to main".
+          # Merge commits land on main as "Merge pull request #NNN from <owner>/staging".
+          if echo "${SUBJECT}" | grep -qE "^Merge pull request #[0-9]+ from [^ ]+/staging$"; then
+            echo "promote=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Not a staging-promote merge commit — skipping tag."
+            echo "promote=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Compute next patch tag
+        if: steps.gate.outputs.promote == 'true'
+        id: next
+        run: |
+          set -euo pipefail
+          LAST_TAG=$(git tag --sort=-v:refname | head -1 || true)
+          if [ -z "${LAST_TAG}" ]; then
+            NEXT="v0.1.0"
+          else
+            STRIPPED="${LAST_TAG#v}"
+            MAJOR=$(echo "${STRIPPED}" | cut -d. -f1)
+            MINOR=$(echo "${STRIPPED}" | cut -d. -f2)
+            PATCH=$(echo "${STRIPPED}" | cut -d. -f3)
+            NEXT="v${MAJOR}.${MINOR}.$((PATCH + 1))"
+          fi
+          echo "Last tag: ${LAST_TAG:-<none>} -> next: ${NEXT}"
+          echo "tag=${NEXT}" >> "$GITHUB_OUTPUT"
+
+      - name: Create and push tag
+        if: steps.gate.outputs.promote == 'true'
+        env:
+          TAG: ${{ steps.next.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if git rev-parse "${TAG}" >/dev/null 2>&1; then
+            echo "Tag ${TAG} already exists — skipping."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "${TAG}" -m "Auto-release ${TAG} from staging promotion"
+          git push origin "${TAG}"
+          echo "Pushed ${TAG} — Release workflow will run on the tag-push trigger."
