@@ -231,7 +231,7 @@ def test_check_device_login_health_reports_ready(monkeypatch) -> None:
         def __enter__(self):
             return self
 
-        def __exit__(self, exc_type, exc, tb):
+        def __exit__(self, *_args):
             return False
 
         def read(self) -> bytes:
