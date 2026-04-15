@@ -151,21 +151,11 @@ describe("createApp", () => {
     const body = (await response.json()) as {
       status: string;
       enabled: boolean;
-      config_error: string | null;
-      verification_origin: string | null;
-      verification_uri: string | null;
-      poll_interval_seconds: number;
-      ttl_seconds: number;
     };
 
     assert.deepEqual(body, {
       status: "ok",
       enabled: true,
-      config_error: null,
-      verification_origin: "https://sonde-neon.vercel.app",
-      verification_uri: "https://sonde-neon.vercel.app/activate",
-      poll_interval_seconds: 5,
-      ttl_seconds: 600,
     });
   });
 
@@ -180,19 +170,14 @@ describe("createApp", () => {
     assert.equal(response.status, 200);
 
     const body = (await response.json()) as {
+      status: string;
       enabled: boolean;
-      config_error: string | null;
-      verification_origin: string | null;
-      verification_uri: string | null;
     };
 
-    assert.equal(body.enabled, false);
-    assert.equal(
-      body.config_error,
-      "A public Sonde UI origin is required for device login.",
-    );
-    assert.equal(body.verification_origin, null);
-    assert.equal(body.verification_uri, null);
+    assert.deepEqual(body, {
+      status: "ok",
+      enabled: false,
+    });
   });
 
   it("completes a device login request without a localhost callback", async () => {

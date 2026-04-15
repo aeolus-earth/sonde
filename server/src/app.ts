@@ -246,11 +246,6 @@ export function createApp(): Hono {
     return c.json({
       status: "ok",
       enabled: config.enabled,
-      config_error: config.configError,
-      verification_origin: config.verificationOrigin,
-      verification_uri: config.verificationUri,
-      poll_interval_seconds: config.pollIntervalSeconds,
-      ttl_seconds: config.ttlSeconds,
     });
   });
 
