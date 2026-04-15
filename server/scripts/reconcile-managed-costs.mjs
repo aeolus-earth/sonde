@@ -11,10 +11,17 @@ function parsePositiveInt(value, fallback) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function parseBooleanFlag(value) {
+  return value === "1" || value === "true";
+}
+
 async function main() {
   const httpBase = requiredEnv("MANAGED_COST_RECONCILE_HTTP_BASE").replace(/\/$/, "");
   const token = requiredEnv("MANAGED_COST_RECONCILE_TOKEN");
   const days = parsePositiveInt(process.env.MANAGED_COST_RECONCILE_DAYS, 7);
+  const requireProvider = parseBooleanFlag(
+    (process.env.MANAGED_COST_RECONCILE_REQUIRE_PROVIDER ?? "").trim().toLowerCase(),
+  );
 
   const response = await fetch(`${httpBase}/internal/managed-costs/reconcile`, {
     method: "POST",
@@ -28,6 +35,19 @@ async function main() {
   const bodyText = await response.text();
   if (!response.ok) {
     throw new Error(`Managed cost reconcile failed (${response.status}): ${bodyText}`);
+  }
+
+  let body = null;
+  try {
+    body = bodyText ? JSON.parse(bodyText) : null;
+  } catch {
+    throw new Error(`Managed cost reconcile returned invalid JSON: ${bodyText}`);
+  }
+
+  if (requireProvider && body?.mode !== "provider") {
+    throw new Error(
+      `Managed cost reconcile completed without provider-backed costs (mode=${body?.mode ?? "unknown"}, reason=${body?.reason ?? "unknown"})`,
+    );
   }
 
   console.log(`[managed-costs] Reconcile success ${bodyText}`);

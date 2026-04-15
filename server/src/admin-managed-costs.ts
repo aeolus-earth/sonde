@@ -1,5 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getManagedSessionCostThresholds } from "./managed/pricing.js";
+import { getAnthropicAdminApiKeyStatus } from "./managed/config.js";
+import { getInternalAdminTokenStatus } from "./security-config.js";
 import { createTelemetrySupabaseClient } from "./supabase.js";
 
 interface ManagedSessionRow {
@@ -122,12 +124,33 @@ export interface ManagedCostSummaryResponse {
   activeSessions: number;
   sessionCount: number;
   unallocatedProviderChargesUsd: number;
+  providerStatus: ManagedProviderCostStatus;
   thresholds: {
     warnUsd: number;
     criticalUsd: number;
   };
   latestSuccessfulSync: AnthropicCostSyncRun | null;
   latestAttemptedSync: AnthropicCostSyncRun | null;
+}
+
+export type ManagedProviderCostReason =
+  | "ok"
+  | "missing_admin_api_key"
+  | "missing_internal_admin_token"
+  | "estimated_only"
+  | "provider_sync_failed"
+  | "provider_sync_stale"
+  | "missing_selected_window_provider_sync"
+  | "no_provider_sync";
+
+export interface ManagedProviderCostStatus {
+  mode: "provider" | "estimated_only" | "unavailable";
+  configured: boolean;
+  reconcileConfigured: boolean;
+  reason: ManagedProviderCostReason;
+  stale: boolean;
+  latestSuccessfulAt: string | null;
+  latestAttemptedAt: string | null;
 }
 
 export interface ManagedSessionsListResponse {
@@ -190,13 +213,133 @@ function syncWindowDays(run: AnthropicCostSyncRun): number {
   return 0;
 }
 
-function pickLatestSuccessfulSync(
+const LIVE_SESSION_STATUSES = [
+  "active",
+  "idle",
+  "awaiting_approval",
+  "prewarmed",
+] as const;
+
+const PROVIDER_SYNC_STALE_AFTER_MS = 36 * 60 * 60_000;
+
+function latestRunTimestamp(run: AnthropicCostSyncRun | null): string | null {
+  if (!run) return null;
+  return run.completed_at ?? run.created_at ?? null;
+}
+
+function pickLatestSuccessfulProviderSync(
   runs: AnthropicCostSyncRun[],
-  selectedWindowDays: number
 ): AnthropicCostSyncRun | null {
-  const successful = runs.filter((run) => run.success && run.mode === "provider");
-  const exactWindow = successful.find((run) => syncWindowDays(run) === selectedWindowDays);
-  return exactWindow ?? successful[0] ?? null;
+  return runs.find((run) => run.success && run.mode === "provider") ?? null;
+}
+
+function pickLatestSuccessfulProviderSyncForWindow(
+  runs: AnthropicCostSyncRun[],
+  selectedWindowDays: number,
+): AnthropicCostSyncRun | null {
+  return (
+    runs.find(
+      (run) =>
+        run.success &&
+        run.mode === "provider" &&
+        syncWindowDays(run) === selectedWindowDays,
+    ) ?? null
+  );
+}
+
+function buildManagedProviderCostStatus(options: {
+  providerConfigured: boolean;
+  reconcileConfigured: boolean;
+  latestAttemptedSync: AnthropicCostSyncRun | null;
+  latestSuccessfulSyncForWindow: AnthropicCostSyncRun | null;
+  latestSuccessfulProviderSync: AnthropicCostSyncRun | null;
+}): ManagedProviderCostStatus {
+  const latestSuccessfulAt = latestRunTimestamp(options.latestSuccessfulProviderSync);
+  const latestAttemptedAt = latestRunTimestamp(options.latestAttemptedSync);
+  const latestSelectedWindowSync = options.latestSuccessfulSyncForWindow;
+
+  if (latestSelectedWindowSync) {
+    const lastSuccessfulMs = Date.parse(latestSuccessfulAt ?? "");
+    const stale =
+      Number.isFinite(lastSuccessfulMs) &&
+      Date.now() - lastSuccessfulMs > PROVIDER_SYNC_STALE_AFTER_MS;
+    return {
+      mode: "provider",
+      configured: options.providerConfigured,
+      reconcileConfigured: options.reconcileConfigured,
+      reason: stale ? "provider_sync_stale" : "ok",
+      stale,
+      latestSuccessfulAt,
+      latestAttemptedAt,
+    };
+  }
+
+  if (!options.providerConfigured) {
+    return {
+      mode: "unavailable",
+      configured: false,
+      reconcileConfigured: options.reconcileConfigured,
+      reason: "missing_admin_api_key",
+      stale: false,
+      latestSuccessfulAt,
+      latestAttemptedAt,
+    };
+  }
+
+  if (
+    options.latestAttemptedSync?.success &&
+    options.latestAttemptedSync.mode === "estimated_only"
+  ) {
+    return {
+      mode: "estimated_only",
+      configured: true,
+      reconcileConfigured: options.reconcileConfigured,
+      reason: "estimated_only",
+      stale: false,
+      latestSuccessfulAt,
+      latestAttemptedAt,
+    };
+  }
+
+  if (
+    options.latestAttemptedSync &&
+    !options.latestAttemptedSync.success &&
+    options.latestAttemptedSync.mode === "provider"
+  ) {
+    return {
+      mode: "unavailable",
+      configured: true,
+      reconcileConfigured: options.reconcileConfigured,
+      reason: "provider_sync_failed",
+      stale: false,
+      latestSuccessfulAt,
+      latestAttemptedAt,
+    };
+  }
+
+  if (options.latestSuccessfulProviderSync) {
+    return {
+      mode: "unavailable",
+      configured: true,
+      reconcileConfigured: options.reconcileConfigured,
+      reason: "missing_selected_window_provider_sync",
+      stale: false,
+      latestSuccessfulAt,
+      latestAttemptedAt,
+    };
+  }
+
+  return {
+    mode: "unavailable",
+    configured: true,
+    reconcileConfigured: options.reconcileConfigured,
+    reason: options.reconcileConfigured
+      ? "no_provider_sync"
+      : "missing_internal_admin_token",
+    stale: false,
+    latestSuccessfulAt,
+    latestAttemptedAt,
+  };
 }
 
 function sumSessionCostSince(rows: ManagedSessionRow[], cutoffMs: number): number {
@@ -205,15 +348,6 @@ function sumSessionCostSince(rows: ManagedSessionRow[], cutoffMs: number): numbe
       .filter((row) => Date.parse(row.created_at) >= cutoffMs)
       .reduce((sum, row) => sum + (row.estimated_total_cost_usd ?? 0), 0)
   );
-}
-
-function activeSessionCount(rows: ManagedSessionRow[]): number {
-  return rows.filter((row) =>
-    row.status === "active" ||
-    row.status === "idle" ||
-    row.status === "awaiting_approval" ||
-    row.status === "prewarmed"
-  ).length;
 }
 
 export async function fetchManagedCostSummary(options: {
@@ -237,6 +371,19 @@ export async function fetchManagedCostSummary(options: {
   if (sessionsError) throw sessionsError;
   const sessions = (sessionsData ?? []) as ManagedSessionRow[];
 
+  let activeSessionsQuery = client
+    .from("managed_sessions")
+    .select("session_id")
+    .in("status", [...LIVE_SESSION_STATUSES]);
+  if (matchesEnvironment(options.environment)) {
+    activeSessionsQuery = activeSessionsQuery.eq("environment", options.environment);
+  }
+  const { data: activeSessionsData, error: activeSessionsError } = await activeSessionsQuery;
+  if (activeSessionsError) throw activeSessionsError;
+  const activeSessions = Array.isArray(activeSessionsData)
+    ? activeSessionsData.length
+    : 0;
+
   let syncRunsQuery = client
     .from("anthropic_cost_sync_runs")
     .select("*")
@@ -249,7 +396,11 @@ export async function fetchManagedCostSummary(options: {
   if (runsError) throw runsError;
   const syncRuns = (runsData ?? []) as AnthropicCostSyncRun[];
   const latestAttemptedSync = syncRuns[0] ?? null;
-  const latestSuccessfulSync = pickLatestSuccessfulSync(syncRuns, options.selectedWindowDays);
+  const latestSuccessfulSync = pickLatestSuccessfulProviderSyncForWindow(
+    syncRuns,
+    options.selectedWindowDays,
+  );
+  const latestSuccessfulProviderSync = pickLatestSuccessfulProviderSync(syncRuns);
 
   let providerSelectedWindowUsd = 0;
   if (latestSuccessfulSync) {
@@ -275,6 +426,13 @@ export async function fetchManagedCostSummary(options: {
     now - options.selectedWindowDays * 86_400_000
   );
   const thresholds = getManagedSessionCostThresholds();
+  const providerStatus = buildManagedProviderCostStatus({
+    providerConfigured: getAnthropicAdminApiKeyStatus().valid,
+    reconcileConfigured: getInternalAdminTokenStatus().valid,
+    latestAttemptedSync,
+    latestSuccessfulSyncForWindow: latestSuccessfulSync,
+    latestSuccessfulProviderSync,
+  });
 
   return {
     environment: options.environment,
@@ -284,11 +442,12 @@ export async function fetchManagedCostSummary(options: {
     estimatedThirtyDaysUsd,
     estimatedSelectedWindowUsd,
     providerSelectedWindowUsd,
-    activeSessions: activeSessionCount(sessions),
+    activeSessions,
     sessionCount: sessions.length,
     unallocatedProviderChargesUsd: roundUsd(
       Math.max(providerSelectedWindowUsd - estimatedSelectedWindowUsd, 0)
     ),
+    providerStatus,
     thresholds,
     latestSuccessfulSync,
     latestAttemptedSync,
@@ -299,6 +458,7 @@ export async function fetchManagedSessions(options: {
   accessToken?: string | null;
   environment: string;
   days: number;
+  scope?: "recent" | "live";
   status?: string;
   user?: string;
   limit?: number;
@@ -309,17 +469,27 @@ export async function fetchManagedSessions(options: {
   const limit = clampLimit(options.limit, 100, 500);
   const offset = clampOffset(options.offset);
   const userFilter = options.user?.trim() ?? "";
+  const scope = options.scope === "live" ? "live" : "recent";
 
   let query = client
     .from("managed_sessions")
     .select("*", { count: "exact" })
-    .gte("created_at", since)
     .order("created_at", { ascending: false });
+
+  if (scope === "recent") {
+    query = query.gte("created_at", since);
+  }
 
   if (matchesEnvironment(options.environment)) {
     query = query.eq("environment", options.environment);
   }
-  if (options.status) {
+  if (scope === "live") {
+    if (options.status) {
+      query = query.eq("status", options.status);
+    } else {
+      query = query.in("status", [...LIVE_SESSION_STATUSES]);
+    }
+  } else if (options.status) {
     query = query.eq("status", options.status);
   }
   if (userFilter) {

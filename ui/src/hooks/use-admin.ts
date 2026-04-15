@@ -420,6 +420,10 @@ export interface AdminRuntimeMetadata {
   anthropicConfigError: string | null;
   anthropicAdminConfigured: boolean;
   anthropicAdminConfigError: string | null;
+  managedCostProviderConfigured: boolean;
+  managedCostProviderConfigError: string | null;
+  managedCostReconcileConfigured: boolean;
+  managedCostReconcileConfigError: string | null;
   costTelemetryConfigured: boolean;
   liveSpendEnabled: boolean;
   telemetryRequiresServiceRole: boolean;
@@ -446,6 +450,23 @@ export interface ManagedCostSummaryResponse {
   activeSessions: number;
   sessionCount: number;
   unallocatedProviderChargesUsd: number;
+  providerStatus: {
+    mode: "provider" | "estimated_only" | "unavailable";
+    configured: boolean;
+    reconcileConfigured: boolean;
+    reason:
+      | "ok"
+      | "missing_admin_api_key"
+      | "missing_internal_admin_token"
+      | "estimated_only"
+      | "provider_sync_failed"
+      | "provider_sync_stale"
+      | "missing_selected_window_provider_sync"
+      | "no_provider_sync";
+    stale: boolean;
+    latestSuccessfulAt: string | null;
+    latestAttemptedAt: string | null;
+  };
   thresholds: {
     warnUsd: number;
     criticalUsd: number;
@@ -495,6 +516,7 @@ export function useManagedCostSummary({
 export function useManagedSessionsQuery({
   days = 30,
   environment = "all",
+  scope = "recent",
   status = "",
   user = "",
   limit = 100,
@@ -502,16 +524,17 @@ export function useManagedSessionsQuery({
 }: {
   days?: number;
   environment?: string;
+  scope?: "recent" | "live";
   status?: string;
   user?: string;
   limit?: number;
   offset?: number;
 }) {
   return useQuery({
-    queryKey: ["admin", "managed-sessions", days, environment, status, user, limit, offset],
+    queryKey: ["admin", "managed-sessions", days, environment, scope, status, user, limit, offset],
     queryFn: () =>
       fetchAdminJson<ManagedSessionsListResponse>(
-        `/admin/managed-sessions?days=${days}&environment=${encodeURIComponent(environment)}&status=${encodeURIComponent(status)}&user=${encodeURIComponent(user)}&limit=${limit}&offset=${offset}`
+        `/admin/managed-sessions?days=${days}&environment=${encodeURIComponent(environment)}&scope=${encodeURIComponent(scope)}&status=${encodeURIComponent(status)}&user=${encodeURIComponent(user)}&limit=${limit}&offset=${offset}`
       ),
     staleTime: 15_000,
     refetchInterval: 30_000,
@@ -555,6 +578,7 @@ export function useReconcileManagedCosts() {
         syncRunId: number | null;
         bucketCount: number;
         totalCostUsd: number;
+        reason: string | null;
       }>("/admin/managed-costs/reconcile", {
         method: "POST",
         body: JSON.stringify({ days }),
@@ -571,7 +595,9 @@ export function useReconcileManagedCosts() {
         description:
           data.mode === "provider"
             ? `$${data.totalCostUsd.toFixed(2)} across ${data.bucketCount} provider buckets`
-            : "ANTHROPIC_ADMIN_API_KEY is missing, so only internal session estimates are available.",
+            : data.reason === "missing_admin_api_key"
+              ? "ANTHROPIC_ADMIN_API_KEY is missing, so only internal session estimates are available."
+              : "Provider-backed cost reconciliation is unavailable, so only internal session estimates were refreshed.",
         variant: "success",
       });
     },

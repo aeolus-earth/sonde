@@ -216,6 +216,18 @@ jobs:
             exit 1
           fi
 
+      - name: Warn when production managed-cost secrets are missing
+        env:
+          SONDE_INTERNAL_ADMIN_TOKEN: ${{ secrets.SONDE_INTERNAL_ADMIN_TOKEN }}
+          ANTHROPIC_ADMIN_API_KEY: ${{ secrets.ANTHROPIC_ADMIN_API_KEY }}
+        run: |
+          if [ -z "${SONDE_INTERNAL_ADMIN_TOKEN:-}" ]; then
+            echo "::warning::SONDE_INTERNAL_ADMIN_TOKEN is missing; scheduled managed-cost reconciliation will remain degraded."
+          fi
+          if [ -z "${ANTHROPIC_ADMIN_API_KEY:-}" ]; then
+            echo "::warning::ANTHROPIC_ADMIN_API_KEY is missing; provider-backed managed costs will remain unavailable."
+          fi
+
       - name: Install Railway CLI
         run: npm install -g @railway/cli
 
@@ -243,7 +255,9 @@ jobs:
           SONDE_RUNTIME_AUDIT_TOKEN: ${{ secrets.SONDE_RUNTIME_AUDIT_TOKEN }}
           SONDE_WS_TOKEN_SECRET: ${{ secrets.SONDE_WS_TOKEN_SECRET }}
           SONDE_DEVICE_AUTH_ENCRYPTION_KEY: ${{ secrets.SONDE_DEVICE_AUTH_ENCRYPTION_KEY }}
+          SONDE_INTERNAL_ADMIN_TOKEN: ${{ secrets.SONDE_INTERNAL_ADMIN_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_ADMIN_API_KEY: ${{ secrets.ANTHROPIC_ADMIN_API_KEY }}
           SONDE_AGENT_GITHUB_TOKEN: ${{ secrets.SONDE_AGENT_GITHUB_TOKEN }}
           SONDE_GITHUB_ALLOWED_REPOS: ${{ vars.SONDE_GITHUB_ALLOWED_REPOS }}
         run: |
@@ -252,6 +266,33 @@ jobs:
             exit 1
           fi
           SCHEMA_VERSION="${SONDE_SCHEMA_VERSION:-unknown}"
+          variable_args=(
+            VITE_SUPABASE_URL="https://${{ steps.contract.outputs.supabase_project_ref }}.supabase.co"
+            VITE_SUPABASE_ANON_KEY="${{ steps.contract.outputs.supabase_anon_key }}"
+            SONDE_AGENT_BACKEND="managed"
+            SONDE_MANAGED_ENVIRONMENT_ID="${SONDE_MANAGED_ENVIRONMENT_ID}"
+            SONDE_MANAGED_AGENT_ID=" "
+            SONDE_MANAGED_ALLOW_EPHEMERAL_AGENT="1"
+            SONDE_ALLOWED_ORIGINS="${{ steps.contract.outputs.site_url }}"
+            SONDE_PUBLIC_APP_ORIGIN="${{ steps.contract.outputs.site_url }}"
+            SONDE_ENVIRONMENT="production"
+            SONDE_COMMIT_SHA="${GITHUB_SHA}"
+            SONDE_CLI_GIT_REF="${GITHUB_SHA}"
+            SONDE_SCHEMA_VERSION="${SCHEMA_VERSION}"
+            SUPABASE_SERVICE_ROLE_KEY="${SUPABASE_SERVICE_ROLE_KEY}"
+            SONDE_RUNTIME_AUDIT_TOKEN="${SONDE_RUNTIME_AUDIT_TOKEN}"
+            SONDE_WS_TOKEN_SECRET="${SONDE_WS_TOKEN_SECRET}"
+            SONDE_DEVICE_AUTH_ENCRYPTION_KEY="${SONDE_DEVICE_AUTH_ENCRYPTION_KEY}"
+            ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY}"
+            GITHUB_TOKEN="${SONDE_AGENT_GITHUB_TOKEN}"
+            SONDE_GITHUB_ALLOWED_REPOS="${SONDE_GITHUB_ALLOWED_REPOS}"
+          )
+          if [ -n "${SONDE_INTERNAL_ADMIN_TOKEN:-}" ]; then
+            variable_args+=(SONDE_INTERNAL_ADMIN_TOKEN="${SONDE_INTERNAL_ADMIN_TOKEN}")
+          fi
+          if [ -n "${ANTHROPIC_ADMIN_API_KEY:-}" ]; then
+            variable_args+=(ANTHROPIC_ADMIN_API_KEY="${ANTHROPIC_ADMIN_API_KEY}")
+          fi
           railway variable delete \
             -s "${{ vars.RAILWAY_PRODUCTION_SERVICE_NAME }}" \
             -e "${{ vars.RAILWAY_PRODUCTION_ENVIRONMENT_ID }}" \
@@ -260,25 +301,7 @@ jobs:
             -s "${{ vars.RAILWAY_PRODUCTION_SERVICE_NAME }}" \
             -e "${{ vars.RAILWAY_PRODUCTION_ENVIRONMENT_ID }}" \
             --skip-deploys \
-            VITE_SUPABASE_URL="https://${{ steps.contract.outputs.supabase_project_ref }}.supabase.co" \
-            VITE_SUPABASE_ANON_KEY="${{ steps.contract.outputs.supabase_anon_key }}" \
-            SONDE_AGENT_BACKEND="managed" \
-            SONDE_MANAGED_ENVIRONMENT_ID="${SONDE_MANAGED_ENVIRONMENT_ID}" \
-            SONDE_MANAGED_AGENT_ID=" " \
-            SONDE_MANAGED_ALLOW_EPHEMERAL_AGENT="1" \
-            SONDE_ALLOWED_ORIGINS="${{ steps.contract.outputs.site_url }}" \
-            SONDE_PUBLIC_APP_ORIGIN="${{ steps.contract.outputs.site_url }}" \
-            SONDE_ENVIRONMENT="production" \
-            SONDE_COMMIT_SHA="${GITHUB_SHA}" \
-            SONDE_CLI_GIT_REF="${GITHUB_SHA}" \
-            SONDE_SCHEMA_VERSION="${SCHEMA_VERSION}" \
-            SUPABASE_SERVICE_ROLE_KEY="${SUPABASE_SERVICE_ROLE_KEY}" \
-            SONDE_RUNTIME_AUDIT_TOKEN="${SONDE_RUNTIME_AUDIT_TOKEN}" \
-            SONDE_WS_TOKEN_SECRET="${SONDE_WS_TOKEN_SECRET}" \
-            SONDE_DEVICE_AUTH_ENCRYPTION_KEY="${SONDE_DEVICE_AUTH_ENCRYPTION_KEY}" \
-            ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY}" \
-            GITHUB_TOKEN="${SONDE_AGENT_GITHUB_TOKEN}" \
-            SONDE_GITHUB_ALLOWED_REPOS="${SONDE_GITHUB_ALLOWED_REPOS}"
+            "${variable_args[@]}"
 
       - name: Deploy production agent
         env:

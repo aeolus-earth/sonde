@@ -29,6 +29,12 @@ import { DbSizeChart } from "@/components/visualizations/db-size-chart";
 import { formatBytes } from "@/lib/format";
 import { DbGrowthChart } from "@/components/visualizations/db-growth-chart";
 import { formatDateTimeShort, cn } from "@/lib/utils";
+import {
+  managedProviderHeadlineValue,
+  managedProviderStatusDescription,
+  managedProviderStatusLabel,
+  managedProviderStatusVariant,
+} from "@/lib/managed-cost-status";
 import { Link } from "@tanstack/react-router";
 import { ArrowLeft, RefreshCw } from "lucide-react";
 
@@ -140,6 +146,8 @@ export default function AdminDashboard() {
   const { data: authEvents } = useAuthEvents(50);
   const { data: runtimeMetadata } = useAdminRuntimeMetadata();
   const activeManagedEnvironment = managedEnvironment || runtimeMetadata?.environment || "all";
+  const managedScope = managedStatus === "__live__" ? "live" : "recent";
+  const managedStatusFilter = managedStatus === "__live__" ? "" : managedStatus;
   const { data: managedSummary, isLoading: managedSummaryLoading } = useManagedCostSummary({
     days: managedWindowDays,
     environment: activeManagedEnvironment,
@@ -147,7 +155,8 @@ export default function AdminDashboard() {
   const { data: managedSessionsResponse, isLoading: managedSessionsLoading } = useManagedSessionsQuery({
     days: Math.max(30, managedWindowDays),
     environment: activeManagedEnvironment,
-    status: managedStatus,
+    scope: managedScope,
+    status: managedStatusFilter,
     user: managedUserFilter,
     limit: 100,
     offset: 0,
@@ -163,6 +172,7 @@ export default function AdminDashboard() {
   const selectedSessionSamples = selectedSessionDetail?.samples ?? [];
   const selectedSessionEvents = selectedSessionDetail?.events ?? [];
   const latestSyncRun = managedSummary?.latestSuccessfulSync ?? managedSummary?.latestAttemptedSync ?? null;
+  const providerStatus = managedSummary?.providerStatus ?? null;
   const runtimeConfigIssues = useMemo(
     () =>
       Array.from(
@@ -171,6 +181,8 @@ export default function AdminDashboard() {
             runtimeMetadata?.managedConfigError,
             runtimeMetadata?.anthropicConfigError,
             runtimeMetadata?.anthropicAdminConfigError,
+            runtimeMetadata?.managedCostProviderConfigError,
+            runtimeMetadata?.managedCostReconcileConfigError,
             runtimeMetadata?.deviceAuthConfigError,
           ].filter((issue): issue is string => Boolean(issue))
         )
@@ -178,6 +190,8 @@ export default function AdminDashboard() {
     [
       runtimeMetadata?.anthropicAdminConfigError,
       runtimeMetadata?.anthropicConfigError,
+      runtimeMetadata?.managedCostProviderConfigError,
+      runtimeMetadata?.managedCostReconcileConfigError,
       runtimeMetadata?.deviceAuthConfigError,
       runtimeMetadata?.managedConfigError,
     ],
@@ -288,7 +302,18 @@ export default function AdminDashboard() {
             loading={managedSummaryLoading}
           />
           <StatCard
-            value={formatUsd(managedSummary?.providerSelectedWindowUsd ?? 0)}
+            value={managedProviderHeadlineValue(
+              providerStatus ?? {
+                mode: "unavailable",
+                configured: false,
+                reconcileConfigured: false,
+                reason: "no_provider_sync",
+                stale: false,
+                latestSuccessfulAt: null,
+                latestAttemptedAt: null,
+              },
+              formatUsd(managedSummary?.providerSelectedWindowUsd ?? 0),
+            )}
             label={`Provider spend (${managedWindowDays}d)`}
             loading={managedSummaryLoading}
           />
@@ -313,16 +338,16 @@ export default function AdminDashboard() {
           <div className="rounded-[8px] border border-border-subtle bg-surface-raised px-3 py-3">
             <div className="flex items-center justify-between gap-2">
               <p className="text-[11px] font-medium text-text-secondary">Provider spend</p>
-              <Badge
-                variant={runtimeMetadata?.anthropicAdminConfigured ? "complete" : "tag"}
-              >
-                {runtimeMetadata?.anthropicAdminConfigured ? "provider-backed" : "estimated-only"}
-              </Badge>
+              {providerStatus && (
+                <Badge variant={managedProviderStatusVariant(providerStatus)}>
+                  {managedProviderStatusLabel(providerStatus)}
+                </Badge>
+              )}
             </div>
             <p className="mt-1 text-[11px] leading-relaxed text-text-quaternary">
-              This comes from the latest successful Anthropic reconciliation for the
-              selected window and environment. Older sync runs stay in history, but they do
-              not inflate the headline total.
+              {providerStatus
+                ? managedProviderStatusDescription(providerStatus)
+                : "This comes from the latest successful Anthropic reconciliation for the selected window and environment."}
             </p>
           </div>
           <div className="rounded-[8px] border border-border-subtle bg-surface-raised px-3 py-3">
@@ -367,11 +392,22 @@ export default function AdminDashboard() {
               <div className="rounded-[8px] border border-border-subtle bg-surface-raised px-3 py-2 text-[12px]">
                 <p className="text-text-tertiary">Admin reconciliation</p>
                 <p className="mt-1 font-medium text-text">
-                  {runtimeMetadata?.anthropicAdminConfigured ? "Provider-backed" : "Estimated only"}
+                  {runtimeMetadata?.managedCostProviderConfigured ? "Provider-backed" : "Estimated only"}
                 </p>
-                {runtimeMetadata?.anthropicAdminConfigError && (
+                {runtimeMetadata?.managedCostProviderConfigError && (
                   <p className="mt-1 text-[11px] leading-relaxed text-status-failed">
-                    {runtimeMetadata.anthropicAdminConfigError}
+                    {runtimeMetadata.managedCostProviderConfigError}
+                  </p>
+                )}
+              </div>
+              <div className="rounded-[8px] border border-border-subtle bg-surface-raised px-3 py-2 text-[12px]">
+                <p className="text-text-tertiary">Background reconcile</p>
+                <p className="mt-1 font-medium text-text">
+                  {runtimeMetadata?.managedCostReconcileConfigured ? "Configured" : "Missing token"}
+                </p>
+                {runtimeMetadata?.managedCostReconcileConfigError && (
+                  <p className="mt-1 text-[11px] leading-relaxed text-status-failed">
+                    {runtimeMetadata.managedCostReconcileConfigError}
                   </p>
                 )}
               </div>
@@ -442,8 +478,20 @@ export default function AdminDashboard() {
                 </p>
               </div>
               {latestSyncRun && (
-                <Badge variant={latestSyncRun.success ? "complete" : "failed"}>
-                  {latestSyncRun.mode === "provider" ? "provider" : "estimated-only"}
+                <Badge
+                  variant={
+                    providerStatus
+                      ? managedProviderStatusVariant(providerStatus)
+                      : latestSyncRun.success
+                        ? "complete"
+                        : "failed"
+                  }
+                >
+                  {providerStatus
+                    ? managedProviderStatusLabel(providerStatus)
+                    : latestSyncRun.mode === "provider"
+                      ? "provider"
+                      : "estimated-only"}
                 </Badge>
               )}
             </div>
@@ -459,7 +507,14 @@ export default function AdminDashboard() {
                 </div>
                 <div className="flex items-center justify-between gap-3">
                   <span className="text-text-tertiary">Provider total</span>
-                  <span>{formatUsd(latestSyncRun.total_cost_usd ?? 0)}</span>
+                  <span>
+                    {providerStatus
+                      ? managedProviderHeadlineValue(
+                          providerStatus,
+                          formatUsd(latestSyncRun.total_cost_usd ?? 0),
+                        )
+                      : formatUsd(latestSyncRun.total_cost_usd ?? 0)}
+                  </span>
                 </div>
                 <div className="flex items-center justify-between gap-3">
                   <span className="text-text-tertiary">Freshness</span>
@@ -470,12 +525,19 @@ export default function AdminDashboard() {
                     {latestSyncRun.error_message}
                   </p>
                 )}
+                {providerStatus && (
+                  <p className="rounded-[8px] border border-border-subtle bg-surface-raised px-3 py-2 text-[11px] text-text-quaternary">
+                    {managedProviderStatusDescription(providerStatus)}
+                  </p>
+                )}
               </div>
             ) : (
               <p className="mt-3 text-[12px] text-text-quaternary">
-                {runtimeMetadata?.anthropicAdminConfigured
-                  ? "No reconciliation runs yet."
-                  : "Anthropic admin reconciliation is not configured, so this view is currently estimate-only."}
+                {providerStatus
+                  ? managedProviderStatusDescription(providerStatus)
+                  : runtimeMetadata?.managedCostProviderConfigured
+                    ? "No reconciliation runs yet."
+                    : "Anthropic admin reconciliation is not configured, so this view is currently estimate-only."}
               </p>
             )}
           </div>
@@ -496,6 +558,7 @@ export default function AdminDashboard() {
                 className="rounded-[6px] border border-border bg-surface px-2 py-1 text-[12px] text-text"
               >
                 <option value="">all statuses</option>
+                <option value="__live__">live only</option>
                 <option value="prewarmed">prewarmed</option>
                 <option value="active">active</option>
                 <option value="idle">idle</option>

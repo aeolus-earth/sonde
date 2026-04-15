@@ -154,7 +154,7 @@ beforeEach(() => {
     SONDE_TEST_AUTH_BYPASS_TOKEN: "playwright-smoke-token",
     SONDE_TEST_AUTH_DELAY_MS: "25",
     SONDE_WS_TOKEN_SECRET: "test-ws-secret",
-    ANTHROPIC_API_KEY: "test-key",
+    ANTHROPIC_API_KEY: "sk-ant-api03-test-key",
     SONDE_MANAGED_ENVIRONMENT_ID: "env_test_managed",
     SONDE_MANAGED_ALLOW_EPHEMERAL_AGENT: "1",
   };
