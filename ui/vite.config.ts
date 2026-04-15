@@ -65,10 +65,25 @@ function versionMetadataPlugin(): PluginOption {
   };
 }
 
+const appVersion =
+  process.env.VITE_APP_VERSION?.trim() ||
+  process.env.VERCEL_GIT_COMMIT_REF?.trim() ||
+  process.env.RAILWAY_GIT_BRANCH?.trim() ||
+  "dev";
+const appCommitSha =
+  process.env.VITE_APP_COMMIT_SHA?.trim() ||
+  process.env.SONDE_COMMIT_SHA?.trim() ||
+  process.env.VERCEL_GIT_COMMIT_SHA?.trim() ||
+  "local";
+
 export default defineConfig({
   test: {
     environment: "node",
     include: ["src/**/*.test.ts"],
+  },
+  define: {
+    "import.meta.env.VITE_APP_VERSION": JSON.stringify(appVersion),
+    "import.meta.env.VITE_APP_COMMIT_SHA": JSON.stringify(appCommitSha),
   },
   plugins: [react(), tailwindcss(), versionMetadataPlugin()],
   /** Same-origin WebSocket in dev (localhost vs 127.0.0.1, no cross-origin upgrade issues). */
