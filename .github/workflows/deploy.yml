@@ -153,8 +153,7 @@ jobs:
           needs.push-migrations.result == 'skipped'
         ) &&
         (
-          needs.changes.outputs.agent == 'true' ||
-          needs.changes.outputs.database == 'true' ||
+          github.event_name == 'push' ||
           github.event_name == 'workflow_dispatch'
         )
       }}
