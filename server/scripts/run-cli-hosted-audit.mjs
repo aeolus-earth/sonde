@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 
 function requiredEnv(name) {
   const value = process.env[name]?.trim();
@@ -22,7 +22,7 @@ async function requestJson(url, init) {
       body?.error_description ||
       body?.error ||
       response.statusText;
-    throw new Error(`Supabase request failed (${response.status}): ${message}`);
+    throw new Error(`Request failed (${response.status}): ${message}`);
   }
 
   return body;
@@ -77,6 +77,15 @@ function runCli(command, args, env) {
   }
 }
 
+function waitForChildExit(child) {
+  return new Promise((resolve, reject) => {
+    child.on("error", reject);
+    child.on("close", (code, signal) => {
+      resolve({ code, signal });
+    });
+  });
+}
+
 function parseJsonOutput(raw, label) {
   try {
     return JSON.parse(raw);
@@ -125,6 +134,91 @@ async function mintSession(supabaseUrl, supabaseAnonKey, email, password) {
   });
 }
 
+function extractActivationDetails(stderrBuffer) {
+  const activationUrlMatch = stderrBuffer.match(/https?:\/\/\S+\/activate\?code=[A-Z0-9-]+/i);
+  const userCodeMatch =
+    stderrBuffer.match(/enter:\s*([A-Z0-9]{4}-[A-Z0-9]{4})/i) ||
+    stderrBuffer.match(/\b([A-Z0-9]{4}-[A-Z0-9]{4})\b/);
+
+  return {
+    activationUrl: activationUrlMatch?.[0] ?? "",
+    userCode: userCodeMatch?.[1] ?? "",
+  };
+}
+
+async function completeHostedCliLogin({
+  command,
+  env,
+  agentBase,
+  approvalSession,
+}) {
+  const child = spawn(command, ["login", "--json"], {
+    env,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  let stdout = "";
+  let stderr = "";
+  child.stdout.setEncoding("utf-8");
+  child.stderr.setEncoding("utf-8");
+  child.stdout.on("data", (chunk) => {
+    stdout += chunk;
+  });
+  child.stderr.on("data", (chunk) => {
+    stderr += chunk;
+  });
+
+  const userCode = await new Promise((resolve, reject) => {
+    const deadline = Date.now() + 60_000;
+
+    const poll = () => {
+      const details = extractActivationDetails(stderr);
+      if (details.userCode) {
+        resolve(details.userCode);
+        return;
+      }
+      if (Date.now() >= deadline) {
+        reject(
+          new Error(
+            `Timed out waiting for sonde login activation code.\nCLI stderr:\n${stderr.trim()}`
+          )
+        );
+        return;
+      }
+      setTimeout(poll, 100);
+    };
+
+    poll();
+  });
+
+  await requestJson(`${agentBase}/auth/device/approve`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      Authorization: `Bearer ${approvalSession.access_token}`,
+    },
+    body: JSON.stringify({
+      user_code: userCode,
+      decision: "approve",
+      session: approvalSession,
+    }),
+  });
+
+  const { code, signal } = await waitForChildExit(child);
+  if (code !== 0) {
+    const signalSuffix = signal ? ` (signal ${signal})` : "";
+    throw new Error(
+      `sonde login --json failed with exit code ${code}${signalSuffix}\nstdout:\n${stdout.trim()}\nstderr:\n${stderr.trim()}`
+    );
+  }
+
+  const loginOutput = parseJsonOutput(stdout, "login");
+  if (!loginOutput?.email) {
+    throw new Error(`Hosted CLI login did not emit a usable JSON payload: ${stdout.trim()}`);
+  }
+  return loginOutput;
+}
+
 function persistSession(configDir, session) {
   fs.writeFileSync(path.join(configDir, "session.json"), JSON.stringify(session), {
     mode: 0o600,
@@ -138,6 +232,7 @@ async function main() {
   const email = process.env.SMOKE_USER_EMAIL?.trim() || "";
   const password = process.env.SMOKE_USER_PASSWORD?.trim() || "";
   const requestedAuthMode = (process.env.CLI_AUDIT_AUTH_MODE?.trim() || "auto").toLowerCase();
+  const agentBase = process.env.CLI_AUDIT_AGENT_BASE?.trim() || "";
   const auditEnvironment = process.env.CLI_AUDIT_ENV?.trim() || "staging";
   const auditProgram = process.env.CLI_AUDIT_PROGRAM?.trim() || "shared";
   const expectedExperimentId = process.env.CLI_AUDIT_EXPECT_EXPERIMENT_ID?.trim() || "";
@@ -174,9 +269,17 @@ async function main() {
         "CLI_AUDIT_AUTH_MODE=session requires SMOKE_USER_EMAIL and SMOKE_USER_PASSWORD."
       );
     }
-
+    if (!agentBase) {
+      throw new Error("CLI_AUDIT_AGENT_BASE is required for hosted CLI login audits.");
+    }
+    cliEnv.SONDE_AGENT_HTTP_BASE = agentBase;
     const session = await mintSession(supabaseUrl, supabaseAnonKey, email, password);
-    persistSession(configDir, session);
+    await completeHostedCliLogin({
+      command: sondeExecutable,
+      env: cliEnv,
+      agentBase,
+      approvalSession: session,
+    });
   }
 
   await waitForCliReadiness({

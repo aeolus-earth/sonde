@@ -9,12 +9,14 @@ import {
   normalizeActivationCode,
   type DeviceActivationDetails,
 } from "@/lib/device-activation";
+import {
+  ACTIVATION_CODE_STORAGE_KEY,
+  requestActivationBrowserSignIn,
+} from "@/lib/device-activation-browser";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
-
-const ACTIVATION_CODE_STORAGE_KEY = "sonde-activation-code";
 
 function ActivationPage() {
   const searchParams =
@@ -117,30 +119,20 @@ function ActivationPage() {
   }
 
   async function signIn(): Promise<void> {
-    const normalized = normalizeActivationCode(draftCode || userCode);
-    if (!normalized) {
-      setError("Enter the activation code from your terminal first.");
+    const storage =
+      typeof window !== "undefined" ? window.sessionStorage : undefined;
+    const { normalizedCode, error: signInError } = await requestActivationBrowserSignIn({
+      rawCode: draftCode,
+      fallbackCode: userCode,
+      windowOrigin: window.location.origin,
+      storage,
+      authClient: activationSupabase.auth,
+    });
+    if (!normalizedCode) {
+      setError(signInError);
       return;
     }
-    if (typeof window !== "undefined") {
-      window.sessionStorage.setItem(ACTIVATION_CODE_STORAGE_KEY, normalized);
-    }
-    setError(null);
-    const redirectTo = `${window.location.origin}/activate/callback?user_code=${encodeURIComponent(
-      normalized
-    )}`;
-    const { error: signInError } = await activationSupabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        redirectTo,
-        queryParams: {
-          hd: "aeolus.earth",
-        },
-      },
-    });
-    if (signInError) {
-      setError(signInError.message);
-    }
+    setError(signInError);
   }
 
   async function handleDecision(nextDecision: "approve" | "deny"): Promise<void> {

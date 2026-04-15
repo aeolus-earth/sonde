@@ -53,6 +53,49 @@ def test_login_reports_config_error_with_loopback_guidance(runner: CliRunner, mo
     assert "loopback" in result.output
 
 
+def test_login_reports_hosted_404_as_missing_oauth_routes(runner: CliRunner, monkeypatch) -> None:
+    monkeypatch.setattr("sonde.auth.is_authenticated", lambda: False)
+    monkeypatch.setattr(
+        "sonde.auth.login",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            auth.HostedLoginError(
+                "not_found",
+                "https://sonde-neon.vercel.app/auth/device/start",
+                "404 Not Found",
+                status_code=404,
+            )
+        ),
+    )
+
+    result = runner.invoke(cli, ["login"])
+
+    assert result.exit_code == 1
+    assert "Hosted login service is missing OAuth routes" in result.output
+    assert "/auth/device/start" in result.output
+    assert "loopback" in result.output
+
+
+def test_login_reports_hosted_503_as_configuration_issue(runner: CliRunner, monkeypatch) -> None:
+    monkeypatch.setattr("sonde.auth.is_authenticated", lambda: False)
+    monkeypatch.setattr(
+        "sonde.auth.login",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            auth.HostedLoginError(
+                "unavailable",
+                "https://sonde-neon.vercel.app/auth/device/start",
+                "Device login is not configured.",
+                status_code=503,
+            )
+        ),
+    )
+
+    result = runner.invoke(cli, ["login"])
+
+    assert result.exit_code == 1
+    assert "Hosted login service is misconfigured" in result.output
+    assert "Device login is not configured" in result.output
+
+
 def test_login_runs_hosted_activation_end_to_end(runner: CliRunner, monkeypatch, tmp_path) -> None:
     session_payload = {
         "access_token": "access-token",

@@ -5,8 +5,18 @@
  * Only runs when E2E_BASE_URL is set (CI post-deploy or manual dispatch).
  * Skipped entirely during local dev (no webServer needed).
  */
-import { test, expect, type Locator, type Page } from "@playwright/test";
-import { seedActiveProgram, seedConfiguredSession } from "./helpers";
+import {
+  test,
+  expect,
+  type APIRequestContext,
+  type Locator,
+  type Page,
+} from "@playwright/test";
+import {
+  seedActivationSession,
+  seedActiveProgram,
+  seedConfiguredSession,
+} from "./helpers";
 
 const BASE_URL = process.env.E2E_BASE_URL;
 const DEPLOY_ENVIRONMENT = process.env.E2E_DEPLOY_ENVIRONMENT?.trim() || "hosted";
@@ -30,6 +40,15 @@ const SUITE_LABEL =
 
 const CHAT_AUTH_FAILURE_MARKER =
   /PGRST301|No suitable key was found to decode the JWT|JWT authentication error/i;
+
+interface DeviceActivationStartResponse {
+  device_code: string;
+  user_code: string;
+  verification_uri: string;
+  verification_uri_complete: string;
+  expires_in: number;
+  interval: number;
+}
 
 function agentOrigin(value: string | null): string | null {
   if (!value) return null;
@@ -88,6 +107,88 @@ async function waitForHostedChatResponse(
 
   throw new Error(
     "Expected hosted chat to render SONDE_SMOKE_OK on the first turn."
+  );
+}
+
+async function startHostedDeviceActivation(
+  request: APIRequestContext,
+): Promise<DeviceActivationStartResponse> {
+  if (!AGENT_HTTP_BASE) {
+    throw new Error("Hosted device activation requires E2E_AGENT_HTTP_BASE.");
+  }
+
+  const response = await request.post(`${AGENT_HTTP_BASE}/auth/device/start`, {
+    data: {
+      cli_version: "hosted-smoke",
+      host_label: "ssh://hosted-smoke",
+      remote_hint: true,
+      login_method: "device",
+      request_metadata: {
+        suite: "hosted-smoke",
+      },
+    },
+  });
+  expect(response.ok()).toBeTruthy();
+
+  return (await response.json()) as DeviceActivationStartResponse;
+}
+
+async function waitForApprovedDeviceSession(
+  request: APIRequestContext,
+  deviceCode: string,
+  pollIntervalSeconds: number,
+): Promise<{
+  status: "approved";
+  interval: number;
+  session: {
+    access_token: string;
+    refresh_token: string;
+  };
+}> {
+  if (!AGENT_HTTP_BASE) {
+    throw new Error("Hosted device activation requires E2E_AGENT_HTTP_BASE.");
+  }
+
+  const deadline = Date.now() + 30_000;
+  let lastStatus = "authorization_pending";
+
+  while (Date.now() < deadline) {
+    const response = await request.post(`${AGENT_HTTP_BASE}/auth/device/poll`, {
+      data: {
+        device_code: deviceCode,
+      },
+    });
+    expect(response.ok()).toBeTruthy();
+
+    const body = (await response.json()) as {
+      status: string;
+      interval: number;
+      session?: {
+        access_token: string;
+        refresh_token: string;
+      };
+    };
+    lastStatus = body.status;
+    if (body.status === "approved" && body.session) {
+      return body as {
+        status: "approved";
+        interval: number;
+        session: {
+          access_token: string;
+          refresh_token: string;
+        };
+      };
+    }
+    if (body.status !== "authorization_pending" && body.status !== "slow_down") {
+      throw new Error(`Hosted device activation ended in unexpected state: ${body.status}`);
+    }
+    await new Promise((resolve) => {
+      setTimeout(resolve, Math.max(body.interval || pollIntervalSeconds, 1) * 1000);
+    });
+  }
+
+  throw new Error(
+    `Timed out waiting for hosted device activation approval. Last status: ${lastStatus}`,
   );
 }
 
@@ -238,6 +339,62 @@ test.describe(SUITE_LABEL, () => {
     expect(body.environment).toBeTruthy();
     expect(body.agentWsConfigured).toBeTruthy();
     expect(body.agentWsOrigin ?? null).toBe(agentOrigin(AGENT_HTTP_BASE));
+  });
+
+  test("hosted activation callback route resolves back to the activation page", async ({
+    page,
+    request,
+    browserName,
+  }) => {
+    test.skip(!AGENT_HTTP_BASE, "Skipped: no agent host configured");
+    test.skip(!AUTH_SESSION_JSON, "Skipped: no smoke auth session configured");
+    test.skip(browserName !== "chromium", "Run hosted activation smoke once to keep it lean.");
+
+    const activation = await startHostedDeviceActivation(request);
+    await seedActivationSession(page, AUTH_SESSION_JSON);
+
+    await page.goto(`/activate/callback?user_code=${encodeURIComponent(activation.user_code)}`);
+    await page.waitForURL(/\/activate(\?|$)/, { timeout: 20_000 });
+
+    const currentUrl = new URL(page.url());
+    expect(currentUrl.pathname).toBe("/activate");
+    expect(currentUrl.searchParams.get("code")).toBe(activation.user_code);
+    await expect(
+      page.getByRole("heading", { name: "Complete CLI sign-in from any browser" }),
+    ).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText("ssh://hosted-smoke")).toBeVisible({ timeout: 20_000 });
+  });
+
+  test("hosted activation link can approve a headless CLI login from a browser session", async ({
+    page,
+    request,
+    browserName,
+  }) => {
+    test.skip(!AGENT_HTTP_BASE, "Skipped: no agent host configured");
+    test.skip(!AUTH_SESSION_JSON, "Skipped: no smoke auth session configured");
+    test.skip(browserName !== "chromium", "Run hosted activation smoke once to keep it lean.");
+
+    const activation = await startHostedDeviceActivation(request);
+    await seedActivationSession(page, AUTH_SESSION_JSON);
+
+    await page.goto(activation.verification_uri_complete);
+    await expect(
+      page.getByRole("heading", { name: "Complete CLI sign-in from any browser" }),
+    ).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText("ssh://hosted-smoke")).toBeVisible({ timeout: 20_000 });
+
+    const approveButton = page.getByRole("button", { name: "Approve sign-in" });
+    await expect(approveButton).toBeVisible({ timeout: 20_000 });
+    await approveButton.click();
+
+    await expect(page.getByText("CLI sign-in approved")).toBeVisible({ timeout: 20_000 });
+    const approved = await waitForApprovedDeviceSession(
+      request,
+      activation.device_code,
+      activation.interval,
+    );
+    expect(approved.session.access_token).toBeTruthy();
+    expect(approved.session.refresh_token).toBeTruthy();
   });
 });
 

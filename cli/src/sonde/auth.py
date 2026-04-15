@@ -86,6 +86,22 @@ class LoginConfigurationError(Exception):
     pass
 
 
+class HostedLoginError(RuntimeError):
+    def __init__(
+        self,
+        kind: str,
+        url: str,
+        detail: str,
+        *,
+        status_code: int | None = None,
+    ) -> None:
+        super().__init__(detail)
+        self.kind = kind
+        self.url = url
+        self.detail = detail
+        self.status_code = status_code
+
+
 # ---------------------------------------------------------------------------
 # Session persistence (file-based, keyring optional)
 # ---------------------------------------------------------------------------
@@ -568,19 +584,39 @@ def _post_json(
     except HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")
         message = _error_message_from_json(body) or f"HTTP {exc.code} from {url}"
+        if _is_device_auth_url(url):
+            kind = "http_error"
+            if exc.code == 404:
+                kind = "not_found"
+            elif exc.code == 503:
+                kind = "unavailable"
+            raise HostedLoginError(kind, url, message, status_code=exc.code) from None
         raise RuntimeError(message) from None
     except URLError as exc:
-        raise RuntimeError(f"Could not reach {url}: {exc.reason}") from None
+        message = f"Could not reach {url}: {exc.reason}"
+        if _is_device_auth_url(url):
+            raise HostedLoginError("unreachable", url, message) from None
+        raise RuntimeError(message) from None
 
     try:
         parsed = json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise RuntimeError(f"Device login returned invalid JSON from {url}: {exc}") from None
+        message = f"Device login returned invalid JSON from {url}: {exc}"
+        if _is_device_auth_url(url):
+            raise HostedLoginError("invalid_response", url, message) from None
+        raise RuntimeError(message) from None
 
     if not isinstance(parsed, dict):
-        raise RuntimeError(f"Device login returned an unexpected response from {url}.")
+        message = f"Device login returned an unexpected response from {url}."
+        if _is_device_auth_url(url):
+            raise HostedLoginError("invalid_response", url, message) from None
+        raise RuntimeError(message)
 
     return parsed
+
+
+def _is_device_auth_url(url: str) -> bool:
+    return DEVICE_AUTH_PATH in url
 
 
 def _error_message_from_json(raw: str) -> str | None:

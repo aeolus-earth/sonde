@@ -241,6 +241,13 @@ export function createApp(): Hono {
 
   app.get("/health", (c) => c.json({ status: "ok" }));
   app.get("/health/runtime", (c) => c.json(getRuntimeMetadata()));
+  app.get("/auth/device/health", (c) => {
+    const config = getDeviceAuthRuntimeStatus();
+    return c.json({
+      status: "ok",
+      enabled: config.enabled,
+    });
+  });
 
   app.post("/auth/device/start", async (c) => {
     const ipRateLimit = await checkUserRateLimit(
