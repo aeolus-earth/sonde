@@ -181,35 +181,99 @@ WHERE q.promoted_to_type = 'experiment'
   AND q.promoted_to_id = e.id
   AND q.direction_id IS NULL;
 
+WITH ranked_direction_questions AS (
+    SELECT
+        q.direction_id,
+        q.id AS question_id,
+        row_number() OVER (
+            PARTITION BY q.direction_id
+            ORDER BY q.created_at ASC, q.id ASC
+        ) AS direction_rank
+    FROM questions q
+    WHERE q.direction_id IS NOT NULL
+)
 UPDATE directions d
-SET primary_question_id = q.id
-FROM questions q
-WHERE q.direction_id = d.id
-  AND d.primary_question_id IS NULL;
+SET primary_question_id = ranked_direction_questions.question_id
+FROM ranked_direction_questions
+WHERE d.id = ranked_direction_questions.direction_id
+  AND d.primary_question_id IS NULL
+  AND ranked_direction_questions.direction_rank = 1;
 
+WITH promoted_question_links AS (
+    SELECT
+        q.id AS question_id,
+        q.promoted_to_id AS experiment_id
+    FROM questions q
+    JOIN experiments e ON e.id = q.promoted_to_id
+    WHERE q.promoted_to_type = 'experiment'
+)
 INSERT INTO question_experiments (question_id, experiment_id, is_primary)
-SELECT q.id, q.promoted_to_id, true
-FROM questions q
-JOIN experiments e ON e.id = q.promoted_to_id
-WHERE q.promoted_to_type = 'experiment'
-  AND NOT EXISTS (
-      SELECT 1
-      FROM question_experiments qe
-      WHERE qe.question_id = q.id
-        AND qe.experiment_id = q.promoted_to_id
+SELECT pql.question_id, pql.experiment_id, false
+FROM promoted_question_links pql
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM question_experiments qe
+    WHERE qe.question_id = pql.question_id
+      AND qe.experiment_id = pql.experiment_id
+);
+
+WITH promoted_experiments AS (
+    SELECT DISTINCT q.promoted_to_id AS experiment_id
+    FROM questions q
+    WHERE q.promoted_to_type = 'experiment'
+      AND q.promoted_to_id IS NOT NULL
+)
+UPDATE question_experiments qe
+SET is_primary = false
+WHERE qe.is_primary
+  AND qe.experiment_id IN (
+      SELECT promoted_experiments.experiment_id
+      FROM promoted_experiments
   );
 
+WITH ranked_promoted_question_links AS (
+    SELECT
+        q.id AS question_id,
+        q.promoted_to_id AS experiment_id,
+        row_number() OVER (
+            PARTITION BY q.promoted_to_id
+            ORDER BY
+                CASE
+                    WHEN d.primary_question_id = q.id THEN 0
+                    ELSE 1
+                END,
+                q.created_at ASC,
+                q.id ASC
+        ) AS primary_rank
+    FROM questions q
+    JOIN experiments e ON e.id = q.promoted_to_id
+    LEFT JOIN directions d ON d.id = e.direction_id
+    WHERE q.promoted_to_type = 'experiment'
+)
+UPDATE question_experiments qe
+SET is_primary = true
+FROM ranked_promoted_question_links ranked_promoted_question_links
+WHERE ranked_promoted_question_links.primary_rank = 1
+  AND qe.question_id = ranked_promoted_question_links.question_id
+  AND qe.experiment_id = ranked_promoted_question_links.experiment_id;
+
+WITH direction_primary_links AS (
+    SELECT d.primary_question_id AS question_id, e.id AS experiment_id
+    FROM directions d
+    JOIN experiments e ON e.direction_id = d.id
+    WHERE d.primary_question_id IS NOT NULL
+      AND NOT EXISTS (
+          SELECT 1
+          FROM question_experiments qe
+          WHERE qe.experiment_id = e.id
+            AND qe.is_primary
+      )
+)
 INSERT INTO question_experiments (question_id, experiment_id, is_primary)
-SELECT d.primary_question_id, e.id, true
-FROM directions d
-JOIN experiments e ON e.direction_id = d.id
-WHERE d.primary_question_id IS NOT NULL
-  AND NOT EXISTS (
-      SELECT 1
-      FROM question_experiments qe
-      WHERE qe.experiment_id = e.id
-        AND qe.is_primary
-  );
+SELECT question_id, experiment_id, true
+FROM direction_primary_links
+ON CONFLICT (question_id, experiment_id) DO UPDATE
+SET is_primary = EXCLUDED.is_primary;
 
 WITH finding_primary_questions AS (
     SELECT
