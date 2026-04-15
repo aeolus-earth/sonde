@@ -1,5 +1,4 @@
 import type { Session } from "@supabase/supabase-js";
-import { supabase } from "@/lib/supabase";
 
 const ACCESS_TOKEN_REFRESH_WINDOW_MS = 60_000;
 
@@ -47,13 +46,18 @@ async function getSessionOrThrow(
   return session;
 }
 
+async function getDefaultAuthClient(): Promise<AuthClient> {
+  const { supabase } = await import("@/lib/supabase");
+  return supabase.auth;
+}
+
 export async function getFreshAccessToken(options?: {
   authClient?: AuthClient;
   reauthMessage?: string;
   refreshWindowMs?: number;
   now?: number;
 }): Promise<string> {
-  const authClient = options?.authClient ?? supabase.auth;
+  const authClient = options?.authClient ?? (await getDefaultAuthClient());
   const reauthMessage =
     options?.reauthMessage ?? "Session expired. Sign in again to continue.";
   const refreshWindowMs =
