@@ -281,14 +281,23 @@ async function getAdminAccessToken(): Promise<string> {
 
 async function fetchAdminJson<T>(path: string, init?: RequestInit): Promise<T> {
   const accessToken = await getAdminAccessToken();
-  const response = await fetch(`${getAgentHttpBase()}${path}`, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "content-type": "application/json",
-      ...(init?.headers ?? {}),
-    },
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${getAgentHttpBase()}${path}`, {
+      ...init,
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "content-type": "application/json",
+        ...(init?.headers ?? {}),
+      },
+    });
+  } catch (error) {
+    throw new Error(
+      error instanceof Error && error.message
+        ? `Unable to reach the Sonde admin API. ${error.message}`
+        : "Unable to reach the Sonde admin API.",
+    );
+  }
   if (!response.ok) {
     if (response.status === 401) {
       throw new SessionReauthRequiredError(
