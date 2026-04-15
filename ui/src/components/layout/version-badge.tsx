@@ -3,8 +3,12 @@ import { memo } from "react";
 const GITHUB_REPO = "aeolus-earth/sonde";
 
 export const VersionBadge = memo(function VersionBadge() {
-  const version = import.meta.env.VITE_APP_VERSION;
-  const commitSha = import.meta.env.VITE_APP_COMMIT_SHA;
+  // Vite's `define` substitutes these as literal strings at build time, so they
+  // should always be defined. The `??` defaults are belt-and-suspenders — if
+  // the define ever silently fails (misconfigured build, test harness bypass,
+  // etc.), render a harmless placeholder instead of crashing the shell.
+  const version = import.meta.env.VITE_APP_VERSION ?? "dev";
+  const commitSha = import.meta.env.VITE_APP_COMMIT_SHA ?? "local";
   const shortSha = commitSha.slice(0, 7);
   const commitHref =
     commitSha === "local"

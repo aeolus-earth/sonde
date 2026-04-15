@@ -17,6 +17,18 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # Fail fast if the promotion token is missing. Without it, actions/checkout
+      # falls back to the default GITHUB_TOKEN and the pushed tag will NOT trigger
+      # the Release workflow (GitHub skips workflow chaining for default-token pushes).
+      - name: Require promotion token
+        env:
+          PROMOTION_GITHUB_TOKEN: ${{ secrets.SONDE_PROMOTION_GITHUB_TOKEN }}
+        run: |
+          if [ -z "${PROMOTION_GITHUB_TOKEN}" ]; then
+            echo "::error title=Missing SONDE_PROMOTION_GITHUB_TOKEN::Auto-tag requires a fine-grained GitHub token with Contents: Read and write so the tag push can trigger the Release workflow. Add it as a repo secret."
+            exit 1
+          fi
+
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0 # need all tags to compute the next patch
@@ -30,8 +42,17 @@ jobs:
           set -euo pipefail
           SUBJECT=$(git log -1 --pretty=%s)
           echo "Commit subject: ${SUBJECT}"
-          # promote-main.yml opens PRs titled "Promote staging to main".
-          # Merge commits land on main as "Merge pull request #NNN from <owner>/staging".
+          # promote-main.yml opens PRs titled "Promote staging to main" and enables
+          # auto-merge with mergeMethod: MERGE. GitHub's default merge-commit subject
+          # is: "Merge pull request #NNN from <owner>/staging".
+          #
+          # Matches:     "Merge pull request #142 from aeolus-earth/staging"
+          # Non-matches: any squash-merge subject, a rebase-merge subject,
+          #              any PR from a branch other than "staging",
+          #              manually edited merge titles.
+          #
+          # If promote-main.yml ever switches to squash/rebase merges, update this
+          # regex or move the gate to a workflow_run trigger on "Promote Main".
           if echo "${SUBJECT}" | grep -qE "^Merge pull request #[0-9]+ from [^ ]+/staging$"; then
             echo "promote=true" >> "$GITHUB_OUTPUT"
           else
@@ -44,7 +65,10 @@ jobs:
         id: next
         run: |
           set -euo pipefail
-          LAST_TAG=$(git tag --sort=-v:refname | head -1 || true)
+          # Policy: this repo ships stable vN.N.N tags only. Filter out any
+          # non-semver tags so a stray manual tag can't crash the arithmetic
+          # or skew the next-patch calculation.
+          LAST_TAG=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)
           if [ -z "${LAST_TAG}" ]; then
             NEXT="v0.1.0"
           else

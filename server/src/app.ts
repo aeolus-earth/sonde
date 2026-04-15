@@ -3,7 +3,7 @@ import { cors } from "hono/cors";
 import type { Context, Next } from "hono";
 import { registerGitHubRoutes } from "./github.js";
 import { handleWebSocket } from "./ws-handler.js";
-import { getRuntimeMetadata } from "./runtime-metadata.js";
+import { getCommitSha, getRuntimeMetadata } from "./runtime-metadata.js";
 import { requireRuntimeAuditAuth } from "./runtime-audit.js";
 import { verifyToken, type VerifiedUser } from "./auth.js";
 import { issueWsSessionToken, verifyWsSessionToken } from "./ws-session-token.js";
@@ -248,11 +248,7 @@ export function createApp(): Hono {
   app.get("/health", (c) =>
     c.json({
       status: "ok",
-      commitSha:
-        process.env.SONDE_COMMIT_SHA?.trim() ||
-        process.env.RAILWAY_GIT_COMMIT_SHA?.trim() ||
-        process.env.VERCEL_GIT_COMMIT_SHA?.trim() ||
-        null,
+      commitSha: getCommitSha(),
       environment:
         process.env.SONDE_ENVIRONMENT?.trim() ||
         process.env.RAILWAY_GIT_BRANCH?.trim() ||

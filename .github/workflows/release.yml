@@ -68,15 +68,35 @@ jobs:
           # Ensure the checkout is pointed at the tagged commit so hatch-vcs resolves cleanly.
           git checkout "${TAG}"
 
+      # Guard against double-publish. A dispatch run and a later tag-push run
+      # can both fire for the same version; short-circuit the second one before
+      # it wastes work or collides with the existing release.
+      - name: Skip if release already exists
+        id: existing
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if gh release view "${TAG}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "::notice title=Release exists::${TAG} has already been released — skipping build and publish."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/setup-python@v6
+        if: steps.existing.outputs.skip != 'true'
         with:
           python-version: "3.12"
 
       - uses: astral-sh/setup-uv@v7
+        if: steps.existing.outputs.skip != 'true'
         with:
           version: "latest"
 
       - name: Build release artifacts
+        if: steps.existing.outputs.skip != 'true'
         working-directory: cli
         env:
           VERSION: ${{ steps.version.outputs.version }}
@@ -92,26 +112,51 @@ jobs:
           cp "dist-release/sonde-${VERSION}.tar.gz" dist-release/sonde-latest.tar.gz
 
       - name: Verify wheel install reports the expected version
+        if: steps.existing.outputs.skip != 'true'
         working-directory: cli
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
-          rm -rf /tmp/sonde-xdg-data /tmp/sonde-xdg-bin
-          XDG_DATA_HOME=/tmp/sonde-xdg-data \
-          XDG_BIN_HOME=/tmp/sonde-xdg-bin \
+          rm -rf /tmp/sonde-xdg-wheel-data /tmp/sonde-xdg-wheel-bin
+          XDG_DATA_HOME=/tmp/sonde-xdg-wheel-data \
+          XDG_BIN_HOME=/tmp/sonde-xdg-wheel-bin \
           uv tool install \
             --force \
             --python 3.12 \
             "dist-release/sonde-${VERSION}-py3-none-any.whl"
-          REPORTED=$(/tmp/sonde-xdg-bin/sonde --version 2>&1 | awk '{print $NF}')
+          REPORTED=$(/tmp/sonde-xdg-wheel-bin/sonde --version 2>&1 | awk '{print $NF}')
           echo "Reported: ${REPORTED}"
           if [ "${REPORTED}" != "${VERSION}" ]; then
-            echo "::error title=Version mismatch::Wheel reports ${REPORTED}, expected ${VERSION}."
+            echo "::error title=Wheel version mismatch::Wheel reports ${REPORTED}, expected ${VERSION}."
+            exit 1
+          fi
+
+      # Mirror the wheel verify for the sdist. Catches config drift that would
+      # exclude _version.py from the tarball without a test-install failing.
+      - name: Verify sdist install reports the expected version
+        if: steps.existing.outputs.skip != 'true'
+        working-directory: cli
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/sonde-xdg-sdist-data /tmp/sonde-xdg-sdist-bin
+          XDG_DATA_HOME=/tmp/sonde-xdg-sdist-data \
+          XDG_BIN_HOME=/tmp/sonde-xdg-sdist-bin \
+          uv tool install \
+            --force \
+            --python 3.12 \
+            "dist-release/sonde-${VERSION}.tar.gz"
+          REPORTED=$(/tmp/sonde-xdg-sdist-bin/sonde --version 2>&1 | awk '{print $NF}')
+          echo "Reported: ${REPORTED}"
+          if [ "${REPORTED}" != "${VERSION}" ]; then
+            echo "::error title=Sdist version mismatch::Sdist reports ${REPORTED}, expected ${VERSION}."
             exit 1
           fi
 
       - name: Generate changelog from commits
+        if: steps.existing.outputs.skip != 'true'
         id: changelog
         env:
           TAG: ${{ steps.version.outputs.tag }}
@@ -133,6 +178,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
+        if: steps.existing.outputs.skip != 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}

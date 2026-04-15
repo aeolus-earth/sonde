@@ -6,6 +6,7 @@ import { probeSondeCliEnvironment } from "./sonde-runner.js";
 import { assertSecurityConfig } from "./security-config.js";
 import { installAnthropicAbortGuard } from "./anthropic-abort-guard.js";
 import { getAgentBackend } from "./runtime-mode.js";
+import { getCommitSha } from "./runtime-metadata.js";
 
 const app = createApp();
 const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
@@ -29,10 +30,7 @@ const server = serve({ fetch: app.fetch, port }, (info) => {
     JSON.stringify({
       msg: "server.start",
       port: info.port,
-      commitSha:
-        process.env.SONDE_COMMIT_SHA?.trim() ||
-        process.env.RAILWAY_GIT_COMMIT_SHA?.trim() ||
-        null,
+      commitSha: getCommitSha(),
       ref:
         process.env.SONDE_ENVIRONMENT?.trim() ||
         process.env.RAILWAY_GIT_BRANCH?.trim() ||

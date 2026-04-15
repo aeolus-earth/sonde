@@ -51,6 +51,28 @@ export function getRuntimeEnvironment(
   );
 }
 
+/**
+ * Resolves the deployed commit SHA from the first-set env var.
+ *
+ * Order: SONDE_COMMIT_SHA (explicit override) → RAILWAY_GIT_COMMIT_SHA
+ * (platform-provided on Railway) → VERCEL_GIT_COMMIT_SHA (platform-provided
+ * on Vercel) → null.
+ *
+ * Keep this the single source of truth — startup logs, /health, and
+ * /health/runtime all call through here so a future platform swap or
+ * override rule is a one-line change.
+ */
+export function getCommitSha(
+  env: NodeJS.ProcessEnv = process.env
+): string | null {
+  return (
+    env.SONDE_COMMIT_SHA?.trim() ||
+    env.RAILWAY_GIT_COMMIT_SHA?.trim() ||
+    env.VERCEL_GIT_COMMIT_SHA?.trim() ||
+    null
+  );
+}
+
 export function getSupabaseProjectRef(
   env: NodeJS.ProcessEnv = process.env
 ): string | null {
@@ -77,11 +99,7 @@ export function getRuntimeMetadata(
   return {
     status: "ok",
     environment: getRuntimeEnvironment(env),
-    commitSha:
-      env.SONDE_COMMIT_SHA?.trim() ||
-      env.RAILWAY_GIT_COMMIT_SHA?.trim() ||
-      env.VERCEL_GIT_COMMIT_SHA?.trim() ||
-      null,
+    commitSha: getCommitSha(env),
     schemaVersion: env.SONDE_SCHEMA_VERSION?.trim() || null,
     agentBackend: getAgentBackend(env),
     managedConfigured: managedStatus.managedConfigured,
