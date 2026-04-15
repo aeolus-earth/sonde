@@ -23,11 +23,18 @@ function trimAccessToken(session: Session | null): string {
   return session?.access_token?.trim() ?? "";
 }
 
+function hasExpiryTimestamp(session: Session | null): session is Session & { expires_at: number } {
+  return typeof session?.expires_at === "number" && Number.isFinite(session.expires_at);
+}
+
 function isExpiringSoon(
   session: Session | null,
   now: number,
   refreshWindowMs: number,
 ): boolean {
+  if (!hasExpiryTimestamp(session)) {
+    return false;
+  }
   const expiresAtMs = (session?.expires_at ?? 0) * 1000;
   return expiresAtMs <= now + refreshWindowMs;
 }

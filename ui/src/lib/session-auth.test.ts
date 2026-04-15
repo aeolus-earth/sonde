@@ -94,6 +94,23 @@ describe("getFreshAccessToken", () => {
     expect(authClient.refreshSession).toHaveBeenCalledOnce();
   });
 
+  it("keeps the current token when expiry metadata is missing", async () => {
+    const authClient = createAuthClient({
+      session: {
+        ...baseSession,
+        expires_at: undefined,
+      } as Session,
+    });
+
+    const token = await getFreshAccessToken({
+      authClient,
+      now: 1_900_000_000_000,
+    });
+
+    expect(token).toBe("access-token");
+    expect(authClient.refreshSession).not.toHaveBeenCalled();
+  });
+
   it("throws a reauth error when refresh fails", async () => {
     const authClient = createAuthClient({
       session: {

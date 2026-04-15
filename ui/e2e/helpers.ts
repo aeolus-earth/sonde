@@ -64,11 +64,26 @@ function parseSessionJson(sessionJson: string) {
   const parsed = JSON.parse(sessionJson) as {
     access_token: string;
     refresh_token: string;
+    expires_in?: number;
+    expires_at?: number;
+    token_type?: string;
     user: Record<string, unknown>;
   };
 
   if (!parsed.access_token || !parsed.refresh_token || !parsed.user) {
     throw new Error("E2E auth session JSON is missing required session fields.");
+  }
+
+  if (
+    typeof parsed.expires_at !== "number" &&
+    typeof parsed.expires_in === "number" &&
+    Number.isFinite(parsed.expires_in)
+  ) {
+    parsed.expires_at = Math.floor(Date.now() / 1000) + parsed.expires_in;
+  }
+
+  if (!parsed.token_type) {
+    parsed.token_type = "bearer";
   }
 
   return parsed;
