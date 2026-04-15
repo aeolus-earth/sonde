@@ -439,7 +439,7 @@ test.describe(SUITE_LABEL, () => {
     expect(body.agentWsOrigin ?? null).toBe(agentOrigin(AGENT_HTTP_BASE));
   });
 
-  test("hosted activation callback route resolves back to the activation page", async ({
+  test("hosted activation callback route resolves back to the activation page @activation", async ({
     page,
     request,
     browserName,
@@ -463,7 +463,7 @@ test.describe(SUITE_LABEL, () => {
     await expect(page.getByText("ssh://hosted-smoke")).toBeVisible({ timeout: 20_000 });
   });
 
-  test("hosted activation link can approve a headless CLI login from a browser session", async ({
+  test("hosted activation link can approve a headless CLI login from a browser session @activation", async ({
     page,
     request,
     browserName,
@@ -496,7 +496,7 @@ test.describe(SUITE_LABEL, () => {
   });
 });
 
-test.describe(`${SUITE_LABEL} authenticated flows`, () => {
+test.describe(`${SUITE_LABEL} authenticated flows @authenticated`, () => {
   test.skip(
     !BASE_URL || !AUTH_SESSION_JSON,
     "Skipped: authenticated smoke requires E2E_BASE_URL and E2E_AUTH_SESSION_JSON"
