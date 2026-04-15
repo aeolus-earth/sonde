@@ -154,6 +154,7 @@ jobs:
         ) &&
         (
           needs.changes.outputs.agent == 'true' ||
+          needs.changes.outputs.database == 'true' ||
           github.event_name == 'workflow_dispatch'
         )
       }}

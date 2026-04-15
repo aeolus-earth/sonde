@@ -57,6 +57,7 @@ wait_for_status_json() {
 }
 
 supabase start
+bash scripts/ci/question-graph-migration.sh
 supabase db reset --local --yes
 
 status_json="$(wait_for_status_json)"
