@@ -59,6 +59,7 @@ dev = [
 target-version = "py312"
 line-length = 100
 src = ["src", "tests"]
+extend-exclude = ["src/sonde/_version.py"]
 
 [tool.ruff.lint]
 select = [
