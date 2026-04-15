@@ -58,7 +58,7 @@ describe("createApp", () => {
     process.env.SONDE_COMMIT_SHA = "abc123";
     process.env.SONDE_SCHEMA_VERSION = "20260407000123";
     process.env.SONDE_CLI_GIT_REF = "refs/heads/staging";
-    process.env.ANTHROPIC_API_KEY = "test-key";
+    process.env.ANTHROPIC_API_KEY = "sk-ant-api03-test-key";
     process.env.VITE_SUPABASE_URL = "https://oxajsxoedrmvrcatqser.supabase.co";
     const app = createApp();
 
@@ -73,7 +73,7 @@ describe("createApp", () => {
     process.env.SONDE_COMMIT_SHA = "abc123";
     process.env.SONDE_SCHEMA_VERSION = "20260407000123";
     process.env.SONDE_CLI_GIT_REF = "refs/heads/staging";
-    process.env.ANTHROPIC_API_KEY = "test-key";
+    process.env.ANTHROPIC_API_KEY = "sk-ant-api03-test-key";
     process.env.VITE_SUPABASE_URL = "https://oxajsxoedrmvrcatqser.supabase.co";
     const app = createApp();
 
@@ -101,6 +101,10 @@ describe("createApp", () => {
       anthropicConfigError: string | null;
       anthropicAdminConfigured: boolean;
       anthropicAdminConfigError: string | null;
+      managedCostProviderConfigured: boolean;
+      managedCostProviderConfigError: string | null;
+      managedCostReconcileConfigured: boolean;
+      managedCostReconcileConfigError: string | null;
       costTelemetryConfigured: boolean;
       liveSpendEnabled: boolean;
       telemetryRequiresServiceRole: boolean;
@@ -127,6 +131,10 @@ describe("createApp", () => {
       anthropicConfigError: null,
       anthropicAdminConfigured: false,
       anthropicAdminConfigError: "ANTHROPIC_ADMIN_API_KEY is not configured.",
+      managedCostProviderConfigured: false,
+      managedCostProviderConfigError: "ANTHROPIC_ADMIN_API_KEY is not configured.",
+      managedCostReconcileConfigured: false,
+      managedCostReconcileConfigError: "SONDE_INTERNAL_ADMIN_TOKEN is not configured.",
       costTelemetryConfigured: false,
       liveSpendEnabled: false,
       telemetryRequiresServiceRole: false,
@@ -322,6 +330,8 @@ describe("createApp", () => {
   it("serves managed cost summary through the admin endpoint", async () => {
     process.env.VITE_SUPABASE_URL = "https://oxajsxoedrmvrcatqser.supabase.co";
     process.env.VITE_SUPABASE_ANON_KEY = "anon-key";
+    process.env.ANTHROPIC_ADMIN_API_KEY = "sk-ant-admin-test-key";
+    process.env.SONDE_INTERNAL_ADMIN_TOKEN = "internal-admin-token";
     globalThis.fetch = async (input: string | URL | Request) => {
       const url =
         typeof input === "string"
@@ -331,6 +341,12 @@ describe("createApp", () => {
             : new URL(input.url);
 
       if (url.pathname.endsWith("/rest/v1/managed_sessions")) {
+        if (url.searchParams.get("select") === "session_id") {
+          return new Response(JSON.stringify([{ session_id: "sesn_live" }]), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
         return new Response(
           JSON.stringify([
             {
@@ -412,6 +428,11 @@ describe("createApp", () => {
       estimatedSelectedWindowUsd: number;
       activeSessions: number;
       sessionCount: number;
+      providerStatus: {
+        mode: string;
+        reason: string;
+        reconcileConfigured: boolean;
+      };
       latestSuccessfulSync: { id: number } | null;
     };
     assert.equal(body.environment, "staging");
@@ -419,7 +440,112 @@ describe("createApp", () => {
     assert.equal(body.estimatedSelectedWindowUsd, 2);
     assert.equal(body.activeSessions, 1);
     assert.equal(body.sessionCount, 2);
+    assert.equal(body.providerStatus.mode, "provider");
+    assert.equal(body.providerStatus.reason, "ok");
+    assert.equal(body.providerStatus.reconcileConfigured, true);
     assert.equal(body.latestSuccessfulSync?.id, 42);
+  });
+
+  it("marks provider costs unavailable when only non-matching or estimated syncs exist", async () => {
+    process.env.VITE_SUPABASE_URL = "https://oxajsxoedrmvrcatqser.supabase.co";
+    process.env.VITE_SUPABASE_ANON_KEY = "anon-key";
+    process.env.ANTHROPIC_ADMIN_API_KEY = "sk-ant-admin-test-key";
+    delete process.env.SONDE_INTERNAL_ADMIN_TOKEN;
+
+    globalThis.fetch = async (input: string | URL | Request) => {
+      const url =
+        typeof input === "string"
+          ? new URL(input)
+          : input instanceof URL
+            ? input
+            : new URL(input.url);
+
+      if (url.pathname.endsWith("/rest/v1/managed_sessions")) {
+        if (url.searchParams.get("select") === "session_id") {
+          return new Response(JSON.stringify([{ session_id: "sesn_live_old" }]), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        return new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+
+      if (url.pathname.endsWith("/rest/v1/anthropic_cost_sync_runs")) {
+        return new Response(
+          JSON.stringify([
+            {
+              id: 9,
+              requested_by: "admin-user",
+              environment: "staging",
+              mode: "estimated_only",
+              success: true,
+              starting_at: new Date(Date.now() - 7 * 86_400_000).toISOString(),
+              ending_at: new Date().toISOString(),
+              bucket_count: 0,
+              total_cost_usd: 0,
+              error_message: null,
+              summary: { window_days: 7, reason: "estimated_only" },
+              created_at: new Date().toISOString(),
+              completed_at: new Date().toISOString(),
+            },
+            {
+              id: 7,
+              requested_by: "admin-user",
+              environment: "staging",
+              mode: "provider",
+              success: true,
+              starting_at: new Date(Date.now() - 30 * 86_400_000).toISOString(),
+              ending_at: new Date().toISOString(),
+              bucket_count: 1,
+              total_cost_usd: 12,
+              error_message: null,
+              summary: { window_days: 30 },
+              created_at: new Date().toISOString(),
+              completed_at: new Date().toISOString(),
+            },
+          ]),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      }
+
+      throw new Error(`Unexpected fetch: ${url.toString()}`);
+    };
+
+    const app = createApp();
+    const response = await app.request(
+      "http://localhost/admin/managed-costs/summary?days=7&environment=staging",
+      {
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+        },
+      },
+    );
+
+    assert.equal(response.status, 200);
+    const body = (await response.json()) as {
+      providerSelectedWindowUsd: number;
+      activeSessions: number;
+      providerStatus: {
+        mode: string;
+        reason: string;
+        reconcileConfigured: boolean;
+      };
+      latestSuccessfulSync: { id: number } | null;
+      latestAttemptedSync: { id: number } | null;
+    };
+    assert.equal(body.providerSelectedWindowUsd, 0);
+    assert.equal(body.activeSessions, 1);
+    assert.equal(body.providerStatus.mode, "estimated_only");
+    assert.equal(body.providerStatus.reason, "estimated_only");
+    assert.equal(body.providerStatus.reconcileConfigured, false);
+    assert.equal(body.latestSuccessfulSync, null);
+    assert.equal(body.latestAttemptedSync?.id, 9);
   });
 
   it("requires the internal admin token for scheduled cost reconciliation", async () => {
@@ -467,9 +593,63 @@ describe("createApp", () => {
     const body = (await response.json()) as {
       mode: string;
       syncRunId: number | null;
+      reason: string | null;
     };
     assert.equal(body.mode, "estimated_only");
     assert.equal(body.syncRunId, 77);
+    assert.equal(body.reason, "missing_admin_api_key");
+  });
+
+  it("lists live managed sessions outside the historical window", async () => {
+    process.env.VITE_SUPABASE_URL = "https://oxajsxoedrmvrcatqser.supabase.co";
+    process.env.VITE_SUPABASE_ANON_KEY = "anon-key";
+    globalThis.fetch = async (input: string | URL | Request) => {
+      const url =
+        typeof input === "string"
+          ? new URL(input)
+          : input instanceof URL
+            ? input
+            : new URL(input.url);
+
+      if (url.pathname.endsWith("/rest/v1/managed_sessions")) {
+        return new Response(
+          JSON.stringify([
+            {
+              session_id: "sesn_live_old",
+              status: "idle",
+              created_at: "2026-01-01T00:00:00.000Z",
+              estimated_total_cost_usd: 4,
+            },
+          ]),
+          {
+            status: 200,
+            headers: { "content-type": "application/json", "content-range": "0-0/1" },
+          },
+        );
+      }
+
+      throw new Error(`Unexpected fetch: ${url.toString()}`);
+    };
+
+    const app = createApp();
+    const response = await app.request(
+      "http://localhost/admin/managed-sessions?environment=staging&scope=live&days=1",
+      {
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+        },
+      },
+    );
+
+    assert.equal(response.status, 200);
+    const body = (await response.json()) as {
+      total: number;
+      items: Array<{ session_id: string; status: string }>;
+    };
+    assert.equal(body.total, 1);
+    assert.equal(body.items.length, 1);
+    assert.equal(body.items[0]?.session_id, "sesn_live_old");
+    assert.equal(body.items[0]?.status, "idle");
   });
 
   it("mints a chat session token from an authenticated request", async () => {
@@ -490,7 +670,7 @@ describe("createApp", () => {
   });
 
   it("returns a managed prewarm status when managed mode is enabled", async () => {
-    process.env.ANTHROPIC_API_KEY = "test-key";
+    process.env.ANTHROPIC_API_KEY = "sk-ant-api03-test-key";
     process.env.SONDE_MANAGED_ENVIRONMENT_ID = "env_123";
     process.env.SONDE_MANAGED_ALLOW_EPHEMERAL_AGENT = "1";
     globalThis.fetch = async (input: string | URL | Request) => {

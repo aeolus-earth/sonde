@@ -72,6 +72,7 @@ export async function reconcileManagedCostBuckets(options: {
   syncRunId: number | null;
   bucketCount: number;
   totalCostUsd: number;
+  reason: string | null;
 }> {
   const environment = options.environment ?? getRuntimeEnvironment();
   const endingAt = new Date();
@@ -122,6 +123,7 @@ export async function reconcileManagedCostBuckets(options: {
       syncRunId,
       bucketCount: 0,
       totalCostUsd: 0,
+      reason: "missing_admin_api_key",
     };
   }
 
@@ -182,6 +184,7 @@ export async function reconcileManagedCostBuckets(options: {
       syncRunId,
       bucketCount: parsedBuckets.length,
       totalCostUsd,
+      reason: null,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error ?? "");

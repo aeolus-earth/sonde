@@ -1,6 +1,7 @@
 import { getAgentBackend } from "./runtime-mode.js";
 import {
   hasSharedRateLimitConfig,
+  getInternalAdminTokenStatus,
   isSharedRateLimitRequired,
 } from "./security-config.js";
 import { hasGitHubAccess } from "./github.js";
@@ -22,6 +23,10 @@ export interface RuntimeMetadata {
   anthropicConfigError: string | null;
   anthropicAdminConfigured: boolean;
   anthropicAdminConfigError: string | null;
+  managedCostProviderConfigured: boolean;
+  managedCostProviderConfigError: string | null;
+  managedCostReconcileConfigured: boolean;
+  managedCostReconcileConfigError: string | null;
   managedConfigError: string | null;
   costTelemetryConfigured: boolean;
   liveSpendEnabled: boolean;
@@ -65,8 +70,10 @@ export function getRuntimeMetadata(
   env: NodeJS.ProcessEnv = process.env
 ): RuntimeMetadata {
   const managedStatus = getManagedRuntimeConfigStatus(env);
+  const internalAdminStatus = getInternalAdminTokenStatus(env);
   const deviceAuthStatus = getDeviceAuthRuntimeStatus(env);
   const thresholds = getManagedSessionCostThresholds(env);
+  const telemetryConfigured = hasSupabaseTelemetryConfig(env);
   return {
     status: "ok",
     environment: getRuntimeEnvironment(env),
@@ -80,9 +87,13 @@ export function getRuntimeMetadata(
     anthropicConfigError: managedStatus.anthropic.error,
     anthropicAdminConfigured: managedStatus.anthropicAdmin.valid,
     anthropicAdminConfigError: managedStatus.anthropicAdmin.error,
+    managedCostProviderConfigured: managedStatus.anthropicAdmin.valid,
+    managedCostProviderConfigError: managedStatus.anthropicAdmin.error,
+    managedCostReconcileConfigured: internalAdminStatus.valid,
+    managedCostReconcileConfigError: internalAdminStatus.error,
     managedConfigError: managedStatus.managedConfigError,
-    costTelemetryConfigured: hasSupabaseTelemetryConfig(env),
-    liveSpendEnabled: managedStatus.managedConfigured,
+    costTelemetryConfigured: telemetryConfigured,
+    liveSpendEnabled: managedStatus.managedConfigured && telemetryConfigured,
     telemetryRequiresServiceRole: telemetryRequiresServiceRole(env),
     managedSessionWarnUsd: thresholds.warnUsd,
     managedSessionCriticalUsd: thresholds.criticalUsd,

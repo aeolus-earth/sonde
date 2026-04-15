@@ -163,7 +163,7 @@ async function main() {
   const disallowedHostSuffixes = parseCsv(process.env.AUDIT_DISALLOWED_HOST_SUFFIXES);
   const requiredRuntimeKeys = parseCsvList(
     process.env.AUDIT_REQUIRED_RUNTIME_KEYS ??
-      "managedConfigured,managedConfigError,sondeMcpConfigured,githubConfigured,anthropicConfigured,anthropicConfigError,anthropicAdminConfigured,anthropicAdminConfigError,cliGitRef,supabaseProjectRef,sharedRateLimitConfigured,sharedRateLimitRequired,deviceAuthEnabled,deviceAuthConfigError",
+      "managedConfigured,managedConfigError,sondeMcpConfigured,githubConfigured,anthropicConfigured,anthropicConfigError,anthropicAdminConfigured,anthropicAdminConfigError,managedCostProviderConfigured,managedCostProviderConfigError,managedCostReconcileConfigured,managedCostReconcileConfigError,cliGitRef,supabaseProjectRef,sharedRateLimitConfigured,sharedRateLimitRequired,deviceAuthEnabled,deviceAuthConfigError",
   );
   const requireSharedRateLimit = parseBooleanFlag(
     (process.env.AUDIT_REQUIRE_SHARED_RATE_LIMIT ?? "").trim().toLowerCase()

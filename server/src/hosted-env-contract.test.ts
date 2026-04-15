@@ -36,7 +36,9 @@ describe("hosted environment contract", () => {
       "SONDE_WS_TOKEN_SECRET",
       "SONDE_DEVICE_AUTH_ENCRYPTION_KEY",
       "SONDE_RUNTIME_AUDIT_TOKEN",
+      "SONDE_INTERNAL_ADMIN_TOKEN",
       "ANTHROPIC_API_KEY",
+      "ANTHROPIC_ADMIN_API_KEY",
       "SONDE_AGENT_GITHUB_TOKEN",
     ]);
     assert.equal(
@@ -53,6 +55,10 @@ describe("hosted environment contract", () => {
       "anthropicConfigError",
       "anthropicAdminConfigured",
       "anthropicAdminConfigError",
+      "managedCostProviderConfigured",
+      "managedCostProviderConfigError",
+      "managedCostReconcileConfigured",
+      "managedCostReconcileConfigError",
       "cliGitRef",
       "supabaseProjectRef",
       "sharedRateLimitConfigured",

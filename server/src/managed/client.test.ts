@@ -9,7 +9,7 @@ beforeEach(() => {
   process.env = {
     ...originalEnv,
     NODE_ENV: "test",
-    ANTHROPIC_API_KEY: "test-key",
+    ANTHROPIC_API_KEY: "sk-ant-api03-test-key",
     SONDE_MANAGED_ENVIRONMENT_ID: "env_test_managed",
     SONDE_MANAGED_ALLOW_EPHEMERAL_AGENT: "1",
   };
