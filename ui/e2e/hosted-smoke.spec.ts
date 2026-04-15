@@ -17,6 +17,10 @@ import {
   seedActiveProgram,
   seedConfiguredSession,
 } from "./helpers";
+import {
+  readTimelineRepoIdentity,
+  type TimelineProxyResponse,
+} from "../src/lib/timeline-proxy-response";
 
 const BASE_URL = process.env.E2E_BASE_URL;
 const DEPLOY_ENVIRONMENT = process.env.E2E_DEPLOY_ENVIRONMENT?.trim() || "hosted";
@@ -144,17 +148,10 @@ async function assertTimelineProxyAvailable(request: APIRequestContext): Promise
     `Timeline proxy request failed: ${response.status()} ${bodyText.slice(0, 240)}`
   ).toBeTruthy();
 
-  const body = JSON.parse(bodyText) as {
-    commits: Array<{ sha: string }>;
-    repo: { owner: string; repo: string };
-    diagnostics: {
-      authMode: string;
-      upstreamRequests: number;
-    };
-  };
+  const body = JSON.parse(bodyText) as TimelineProxyResponse;
+  const repoIdentity = readTimelineRepoIdentity(body);
 
-  expect(body.repo.owner).toBe(TIMELINE_PROXY_REPO.owner);
-  expect(body.repo.repo).toBe(TIMELINE_PROXY_REPO.repo);
+  expect(repoIdentity).toEqual(TIMELINE_PROXY_REPO);
   expect(body.commits.length).toBeGreaterThan(0);
   expect(normalizeAuthMode(body.diagnostics.authMode)).toBe(
     normalizeAuthMode(EXPECT_TIMELINE_AUTH_MODE)
