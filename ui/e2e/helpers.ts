@@ -2,6 +2,7 @@ import type { Page } from "@playwright/test";
 
 const defaultSupabaseUrl = "https://utvmqjssbkzpumsdpgdy.supabase.co";
 const defaultBypassToken = "playwright-smoke-token";
+const activationStorageKey = "sonde-activation-auth";
 
 function getSupabaseProjectRef(): string {
   const raw =
@@ -87,6 +88,23 @@ export async function seedSupabaseSession(
     },
     {
       key: storageKey,
+      value: session,
+    }
+  );
+}
+
+export async function seedActivationSession(
+  page: Page,
+  sessionJson: string
+): Promise<void> {
+  const session = parseSessionJson(sessionJson);
+
+  await page.addInitScript(
+    ({ key, value }) => {
+      window.localStorage.setItem(key, JSON.stringify(value));
+    },
+    {
+      key: activationStorageKey,
       value: session,
     }
   );

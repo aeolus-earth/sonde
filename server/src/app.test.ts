@@ -141,6 +141,45 @@ describe("createApp", () => {
     });
   });
 
+  it("returns public device-auth health without secrets", async () => {
+    process.env.SONDE_PUBLIC_APP_ORIGIN = "https://sonde-neon.vercel.app";
+    const app = createApp();
+
+    const response = await app.request("http://localhost/auth/device/health");
+    assert.equal(response.status, 200);
+
+    const body = (await response.json()) as {
+      status: string;
+      enabled: boolean;
+    };
+
+    assert.deepEqual(body, {
+      status: "ok",
+      enabled: true,
+    });
+  });
+
+  it("reports when device-auth configuration is unavailable", async () => {
+    process.env.SONDE_ENVIRONMENT = "production";
+    delete process.env.SONDE_PUBLIC_APP_ORIGIN;
+    delete process.env.SONDE_ALLOWED_ORIGINS;
+    delete process.env.SONDE_DEVICE_AUTH_ENCRYPTION_KEY;
+    const app = createApp();
+
+    const response = await app.request("http://localhost/auth/device/health");
+    assert.equal(response.status, 200);
+
+    const body = (await response.json()) as {
+      status: string;
+      enabled: boolean;
+    };
+
+    assert.deepEqual(body, {
+      status: "ok",
+      enabled: false,
+    });
+  });
+
   it("completes a device login request without a localhost callback", async () => {
     const app = createApp();
 

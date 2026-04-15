@@ -9,6 +9,42 @@ from sonde.cli_options import pass_output_options
 from sonde.output import err, print_banner, print_error, print_json, print_success
 
 
+def _hosted_login_error_display(error: auth.HostedLoginError) -> tuple[str, str, str]:
+    path = error.url
+    if error.kind == "not_found":
+        return (
+            "Hosted login service is missing OAuth routes",
+            f"{path} returned 404 Not Found. This usually means the hosted Sonde UI or "
+            "agent deployment is missing the /auth/device routes.",
+            "If you manage this environment, redeploy the hosted Sonde stack and verify "
+            "/auth/device/start. Temporary fallback: sonde login --method loopback",
+        )
+    if error.kind == "unavailable":
+        return (
+            "Hosted login service is misconfigured",
+            f"{path} reported that hosted activation is unavailable. {error.detail}",
+            "Check the hosted OAuth/device-login configuration, then retry: sonde login",
+        )
+    if error.kind == "unreachable":
+        return (
+            "Hosted login service could not be reached",
+            error.detail,
+            "Check the hosted Sonde URL or network path, then retry: sonde login",
+        )
+    if error.kind == "invalid_response":
+        return (
+            "Hosted login service returned an invalid response",
+            error.detail,
+            "Check for a stale deploy or broken UI proxy on the hosted Sonde "
+            "environment, then retry: sonde login",
+        )
+    return (
+        "Hosted login failed",
+        error.detail,
+        "Retry: sonde login",
+    )
+
+
 @click.command()
 @pass_output_options
 @click.option(
@@ -56,6 +92,10 @@ def login(ctx: click.Context, remote: bool, method: str) -> None:
             str(e),
             "Set SONDE_UI_URL or SONDE_AGENT_HTTP_BASE, or run: sonde login --method loopback",
         )
+        raise SystemExit(1) from None
+    except auth.HostedLoginError as e:
+        title, detail, fix = _hosted_login_error_display(e)
+        print_error(title, detail, fix)
         raise SystemExit(1) from None
     except TimeoutError as e:
         print_error("Login timed out", str(e), "Try again: sonde login")

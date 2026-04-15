@@ -2,9 +2,11 @@ import { useEffect } from "react";
 import { createRoute, useNavigate } from "@tanstack/react-router";
 import { Route as rootRoute } from "./__root";
 import { activationSupabase } from "@/lib/activation-supabase";
+import {
+  ACTIVATION_CODE_STORAGE_KEY,
+  resolveActivationCallbackHref,
+} from "@/lib/device-activation-browser";
 import { Spinner } from "@/components/ui/spinner";
-
-const ACTIVATION_CODE_STORAGE_KEY = "sonde-activation-code";
 
 function ActivationCallbackPage() {
   const navigate = useNavigate();
@@ -13,62 +15,16 @@ function ActivationCallbackPage() {
     let alive = true;
 
     void (async () => {
-      const params = new URLSearchParams(window.location.search);
-      const oauthError =
-        params.get("error_description") || params.get("error") || "";
-      const oauthCode = params.get("code") || "";
       const storedCode = sessionStorage.getItem(ACTIVATION_CODE_STORAGE_KEY) || "";
-      const userCode = params.get("user_code") || storedCode;
-
-      const redirectWithError = async (message: string) => {
-        sessionStorage.removeItem(ACTIVATION_CODE_STORAGE_KEY);
-        if (!alive) return;
-        navigate({
-          href: `/activate?${new URLSearchParams({
-            ...(userCode ? { code: userCode } : {}),
-            error: message,
-          }).toString()}`,
-          replace: true,
-        });
-      };
-
-      if (oauthError) {
-        await redirectWithError(oauthError);
-        return;
-      }
-
-      try {
-        if (oauthCode) {
-          const exchanged = await activationSupabase.auth.exchangeCodeForSession(oauthCode);
-          if (exchanged.error) {
-            await redirectWithError(exchanged.error.message);
-            return;
-          }
-        } else {
-          const {
-            data: { session },
-            error: currentError,
-          } = await activationSupabase.auth.getSession();
-          if (currentError) {
-            await redirectWithError(currentError.message);
-            return;
-          }
-          if (!session) {
-            await redirectWithError("Activation sign-in did not complete.");
-            return;
-          }
-        }
-      } catch (error) {
-        await redirectWithError(
-          error instanceof Error ? error.message : "Activation sign-in did not complete."
-        );
-        return;
-      }
-
-      if (!alive) return;
+      const href = await resolveActivationCallbackHref({
+        search: window.location.search,
+        storedCode,
+        authClient: activationSupabase.auth,
+      });
       sessionStorage.removeItem(ACTIVATION_CODE_STORAGE_KEY);
+      if (!alive) return;
       navigate({
-        href: userCode ? `/activate?code=${encodeURIComponent(userCode)}` : "/activate",
+        href,
         replace: true,
       });
     })();

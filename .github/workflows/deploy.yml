@@ -304,3 +304,23 @@ jobs:
           PARITY_WAIT_TIMEOUT_MS: 300000
           PARITY_WAIT_INTERVAL_MS: 10000
         run: node scripts/wait-for-runtime-parity.mjs
+
+      - name: Audit deployed production stack
+        if: ${{ steps.contract.outputs.agent_url != '' }}
+        working-directory: server
+        env:
+          AUDIT_UI_BASE: ${{ steps.contract.outputs.ui_url }}
+          AUDIT_AGENT_BASE: ${{ steps.contract.outputs.agent_url }}
+          AUDIT_RUNTIME_TOKEN: ${{ secrets.SONDE_RUNTIME_AUDIT_TOKEN }}
+          AUDIT_EXPECT_ENVIRONMENT: ${{ steps.contract.outputs.runtime_environment }}
+          AUDIT_EXPECT_COMMIT_SHA: ${{ github.sha }}
+          AUDIT_EXPECT_SCHEMA_VERSION: ${{ steps.schema.outputs.version }}
+          AUDIT_EXPECT_SUPABASE_PROJECT_REF: ${{ steps.contract.outputs.supabase_project_ref }}
+          AUDIT_REQUIRE_ANTHROPIC: ${{ steps.contract.outputs.audit_require_anthropic }}
+          AUDIT_REQUIRE_AGENT_COMMIT_MATCH: ${{ steps.contract.outputs.audit_require_agent_commit_match }}
+          AUDIT_REQUIRE_FIRST_PARTY_AGENT: ${{ steps.contract.outputs.audit_require_first_party_agent }}
+          AUDIT_REQUIRE_SHARED_RATE_LIMIT: ${{ steps.contract.outputs.audit_require_shared_rate_limit }}
+          AUDIT_REQUIRED_RUNTIME_KEYS: ${{ steps.contract.outputs.audit_required_runtime_keys_csv }}
+          AUDIT_WAIT_TIMEOUT_MS: 300000
+          AUDIT_WAIT_INTERVAL_MS: 10000
+        run: node scripts/audit-deployed-stack.mjs

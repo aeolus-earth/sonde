@@ -63,11 +63,30 @@ async function fetchJson(url, init) {
   return body;
 }
 
-async function fetchText(url) {
+async function fetchHtmlDocument(url) {
   const response = await fetch(url);
   const body = await response.text();
+  const contentType = (response.headers.get("content-type") ?? "").toLowerCase();
   if (!response.ok) {
     throw new Error(`Request failed (${response.status}) for ${url}`);
+  }
+  if (!contentType.includes("text/html")) {
+    throw new Error(`Expected HTML from ${url}, but received ${contentType || "unknown content-type"}.`);
+  }
+
+  const normalized = body.trim().toLowerCase();
+  if (!(normalized.startsWith("<!doctype html") || normalized.startsWith("<html"))) {
+    throw new Error(`Expected an HTML document from ${url}, but received a non-document response.`);
+  }
+  if (
+    normalized.includes("404: not_found") ||
+    normalized.includes("the page could not be found") ||
+    normalized.includes("this page could not be found")
+  ) {
+    throw new Error(`Hosted route ${url} rendered a 404 page instead of the Sonde app.`);
+  }
+  if (normalized.includes("\"error\":{") || normalized.includes("\"error\": {")) {
+    throw new Error(`Hosted route ${url} rendered an application error payload instead of the Sonde app.`);
   }
   return body;
 }
@@ -95,19 +114,28 @@ function sleep(ms) {
 }
 
 async function collectRuntimeState({ uiBase, agentBase, runtimeAuditToken }) {
-  const [uiVersion, agentHealth, agentRuntime] = await Promise.all([
-    fetchJson(`${uiBase}/version.json`),
-    fetchJson(`${agentBase}/health`),
-    fetchJson(`${agentBase}/health/runtime`, {
-      headers: runtimeAuditToken
-        ? {
-            Authorization: `Bearer ${runtimeAuditToken}`,
-          }
-        : {},
-    }),
-  ]);
+  const [uiVersion, agentHealth, agentRuntime, directDeviceHealth, proxiedDeviceHealth] =
+    await Promise.all([
+      fetchJson(`${uiBase}/version.json`),
+      fetchJson(`${agentBase}/health`),
+      fetchJson(`${agentBase}/health/runtime`, {
+        headers: runtimeAuditToken
+          ? {
+              Authorization: `Bearer ${runtimeAuditToken}`,
+            }
+          : {},
+      }),
+      fetchJson(`${agentBase}/auth/device/health`),
+      fetchJson(`${uiBase}/auth/device/health`),
+    ]);
 
-  return { uiVersion, agentHealth, agentRuntime };
+  return {
+    uiVersion,
+    agentHealth,
+    agentRuntime,
+    directDeviceHealth,
+    proxiedDeviceHealth,
+  };
 }
 
 async function main() {
@@ -161,7 +189,7 @@ async function main() {
     }
   }
 
-  let { uiVersion, agentHealth, agentRuntime } = state;
+  let { uiVersion, agentHealth, agentRuntime, directDeviceHealth, proxiedDeviceHealth } = state;
   const agentHostname = new URL(agentBase).hostname;
   const agentHostMatchesDisallowedSuffix = matchesDisallowedHostSuffix(
     agentHostname,
@@ -294,6 +322,30 @@ async function main() {
         !agentRuntime.deviceAuthConfigError,
         `Agent device login config is invalid: ${agentRuntime.deviceAuthConfigError}`,
       );
+      ensure(
+        directDeviceHealth?.status === "ok",
+        "Agent device-auth health did not return status=ok",
+      );
+      ensure(
+        proxiedDeviceHealth?.status === "ok",
+        "UI-proxied device-auth health did not return status=ok",
+      );
+      ensure(
+        directDeviceHealth?.enabled === true,
+        `Agent device-auth health reports disabled: ${agentRuntime.deviceAuthConfigError ?? "unknown"}`,
+      );
+      ensure(
+        proxiedDeviceHealth?.enabled === true,
+        `UI-proxied device-auth health reports disabled: ${agentRuntime.deviceAuthConfigError ?? "unknown"}`,
+      );
+      ensure(
+        Object.keys(directDeviceHealth ?? {}).length === 2,
+        "Public agent device-auth health should expose only status and enabled",
+      );
+      ensure(
+        Object.keys(proxiedDeviceHealth ?? {}).length === 2,
+        "Public proxied device-auth health should expose only status and enabled",
+      );
       const deviceStart = await fetchJson(`${agentBase}/auth/device/start`, {
         method: "POST",
         headers: {
@@ -331,7 +383,10 @@ async function main() {
         Number.isFinite(deviceStart?.interval) && deviceStart.interval > 0,
         "Device auth start returned an invalid interval",
       );
-      await fetchText(deviceStart.verification_uri);
+      await fetchHtmlDocument(deviceStart.verification_uri);
+      await fetchHtmlDocument(
+        `${uiBase}/activate/callback?user_code=${encodeURIComponent(deviceStart.user_code)}`,
+      );
 
       if (requireSharedRateLimit) {
         ensure(
@@ -350,7 +405,7 @@ async function main() {
           `Agent host matches a disallowed suffix: ${agentHostname}`
         );
 
-        const loginHtml = await fetchText(`${uiBase}/login`);
+        const loginHtml = await fetchHtmlDocument(`${uiBase}/login`);
         ensure(
           !htmlContainsDisallowedSuffix(loginHtml, disallowedHostSuffixes),
           "UI HTML still exposes a disallowed hosted-domain suffix"
@@ -367,8 +422,8 @@ async function main() {
       }
       await sleep(waitIntervalMs);
       try {
-        state = await collectRuntimeState({ uiBase, agentBase, runtimeAuditToken });
-        ({ uiVersion, agentHealth, agentRuntime } = state);
+      state = await collectRuntimeState({ uiBase, agentBase, runtimeAuditToken });
+      ({ uiVersion, agentHealth, agentRuntime, directDeviceHealth, proxiedDeviceHealth } = state);
       } catch (refreshError) {
         lastError = refreshError;
         if (Date.now() >= deadline) {

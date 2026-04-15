@@ -86,9 +86,10 @@ jobs:
           CLI_AUDIT_WAIT_INTERVAL_MS: ${{ steps.contract.outputs.audit_wait_interval_ms }}
         run: node scripts/run-cli-hosted-audit.mjs
 
-      - name: Run staging CLI audit (human session)
+      - name: Run staging CLI audit (device approval contract)
         working-directory: server
         env:
+          CLI_AUDIT_AGENT_BASE: ${{ steps.contract.outputs.agent_url }}
           SUPABASE_URL: https://${{ steps.contract.outputs.supabase_project_ref }}.supabase.co
           SUPABASE_ANON_KEY: ${{ steps.contract.outputs.supabase_anon_key }}
           CLI_AUDIT_AUTH_MODE: session
@@ -168,9 +169,10 @@ jobs:
           CLI_AUDIT_WAIT_INTERVAL_MS: ${{ steps.contract.outputs.audit_wait_interval_ms }}
         run: node scripts/run-cli-hosted-audit.mjs
 
-      - name: Run production CLI audit (human session)
+      - name: Run production CLI audit (device approval contract)
         working-directory: server
         env:
+          CLI_AUDIT_AGENT_BASE: ${{ steps.contract.outputs.agent_url }}
           SUPABASE_URL: https://${{ steps.contract.outputs.supabase_project_ref }}.supabase.co
           SUPABASE_ANON_KEY: ${{ steps.contract.outputs.supabase_anon_key }}
           CLI_AUDIT_AUTH_MODE: session
