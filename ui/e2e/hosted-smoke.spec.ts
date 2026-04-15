@@ -82,6 +82,42 @@ async function readVisibleText(page: Page, selector: string): Promise<string | n
   return text?.trim() || null;
 }
 
+async function waitForTimelineLandingState(
+  page: Page,
+  diagnosticsAuthMode: Locator,
+  loadButton: Locator,
+): Promise<"diagnostics" | "load" | "empty"> {
+  const emptyState = page.getByText("No git-linked experiments found");
+  await expect
+    .poll(
+      async () => {
+        if (await diagnosticsAuthMode.isVisible().catch(() => false)) {
+          return "diagnostics";
+        }
+        if (await loadButton.isVisible().catch(() => false)) {
+          return "load";
+        }
+        if (await emptyState.isVisible().catch(() => false)) {
+          return "empty";
+        }
+        return "pending";
+      },
+      {
+        timeout: 20_000,
+        message: "Expected timeline to resolve to diagnostics, a repo swimlane, or the empty state.",
+      },
+    )
+    .not.toBe("pending");
+
+  if (await diagnosticsAuthMode.isVisible().catch(() => false)) {
+    return "diagnostics";
+  }
+  if (await loadButton.isVisible().catch(() => false)) {
+    return "load";
+  }
+  return "empty";
+}
+
 async function assertTimelineProxyAvailable(request: APIRequestContext): Promise<void> {
   if (!AGENT_HTTP_BASE) {
     throw new Error("Timeline proxy smoke requires E2E_AGENT_HTTP_BASE.");
@@ -510,15 +546,21 @@ test.describe(`${SUITE_LABEL} authenticated flows`, () => {
     await page.goto("/timeline");
 
     const diagnosticsAuthMode = page.getByText(new RegExp(EXPECT_TIMELINE_AUTH_MODE, "i")).first();
-    if (await diagnosticsAuthMode.isVisible().catch(() => false)) {
+    const loadButton = page.getByRole("button", { name: "Load commit history" }).first();
+    const landingState = await waitForTimelineLandingState(
+      page,
+      diagnosticsAuthMode,
+      loadButton,
+    );
+
+    if (landingState === "diagnostics") {
       await expect(page.getByText(/upstream GitHub request/i)).toBeVisible({
         timeout: 60_000,
       });
       return;
     }
 
-    const loadButton = page.getByRole("button", { name: "Load commit history" }).first();
-    if (await loadButton.isVisible().catch(() => false)) {
+    if (landingState === "load") {
       await loadButton.click();
 
       const timelineError = page.getByText(/Failed to load commit history|Sign in again|Repository not accessible|Server GitHub token is invalid|Hosted Sonde UI is missing VITE_AGENT_WS_URL/i);
