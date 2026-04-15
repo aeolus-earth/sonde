@@ -95,19 +95,28 @@ function sleep(ms) {
 }
 
 async function collectRuntimeState({ uiBase, agentBase, runtimeAuditToken }) {
-  const [uiVersion, agentHealth, agentRuntime] = await Promise.all([
-    fetchJson(`${uiBase}/version.json`),
-    fetchJson(`${agentBase}/health`),
-    fetchJson(`${agentBase}/health/runtime`, {
-      headers: runtimeAuditToken
-        ? {
-            Authorization: `Bearer ${runtimeAuditToken}`,
-          }
-        : {},
-    }),
-  ]);
+  const [uiVersion, agentHealth, agentRuntime, directDeviceHealth, proxiedDeviceHealth] =
+    await Promise.all([
+      fetchJson(`${uiBase}/version.json`),
+      fetchJson(`${agentBase}/health`),
+      fetchJson(`${agentBase}/health/runtime`, {
+        headers: runtimeAuditToken
+          ? {
+              Authorization: `Bearer ${runtimeAuditToken}`,
+            }
+          : {},
+      }),
+      fetchJson(`${agentBase}/auth/device/health`),
+      fetchJson(`${uiBase}/auth/device/health`),
+    ]);
 
-  return { uiVersion, agentHealth, agentRuntime };
+  return {
+    uiVersion,
+    agentHealth,
+    agentRuntime,
+    directDeviceHealth,
+    proxiedDeviceHealth,
+  };
 }
 
 async function main() {
@@ -161,7 +170,7 @@ async function main() {
     }
   }
 
-  let { uiVersion, agentHealth, agentRuntime } = state;
+  let { uiVersion, agentHealth, agentRuntime, directDeviceHealth, proxiedDeviceHealth } = state;
   const agentHostname = new URL(agentBase).hostname;
   const agentHostMatchesDisallowedSuffix = matchesDisallowedHostSuffix(
     agentHostname,
@@ -294,6 +303,30 @@ async function main() {
         !agentRuntime.deviceAuthConfigError,
         `Agent device login config is invalid: ${agentRuntime.deviceAuthConfigError}`,
       );
+      ensure(
+        directDeviceHealth?.status === "ok",
+        "Agent device-auth health did not return status=ok",
+      );
+      ensure(
+        proxiedDeviceHealth?.status === "ok",
+        "UI-proxied device-auth health did not return status=ok",
+      );
+      ensure(
+        directDeviceHealth?.enabled === true,
+        `Agent device-auth health reports disabled: ${directDeviceHealth?.config_error ?? "unknown"}`,
+      );
+      ensure(
+        proxiedDeviceHealth?.enabled === true,
+        `UI-proxied device-auth health reports disabled: ${proxiedDeviceHealth?.config_error ?? "unknown"}`,
+      );
+      ensure(
+        directDeviceHealth?.verification_uri === `${uiBase}/activate`,
+        `Agent device-auth verification URI mismatch: expected ${uiBase}/activate, got ${directDeviceHealth?.verification_uri}`,
+      );
+      ensure(
+        proxiedDeviceHealth?.verification_uri === `${uiBase}/activate`,
+        `UI-proxied device-auth verification URI mismatch: expected ${uiBase}/activate, got ${proxiedDeviceHealth?.verification_uri}`,
+      );
       const deviceStart = await fetchJson(`${agentBase}/auth/device/start`, {
         method: "POST",
         headers: {
@@ -367,8 +400,8 @@ async function main() {
       }
       await sleep(waitIntervalMs);
       try {
-        state = await collectRuntimeState({ uiBase, agentBase, runtimeAuditToken });
-        ({ uiVersion, agentHealth, agentRuntime } = state);
+      state = await collectRuntimeState({ uiBase, agentBase, runtimeAuditToken });
+      ({ uiVersion, agentHealth, agentRuntime, directDeviceHealth, proxiedDeviceHealth } = state);
       } catch (refreshError) {
         lastError = refreshError;
         if (Date.now() >= deadline) {

@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from time import perf_counter
 from typing import Any
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from urllib.request import urlopen
 
 from sonde import auth
@@ -246,7 +246,7 @@ def build_local_section(*, deep: bool = False) -> DoctorSection:
 
 def build_auth_section(*, deep: bool = False) -> DoctorSection:
     """Inspect current auth state."""
-    checks = [check_auth_session(), check_device_login_base()]
+    checks = [check_auth_session(), check_device_login_base(), check_device_login_health()]
     return build_section("auth", checks, required=True)
 
 
@@ -588,6 +588,103 @@ def check_device_login_base() -> DoctorCheck:
         }
 
     return _timed_check("device-login-base", "Login transport", build, required=False)
+
+
+def check_device_login_health() -> DoctorCheck:
+    """Probe the hosted login readiness endpoint for the resolved Sonde origin."""
+
+    def build() -> dict[str, Any]:
+        resolved, source = auth._resolve_hosted_login_origin()
+        normalized = auth._normalize_hosted_login_origin(resolved)
+
+        if not normalized:
+            return {
+                "status": "skipped",
+                "summary": "Hosted login health skipped because no Sonde origin is configured.",
+            }
+
+        if source == "default-ui" and auth._uses_nondefault_supabase_target():
+            return {
+                "status": "skipped",
+                "summary": (
+                    "Hosted login health skipped until the matching Sonde origin is configured."
+                ),
+                "details": [auth._hosted_login_origin_mismatch_message()],
+            }
+
+        health_url = f"{normalized}/auth/device/health"
+        try:
+            with urlopen(health_url, timeout=5) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        except HTTPError as exc:
+            if exc.code == 404:
+                return {
+                    "status": "warn",
+                    "summary": "Hosted login endpoint returned 404.",
+                    "details": [
+                        f"{health_url} returned 404 Not Found.",
+                        "This usually means the hosted UI proxy or agent deploy is "
+                        "missing the /auth/device routes.",
+                    ],
+                    "fix": "Redeploy the hosted Sonde UI/agent and verify /auth/device/start.",
+                }
+            return {
+                "status": "warn",
+                "summary": "Hosted login health check failed.",
+                "details": [f"{health_url} returned HTTP {exc.code}."],
+                "fix": "Check the hosted Sonde deployment and retry `sonde doctor`.",
+            }
+        except URLError as exc:
+            return {
+                "status": "warn",
+                "summary": "Hosted login endpoint is not reachable.",
+                "details": [f"Could not reach {health_url}: {exc.reason}"],
+                "fix": "Check network reachability to the hosted Sonde environment and retry.",
+            }
+        except json.JSONDecodeError:
+            return {
+                "status": "warn",
+                "summary": "Hosted login endpoint returned invalid JSON.",
+                "details": [f"{health_url} did not return a valid JSON readiness payload."],
+                "fix": (
+                    "Check for a stale deploy or broken UI proxy on the hosted Sonde environment."
+                ),
+            }
+
+        if not isinstance(payload, dict):
+            return {
+                "status": "warn",
+                "summary": "Hosted login endpoint returned an unexpected payload.",
+                "details": [f"{health_url} returned a non-object JSON response."],
+                "fix": "Check the hosted Sonde auth service deployment.",
+            }
+
+        enabled = payload.get("enabled") is True
+        config_error = payload.get("config_error")
+        verification_uri = payload.get("verification_uri")
+        if not enabled:
+            details = [f"Hosted login is disabled at {health_url}."]
+            if isinstance(config_error, str) and config_error.strip():
+                details.append(config_error.strip())
+            return {
+                "status": "warn",
+                "summary": "Hosted login is configured but unavailable.",
+                "details": details,
+                "fix": (
+                    "Fix the hosted OAuth/device-login configuration, then retry `sonde login`."
+                ),
+            }
+
+        details = [f"Ready at {health_url}."]
+        if isinstance(verification_uri, str) and verification_uri.strip():
+            details.append(f"Activation URL: {verification_uri.strip()}")
+        return {
+            "status": "ok",
+            "summary": "Hosted login endpoint is reachable and ready.",
+            "details": details,
+        }
+
+    return _timed_check("device-login-health", "Hosted login health", build, required=False)
 
 
 def check_project_root(project_root: Path | None) -> DoctorCheck:

@@ -74,6 +74,7 @@ export interface DeviceAuthConfigStatus {
   enabled: boolean;
   configError: string | null;
   verificationOrigin: string | null;
+  verificationUri: string | null;
   ttlSeconds: number;
   pollIntervalSeconds: number;
 }
@@ -643,6 +644,7 @@ export function getDeviceAuthRuntimeStatus(
     enabled: configError === null,
     configError,
     verificationOrigin,
+    verificationUri: verificationOrigin ? `${verificationOrigin}/activate` : null,
     ttlSeconds,
     pollIntervalSeconds,
   };

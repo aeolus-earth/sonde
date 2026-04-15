@@ -5,12 +5,13 @@ from __future__ import annotations
 import sys
 from datetime import UTC, datetime
 from types import SimpleNamespace
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 
 from sonde.cli import cli
 from sonde.diagnostics import (
     GIT_TOOL_INSTALL_COMMAND,
     check_device_login_base,
+    check_device_login_health,
     check_install_shadows,
     check_s3_settings,
     check_stac_settings,
@@ -214,6 +215,62 @@ def test_check_device_login_base_warns_on_supabase_mismatch(monkeypatch) -> None
     assert check.status == "warn"
     assert "explicit Sonde origin" in check.summary
     assert "Mismatch message" in check.details[0]
+
+
+def test_check_device_login_health_reports_ready(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "sonde.diagnostics.auth._resolve_hosted_login_origin",
+        lambda: ("https://sonde-neon.vercel.app", "default-ui"),
+    )
+    monkeypatch.setattr(
+        "sonde.diagnostics.auth._normalize_hosted_login_origin", lambda value: value
+    )
+    monkeypatch.setattr("sonde.diagnostics.auth._uses_nondefault_supabase_target", lambda: False)
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return b'{"status":"ok","enabled":true,"verification_uri":"https://sonde-neon.vercel.app/activate"}'
+
+    monkeypatch.setattr("sonde.diagnostics.urlopen", lambda *_args, **_kwargs: Response())
+
+    check = check_device_login_health()
+
+    assert check.status == "ok"
+    assert "reachable and ready" in check.summary
+    assert "activate" in "\n".join(check.details)
+
+
+def test_check_device_login_health_warns_on_404(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "sonde.diagnostics.auth._resolve_hosted_login_origin",
+        lambda: ("https://sonde-neon.vercel.app", "default-ui"),
+    )
+    monkeypatch.setattr(
+        "sonde.diagnostics.auth._normalize_hosted_login_origin", lambda value: value
+    )
+    monkeypatch.setattr("sonde.diagnostics.auth._uses_nondefault_supabase_target", lambda: False)
+
+    def boom(*_args, **_kwargs):
+        raise HTTPError(
+            "https://sonde-neon.vercel.app/auth/device/health",
+            404,
+            "Not Found",
+            hdrs=None,
+            fp=None,
+        )
+
+    monkeypatch.setattr("sonde.diagnostics.urlopen", boom)
+
+    check = check_device_login_health()
+
+    assert check.status == "warn"
+    assert "returned 404" in check.summary.lower()
 
 
 def test_check_install_shadows_reports_shadowed_binary(monkeypatch):
