@@ -49,6 +49,7 @@ export type ConnectionStatus =
   | "connected"
   | "reconnecting"
   | "recovering"
+  | "auth_required"
   | "disconnected";
 
 export interface AgentRuntimeInfo {
