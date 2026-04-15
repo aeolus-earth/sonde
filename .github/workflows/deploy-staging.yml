@@ -218,15 +218,23 @@ jobs:
       - name: Validate required staging runtime secrets
         env:
           REQUIRED_SECRETS_CSV: ${{ steps.contract.outputs.agent_runtime_secret_names_csv }}
+          STAGING_MANAGED_COST_SECRETS_CSV: SONDE_INTERNAL_ADMIN_TOKEN,ANTHROPIC_ADMIN_API_KEY
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           SONDE_WS_TOKEN_SECRET: ${{ secrets.SONDE_WS_TOKEN_SECRET }}
           SONDE_DEVICE_AUTH_ENCRYPTION_KEY: ${{ secrets.SONDE_DEVICE_AUTH_ENCRYPTION_KEY }}
           SONDE_RUNTIME_AUDIT_TOKEN: ${{ secrets.SONDE_RUNTIME_AUDIT_TOKEN }}
+          SONDE_INTERNAL_ADMIN_TOKEN: ${{ secrets.SONDE_INTERNAL_ADMIN_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_ADMIN_API_KEY: ${{ secrets.ANTHROPIC_ADMIN_API_KEY }}
           SONDE_AGENT_GITHUB_TOKEN: ${{ secrets.SONDE_AGENT_GITHUB_TOKEN }}
         run: |
           missing=()
           for name in ${REQUIRED_SECRETS_CSV//,/ }; do
+            if [ -z "${!name:-}" ]; then
+              missing+=("$name")
+            fi
+          done
+          for name in ${STAGING_MANAGED_COST_SECRETS_CSV//,/ }; do
             if [ -z "${!name:-}" ]; then
               missing+=("$name")
             fi
@@ -263,7 +271,9 @@ jobs:
           SONDE_RUNTIME_AUDIT_TOKEN: ${{ secrets.SONDE_RUNTIME_AUDIT_TOKEN }}
           SONDE_WS_TOKEN_SECRET: ${{ secrets.SONDE_WS_TOKEN_SECRET }}
           SONDE_DEVICE_AUTH_ENCRYPTION_KEY: ${{ secrets.SONDE_DEVICE_AUTH_ENCRYPTION_KEY }}
+          SONDE_INTERNAL_ADMIN_TOKEN: ${{ secrets.SONDE_INTERNAL_ADMIN_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_ADMIN_API_KEY: ${{ secrets.ANTHROPIC_ADMIN_API_KEY }}
           SONDE_AGENT_GITHUB_TOKEN: ${{ secrets.SONDE_AGENT_GITHUB_TOKEN }}
           SONDE_GITHUB_ALLOWED_REPOS: ${{ vars.SONDE_GITHUB_ALLOWED_REPOS }}
         run: |
@@ -272,6 +282,29 @@ jobs:
             exit 1
           fi
           SCHEMA_VERSION="${SONDE_SCHEMA_VERSION:-unknown}"
+          variable_args=(
+            VITE_SUPABASE_URL="https://${{ steps.contract.outputs.supabase_project_ref }}.supabase.co"
+            VITE_SUPABASE_ANON_KEY="${{ steps.contract.outputs.supabase_anon_key }}"
+            SONDE_AGENT_BACKEND="managed"
+            SONDE_MANAGED_ENVIRONMENT_ID="${SONDE_MANAGED_ENVIRONMENT_ID}"
+            SONDE_MANAGED_AGENT_ID=" "
+            SONDE_MANAGED_ALLOW_EPHEMERAL_AGENT="1"
+            SONDE_ALLOWED_ORIGINS="${{ steps.contract.outputs.site_url }}"
+            SONDE_PUBLIC_APP_ORIGIN="${{ steps.contract.outputs.site_url }}"
+            SONDE_ENVIRONMENT="staging"
+            SONDE_COMMIT_SHA="${GITHUB_SHA}"
+            SONDE_CLI_GIT_REF="${GITHUB_SHA}"
+            SONDE_SCHEMA_VERSION="${SCHEMA_VERSION}"
+            SUPABASE_SERVICE_ROLE_KEY="${SUPABASE_SERVICE_ROLE_KEY}"
+            SONDE_RUNTIME_AUDIT_TOKEN="${SONDE_RUNTIME_AUDIT_TOKEN}"
+            SONDE_WS_TOKEN_SECRET="${SONDE_WS_TOKEN_SECRET}"
+            SONDE_DEVICE_AUTH_ENCRYPTION_KEY="${SONDE_DEVICE_AUTH_ENCRYPTION_KEY}"
+            SONDE_INTERNAL_ADMIN_TOKEN="${SONDE_INTERNAL_ADMIN_TOKEN}"
+            ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY}"
+            ANTHROPIC_ADMIN_API_KEY="${ANTHROPIC_ADMIN_API_KEY}"
+            GITHUB_TOKEN="${SONDE_AGENT_GITHUB_TOKEN}"
+            SONDE_GITHUB_ALLOWED_REPOS="${SONDE_GITHUB_ALLOWED_REPOS}"
+          )
           railway variable delete \
             -s "${{ vars.RAILWAY_STAGING_SERVICE_NAME }}" \
             -e "${{ vars.RAILWAY_STAGING_ENVIRONMENT_ID }}" \
@@ -280,25 +313,7 @@ jobs:
             -s "${{ vars.RAILWAY_STAGING_SERVICE_NAME }}" \
             -e "${{ vars.RAILWAY_STAGING_ENVIRONMENT_ID }}" \
             --skip-deploys \
-            VITE_SUPABASE_URL="https://${{ steps.contract.outputs.supabase_project_ref }}.supabase.co" \
-            VITE_SUPABASE_ANON_KEY="${{ steps.contract.outputs.supabase_anon_key }}" \
-            SONDE_AGENT_BACKEND="managed" \
-            SONDE_MANAGED_ENVIRONMENT_ID="${SONDE_MANAGED_ENVIRONMENT_ID}" \
-            SONDE_MANAGED_AGENT_ID=" " \
-            SONDE_MANAGED_ALLOW_EPHEMERAL_AGENT="1" \
-            SONDE_ALLOWED_ORIGINS="${{ steps.contract.outputs.site_url }}" \
-            SONDE_PUBLIC_APP_ORIGIN="${{ steps.contract.outputs.site_url }}" \
-            SONDE_ENVIRONMENT="staging" \
-            SONDE_COMMIT_SHA="${GITHUB_SHA}" \
-            SONDE_CLI_GIT_REF="${GITHUB_SHA}" \
-            SONDE_SCHEMA_VERSION="${SCHEMA_VERSION}" \
-            SUPABASE_SERVICE_ROLE_KEY="${SUPABASE_SERVICE_ROLE_KEY}" \
-            SONDE_RUNTIME_AUDIT_TOKEN="${SONDE_RUNTIME_AUDIT_TOKEN}" \
-            SONDE_WS_TOKEN_SECRET="${SONDE_WS_TOKEN_SECRET}" \
-            SONDE_DEVICE_AUTH_ENCRYPTION_KEY="${SONDE_DEVICE_AUTH_ENCRYPTION_KEY}" \
-            ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY}" \
-            GITHUB_TOKEN="${SONDE_AGENT_GITHUB_TOKEN}" \
-            SONDE_GITHUB_ALLOWED_REPOS="${SONDE_GITHUB_ALLOWED_REPOS}"
+            "${variable_args[@]}"
 
       - name: Deploy staging agent
         env:

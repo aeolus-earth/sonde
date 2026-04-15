@@ -92,9 +92,10 @@ describe("managed config", () => {
 
   it("validates the optional admin key with the same header-safe rules", () => {
     const invalidStatus = getAnthropicAdminApiKeyStatus({
-      ANTHROPIC_ADMIN_API_KEY: "bad value",
+      ANTHROPIC_ADMIN_API_KEY: "sk-ant-api03-not-admin",
     });
     assert.equal(invalidStatus.valid, false);
+    assert.match(invalidStatus.error ?? "", /sk-ant-admin/);
 
     assert.equal(
       getAnthropicAdminApiKey({
@@ -102,5 +103,13 @@ describe("managed config", () => {
       }),
       "sk-ant-admin-valid-key",
     );
+  });
+
+  it("requires the runtime Anthropic key to use the platform prefix", () => {
+    const invalidStatus = getAnthropicApiKeyStatus({
+      ANTHROPIC_API_KEY: "plain-secret",
+    });
+    assert.equal(invalidStatus.valid, false);
+    assert.match(invalidStatus.error ?? "", /sk-ant-/);
   });
 });

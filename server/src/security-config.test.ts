@@ -1,6 +1,9 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { assertSecurityConfig } from "./security-config.js";
+import {
+  assertSecurityConfig,
+  getInternalAdminTokenStatus,
+} from "./security-config.js";
 
 describe("assertSecurityConfig", () => {
   it("allows test-only bypass configuration in test", () => {
@@ -95,5 +98,23 @@ describe("assertSecurityConfig", () => {
         }),
       /SONDE_DEVICE_AUTH_ENCRYPTION_KEY is not configured/,
     );
+  });
+
+  it("validates the internal admin token as a single-line secret", () => {
+    const missing = getInternalAdminTokenStatus({});
+    assert.equal(missing.valid, false);
+    assert.match(missing.error ?? "", /SONDE_INTERNAL_ADMIN_TOKEN/);
+
+    const malformed = getInternalAdminTokenStatus({
+      SONDE_INTERNAL_ADMIN_TOKEN: "bad token",
+    });
+    assert.equal(malformed.valid, false);
+    assert.match(malformed.error ?? "", /single-line header-safe secret/);
+
+    const valid = getInternalAdminTokenStatus({
+      SONDE_INTERNAL_ADMIN_TOKEN: "internal-admin-token",
+    });
+    assert.equal(valid.valid, true);
+    assert.equal(valid.value, "internal-admin-token");
   });
 });

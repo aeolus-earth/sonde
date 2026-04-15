@@ -598,6 +598,7 @@ export function createApp(): Hono {
     try {
       const environment = c.req.query("environment")?.trim() || "all";
       const days = Math.min(Math.max(parseIntegerQuery(c, "days", 30), 1), 365);
+      const scope = c.req.query("scope")?.trim() === "live" ? "live" : "recent";
       const status = c.req.query("status")?.trim() || "";
       const user = c.req.query("user")?.trim() || "";
       const limit = parseIntegerQuery(c, "limit", 100);
@@ -606,6 +607,7 @@ export function createApp(): Hono {
         accessToken: admin.accessToken,
         environment,
         days,
+        scope,
         status,
         user,
         limit,

@@ -1,5 +1,9 @@
 import { timingSafeEqual, createHash } from "node:crypto";
-import { assertManagedRuntimeConfig } from "./managed/config.js";
+import {
+  assertManagedRuntimeConfig,
+  type ManagedSecretStatus,
+  validateHeaderSafeSecret,
+} from "./managed/config.js";
 import { assertDeviceAuthConfig } from "./device-auth.js";
 
 function getEnvironment(env: NodeJS.ProcessEnv = process.env): string {
@@ -45,7 +49,17 @@ export function getRuntimeAuditToken(
 export function getInternalAdminToken(
   env: NodeJS.ProcessEnv = process.env,
 ): string | null {
-  return normalizeSecret(env.SONDE_INTERNAL_ADMIN_TOKEN, null);
+  const status = getInternalAdminTokenStatus(env);
+  return status.valid ? status.value : null;
+}
+
+export function getInternalAdminTokenStatus(
+  env: NodeJS.ProcessEnv = process.env,
+): ManagedSecretStatus {
+  return validateHeaderSafeSecret(
+    "SONDE_INTERNAL_ADMIN_TOKEN",
+    env.SONDE_INTERNAL_ADMIN_TOKEN,
+  );
 }
 
 export function getGitHubAllowedRepos(

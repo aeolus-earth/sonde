@@ -30,13 +30,18 @@ function secretFormatError(name: string): string {
   return `${name} must be a single-line header-safe secret.`;
 }
 
+function secretPrefixError(name: string, prefix: string): string {
+  return `${name} must start with ${prefix}.`;
+}
+
 function missingSecretError(name: string): string {
   return `${name} is not configured.`;
 }
 
-function validateHeaderSafeSecret(
+export function validateHeaderSafeSecret(
   name: string,
   rawValue: string | undefined,
+  options: { prefix?: string } = {},
 ): ManagedSecretStatus {
   const value = rawValue?.trim() ?? "";
   if (!value) {
@@ -71,6 +76,15 @@ function validateHeaderSafeSecret(
     };
   }
 
+  if (options.prefix && !value.startsWith(options.prefix)) {
+    return {
+      configured: true,
+      valid: false,
+      value: null,
+      error: secretPrefixError(name, options.prefix),
+    };
+  }
+
   return {
     configured: true,
     valid: true,
@@ -90,7 +104,9 @@ function missingManagedAgentError(): string {
 export function getAnthropicApiKeyStatus(
   env: NodeJS.ProcessEnv = process.env,
 ): ManagedSecretStatus {
-  return validateHeaderSafeSecret("ANTHROPIC_API_KEY", env.ANTHROPIC_API_KEY);
+  return validateHeaderSafeSecret("ANTHROPIC_API_KEY", env.ANTHROPIC_API_KEY, {
+    prefix: "sk-ant-",
+  });
 }
 
 export function getAnthropicAdminApiKeyStatus(
@@ -99,6 +115,9 @@ export function getAnthropicAdminApiKeyStatus(
   return validateHeaderSafeSecret(
     "ANTHROPIC_ADMIN_API_KEY",
     env.ANTHROPIC_ADMIN_API_KEY,
+    {
+      prefix: "sk-ant-admin",
+    },
   );
 }
 

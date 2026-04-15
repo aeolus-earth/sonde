@@ -130,6 +130,15 @@ jobs:
           AUDIT_WAIT_INTERVAL_MS: ${{ steps.contract.outputs.audit_wait_interval_ms }}
         run: node scripts/audit-deployed-stack.mjs
 
+      - name: Reconcile staging provider costs
+        working-directory: server
+        env:
+          MANAGED_COST_RECONCILE_HTTP_BASE: ${{ steps.contract.outputs.agent_url }}
+          MANAGED_COST_RECONCILE_TOKEN: ${{ secrets.SONDE_INTERNAL_ADMIN_TOKEN }}
+          MANAGED_COST_RECONCILE_DAYS: "7"
+          MANAGED_COST_RECONCILE_REQUIRE_PROVIDER: "1"
+        run: node scripts/reconcile-managed-costs.mjs
+
   production-config-audit:
     if: >-
       ${{
