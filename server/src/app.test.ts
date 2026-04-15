@@ -771,6 +771,30 @@ describe("createApp", () => {
     );
   });
 
+  it("returns CORS headers for admin routes on configured hosted origins", async () => {
+    process.env.SONDE_ALLOWED_ORIGINS = "https://sonde-neon.vercel.app";
+    const app = createApp();
+
+    const response = await app.request("http://localhost/admin/managed-costs/reconcile", {
+      method: "OPTIONS",
+      headers: {
+        Origin: "https://sonde-neon.vercel.app",
+        "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers": "authorization,content-type",
+      },
+    });
+
+    assert.equal(response.status, 204);
+    assert.equal(
+      response.headers.get("access-control-allow-origin"),
+      "https://sonde-neon.vercel.app",
+    );
+    assert.match(
+      response.headers.get("access-control-allow-headers") ?? "",
+      /authorization/i,
+    );
+  });
+
   it("serves commit history through the proxy with branch diagnostics", async () => {
     globalThis.fetch = async (input: string | URL | Request) => {
       const url = typeof input === "string"
