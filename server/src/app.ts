@@ -245,7 +245,21 @@ export function createApp(): Hono {
     );
   });
 
-  app.get("/health", (c) => c.json({ status: "ok" }));
+  app.get("/health", (c) =>
+    c.json({
+      status: "ok",
+      commitSha:
+        process.env.SONDE_COMMIT_SHA?.trim() ||
+        process.env.RAILWAY_GIT_COMMIT_SHA?.trim() ||
+        process.env.VERCEL_GIT_COMMIT_SHA?.trim() ||
+        null,
+      environment:
+        process.env.SONDE_ENVIRONMENT?.trim() ||
+        process.env.RAILWAY_GIT_BRANCH?.trim() ||
+        process.env.NODE_ENV?.trim() ||
+        "development",
+    })
+  );
   app.get("/health/runtime", (c) => c.json(getRuntimeMetadata()));
   app.get("/auth/device/health", (c) => {
     const config = getDeviceAuthRuntimeStatus();

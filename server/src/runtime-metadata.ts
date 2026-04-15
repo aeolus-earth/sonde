@@ -77,7 +77,11 @@ export function getRuntimeMetadata(
   return {
     status: "ok",
     environment: getRuntimeEnvironment(env),
-    commitSha: env.SONDE_COMMIT_SHA?.trim() || null,
+    commitSha:
+      env.SONDE_COMMIT_SHA?.trim() ||
+      env.RAILWAY_GIT_COMMIT_SHA?.trim() ||
+      env.VERCEL_GIT_COMMIT_SHA?.trim() ||
+      null,
     schemaVersion: env.SONDE_SCHEMA_VERSION?.trim() || null,
     agentBackend: getAgentBackend(env),
     managedConfigured: managedStatus.managedConfigured,

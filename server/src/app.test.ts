@@ -54,8 +54,9 @@ describe("createApp", () => {
     ]);
   });
 
-  it("returns a minimal public health response", async () => {
+  it("returns a public health response with commit SHA", async () => {
     process.env.SONDE_COMMIT_SHA = "abc123";
+    process.env.SONDE_ENVIRONMENT = "production";
     process.env.SONDE_SCHEMA_VERSION = "20260407000123";
     process.env.SONDE_CLI_GIT_REF = "refs/heads/staging";
     process.env.ANTHROPIC_API_KEY = "sk-ant-api03-test-key";
@@ -65,8 +66,14 @@ describe("createApp", () => {
     const response = await app.request("http://localhost/health");
     assert.equal(response.status, 200);
 
-    const body = (await response.json()) as { status: string };
-    assert.deepEqual(body, { status: "ok" });
+    const body = (await response.json()) as {
+      status: string;
+      commitSha: string | null;
+      environment: string;
+    };
+    assert.equal(body.status, "ok");
+    assert.equal(body.commitSha, "abc123");
+    assert.equal(body.environment, "production");
   });
 
   it("returns runtime metadata only with the audit bearer token", async () => {

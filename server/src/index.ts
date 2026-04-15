@@ -25,7 +25,22 @@ assertSecurityConfig();
 await probeSondeCliEnvironment();
 
 const server = serve({ fetch: app.fetch, port }, (info) => {
-  console.log(`Sonde agent server listening on http://localhost:${info.port}`);
+  console.log(
+    JSON.stringify({
+      msg: "server.start",
+      port: info.port,
+      commitSha:
+        process.env.SONDE_COMMIT_SHA?.trim() ||
+        process.env.RAILWAY_GIT_COMMIT_SHA?.trim() ||
+        null,
+      ref:
+        process.env.SONDE_ENVIRONMENT?.trim() ||
+        process.env.RAILWAY_GIT_BRANCH?.trim() ||
+        process.env.NODE_ENV?.trim() ||
+        "development",
+      startedAt: new Date().toISOString(),
+    })
+  );
 });
 
 injectWebSocket(server);
