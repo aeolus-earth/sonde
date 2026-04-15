@@ -2,6 +2,7 @@ import { memo } from "react";
 import { AlertCircle, RefreshCw, WifiOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ConnectionStatus } from "@/types/chat";
+import { InlineReauthButton } from "@/components/auth/inline-reauth-button";
 import { ChatConnectionDot } from "./chat-connection-dot";
 
 interface ChatConnectionBannerProps {
@@ -19,6 +20,12 @@ const statusMeta: Record<
     icon: typeof WifiOff;
   }
 > = {
+  auth_required: {
+    title: "Session expired",
+    detail: "Sign in again to reconnect this chat without leaving the current page.",
+    chip: "Sign in again",
+    icon: AlertCircle,
+  },
   disconnected: {
     title: "Agent not connected",
     detail: "Messages will send once the session is available again.",
@@ -55,7 +62,11 @@ export const ChatConnectionBanner = memo(function ChatConnectionBanner({
 
   return (
     <div
-      role={connectionStatus === "disconnected" ? "alert" : "status"}
+      role={
+        connectionStatus === "disconnected" || connectionStatus === "auth_required"
+          ? "alert"
+          : "status"
+      }
       className={cn(
         "mb-3 flex items-start gap-3 rounded-[18px] border px-3.5 py-3 shadow-sm backdrop-blur-xl",
         glass
@@ -110,6 +121,9 @@ export const ChatConnectionBanner = memo(function ChatConnectionBanner({
             >
               <span className="truncate">{agentModel}</span>
             </span>
+          ) : null}
+          {connectionStatus === "auth_required" ? (
+            <InlineReauthButton className="ml-auto" />
           ) : null}
         </div>
       </div>

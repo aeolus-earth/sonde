@@ -7,6 +7,7 @@ const statusClass: Record<ConnectionStatus, string> = {
   connecting: "bg-status-running animate-pulse",
   reconnecting: "bg-status-open animate-pulse",
   recovering: "bg-accent animate-pulse",
+  auth_required: "bg-status-failed",
   disconnected: "bg-status-failed",
 };
 
@@ -15,6 +16,7 @@ const statusTitle: Record<ConnectionStatus, string> = {
   connecting: "Connecting…",
   reconnecting: "Reconnecting…",
   recovering: "Recovering session…",
+  auth_required: "Session expired",
   disconnected: "Disconnected",
 };
 
