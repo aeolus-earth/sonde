@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient, keepPreviousData } from "@tansta
 import { supabase } from "@/lib/supabase";
 import { useEffect } from "react";
 import { getAgentHttpBase } from "@/lib/agent-http";
+import { getFreshAccessToken, SessionReauthRequiredError } from "@/lib/session-auth";
 import { useAddToast } from "@/stores/toast";
 
 export interface AdminStats {
@@ -273,14 +274,9 @@ export function useAuthEvents(limit = 50) {
 }
 
 async function getAdminAccessToken(): Promise<string> {
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  const token = session?.access_token?.trim() ?? "";
-  if (!token) {
-    throw new Error("You need to be signed in to access admin diagnostics.");
-  }
-  return token;
+  return getFreshAccessToken({
+    reauthMessage: "Session expired. Sign in again to access admin diagnostics.",
+  });
 }
 
 async function fetchAdminJson<T>(path: string, init?: RequestInit): Promise<T> {
@@ -294,6 +290,11 @@ async function fetchAdminJson<T>(path: string, init?: RequestInit): Promise<T> {
     },
   });
   if (!response.ok) {
+    if (response.status === 401) {
+      throw new SessionReauthRequiredError(
+        "Session expired. Sign in again to access admin diagnostics.",
+      );
+    }
     const text = await response.text();
     throw new Error(text || `Admin request failed (${response.status})`);
   }

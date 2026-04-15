@@ -1,5 +1,8 @@
 import { getAgentHttpBase } from "@/lib/agent-http";
-import { supabase } from "@/lib/supabase";
+import {
+  getFreshAccessToken,
+  SessionReauthRequiredError,
+} from "@/lib/session-auth";
 import { useGitHubRateLimitStore } from "@/stores/github-rate-limit";
 import type { CommitPage } from "@/types/github";
 
@@ -52,8 +55,8 @@ export class BranchNotFoundError extends Error {
   }
 }
 
-export class GitHubProxyAuthError extends Error {
-  constructor(message = "Timeline request is unauthorized") {
+export class GitHubProxyAuthError extends SessionReauthRequiredError {
+  constructor(message = "Sign in again to load timeline commit history.") {
     super(message);
     this.name = "GitHubProxyAuthError";
   }
@@ -67,15 +70,9 @@ export class GitHubProxyConfigError extends Error {
 }
 
 async function getAccessToken(): Promise<string> {
-  const current = supabase.auth.getSession();
-  const {
-    data: { session },
-    error,
-  } = await current;
-  if (error || !session?.access_token) {
-    throw new GitHubProxyAuthError("Sign in again to load timeline commit history.");
-  }
-  return session.access_token;
+  return getFreshAccessToken({
+    reauthMessage: "Sign in again to load timeline commit history.",
+  });
 }
 
 async function parseError(response: Response): Promise<GitHubErrorPayload | null> {

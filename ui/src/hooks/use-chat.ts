@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef } from "react";
-import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth";
 import {
   useChatStoreApi,
@@ -13,12 +12,18 @@ import {
   getAgentWsBase,
   HostedAgentConfigError,
 } from "@/lib/agent-http";
+import {
+  getFreshAccessToken,
+  SessionReauthRequiredError,
+} from "@/lib/session-auth";
 import type {
   MentionRef,
   ServerMessage,
   ClientMessage,
 } from "@/types/chat";
 import { expandDefendExistenceCommand } from "@/lib/defend-existence";
+
+const CHAT_REAUTH_MESSAGE = "Session expired. Sign in again to reconnect chat.";
 
 async function fetchChatSessionToken(accessToken: string): Promise<string> {
   const response = await fetch(`${getAgentHttpBase()}/chat/session-token`, {
@@ -28,6 +33,9 @@ async function fetchChatSessionToken(accessToken: string): Promise<string> {
     },
   });
   if (!response.ok) {
+    if (response.status === 401) {
+      throw new SessionReauthRequiredError(CHAT_REAUTH_MESSAGE);
+    }
     throw new Error(`Chat session token request failed (${response.status})`);
   }
   const payload = (await response.json()) as { token?: string };
@@ -310,7 +318,6 @@ export function useChat() {
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectDelay = useRef(RECONNECT_BASE_MS);
   const authFailureRef = useRef(false);
-  const authErrorLoggedRef = useRef(false);
   const connectionIssueRef = useRef<string | null>(null);
   const recoveringSessionIdRef = useRef<string | null>(null);
   const connectRef = useRef<() => Promise<void>>(async () => {});
@@ -321,6 +328,16 @@ export function useChat() {
       reconnectTimer.current = null;
     }
   }, []);
+
+  const setAuthRequiredState = useCallback(() => {
+    authFailureRef.current = true;
+    connectionIssueRef.current = null;
+    clearReconnectTimer();
+    const store = chatStoreApiRef.current.getState();
+    store.setConnectionStatus("auth_required");
+    store.setStreaming(false);
+    store.setStreamingTabId(null);
+  }, [clearReconnectTimer]);
 
   const scheduleReconnect = useCallback(() => {
     if (authFailureRef.current) return;
@@ -366,29 +383,23 @@ export function useChat() {
 
   const connect = useCallback(async () => {
     if (authFailureRef.current) return;
-
-    const { data: sessionData, error: sessionError } =
-      await supabase.auth.getSession();
-    if (sessionError || !sessionData.session?.access_token) {
+    let token: string;
+    try {
+      token = await getFreshAccessToken({
+        reauthMessage: CHAT_REAUTH_MESSAGE,
+      });
+    } catch (error) {
+      if (error instanceof SessionReauthRequiredError) {
+        chatDebug("connect:reauth-required");
+        setAuthRequiredState();
+        return;
+      }
       chatDebug("connect:no-session", {
-        hasError: Boolean(sessionError),
+        message: error instanceof Error ? error.message : String(error),
       });
       chatStoreApiRef.current.getState().setConnectionStatus("disconnected");
       return;
     }
-
-    let sess = sessionData.session;
-    const expiresAtMs = (sess.expires_at ?? 0) * 1000;
-    if (expiresAtMs < Date.now() + 60_000) {
-      const { data: refreshed, error: refreshErr } =
-        await supabase.auth.refreshSession();
-      if (!refreshErr && refreshed.session?.access_token) {
-        sess = refreshed.session;
-      }
-    }
-
-    const token = sess.access_token;
-    if (!token) return;
 
     const existingSocket = wsRef.current;
     if (
@@ -410,6 +421,11 @@ export function useChat() {
       wsToken = await fetchChatSessionToken(token);
       wsBase = getAgentWsBase();
     } catch (error) {
+      if (error instanceof SessionReauthRequiredError) {
+        chatDebug("connect:session-token-reauth");
+        setAuthRequiredState();
+        return;
+      }
       chatDebug("connect:session-token-error", {
         message: error instanceof Error ? error.message : String(error),
       });
@@ -437,7 +453,6 @@ export function useChat() {
         authSent: false,
       });
       authFailureRef.current = false;
-      authErrorLoggedRef.current = false;
       connectionIssueRef.current = null;
       chatStoreApiRef.current.getState().setConnectionStatus("connecting");
       reconnectDelay.current = RECONNECT_BASE_MS;
@@ -505,25 +520,9 @@ export function useChat() {
 
       if (ev.code === WS_CLOSE_UNAUTHORIZED) {
         void (async () => {
-          const { data: r } = await supabase.auth.refreshSession();
-          if (r.session?.access_token) {
-            authFailureRef.current = false;
-            reconnectDelay.current = RECONNECT_BASE_MS;
-            await connectRef.current();
-            return;
-          }
-          authFailureRef.current = true;
-          if (!authErrorLoggedRef.current) {
-            authErrorLoggedRef.current = true;
-            const s = chatStoreApiRef.current.getState();
-            s.addMessage(s.activeTabId, {
-              id: crypto.randomUUID(),
-              role: "system",
-              content:
-                "Chat could not verify your session. Sign out and sign in again, and ensure the agent server uses the same Supabase URL and anon key as this app (see server/example.env).",
-              timestamp: Date.now(),
-            });
-          }
+          authFailureRef.current = false;
+          reconnectDelay.current = RECONNECT_BASE_MS;
+          await connectRef.current();
         })();
         return;
       }
@@ -535,13 +534,12 @@ export function useChat() {
       chatDebug("ws:error-event");
       ws.close();
     };
-  }, [scheduleReconnect]);
+  }, [scheduleReconnect, setAuthRequiredState]);
 
   connectRef.current = connect;
 
   useEffect(() => {
     authFailureRef.current = false;
-    authErrorLoggedRef.current = false;
     connectionIssueRef.current = null;
 
     if (!accessToken) {
@@ -562,6 +560,40 @@ export function useChat() {
       // here would kill in-flight queries. Connection persists via wsRef.
     };
   }, [accessToken, authLoading, connect, clearReconnectTimer]);
+
+  useEffect(() => {
+    const refreshOnReturn = () => {
+      if (document.visibilityState !== "visible") {
+        return;
+      }
+      if (!useAuthStore.getState().session) {
+        return;
+      }
+
+      void (async () => {
+        try {
+          await getFreshAccessToken({
+            reauthMessage: CHAT_REAUTH_MESSAGE,
+          });
+          if (chatStoreApiRef.current.getState().connectionStatus === "auth_required") {
+            authFailureRef.current = false;
+            await connectRef.current();
+          }
+        } catch (error) {
+          if (error instanceof SessionReauthRequiredError) {
+            setAuthRequiredState();
+          }
+        }
+      })();
+    };
+
+    window.addEventListener("focus", refreshOnReturn);
+    document.addEventListener("visibilitychange", refreshOnReturn);
+    return () => {
+      window.removeEventListener("focus", refreshOnReturn);
+      document.removeEventListener("visibilitychange", refreshOnReturn);
+    };
+  }, [setAuthRequiredState]);
 
   const send = useCallback(
     async (content: string, mentions: MentionRef[] = [], files: File[] = []) => {

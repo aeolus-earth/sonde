@@ -17,11 +17,6 @@ import {
   seedActiveProgram,
   seedConfiguredSession,
 } from "./helpers";
-import {
-  seedActivationSession,
-  seedActiveProgram,
-  seedConfiguredSession,
-} from "./helpers";
 
 const BASE_URL = process.env.E2E_BASE_URL;
 const DEPLOY_ENVIRONMENT = process.env.E2E_DEPLOY_ENVIRONMENT?.trim() || "hosted";

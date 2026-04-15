@@ -18,6 +18,8 @@ import {
   useGitHubCommits,
 } from "@/hooks/use-github-commits";
 import { HostedAgentConfigError } from "@/lib/agent-http";
+import { InlineReauthButton } from "@/components/auth/inline-reauth-button";
+import { SessionReauthRequiredError } from "@/lib/session-auth";
 import { useTimelineRepos } from "@/hooks/use-timeline-data";
 import { queryKeys } from "@/lib/query-keys";
 import { formatRelativeTime } from "@/lib/utils";
@@ -270,6 +272,21 @@ function renderTimelineError(error: Error | null): string {
   return "Failed to load commit history";
 }
 
+function TimelineErrorNotice({ error }: { error: Error | null }) {
+  const needsReauth =
+    error instanceof SessionReauthRequiredError || error instanceof GitHubProxyAuthError;
+
+  return (
+    <div className="flex flex-col items-center gap-2 py-8 text-center">
+      <AlertTriangle className="h-5 w-5 text-status-failed" />
+      <p className="max-w-[280px] text-[12px] text-text-tertiary">
+        {renderTimelineError(error)}
+      </p>
+      {needsReauth ? <InlineReauthButton /> : null}
+    </div>
+  );
+}
+
 function RepoSwimlane({ repo }: { repo: TimelineRepo }) {
   const [branchSelection, setBranchSelection] = useState(DEFAULT_BRANCH_VALUE);
   const [fetchEnabled, setFetchEnabled] = useState(false);
@@ -396,12 +413,7 @@ function RepoSwimlane({ repo }: { repo: TimelineRepo }) {
         )}
 
         {error && (
-          <div className="flex flex-col items-center gap-2 py-8 text-center">
-            <AlertTriangle className="h-5 w-5 text-status-failed" />
-            <p className="max-w-[280px] text-[12px] text-text-tertiary">
-              {renderTimelineError(error)}
-            </p>
-          </div>
+          <TimelineErrorNotice error={error} />
         )}
 
         {commitPage && <DiagnosticsStrip diagnostics={commitPage.diagnostics} repo={commitPage.repo} />}
