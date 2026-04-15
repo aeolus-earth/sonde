@@ -12,6 +12,10 @@ interface ImportMetaEnv {
    * If unset, localhost uses the default prod host; deployed builds use `window.location.origin`.
    */
   readonly VITE_PUBLIC_APP_ORIGIN?: string;
+  /** Build-time version label: git tag on production, branch name on preview, "dev" locally. */
+  readonly VITE_APP_VERSION: string;
+  /** Build-time commit SHA (full). "local" on dev builds. */
+  readonly VITE_APP_COMMIT_SHA: string;
 }
 
 interface ImportMeta {

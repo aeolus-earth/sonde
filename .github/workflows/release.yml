@@ -1,8 +1,15 @@
 name: Release
 
 on:
+  push:
+    tags:
+      - "v*"
   workflow_dispatch:
     inputs:
+      version:
+        description: "Version to release (e.g. 0.2.0). Creates and pushes the tag before releasing."
+        required: true
+        type: string
       notes:
         description: "Release notes (leave blank for auto-generated changelog)"
         required: false
@@ -11,6 +18,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -18,119 +29,166 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-depth: 0 # full history for changelog generation
+          fetch-depth: 0 # full history for hatch-vcs + changelog generation
+
+      - name: Resolve version from input or tag
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -n "${INPUT_VERSION:-}" ]; then
+            VERSION="${INPUT_VERSION#v}"
+            TAG="v${VERSION}"
+            echo "mode=dispatch" >> "$GITHUB_OUTPUT"
+          else
+            TAG="${GITHUB_REF##refs/tags/}"
+            VERSION="${TAG#v}"
+            echo "mode=tag-push" >> "$GITHUB_OUTPUT"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "Resolved version=${VERSION} tag=${TAG}"
+
+      - name: Create and push tag (dispatch only)
+        if: steps.version.outputs.mode == 'dispatch'
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if git rev-parse "${TAG}" >/dev/null 2>&1; then
+            echo "Tag ${TAG} already exists — skipping creation."
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git tag -a "${TAG}" -m "Release ${TAG}"
+            git push origin "${TAG}"
+            echo "Created and pushed tag ${TAG}"
+          fi
+          # Ensure the checkout is pointed at the tagged commit so hatch-vcs resolves cleanly.
+          git checkout "${TAG}"
+
+      # Guard against double-publish. A dispatch run and a later tag-push run
+      # can both fire for the same version; short-circuit the second one before
+      # it wastes work or collides with the existing release.
+      - name: Skip if release already exists
+        id: existing
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if gh release view "${TAG}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "::notice title=Release exists::${TAG} has already been released — skipping build and publish."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - uses: actions/setup-python@v6
+        if: steps.existing.outputs.skip != 'true'
         with:
           python-version: "3.12"
 
       - uses: astral-sh/setup-uv@v7
+        if: steps.existing.outputs.skip != 'true'
         with:
           version: "latest"
 
-      - name: Get current version
-        id: version
-        run: |
-          VERSION=$(python -c "
-          import re
-          text = open('cli/src/sonde/__init__.py').read()
-          print(re.search(r'__version__ = \"(.+)\"', text)[1])
-          ")
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Current version: $VERSION"
-
-      - name: Check tag exists
-        run: |
-          if ! git rev-parse "v${{ steps.version.outputs.version }}" >/dev/null 2>&1; then
-            echo "WARNING: Tag v${{ steps.version.outputs.version }} does not exist."
-            echo "Creating tag now..."
-            git tag "v${{ steps.version.outputs.version }}"
-            git push --tags
-          fi
-
       - name: Build release artifacts
+        if: steps.existing.outputs.skip != 'true'
         working-directory: cli
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
+          set -euo pipefail
           rm -rf dist-release
           uv build --out-dir dist-release
+          ls dist-release/
+          # hatch-vcs derives the version from the tag — confirm filenames match.
+          test -f "dist-release/sonde-${VERSION}-py3-none-any.whl"
+          test -f "dist-release/sonde-${VERSION}.tar.gz"
           cp "dist-release/sonde-${VERSION}-py3-none-any.whl" dist-release/sonde-latest-py3-none-any.whl
           cp "dist-release/sonde-${VERSION}.tar.gz" dist-release/sonde-latest.tar.gz
 
-      - name: Verify wheel install
+      - name: Verify wheel install reports the expected version
+        if: steps.existing.outputs.skip != 'true'
         working-directory: cli
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          rm -rf /tmp/sonde-release-help.txt /tmp/sonde-xdg-data /tmp/sonde-xdg-bin
-          XDG_DATA_HOME=/tmp/sonde-xdg-data \
-          XDG_BIN_HOME=/tmp/sonde-xdg-bin \
+          set -euo pipefail
+          rm -rf /tmp/sonde-xdg-wheel-data /tmp/sonde-xdg-wheel-bin
+          XDG_DATA_HOME=/tmp/sonde-xdg-wheel-data \
+          XDG_BIN_HOME=/tmp/sonde-xdg-wheel-bin \
           uv tool install \
             --force \
             --python 3.12 \
             "dist-release/sonde-${VERSION}-py3-none-any.whl"
-          /tmp/sonde-xdg-bin/sonde --help >/tmp/sonde-release-help.txt
-          test -s /tmp/sonde-release-help.txt
-
-      - name: Generate changelog from commits
-        id: changelog
-        run: |
-          LAST_TAG=$(git tag --sort=-v:refname | grep -v "v${{ steps.version.outputs.version }}" | head -1)
-          if [ -n "$LAST_TAG" ]; then
-            RANGE="${LAST_TAG}..v${{ steps.version.outputs.version }}"
-            echo "Changelog range: $RANGE"
-          else
-            RANGE="v${{ steps.version.outputs.version }}"
-            echo "No previous tag — using last 30 commits"
+          REPORTED=$(/tmp/sonde-xdg-wheel-bin/sonde --version 2>&1 | awk '{print $NF}')
+          echo "Reported: ${REPORTED}"
+          if [ "${REPORTED}" != "${VERSION}" ]; then
+            echo "::error title=Wheel version mismatch::Wheel reports ${REPORTED}, expected ${VERSION}."
+            exit 1
           fi
 
-          {
-            echo "log<<EOF"
-            if [ -n "$LAST_TAG" ]; then
-              git log "$RANGE" --oneline --no-merges | head -50
-            else
-              git log --oneline -30 --no-merges
-            fi
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Update CHANGELOG.md
+      # Mirror the wheel verify for the sdist. Catches config drift that would
+      # exclude _version.py from the tarball without a test-install failing.
+      - name: Verify sdist install reports the expected version
+        if: steps.existing.outputs.skip != 'true'
+        working-directory: cli
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          PREV_TAG=$(git tag --sort=-v:refname | grep -v "v${VERSION}" | head -1)
-          if [ -n "$PREV_TAG" ]; then
-            CHANGES=$(git log "${PREV_TAG}..v${VERSION}" --oneline --no-merges)
-          else
-            CHANGES=$(git log --oneline -20 --no-merges)
+          set -euo pipefail
+          rm -rf /tmp/sonde-xdg-sdist-data /tmp/sonde-xdg-sdist-bin
+          XDG_DATA_HOME=/tmp/sonde-xdg-sdist-data \
+          XDG_BIN_HOME=/tmp/sonde-xdg-sdist-bin \
+          uv tool install \
+            --force \
+            --python 3.12 \
+            "dist-release/sonde-${VERSION}.tar.gz"
+          REPORTED=$(/tmp/sonde-xdg-sdist-bin/sonde --version 2>&1 | awk '{print $NF}')
+          echo "Reported: ${REPORTED}"
+          if [ "${REPORTED}" != "${VERSION}" ]; then
+            echo "::error title=Sdist version mismatch::Sdist reports ${REPORTED}, expected ${VERSION}."
+            exit 1
           fi
 
-          ENTRY="## v${VERSION} ($(date +%Y-%m-%d))\n\n$(echo "$CHANGES" | sed 's/^/- /')\n"
-
-          if [ -f CHANGELOG.md ]; then
-            echo -e "${ENTRY}\n$(cat CHANGELOG.md)" > CHANGELOG.md
+      - name: Generate changelog from commits
+        if: steps.existing.outputs.skip != 'true'
+        id: changelog
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          PREV_TAG=$(git tag --sort=-v:refname | grep -v "^${TAG}$" | head -1 || true)
+          if [ -n "${PREV_TAG}" ]; then
+            RANGE="${PREV_TAG}..${TAG}"
+            echo "Changelog range: ${RANGE}"
+            LOG=$(git log "${RANGE}" --pretty=format:"- %s (%h)" --no-merges | head -60)
           else
-            echo -e "# Changelog\n\n${ENTRY}" > CHANGELOG.md
+            echo "No previous tag — using last 30 commits"
+            LOG=$(git log --pretty=format:"- %s (%h)" --no-merges -30)
           fi
-
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add CHANGELOG.md
-          git commit -m "docs: update CHANGELOG.md for v${VERSION} [skip-bump]" || true
-          git push || true
+          {
+            echo "log<<EOF"
+            echo "${LOG}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
+        if: steps.existing.outputs.skip != 'true'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ steps.version.outputs.version }}
-          name: Sonde v${{ steps.version.outputs.version }}
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: Sonde ${{ steps.version.outputs.tag }}
           body: |
-            ## Sonde v${{ steps.version.outputs.version }}
+            ## Sonde ${{ steps.version.outputs.tag }}
 
             ### Install
             ```bash
-            uv tool install --force "git+https://github.com/${{ github.repository }}.git@main#subdirectory=cli"
+            uv tool install --force "git+https://github.com/${{ github.repository }}.git@${{ steps.version.outputs.tag }}#subdirectory=cli"
             ```
 
             ### Changes

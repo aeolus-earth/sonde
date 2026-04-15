@@ -3,7 +3,7 @@ import { cors } from "hono/cors";
 import type { Context, Next } from "hono";
 import { registerGitHubRoutes } from "./github.js";
 import { handleWebSocket } from "./ws-handler.js";
-import { getRuntimeMetadata } from "./runtime-metadata.js";
+import { getCommitSha, getRuntimeMetadata } from "./runtime-metadata.js";
 import { requireRuntimeAuditAuth } from "./runtime-audit.js";
 import { verifyToken, type VerifiedUser } from "./auth.js";
 import { issueWsSessionToken, verifyWsSessionToken } from "./ws-session-token.js";
@@ -245,7 +245,17 @@ export function createApp(): Hono {
     );
   });
 
-  app.get("/health", (c) => c.json({ status: "ok" }));
+  app.get("/health", (c) =>
+    c.json({
+      status: "ok",
+      commitSha: getCommitSha(),
+      environment:
+        process.env.SONDE_ENVIRONMENT?.trim() ||
+        process.env.RAILWAY_GIT_BRANCH?.trim() ||
+        process.env.NODE_ENV?.trim() ||
+        "development",
+    })
+  );
   app.get("/health/runtime", (c) => c.json(getRuntimeMetadata()));
   app.get("/auth/device/health", (c) => {
     const config = getDeviceAuthRuntimeStatus();
