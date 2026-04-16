@@ -1,19 +1,29 @@
 import { useCallback, useMemo } from "react";
 import { getRouteApi } from "@tanstack/react-router";
 import { ROUTE_API } from "../route-ids";
+import type { DirectionsSearch } from "../directions";
 import { useDirections } from "@/hooks/use-directions";
 import { useRealtimeInvalidation } from "@/hooks/use-realtime";
 import { useListKeyboardNav } from "@/hooks/use-keyboard";
+import { TimeRangeBar } from "@/components/shared/time-range-bar";
 import { Badge } from "@/components/ui/badge";
 import { ListRowSkeleton } from "@/components/ui/skeleton";
 import { formatRelativeTime } from "@/lib/utils";
 import { GitFork } from "lucide-react";
 import type { DirectionSummary } from "@/types/sonde";
+import {
+  buildTimePoints,
+  isTimestampInTimeRange,
+  resolveTimeRangeSelection,
+  serializeTimeRangeValue,
+  timestampFromIso,
+} from "@/lib/time-range";
 
 const routeApi = getRouteApi(ROUTE_API.authDirections);
 
 export default function DirectionsListPage() {
   const navigate = routeApi.useNavigate();
+  const { from, to } = routeApi.useSearch();
   const { data: directions, isLoading } = useDirections();
   useRealtimeInvalidation("directions", ["directions"]);
   const handleClick = useCallback(
@@ -24,14 +34,35 @@ export default function DirectionsListPage() {
     (d: DirectionSummary) => handleClick(d.id),
     [handleClick]
   );
+  const timePoints = useMemo(
+    () =>
+      buildTimePoints(directions ?? [], (direction) =>
+        timestampFromIso(direction.created_at)
+      ),
+    [directions]
+  );
+  const activeTimeRange = useMemo(
+    () => resolveTimeRangeSelection(timePoints, from, to),
+    [from, timePoints, to]
+  );
+
+  const filteredDirections = useMemo(
+    () =>
+      (directions ?? []).filter((direction) =>
+        isTimestampInTimeRange(timestampFromIso(direction.created_at), activeTimeRange)
+      ),
+    [activeTimeRange, directions]
+  );
 
   // Group: roots first, then insert children after their parent
   const items = useMemo(() => {
-    if (!directions) return [];
-    const roots = directions.filter((d) => !d.parent_direction_id);
+    const visibleIds = new Set(filteredDirections.map((d) => d.id));
+    const roots = filteredDirections.filter(
+      (d) => !d.parent_direction_id || !visibleIds.has(d.parent_direction_id)
+    );
     const childrenByParent = new Map<string, DirectionSummary[]>();
-    for (const d of directions) {
-      if (d.parent_direction_id) {
+    for (const d of filteredDirections) {
+      if (d.parent_direction_id && visibleIds.has(d.parent_direction_id)) {
         const siblings = childrenByParent.get(d.parent_direction_id) ?? [];
         siblings.push(d);
         childrenByParent.set(d.parent_direction_id, siblings);
@@ -44,7 +75,45 @@ export default function DirectionsListPage() {
       if (children) ordered.push(...children);
     }
     return ordered;
-  }, [directions]);
+  }, [filteredDirections]);
+
+  const updateTimeRange = useCallback(
+    (fromIndex: number, toIndex: number) => {
+      if (timePoints.length === 0) return;
+
+      const maxIndex = timePoints.length - 1;
+      const nextFromIndex = Math.max(0, Math.min(fromIndex, maxIndex));
+      const nextToIndex = Math.max(0, Math.min(toIndex, maxIndex));
+      const lowerIndex = Math.min(nextFromIndex, nextToIndex);
+      const upperIndex = Math.max(nextFromIndex, nextToIndex);
+      const isFullRange = lowerIndex === 0 && upperIndex === maxIndex;
+
+      navigate({
+        search: (prev: DirectionsSearch) => ({
+          ...prev,
+          from: isFullRange
+            ? undefined
+            : serializeTimeRangeValue(timePoints[lowerIndex]),
+          to: isFullRange
+            ? undefined
+            : serializeTimeRangeValue(timePoints[upperIndex]),
+        }),
+        replace: true,
+      });
+    },
+    [navigate, timePoints]
+  );
+
+  const clearTimeRange = useCallback(() => {
+    navigate({
+      search: (prev: DirectionsSearch) => ({
+        ...prev,
+        from: undefined,
+        to: undefined,
+      }),
+      replace: true,
+    });
+  }, [navigate]);
 
   const { focusedIndex } = useListKeyboardNav(items, handleSelect);
 
@@ -72,9 +141,23 @@ export default function DirectionsListPage() {
           Directions
         </h1>
         <span className="text-[12px] text-text-quaternary">
-          {directions?.length ?? 0}
+          {items.length}
+          {activeTimeRange.isActive ? ` of ${directions?.length ?? 0}` : ""}
         </span>
       </div>
+
+      {timePoints.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <TimeRangeBar
+            points={timePoints}
+            fromIndex={activeTimeRange.fromIndex}
+            toIndex={activeTimeRange.toIndex}
+            isActive={activeTimeRange.isActive}
+            onChange={updateTimeRange}
+            onClear={clearTimeRange}
+          />
+        </div>
+      )}
 
       <div className="rounded-[8px] border border-border bg-surface">
         {items.map((d, idx) => {

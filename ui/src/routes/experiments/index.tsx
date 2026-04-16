@@ -41,5 +41,7 @@ export const Route = createRoute({
       VALID_SORT_ORDERS.includes(search.order as (typeof VALID_SORT_ORDERS)[number])
         ? (search.order as "asc" | "desc")
         : undefined,
+    from: typeof search.from === "string" ? search.from : undefined,
+    to: typeof search.to === "string" ? search.to : undefined,
   }),
 });
