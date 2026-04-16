@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Download, ExternalLink, FileWarning } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -40,6 +40,18 @@ export function EmbeddedDocumentPreview({
   // the Open/Download links below this gives the user a working path
   // out when the preview itself can't render.
   const [hasError, setHasError] = useState(false);
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    if (!iframe) {
+      return;
+    }
+
+    const handleError = () => setHasError(true);
+    iframe.addEventListener("error", handleError);
+    return () => iframe.removeEventListener("error", handleError);
+  }, [embedUrl]);
 
   return (
     <div className="space-y-2">
@@ -57,6 +69,7 @@ export function EmbeddedDocumentPreview({
         </div>
       ) : (
         <iframe
+          ref={iframeRef}
           src={embedUrl}
           onError={() => setHasError(true)}
           className={cn(

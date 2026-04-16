@@ -53,7 +53,7 @@ test.describe("App smoke tests", () => {
       if (msg.type() === "error") errors.push(msg.text());
     });
     await page.goto("/login");
-    await page.waitForTimeout(1_000);
+    await page.waitForLoadState("networkidle");
     // Filter out expected errors (Supabase auth check with no session)
     const unexpected = errors.filter(
       (e) => !e.includes("AuthSessionMissing") && !e.includes("Auth session")

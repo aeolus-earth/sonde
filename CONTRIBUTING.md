@@ -26,6 +26,15 @@ cd cli && uv run sonde login
 4. Push and open a PR against `main`
 5. CI runs automatically — all checks must pass
 
+## Tests that catch bugs
+
+- Use production-shaped fixtures: include pagination, empty rows, large IDs, missing optional fields, and realistic env fallback chains.
+- Cover negative auth paths for every new hosted or admin endpoint before adding happy-path tests.
+- Assert behavior, not mock round-trips: inspect payloads, state transitions, ordering, and user-visible output.
+- Retry tests must prove each retry reads fresh state, not a cached copy from the first attempt.
+- Avoid fixed sleeps in Playwright. Prefer locators, URL/load-state waits, or `expect.poll` with a clear condition.
+- When a regression escapes, add the smallest local guard that would have failed before the fix.
+
 ## Database migrations
 
 - Add SQL files to `supabase/migrations/` with timestamp prefix: `YYYYMMDDHHMMSS_description.sql`

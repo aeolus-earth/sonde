@@ -13,6 +13,12 @@ from urllib.error import HTTPError, URLError
 from urllib.request import urlopen
 
 from sonde import auth
+from sonde.commands.upgrade import (
+    _install_command as _upgrade_install_command,
+)
+from sonde.commands.upgrade import (
+    get_upgrade_status,
+)
 from sonde.config import get_settings
 from sonde.db.client import get_admin_client
 from sonde.db.programs import list_programs
@@ -47,8 +53,6 @@ STATUS_ORDER: dict[DoctorStatus, int] = {
 
 # Keep the doctor's suggested install command in sync with the `sonde upgrade`
 # command by sourcing the URL from there. Prevents drift between the two.
-from sonde.commands.upgrade import _install_command as _upgrade_install_command  # noqa: E402
-
 GIT_TOOL_INSTALL_COMMAND = _upgrade_install_command("main")
 INSTALL_VERIFY_COMMANDS = (
     "which -a sonde",
@@ -232,6 +236,66 @@ def check_install_shadows() -> DoctorCheck:
     )
 
 
+def check_cli_update() -> DoctorCheck:
+    """Surface the same installed-vs-latest check as `sonde upgrade --check`."""
+    result = get_upgrade_status()
+    metadata = {
+        "installed": result.installed,
+        "installed_core": result.installed_core,
+        "latest": result.latest,
+        "latest_core": result.latest_core,
+        "failure_reason": result.failure_reason,
+    }
+
+    if result.status == "update_available":
+        return DoctorCheck(
+            id="cli-update",
+            title="CLI version",
+            status="warn",
+            summary=f"Update available: {result.installed} -> {result.latest}",
+            details=[
+                f"Installed: {result.installed}",
+                f"Latest:    {result.latest}",
+            ],
+            fix="sonde upgrade",
+            metadata=metadata,
+        )
+
+    if result.status == "current":
+        return DoctorCheck(
+            id="cli-update",
+            title="CLI version",
+            status="ok",
+            summary=f"sonde is up to date ({result.installed})",
+            details=[f"Latest tagged release: {result.latest}"],
+            metadata=metadata,
+        )
+
+    if result.status == "dev_build":
+        return DoctorCheck(
+            id="cli-update",
+            title="CLI version",
+            status="info",
+            summary=f"Development build ({result.installed})",
+            details=[
+                f"Latest tagged release: {result.latest}",
+                "Run `sonde upgrade` to switch to the latest tagged release, or "
+                "`sonde upgrade --tag main` to stay on main.",
+            ],
+            metadata=metadata,
+        )
+
+    reason = "GitHub rate limit" if result.status == "rate_limited" else "GitHub unreachable"
+    return DoctorCheck(
+        id="cli-update",
+        title="CLI version",
+        status="info",
+        summary=f"Could not check for updates ({reason})",
+        details=[f"Installed: {result.installed}"],
+        metadata=metadata,
+    )
+
+
 def build_local_section(*, deep: bool = False) -> DoctorSection:
     """Inspect local runtime, skills, and MCP readiness."""
     project_root = find_project_root()
@@ -239,6 +303,7 @@ def build_local_section(*, deep: bool = False) -> DoctorSection:
     runtimes = detect_runtimes(root)
     checks = [
         check_install_shadows(),
+        check_cli_update(),
         check_runtime_detection(project_root, runtimes),
         check_skill_freshness(root, runtimes),
         check_mcp_configuration(project_root, runtimes),

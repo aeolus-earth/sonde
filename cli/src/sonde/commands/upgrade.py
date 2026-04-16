@@ -22,7 +22,9 @@ import shutil
 import subprocess
 import sys
 import time
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -41,6 +43,27 @@ _GITHUB_TIMEOUT_SECONDS = 5
 # shell=True), we still reject anything exotic at the click-command
 # boundary. Allows: main, staging, v<semver>, v<semver>-<prerelease>.
 _TAG_PATTERN = re.compile(r"^(main|staging|v\d+\.\d+\.\d+(-[a-zA-Z0-9.-]+)?)$")
+
+UpgradeFailureReason = Literal["unreachable", "rate_limited"]
+UpgradeStatus = Literal[
+    "current",
+    "dev_build",
+    "rate_limited",
+    "unreachable",
+    "update_available",
+]
+
+
+@dataclass(frozen=True)
+class UpgradeCheckResult:
+    """Structured result for update checks shared by `upgrade --check` and doctor."""
+
+    status: UpgradeStatus
+    installed: str
+    installed_core: str
+    latest: str | None = None
+    latest_core: str | None = None
+    failure_reason: UpgradeFailureReason | None = None
 
 
 def _install_url(ref: str) -> str:
@@ -110,7 +133,7 @@ def _is_dev_build(raw: str) -> bool:
     return ".dev" in raw or "+" in raw
 
 
-def _fetch_latest_tag() -> tuple[str | None, str | None]:
+def _fetch_latest_tag() -> tuple[str | None, UpgradeFailureReason | None]:
     """Hit GitHub's /releases/latest.
 
     Returns ``(tag, None)`` on success, or ``(None, reason)`` on any
@@ -146,6 +169,49 @@ def _fetch_latest_tag() -> tuple[str | None, str | None]:
     return tag, None
 
 
+def get_upgrade_status(installed_display: str | None = None) -> UpgradeCheckResult:
+    """Return the installed-vs-latest status without printing anything."""
+    installed = installed_display or __version__
+    installed_core = _normalize_version(installed)
+    latest, failure_reason = _fetch_latest_tag()
+
+    if latest is None:
+        resolved_failure: UpgradeFailureReason = failure_reason or "unreachable"
+        return UpgradeCheckResult(
+            status=resolved_failure,
+            installed=installed,
+            installed_core=installed_core,
+            failure_reason=resolved_failure,
+        )
+
+    latest_core = _normalize_version(latest)
+    if _is_dev_build(installed):
+        return UpgradeCheckResult(
+            status="dev_build",
+            installed=installed,
+            installed_core=installed_core,
+            latest=latest,
+            latest_core=latest_core,
+        )
+
+    if installed_core == latest_core:
+        return UpgradeCheckResult(
+            status="current",
+            installed=installed,
+            installed_core=installed_core,
+            latest=latest,
+            latest_core=latest_core,
+        )
+
+    return UpgradeCheckResult(
+        status="update_available",
+        installed=installed,
+        installed_core=installed_core,
+        latest=latest,
+        latest_core=latest_core,
+    )
+
+
 def _print_uv_install_guidance() -> None:
     """Platform-aware instructions for getting uv when it's missing."""
     err.print("\n[sonde.error]\u2717[/] uv is required to upgrade sonde.\n")
@@ -172,11 +238,10 @@ def _print_dev_clone_guidance() -> None:
 
 def _do_check() -> int:
     """Implement `sonde upgrade --check`. Returns the desired exit code."""
-    installed_display = __version__
-    latest, failure_reason = _fetch_latest_tag()
+    status = get_upgrade_status()
 
-    if latest is None:
-        if failure_reason == "rate_limited":
+    if status.status in {"rate_limited", "unreachable"}:
+        if status.status == "rate_limited":
             err.print(
                 "\n[sonde.warning]\u26a0[/] GitHub rate limit hit while checking for updates.",
             )
@@ -184,20 +249,17 @@ def _do_check() -> int:
             err.print(
                 "\n[sonde.warning]\u26a0[/] Could not reach GitHub to check for updates.",
             )
-        err.print(f"  [sonde.muted]Installed:[/] {installed_display}\n")
+        err.print(f"  [sonde.muted]Installed:[/] {status.installed}\n")
         # Soft-fail: this is a transient network condition, not a user
         # error. Exit 0 keeps chained shell scripts usable.
         return 0
 
-    installed_core = _normalize_version(installed_display)
-    latest_core = _normalize_version(latest)
-
-    if _is_dev_build(installed_display):
+    if status.status == "dev_build":
         err.print(
             f"\n[sonde.accent]\u2139[/] You're on a development build "
-            f"([sonde.muted]{installed_display}[/]).",
+            f"([sonde.muted]{status.installed}[/]).",
         )
-        err.print(f"  [sonde.muted]Latest tagged:[/] {latest}\n")
+        err.print(f"  [sonde.muted]Latest tagged:[/] {status.latest}\n")
         err.print(
             "  Run [sonde.accent]sonde upgrade[/] to switch to the latest tagged release,",
         )
@@ -206,13 +268,13 @@ def _do_check() -> int:
         )
         return 0
 
-    if installed_core == latest_core:
-        err.print(f"\n[sonde.success]\u2713[/] sonde is up to date ({installed_display}).\n")
+    if status.status == "current":
+        err.print(f"\n[sonde.success]\u2713[/] sonde is up to date ({status.installed}).\n")
         return 0
 
     err.print("\n[sonde.heading]Update available.[/]")
-    err.print(f"  [sonde.muted]Installed:[/] {installed_display}")
-    err.print(f"  [sonde.muted]Latest:[/]    {latest}\n")
+    err.print(f"  [sonde.muted]Installed:[/] {status.installed}")
+    err.print(f"  [sonde.muted]Latest:[/]    {status.latest}\n")
     err.print("  Run: [sonde.accent]sonde upgrade[/]\n")
     return 0
 

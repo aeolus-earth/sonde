@@ -8,8 +8,10 @@ from types import SimpleNamespace
 from urllib.error import HTTPError, URLError
 
 from sonde.cli import cli
+from sonde.commands.upgrade import UpgradeCheckResult
 from sonde.diagnostics import (
     GIT_TOOL_INSTALL_COMMAND,
+    check_cli_update,
     check_device_login_base,
     check_device_login_health,
     check_install_shadows,
@@ -298,3 +300,43 @@ def test_check_install_shadows_reports_low_command_count(monkeypatch):
     assert check.status == "warn"
     assert GIT_TOOL_INSTALL_COMMAND in (check.fix or "")
     assert "sonde --version" in (check.fix or "")
+
+
+def test_check_cli_update_warns_when_upgrade_available(monkeypatch):
+    monkeypatch.setattr(
+        "sonde.diagnostics.get_upgrade_status",
+        lambda: UpgradeCheckResult(
+            status="update_available",
+            installed="0.1.7",
+            installed_core="0.1.7",
+            latest="v0.1.8",
+            latest_core="0.1.8",
+        ),
+    )
+
+    check = check_cli_update()
+
+    assert check.id == "cli-update"
+    assert check.status == "warn"
+    assert "0.1.7 -> v0.1.8" in check.summary
+    assert check.fix == "sonde upgrade"
+    assert check.metadata["installed"] == "0.1.7"
+    assert check.metadata["latest"] == "v0.1.8"
+
+
+def test_check_cli_update_is_informational_when_github_unreachable(monkeypatch):
+    monkeypatch.setattr(
+        "sonde.diagnostics.get_upgrade_status",
+        lambda: UpgradeCheckResult(
+            status="unreachable",
+            installed="0.1.7",
+            installed_core="0.1.7",
+            failure_reason="unreachable",
+        ),
+    )
+
+    check = check_cli_update()
+
+    assert check.status == "info"
+    assert "Could not check for updates" in check.summary
+    assert check.fix is None
