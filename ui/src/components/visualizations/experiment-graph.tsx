@@ -182,7 +182,6 @@ export const ExperimentGraph = memo(function ExperimentGraph({
 
   useEffect(() => {
     if (droppedOrphanEdges > 0) {
-      // eslint-disable-next-line no-console
       console.warn(
         `[experiment-graph] dropped ${droppedOrphanEdges} orphan edge(s) ` +
           `(references to nodes not in the rendered set)`,
