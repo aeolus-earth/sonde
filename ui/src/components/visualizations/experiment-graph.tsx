@@ -31,6 +31,15 @@ import {
 import { nodeTypes } from "./experiment-graph/node-types";
 
 /**
+ * MiniMap iterates every node on every viewport change and renders a
+ * thumbnail too small to navigate on. Past ~500 nodes the cost
+ * outweighs the usefulness, so we hide it for large graphs. Users who
+ * need an overview can zoom out; a dedicated "show overview" toggle
+ * is a follow-up if it comes up.
+ */
+const MINIMAP_NODE_THRESHOLD = 500;
+
+/**
  * Build a factory that returns a stable-per-id callback. Backed by a
  * persistent `Map` (via `useRef`) so the same id returns the same
  * closure across builds — see the `HandlerFactories` docstring for
@@ -310,18 +319,20 @@ export const ExperimentGraph = memo(function ExperimentGraph({
             showInteractive={false}
             className="!rounded-[5.5px] !border-border !bg-surface !shadow-none [&>button]:!rounded-[3px] [&>button]:!border-border [&>button]:!bg-surface-raised [&>button]:!fill-text-tertiary"
           />
-          <MiniMap
-            nodeColor={(node) => {
-              if (node.type === "project") return colors.textTertiary;
-              if (node.type === "direction") return colors.accent;
-              if (node.type === "ungrouped") return colors.textQuaternary;
-              if (node.type === "finding") return colors.textTertiary;
-              const exp = node.data as unknown as ExperimentSummary;
-              return statusColor[exp.status] ?? colors.textQuaternary;
-            }}
-            maskColor={colors.minimapMask}
-            className="!rounded-[8px] !border-border !bg-surface"
-          />
+          {nodes.length < MINIMAP_NODE_THRESHOLD ? (
+            <MiniMap
+              nodeColor={(node) => {
+                if (node.type === "project") return colors.textTertiary;
+                if (node.type === "direction") return colors.accent;
+                if (node.type === "ungrouped") return colors.textQuaternary;
+                if (node.type === "finding") return colors.textTertiary;
+                const exp = node.data as unknown as ExperimentSummary;
+                return statusColor[exp.status] ?? colors.textQuaternary;
+              }}
+              maskColor={colors.minimapMask}
+              className="!rounded-[8px] !border-border !bg-surface"
+            />
+          ) : null}
         </ReactFlow>
       </div>
     </div>
