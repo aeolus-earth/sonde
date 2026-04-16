@@ -207,13 +207,9 @@ def patched_db(mock_supabase: MagicMock, authenticated: None) -> Generator[Magic
 
     with ExitStack() as stack:
         # Canonical patches on the client module.
-        stack.enter_context(
-            patch.object(client_mod, "get_client", return_value=mock_supabase)
-        )
+        stack.enter_context(patch.object(client_mod, "get_client", return_value=mock_supabase))
         stack.enter_context(patch.object(client_mod, "_client", mock_supabase))
-        stack.enter_context(
-            patch.object(client_mod, "_client_token", "eyJ-fake-access-token")
-        )
+        stack.enter_context(patch.object(client_mod, "_client_token", "eyJ-fake-access-token"))
 
         # Dynamically patch every already-imported sonde module that bound
         # get_client at import time. ``patch.object`` handles save/restore
@@ -226,9 +222,7 @@ def patched_db(mock_supabase: MagicMock, authenticated: None) -> Generator[Magic
                 continue
             if getattr(module, "get_client", None) is None:
                 continue
-            stack.enter_context(
-                patch.object(module, "get_client", new=_mock_client_factory)
-            )
+            stack.enter_context(patch.object(module, "get_client", new=_mock_client_factory))
 
         reset_cache()
         try:

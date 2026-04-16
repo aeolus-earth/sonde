@@ -62,8 +62,7 @@ def test_patched_db_covers_core_db_modules(patched_db) -> None:
     for module in (ids_mod, find_mod, reviews_mod, exp_read_mod):
         client = module.get_client()
         assert client is patched_db, (
-            f"{module.__name__}.get_client() returned {client!r}, "
-            f"not the mock fixture."
+            f"{module.__name__}.get_client() returned {client!r}, not the mock fixture."
         )
 
 
