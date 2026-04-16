@@ -21,6 +21,9 @@ import type {
 const AUTH_TIMEOUT_MS = 5_000;
 const IDLE_TIMEOUT_MS = 5 * 60_000;
 const HEARTBEAT_INTERVAL_MS = 30_000;
+// Tolerate brief client unreachability (Mac sleep, WiFi handoff, NAT blip)
+// before declaring the WS dead. With a 30s interval, 3 misses ≈ 90s grace.
+const MAX_MISSED_PONGS = 3;
 const MAX_WS_MESSAGE_BYTES = 1_000_000;
 const MAX_CHAT_ATTACHMENTS = 6;
 const MAX_ATTACHMENT_TEXT_BYTES = 250_000;
@@ -44,7 +47,7 @@ interface ConnectionState {
   authTimer: NodeJS.Timeout | null;
   idleTimer: NodeJS.Timeout | null;
   heartbeatTimer: NodeJS.Timeout | null;
-  awaitingPong: boolean;
+  missedPongs: number;
   closed: boolean;
   authenticating: Promise<boolean> | null;
   queryActive: boolean;
@@ -203,11 +206,11 @@ function startHeartbeat(
 ): void {
   clearTimer(state.heartbeatTimer);
   state.heartbeatTimer = setInterval(() => {
-    if (state.awaitingPong) {
+    if (state.missedPongs >= MAX_MISSED_PONGS) {
       ws.close(WS_CLOSE_HEARTBEAT, "Heartbeat timeout");
       return;
     }
-    state.awaitingPong = true;
+    state.missedPongs += 1;
     send(ws, { type: "ping" });
   }, HEARTBEAT_INTERVAL_MS);
 }
@@ -424,7 +427,7 @@ export function handleWebSocket(
     authTimer: null,
     idleTimer: null,
     heartbeatTimer: null,
-    awaitingPong: false,
+    missedPongs: 0,
     closed: false,
     authenticating: null,
     queryActive: false,
@@ -465,7 +468,7 @@ export function handleWebSocket(
       }
 
       if (msg.type === "pong") {
-        state.awaitingPong = false;
+        state.missedPongs = 0;
         return;
       }
 
@@ -500,7 +503,7 @@ export function handleWebSocket(
         }
       }
 
-      state.awaitingPong = false;
+      state.missedPongs = 0;
 
       if (msg.type === "auth") {
         send(ws, { type: "error", message: "Chat is already authenticated." });
