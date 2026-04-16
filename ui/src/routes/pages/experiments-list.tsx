@@ -19,6 +19,7 @@ import { useListKeyboardNav } from "@/hooks/use-keyboard";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { ExperimentRowSkeleton } from "@/components/ui/skeleton";
+import { TimeRangeBar } from "@/components/shared/time-range-bar";
 import { formatDateTimeShort, formatDateTime, cn } from "@/lib/utils";
 import {
   buildExperimentsProjectTree,
@@ -32,6 +33,13 @@ import {
 import { useActiveProgram } from "@/stores/program";
 import type { ArtifactType, ExperimentSummary } from "@/types/sonde";
 import { experimentMatchesSearchQuery } from "@/lib/experiment-search-match";
+import {
+  buildTimePoints,
+  isTimestampInTimeRange,
+  resolveTimeRangeSelection,
+  serializeTimeRangeValue,
+  timestampFromIso,
+} from "@/lib/time-range";
 
 export type ExperimentsSearch = {
   q?: string;
@@ -44,6 +52,8 @@ export type ExperimentsSearch = {
   sort?: "created" | "closed";
   /** Sort direction: newest first (`desc`) or oldest first (`asc`). */
   order?: "asc" | "desc";
+  from?: string;
+  to?: string;
 };
 
 const routeApi = getRouteApi(ROUTE_API.authExperiments);
@@ -201,7 +211,8 @@ export default function ExperimentsListPage() {
   const { data: directions } = useDirections();
   const activeProgram = useActiveProgram();
   const navigate = routeApi.useNavigate();
-  const { q, status, artifact, view, day, sort, order } = routeApi.useSearch();
+  const { q, status, artifact, view, day, sort, order, from, to } =
+    routeApi.useSearch();
   const filter = q ?? "";
   const deferredFilter = useDeferredValue(filter);
   const statusFilter = status ?? "all";
@@ -215,6 +226,18 @@ export default function ExperimentsListPage() {
 
   const [projOpen, setProjOpen] = useState<Record<string, boolean>>({});
   const [dirOpen, setDirOpen] = useState<Record<string, boolean>>({});
+
+  const timePoints = useMemo(
+    () =>
+      buildTimePoints(experiments ?? [], (exp) =>
+        timestampFromIso(exp.created_at)
+      ),
+    [experiments]
+  );
+  const activeTimeRange = useMemo(
+    () => resolveTimeRangeSelection(timePoints, from, to),
+    [from, timePoints, to]
+  );
 
   const filtered = useMemo(() => {
     if (!experiments) return [];
@@ -232,6 +255,9 @@ export default function ExperimentsListPage() {
     if (dayFilter) {
       result = result.filter((e) => e.created_at.slice(0, 10) === dayFilter);
     }
+    result = result.filter((e) =>
+      isTimestampInTimeRange(timestampFromIso(e.created_at), activeTimeRange)
+    );
     if (deferredFilter.trim()) {
       const serverIds = new Set(serverMatchIds ?? []);
       result = result.filter(
@@ -246,6 +272,7 @@ export default function ExperimentsListPage() {
     statusFilter,
     artifactFilter,
     dayFilter,
+    activeTimeRange,
     serverMatchIds,
   ]);
 
@@ -311,6 +338,44 @@ export default function ExperimentsListPage() {
           order: next === "desc" ? undefined : next,
         };
       },
+      replace: true,
+    });
+  }, [navigate]);
+
+  const updateTimeRange = useCallback(
+    (fromIndex: number, toIndex: number) => {
+      if (timePoints.length === 0) return;
+
+      const maxIndex = timePoints.length - 1;
+      const nextFromIndex = Math.max(0, Math.min(fromIndex, maxIndex));
+      const nextToIndex = Math.max(0, Math.min(toIndex, maxIndex));
+      const lowerIndex = Math.min(nextFromIndex, nextToIndex);
+      const upperIndex = Math.max(nextFromIndex, nextToIndex);
+      const isFullRange = lowerIndex === 0 && upperIndex === maxIndex;
+
+      navigate({
+        search: (prev: ExperimentsSearch) => ({
+          ...prev,
+          from: isFullRange
+            ? undefined
+            : serializeTimeRangeValue(timePoints[lowerIndex]),
+          to: isFullRange
+            ? undefined
+            : serializeTimeRangeValue(timePoints[upperIndex]),
+        }),
+        replace: true,
+      });
+    },
+    [navigate, timePoints]
+  );
+
+  const clearTimeRange = useCallback(() => {
+    navigate({
+      search: (prev: ExperimentsSearch) => ({
+        ...prev,
+        from: undefined,
+        to: undefined,
+      }),
       replace: true,
     });
   }, [navigate]);
@@ -443,6 +508,16 @@ export default function ExperimentsListPage() {
           }
           className="max-w-[280px]"
         />
+        {timePoints.length > 0 && (
+          <TimeRangeBar
+            points={timePoints}
+            fromIndex={activeTimeRange.fromIndex}
+            toIndex={activeTimeRange.toIndex}
+            isActive={activeTimeRange.isActive}
+            onChange={updateTimeRange}
+            onClear={clearTimeRange}
+          />
+        )}
         <div className="flex h-8 shrink-0 overflow-hidden rounded-[5.5px] border border-border bg-surface">
           <button
             type="button"

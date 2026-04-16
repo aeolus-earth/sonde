@@ -143,14 +143,47 @@ function rootExperimentsForGroup(
   );
 }
 
-function countDescendants(
-  id: string,
+function visibleExperimentChildren(
+  exp: ExperimentSummary,
   childMap: Map<string, ExperimentSummary[]>,
+  directionsBySpawnExperiment: Map<string, DirectionSummary[]>,
+): ExperimentSummary[] {
+  const children = childMap.get(exp.id) ?? [];
+  const spawnedDirections = directionsBySpawnExperiment.get(exp.id) ?? [];
+  if (spawnedDirections.length === 0) return children;
+
+  const spawnedDirectionIds = new Set(
+    spawnedDirections.map((direction) => direction.id),
+  );
+  return children.filter(
+    (child) =>
+      !child.direction_id || !spawnedDirectionIds.has(child.direction_id),
+  );
+}
+
+function countDescendants(
+  exp: ExperimentSummary,
+  childMap: Map<string, ExperimentSummary[]>,
+  directionsBySpawnExperiment: Map<string, DirectionSummary[]>,
 ): number {
-  const children = childMap.get(id) ?? [];
+  const children = visibleExperimentChildren(
+    exp,
+    childMap,
+    directionsBySpawnExperiment,
+  );
   let count = children.length;
-  for (const c of children) count += countDescendants(c.id, childMap);
+  for (const c of children) {
+    count += countDescendants(c, childMap, directionsBySpawnExperiment);
+  }
   return count;
+}
+
+function rootUnlinkedExperimentsForDirection(
+  experiments: ExperimentSummary[],
+): ExperimentSummary[] {
+  return rootExperimentsForGroup(experiments).filter(
+    (experiment) => !experiment.primary_question_id,
+  );
 }
 
 function projectNodeId(raw: string | null): string {
@@ -243,7 +276,7 @@ export type TreeNavigateTarget =
   | { kind: "question"; id: string }
   | { kind: "finding"; id: string };
 
-type TreeRowData =
+export type TreeRowData =
   | {
       kind: "project";
       rowKey: string;
@@ -309,6 +342,12 @@ function confidenceVariant(c: FindingConfidence): FindingConfidence {
 
 // ── Flat row builder ───────────────────────────────────────────────
 
+type RenderedTreeEntities = {
+  directions: Set<string>;
+  experiments: Set<string>;
+  questions: Set<string>;
+};
+
 function addExperimentRows(
   exp: ExperimentSummary,
   depth: number,
@@ -320,14 +359,23 @@ function addExperimentRows(
   experimentsByDirection: Map<string, ExperimentSummary[]>,
   questionsByDirection: Map<string, QuestionSummary[]>,
   experimentsByQuestion: Map<string, ExperimentSummary[]>,
+  rendered: RenderedTreeEntities,
   rows: TreeRowData[],
 ) {
-  const children = childMap.get(exp.id) ?? [];
+  if (rendered.experiments.has(exp.id)) return;
+  rendered.experiments.add(exp.id);
+
   const spawnedDirections = directionsBySpawnExperiment.get(exp.id) ?? [];
+  const children = visibleExperimentChildren(
+    exp,
+    childMap,
+    directionsBySpawnExperiment,
+  );
   const hasChildren = children.length > 0 || spawnedDirections.length > 0;
   const isCollapsed = collapsed.has(exp.id);
   const childCount =
-    countDescendants(exp.id, childMap) + spawnedDirections.length;
+    countDescendants(exp, childMap, directionsBySpawnExperiment) +
+    spawnedDirections.length;
 
   rows.push({
     kind: "experiment",
@@ -354,6 +402,7 @@ function addExperimentRows(
         experimentsByDirection,
         questionsByDirection,
         experimentsByQuestion,
+        rendered,
         rows,
       );
     }
@@ -372,6 +421,7 @@ function addExperimentRows(
         experimentsByDirection,
         questionsByDirection,
         experimentsByQuestion,
+        rendered,
         rows,
       );
     }
@@ -389,8 +439,12 @@ function addQuestionRows(
   experimentsByDirection: Map<string, ExperimentSummary[]>,
   questionsByDirection: Map<string, QuestionSummary[]>,
   experimentsByQuestion: Map<string, ExperimentSummary[]>,
+  rendered: RenderedTreeEntities,
   rows: TreeRowData[],
 ) {
+  if (rendered.questions.has(question.id)) return;
+  rendered.questions.add(question.id);
+
   const questionExperiments = experimentsByQuestion.get(question.id) ?? [];
   const questionRoots = rootExperimentsForGroup(questionExperiments);
   const toggleKey = `question-${question.id}`;
@@ -418,6 +472,7 @@ function addQuestionRows(
       experimentsByDirection,
       questionsByDirection,
       experimentsByQuestion,
+      rendered,
       rows,
     );
   }
@@ -435,15 +490,16 @@ function addDirectionRows(
   experimentsByDirection: Map<string, ExperimentSummary[]>,
   questionsByDirection: Map<string, QuestionSummary[]>,
   experimentsByQuestion: Map<string, ExperimentSummary[]>,
+  rendered: RenderedTreeEntities,
   rows: TreeRowData[],
 ) {
+  if (rendered.directions.has(dir.id)) return;
+  rendered.directions.add(dir.id);
+
   const directionExperiments = experimentsByDirection.get(dir.id) ?? [];
   const directionQuestions = questionsByDirection.get(dir.id) ?? [];
-  const directionRoots = rootExperimentsForGroup(
-    directionExperiments.filter(
-      (experiment) => !experiment.primary_question_id,
-    ),
-  );
+  const directionRoots =
+    rootUnlinkedExperimentsForDirection(directionExperiments);
   const toggleKey = `dir-${dir.id}`;
 
   rows.push({
@@ -471,6 +527,7 @@ function addDirectionRows(
       experimentsByDirection,
       questionsByDirection,
       experimentsByQuestion,
+      rendered,
       rows,
     );
   }
@@ -487,6 +544,7 @@ function addDirectionRows(
       experimentsByDirection,
       questionsByDirection,
       experimentsByQuestion,
+      rendered,
       rows,
     );
   }
@@ -505,9 +563,232 @@ function addDirectionRows(
       experimentsByDirection,
       questionsByDirection,
       experimentsByQuestion,
+      rendered,
       rows,
     );
   }
+}
+
+export interface BuildResearchTreeRowsInput {
+  experiments: ExperimentSummary[];
+  directions: DirectionSummary[];
+  projects: ProjectSummary[];
+  findings: Finding[];
+  questions: QuestionSummary[];
+  collapsed: Set<string>;
+  search: string;
+}
+
+// eslint-disable-next-line react-refresh/only-export-components
+export function buildResearchTreeRows({
+  experiments,
+  directions,
+  projects,
+  findings,
+  questions,
+  collapsed,
+  search,
+}: BuildResearchTreeRowsInput): TreeRowData[] {
+  const rows: TreeRowData[] = [];
+  const rendered: RenderedTreeEntities = {
+    directions: new Set(),
+    experiments: new Set(),
+    questions: new Set(),
+  };
+  const isFiltering = search.trim().length > 0;
+  const experimentIds = new Set(experiments.map((e) => e.id));
+  const knownProjectIds = new Set(projects.map((p) => p.id));
+  const isRoot = (e: ExperimentSummary) =>
+    !e.parent_id || !experimentIds.has(e.parent_id);
+  const findingsByExp = buildFindingsByExperiment(findings);
+  const directionsByParent = buildDirectionsByParent(directions);
+  const directionsBySpawnExperiment =
+    buildDirectionsBySpawnExperiment(directions);
+  const questionsByDirection = buildQuestionsByDirection(questions);
+  const experimentsForTree =
+    filterExperimentsForSearch(experiments, findings, search) ?? experiments;
+  const childMapFiltered = buildChildMap(experimentsForTree);
+  const experimentsByDirection =
+    buildExperimentsByDirection(experimentsForTree);
+  const experimentsByQuestion =
+    buildExperimentsByPrimaryQuestion(experimentsForTree);
+
+  const sortedProjects = [...projects].sort((a, b) =>
+    a.name.localeCompare(b.name),
+  );
+  const needsUnassigned =
+    directions.some(
+      (d) => bucketProjectId(d.project_id, knownProjectIds) === null,
+    ) ||
+    experimentsForTree.some(
+      (e) =>
+        bucketProjectId(e.project_id, knownProjectIds) === null && isRoot(e),
+    );
+
+  type PEntry = { id: string | null; label: string };
+  const entries: PEntry[] = sortedProjects.map((p) => ({
+    id: p.id,
+    label: p.name,
+  }));
+  if (needsUnassigned) {
+    entries.push({ id: null, label: "Unassigned" });
+  }
+
+  for (const p of entries) {
+    const bucketId = bucketProjectId(p.id, knownProjectIds);
+    const pid = projectNodeId(bucketId);
+    const projCollapsed = collapsed.has(pid);
+
+    const dirsInProj = directions
+      .filter(
+        (d) =>
+          bucketProjectId(d.project_id, knownProjectIds) === bucketId &&
+          !d.parent_direction_id &&
+          (!d.spawned_from_experiment_id ||
+            !experimentIds.has(d.spawned_from_experiment_id)),
+      )
+      .sort((a, b) => a.title.localeCompare(b.title));
+
+    const allInProject = experimentsForTree.filter(
+      (e) => bucketProjectId(e.project_id, knownProjectIds) === bucketId,
+    );
+
+    if (isFiltering && allInProject.length === 0) continue;
+
+    rows.push({
+      kind: "project",
+      rowKey: pid,
+      depth: 0,
+      pid,
+      label: p.label,
+      projectId: p.id,
+      directionCount: dirsInProj.length,
+      expCount: allInProject.length,
+      toggleKey: pid,
+    });
+
+    if (projCollapsed) continue;
+
+    for (const dir of dirsInProj) {
+      const headerId = `dir-${dir.id}`;
+      const dirCollapsed = collapsed.has(headerId);
+      const allInDirection = experimentsByDirection.get(dir.id) ?? [];
+      const rootExps = rootUnlinkedExperimentsForDirection(allInDirection);
+
+      if (isFiltering && allInDirection.length === 0) continue;
+      if (rendered.directions.has(dir.id)) continue;
+      rendered.directions.add(dir.id);
+
+      rows.push({
+        kind: "direction",
+        rowKey: headerId,
+        depth: 1,
+        dir,
+        expCount: allInDirection.length,
+        statusCounts: countStatuses(allInDirection),
+        toggleKey: headerId,
+      });
+
+      if (dirCollapsed) continue;
+
+      for (const question of questionsByDirection.get(dir.id) ?? []) {
+        addQuestionRows(
+          question,
+          2,
+          childMapFiltered,
+          collapsed,
+          findingsByExp,
+          directionsByParent,
+          directionsBySpawnExperiment,
+          experimentsByDirection,
+          questionsByDirection,
+          experimentsByQuestion,
+          rendered,
+          rows,
+        );
+      }
+
+      for (const exp of rootExps) {
+        addExperimentRows(
+          exp,
+          2,
+          childMapFiltered,
+          collapsed,
+          findingsByExp,
+          directionsByParent,
+          directionsBySpawnExperiment,
+          experimentsByDirection,
+          questionsByDirection,
+          experimentsByQuestion,
+          rendered,
+          rows,
+        );
+      }
+
+      const childDirs = directionsByParent.get(dir.id) ?? [];
+      for (const childDir of childDirs) {
+        const subDirExps = experimentsByDirection.get(childDir.id) ?? [];
+        if (isFiltering && subDirExps.length === 0) continue;
+        addDirectionRows(
+          childDir,
+          2,
+          "direction",
+          childMapFiltered,
+          collapsed,
+          findingsByExp,
+          directionsByParent,
+          directionsBySpawnExperiment,
+          experimentsByDirection,
+          questionsByDirection,
+          experimentsByQuestion,
+          rendered,
+          rows,
+        );
+      }
+    }
+
+    const noDirExps = experimentsForTree.filter(
+      (e) =>
+        isRoot(e) &&
+        e.direction_id === null &&
+        bucketProjectId(e.project_id, knownProjectIds) === bucketId,
+    );
+
+    if (noDirExps.length > 0) {
+      const nodirId = `nodir-${pid}`;
+      const nodirCollapsed = collapsed.has(nodirId);
+
+      rows.push({
+        kind: "ungrouped",
+        rowKey: nodirId,
+        depth: 1,
+        expCount: noDirExps.length,
+        statusCounts: countStatuses(noDirExps),
+        toggleKey: nodirId,
+      });
+
+      if (!nodirCollapsed) {
+        for (const exp of noDirExps) {
+          addExperimentRows(
+            exp,
+            2,
+            childMapFiltered,
+            collapsed,
+            findingsByExp,
+            directionsByParent,
+            directionsBySpawnExperiment,
+            experimentsByDirection,
+            questionsByDirection,
+            experimentsByQuestion,
+            rendered,
+            rows,
+          );
+        }
+      }
+    }
+  }
+
+  return rows;
 }
 
 export interface ResearchTreeProps {
@@ -516,6 +797,7 @@ export interface ResearchTreeProps {
   projects: ProjectSummary[];
   findings: Finding[];
   questions: QuestionSummary[];
+  expansionResetKey?: string | null;
   onNavigate: (target: TreeNavigateTarget) => void;
 }
 
@@ -525,6 +807,7 @@ export const ResearchTree = memo(function ResearchTree({
   projects,
   findings,
   questions,
+  expansionResetKey,
   onNavigate,
 }: ResearchTreeProps) {
   const colors = useThemeCssColors();
@@ -550,44 +833,15 @@ export const ResearchTree = memo(function ResearchTree({
     [experimentIds],
   );
 
-  const findingsByExp = useMemo(
-    () => buildFindingsByExperiment(findings),
-    [findings],
-  );
-  const directionsByParent = useMemo(
-    () => buildDirectionsByParent(directions),
-    [directions],
-  );
-  const directionsBySpawnExperiment = useMemo(
-    () => buildDirectionsBySpawnExperiment(directions),
-    [directions],
-  );
-  const questionsByDirection = useMemo(
-    () => buildQuestionsByDirection(questions),
-    [questions],
-  );
-
-  const experimentsForTree = useMemo(() => {
-    const filtered = filterExperimentsForSearch(experiments, findings, search);
-    return filtered ?? experiments;
-  }, [experiments, findings, search]);
-
-  const childMapFiltered = useMemo(
-    () => buildChildMap(experimentsForTree),
-    [experimentsForTree],
-  );
-  const experimentsByDirection = useMemo(
-    () => buildExperimentsByDirection(experimentsForTree),
-    [experimentsForTree],
-  );
-  const experimentsByQuestion = useMemo(
-    () => buildExperimentsByPrimaryQuestion(experimentsForTree),
-    [experimentsForTree],
-  );
-
   useEffect(() => {
     setFocusedIndex(-1);
-  }, [search, experimentsForTree.length]);
+  }, [search, experiments.length, findings.length]);
+
+  useEffect(() => {
+    if (expansionResetKey === undefined) return;
+    setCollapsed(new Set());
+    setFocusedIndex(-1);
+  }, [expansionResetKey]);
 
   useEffect(() => {
     if (didAutoCollapse.current) return;
@@ -627,202 +881,19 @@ export const ResearchTree = memo(function ResearchTree({
     didAutoCollapse.current = true;
   }, [experiments, projects, directions, knownProjectIds, isRoot]);
 
-  const flatRows = useMemo(() => {
-    const rows: TreeRowData[] = [];
-    const isFiltering = search.trim().length > 0;
-
-    const sortedProjects = [...projects].sort((a, b) =>
-      a.name.localeCompare(b.name),
-    );
-    const needsUnassigned =
-      directions.some(
-        (d) => bucketProjectId(d.project_id, knownProjectIds) === null,
-      ) ||
-      experimentsForTree.some(
-        (e) =>
-          bucketProjectId(e.project_id, knownProjectIds) === null && isRoot(e),
-      );
-
-    type PEntry = { id: string | null; label: string };
-    const entries: PEntry[] = sortedProjects.map((p) => ({
-      id: p.id,
-      label: p.name,
-    }));
-    if (needsUnassigned) {
-      entries.push({ id: null, label: "Unassigned" });
-    }
-
-    for (const p of entries) {
-      const bucketId = bucketProjectId(p.id, knownProjectIds);
-      const pid = projectNodeId(bucketId);
-      const projCollapsed = collapsed.has(pid);
-
-      const dirsInProj = directions
-        .filter(
-          (d) =>
-            bucketProjectId(d.project_id, knownProjectIds) === bucketId &&
-            !d.parent_direction_id &&
-            (!d.spawned_from_experiment_id ||
-              !experimentIds.has(d.spawned_from_experiment_id)),
-        )
-        .sort((a, b) => a.title.localeCompare(b.title));
-
-      const allInProject = experimentsForTree.filter(
-        (e) => bucketProjectId(e.project_id, knownProjectIds) === bucketId,
-      );
-
-      if (isFiltering && allInProject.length === 0) continue;
-
-      rows.push({
-        kind: "project",
-        rowKey: pid,
-        depth: 0,
-        pid,
-        label: p.label,
-        projectId: p.id,
-        directionCount: dirsInProj.length,
-        expCount: allInProject.length,
-        toggleKey: pid,
-      });
-
-      if (projCollapsed) continue;
-
-      for (const dir of dirsInProj) {
-        const headerId = `dir-${dir.id}`;
-        const dirCollapsed = collapsed.has(headerId);
-        const allInDirection = experimentsByDirection.get(dir.id) ?? [];
-        const rootExps = rootExperimentsForGroup(allInDirection);
-
-        if (isFiltering && allInDirection.length === 0) continue;
-
-        rows.push({
-          kind: "direction",
-          rowKey: headerId,
-          depth: 1,
-          dir,
-          expCount: allInDirection.length,
-          statusCounts: countStatuses(allInDirection),
-          toggleKey: headerId,
-        });
-
-        if (dirCollapsed) continue;
-
-        const unlinkedRootExps = rootExps.filter(
-          (exp) => !exp.primary_question_id,
-        );
-
-        for (const question of questionsByDirection.get(dir.id) ?? []) {
-          addQuestionRows(
-            question,
-            2,
-            childMapFiltered,
-            collapsed,
-            findingsByExp,
-            directionsByParent,
-            directionsBySpawnExperiment,
-            experimentsByDirection,
-            questionsByDirection,
-            experimentsByQuestion,
-            rows,
-          );
-        }
-
-        for (const exp of unlinkedRootExps) {
-          addExperimentRows(
-            exp,
-            2,
-            childMapFiltered,
-            collapsed,
-            findingsByExp,
-            directionsByParent,
-            directionsBySpawnExperiment,
-            experimentsByDirection,
-            questionsByDirection,
-            experimentsByQuestion,
-            rows,
-          );
-        }
-
-        // Add child directions after the parent direction's experiments.
-        const childDirs = directionsByParent.get(dir.id) ?? [];
-        for (const childDir of childDirs) {
-          const subDirExps = experimentsByDirection.get(childDir.id) ?? [];
-          if (isFiltering && subDirExps.length === 0) continue;
-          addDirectionRows(
-            childDir,
-            2,
-            "direction",
-            childMapFiltered,
-            collapsed,
-            findingsByExp,
-            directionsByParent,
-            directionsBySpawnExperiment,
-            experimentsByDirection,
-            questionsByDirection,
-            experimentsByQuestion,
-            rows,
-          );
-        }
-      }
-
-      const noDirExps = experimentsForTree.filter(
-        (e) =>
-          isRoot(e) &&
-          e.direction_id === null &&
-          bucketProjectId(e.project_id, knownProjectIds) === bucketId,
-      );
-
-      if (noDirExps.length > 0) {
-        const nodirId = `nodir-${pid}`;
-        const nodirCollapsed = collapsed.has(nodirId);
-
-        rows.push({
-          kind: "ungrouped",
-          rowKey: nodirId,
-          depth: 1,
-          expCount: noDirExps.length,
-          statusCounts: countStatuses(noDirExps),
-          toggleKey: nodirId,
-        });
-
-        if (!nodirCollapsed) {
-          for (const exp of noDirExps) {
-            addExperimentRows(
-              exp,
-              2,
-              childMapFiltered,
-              collapsed,
-              findingsByExp,
-              directionsByParent,
-              directionsBySpawnExperiment,
-              experimentsByDirection,
-              questionsByDirection,
-              experimentsByQuestion,
-              rows,
-            );
-          }
-        }
-      }
-    }
-
-    return rows;
-  }, [
-    projects,
-    directions,
-    experimentsForTree,
-    collapsed,
-    childMapFiltered,
-    findingsByExp,
-    directionsByParent,
-    directionsBySpawnExperiment,
-    experimentsByDirection,
-    questionsByDirection,
-    experimentsByQuestion,
-    experimentIds,
-    knownProjectIds,
-    isRoot,
-    search,
-  ]);
+  const flatRows = useMemo(
+    () =>
+      buildResearchTreeRows({
+        projects,
+        directions,
+        experiments,
+        findings,
+        questions,
+        collapsed,
+        search,
+      }),
+    [projects, directions, experiments, findings, questions, collapsed, search],
+  );
 
   const toggle = useCallback((key: string) => {
     setCollapsed((prev) => {

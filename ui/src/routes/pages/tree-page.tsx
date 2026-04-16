@@ -395,6 +395,7 @@ export default function TreePage() {
               projects={visibleProjects}
               findings={visibleFindings}
               questions={visibleQuestions}
+              expansionResetKey={timelineCutoff}
               onNavigate={handleTreeNavigate}
             />
           ) : (
