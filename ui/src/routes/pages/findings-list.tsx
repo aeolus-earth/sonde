@@ -7,6 +7,7 @@ import { useRealtimeInvalidation } from "@/hooks/use-realtime";
 import { useListKeyboardNav } from "@/hooks/use-keyboard";
 import { FindingConfidenceBadge } from "@/components/shared/finding-confidence-badge";
 import { FindingImportanceBadge } from "@/components/shared/finding-importance-badge";
+import { TimeRangeBar } from "@/components/shared/time-range-bar";
 import { ListRowSkeleton } from "@/components/ui/skeleton";
 import {
   FINDING_CONFIDENCE_LEVELS,
@@ -21,6 +22,12 @@ import {
   serializeFindingImportanceFilter,
   sortFindingsByImportanceAndRecency,
 } from "@/lib/finding-importance";
+import {
+  buildFindingTimePoints,
+  isFindingInTimeRange,
+  resolveFindingTimeRangeSelection,
+  serializeFindingTimeRangeValue,
+} from "@/lib/finding-time-range";
 import { cn, formatRelativeTime } from "@/lib/utils";
 import type { Finding, FindingConfidence, FindingImportance } from "@/types/sonde";
 
@@ -36,7 +43,7 @@ const confidenceDotStyles: Record<FindingConfidence, string> = {
 
 export default function FindingsListPage() {
   const navigate = routeApi.useNavigate();
-  const { confidence, importance } = routeApi.useSearch();
+  const { confidence, importance, from, to } = routeApi.useSearch();
   const { data: findings, isLoading } = useCurrentFindings();
   useRealtimeInvalidation("findings", ["findings"]);
   const handleClick = useCallback(
@@ -63,6 +70,18 @@ export default function FindingsListPage() {
     () => new Set(activeImportance),
     [activeImportance]
   );
+  const timePoints = useMemo(
+    () => buildFindingTimePoints(findings ?? []),
+    [findings]
+  );
+  const activeTimeRange = useMemo(
+    () => resolveFindingTimeRangeSelection(timePoints, from, to),
+    [from, timePoints, to]
+  );
+  const hasActiveFilter =
+    activeConfidence.length > 0 ||
+    activeImportance.length > 0 ||
+    activeTimeRange.isActive;
   const items = useMemo(() => {
     const source = sortFindingsByImportanceAndRecency(findings ?? []);
     return source.filter((finding) => {
@@ -72,9 +91,10 @@ export default function FindingsListPage() {
       const importanceMatch =
         activeImportanceSet.size === 0 ||
         activeImportanceSet.has(finding.importance);
-      return confidenceMatch && importanceMatch;
+      const timeMatch = isFindingInTimeRange(finding, activeTimeRange);
+      return confidenceMatch && importanceMatch && timeMatch;
     });
-  }, [activeConfidenceSet, activeImportanceSet, findings]);
+  }, [activeConfidenceSet, activeImportanceSet, activeTimeRange, findings]);
   const { focusedIndex } = useListKeyboardNav(items, handleSelect);
 
   const toggleConfidence = useCallback(
@@ -137,6 +157,42 @@ export default function FindingsListPage() {
     });
   }, [navigate]);
 
+  const updateTimeRange = useCallback(
+    (fromIndex: number, toIndex: number) => {
+      const maxIndex = timePoints.length - 1;
+      const nextFromIndex = Math.max(0, Math.min(fromIndex, maxIndex));
+      const nextToIndex = Math.max(0, Math.min(toIndex, maxIndex));
+      const lowerIndex = Math.min(nextFromIndex, nextToIndex);
+      const upperIndex = Math.max(nextFromIndex, nextToIndex);
+      const isFullRange = lowerIndex === 0 && upperIndex === maxIndex;
+
+      navigate({
+        search: (prev: FindingsSearch) => ({
+          ...prev,
+          from: isFullRange
+            ? undefined
+            : serializeFindingTimeRangeValue(timePoints[lowerIndex]),
+          to: isFullRange
+            ? undefined
+            : serializeFindingTimeRangeValue(timePoints[upperIndex]),
+        }),
+        replace: true,
+      });
+    },
+    [navigate, timePoints]
+  );
+
+  const clearTimeRange = useCallback(() => {
+    navigate({
+      search: (prev: FindingsSearch) => ({
+        ...prev,
+        from: undefined,
+        to: undefined,
+      }),
+      replace: true,
+    });
+  }, [navigate]);
+
   if (isLoading) {
     return (
       <div className="space-y-3">
@@ -162,14 +218,12 @@ export default function FindingsListPage() {
         </h1>
         <span className="text-[12px] text-text-quaternary">
           {items.length}
-          {activeConfidence.length > 0 || activeImportance.length > 0
-            ? ` of ${findings?.length ?? 0}`
-            : ""}{" "}
+          {hasActiveFilter ? ` of ${findings?.length ?? 0}` : ""}{" "}
           current
         </span>
       </div>
 
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <FilterAxisBar
           label="Confidence"
           clearLabel="Any"
@@ -209,6 +263,16 @@ export default function FindingsListPage() {
             ),
           }))}
         />
+        {timePoints.length > 0 && (
+          <TimeRangeBar
+            points={timePoints}
+            fromIndex={activeTimeRange.fromIndex}
+            toIndex={activeTimeRange.toIndex}
+            isActive={activeTimeRange.isActive}
+            onChange={updateTimeRange}
+            onClear={clearTimeRange}
+          />
+        )}
       </div>
 
       <div className="rounded-[8px] border border-border bg-surface">
@@ -245,8 +309,8 @@ export default function FindingsListPage() {
         ))}
         {items.length === 0 && (
           <div className="py-10 text-center text-[13px] text-text-quaternary">
-            {activeConfidence.length > 0 || activeImportance.length > 0
-              ? "No findings match the selected confidence and importance filters."
+            {hasActiveFilter
+              ? "No findings match the selected confidence, importance, and time filters."
               : "No current findings."}
           </div>
         )}
