@@ -13,7 +13,6 @@
  */
 
 import { describe, expect, it } from "vitest";
-// eslint-disable-next-line import/no-relative-packages
 import config from "../../vercel";
 
 type VercelConfig = {
