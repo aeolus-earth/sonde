@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any
+from typing import Any, cast
 
 from postgrest.exceptions import APIError
 
@@ -67,16 +67,23 @@ def _try_rpc_next_id(table: str, prefix: str) -> int | None:
         _rpc_available = False
         return None
 
-    raw: Any = result.data
     # PostgREST scalar functions can return a bare value, a list with one
     # value, or a dict keyed by the function name (mirrors compat.py:65-69).
+    # `ty` aggressively narrows after isinstance checks, so we cast back to
+    # Any at each branch boundary — the real payload shape is only known at
+    # runtime.
+    raw = cast(Any, result.data)
     if isinstance(raw, list):
-        raw = raw[0] if raw else None
+        raw = cast(Any, raw[0] if raw else None)
     if isinstance(raw, dict):
-        raw = raw.get("sonde_next_sequential_id") or raw.get("next_num")
+        raw_dict = cast(dict[str, Any], raw)
+        raw = cast(
+            Any,
+            raw_dict.get("sonde_next_sequential_id") or raw_dict.get("next_num"),
+        )
 
     try:
-        coerced = int(raw) if raw is not None else None
+        coerced: int | None = int(cast(Any, raw)) if raw is not None else None
     except (TypeError, ValueError):
         coerced = None
 
