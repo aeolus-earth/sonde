@@ -18,6 +18,22 @@
  * arrays because the tree can be deep and allocating intermediate
  * arrays per recursion would be wasteful. Shared arrays + a final
  * validation filter is the trade-off we picked.
+ *
+ * ── Measuring performance ─────────────────────────────────────────
+ *
+ * Dev builds emit `performance.mark` entries under the `sonde:` prefix:
+ *   - `sonde:graph-build` — total time for `buildExperimentGraph`
+ *   - `sonde:graph-layout` — time for dagre inside `layoutGraph`
+ *
+ * To profile a laggy toggle:
+ *   1. `npm run dev` and open DevTools → Performance.
+ *   2. Start recording, toggle a few times, stop.
+ *   3. Check the "Timings" / User Timing lane for `sonde:graph-build`
+ *      and `sonde:graph-layout` durations. >50ms per toggle at the
+ *      N you're testing is worth investigating.
+ *
+ * Marks are no-ops when `import.meta.env.DEV` is false, so they
+ * never ship to production.
  */
 
 import dagre from "@dagrejs/dagre";
@@ -32,6 +48,40 @@ import type {
   ProjectSummary,
   QuestionSummary,
 } from "@/types/sonde";
+
+// ── Dev-only performance measurement ──────────────────────────────
+// Emits `performance.mark` / `performance.measure` entries so
+// DevTools → Performance → User Timing shows graph-build and
+// dagre-layout costs. Zero cost in production builds.
+
+const PERF_ENABLED =
+  typeof performance !== "undefined" &&
+  typeof import.meta !== "undefined" &&
+  Boolean((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV);
+
+function perfMeasure<T>(label: string, fn: () => T): T {
+  if (!PERF_ENABLED) return fn();
+  const startMark = `sonde:${label}:start`;
+  const endMark = `sonde:${label}:end`;
+  performance.mark(startMark);
+  try {
+    return fn();
+  } finally {
+    performance.mark(endMark);
+    try {
+      performance.measure(`sonde:${label}`, startMark, endMark);
+    } catch {
+      // Browsers that don't support measure() silently no-op.
+    }
+    // Keep the entry buffer from growing unbounded across long sessions.
+    try {
+      performance.clearMarks(startMark);
+      performance.clearMarks(endMark);
+    } catch {
+      // Ignore.
+    }
+  }
+}
 
 // ── Public types ──────────────────────────────────────────────────
 
@@ -98,37 +148,39 @@ export function layoutGraph(
   nodes: Node[],
   edges: Edge[],
 ): { nodes: Node[]; edges: Edge[] } {
-  const g = new dagre.graphlib.Graph();
-  g.setDefaultEdgeLabel(() => ({}));
-  g.setGraph({
-    rankdir: "TB",
-    ranksep: 88,
-    nodesep: 44,
-    marginx: 60,
-    marginy: 60,
-  });
+  return perfMeasure("graph-layout", () => {
+    const g = new dagre.graphlib.Graph();
+    g.setDefaultEdgeLabel(() => ({}));
+    g.setGraph({
+      rankdir: "TB",
+      ranksep: 88,
+      nodesep: 44,
+      marginx: 60,
+      marginy: 60,
+    });
 
-  for (const node of nodes) {
-    const { w, h } = nodeBox(node.type);
-    g.setNode(node.id, { width: w + 20, height: h + 16 });
-  }
-  for (const edge of edges) {
-    g.setEdge(edge.source, edge.target);
-  }
-
-  dagre.layout(g);
-
-  return {
-    nodes: nodes.map((node) => {
-      const pos = g.node(node.id);
+    for (const node of nodes) {
       const { w, h } = nodeBox(node.type);
-      return {
-        ...node,
-        position: { x: pos.x - w / 2, y: pos.y - h / 2 },
-      };
-    }),
-    edges,
-  };
+      g.setNode(node.id, { width: w + 20, height: h + 16 });
+    }
+    for (const edge of edges) {
+      g.setEdge(edge.source, edge.target);
+    }
+
+    dagre.layout(g);
+
+    return {
+      nodes: nodes.map((node) => {
+        const pos = g.node(node.id);
+        const { w, h } = nodeBox(node.type);
+        return {
+          ...node,
+          position: { x: pos.x - w / 2, y: pos.y - h / 2 },
+        };
+      }),
+      edges,
+    };
+  });
 }
 
 // ── Index builders (pure) ─────────────────────────────────────────
@@ -499,6 +551,10 @@ function addDirectionSubtree(
 export function buildExperimentGraph(
   input: BuildGraphInput,
 ): BuildGraphOutput {
+  return perfMeasure("graph-build", () => buildExperimentGraphImpl(input));
+}
+
+function buildExperimentGraphImpl(input: BuildGraphInput): BuildGraphOutput {
   const {
     projects,
     directions,
