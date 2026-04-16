@@ -11,6 +11,12 @@ import {
   Boxes,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  dedupeMentions,
+  escapeRegExp,
+  mentionTokenExists,
+  sameMention,
+} from "@/lib/chat-mentions";
 import { useChatMentions } from "@/hooks/use-chat-mentions";
 import { ChatMentionPopover } from "./chat-mention-popover";
 import type { ConnectionStatus, MentionRef, PageContext } from "@/types/chat";
@@ -32,23 +38,8 @@ function isFileDragEvent(e: React.DragEvent): boolean {
   return e.dataTransfer.types.includes("Files");
 }
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function mentionTokenExists(text: string, id: string): boolean {
-  return new RegExp(`(^|\\s)@${escapeRegExp(id)}(?=\\s|$)`).test(text);
-}
-
-function sameMention(a: MentionRef, b: MentionRef): boolean {
-  return a.id === b.id && a.type === b.type && a.program === b.program;
-}
-
-function dedupeMentions(items: MentionRef[]): MentionRef[] {
-  return items.filter(
-    (item, index, arr) => arr.findIndex((other) => sameMention(other, item)) === index
-  );
-}
+// dedupeMentions, mentionTokenExists, sameMention, and escapeRegExp
+// live in @/lib/chat-mentions (extracted for direct unit testing).
 
 function mentionTypeLabel(type: MentionTargetType): string {
   switch (type) {

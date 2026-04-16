@@ -174,7 +174,16 @@ def mock_supabase() -> MagicMock:
 def patched_db(mock_supabase: MagicMock, authenticated: None) -> Generator[MagicMock, None, None]:
     """Mock Supabase client patched into the db layer, with auth already set up.
 
-    This is the convenience fixture for testing commands end-to-end:
+    Patches every ``sonde.*`` module that holds a module-level ``get_client``
+    binding (via ``from sonde.db.client import get_client``). The list of
+    patched modules is discovered at fixture-setup time from ``sys.modules``
+    — new modules that import ``get_client`` get covered automatically,
+    without having to maintain a manual list here. (The old fixture kept a
+    hard-coded list of 18 modules and silently missed 8 others that
+    imported ``get_client``; tests touching those modules risked hitting
+    the real Supabase.)
+
+    Usage:
 
         def test_list(runner, patched_db):
             patched_db.table("experiments").select("*") \\
@@ -184,64 +193,39 @@ def patched_db(mock_supabase: MagicMock, authenticated: None) -> Generator[Magic
             result = runner.invoke(cli, ["list", "-p", "weather-intervention"])
             assert result.exit_code == 0
     """
-    with (
-        patch("sonde.db.client.get_client", return_value=mock_supabase),
-        patch("sonde.db.client._client", mock_supabase),
-        patch("sonde.db.client._client_token", "eyJ-fake-access-token"),
-    ):
-        # Patch the imported reference in all modules that bind get_client at import time
-        import sonde.commands.admin as admin_mod
-        import sonde.db.activity as activity_mod
-        import sonde.db.artifacts.crud as art_crud_mod
-        import sonde.db.artifacts.storage as art_storage_mod
-        import sonde.db.directions as dir_mod
-        import sonde.db.experiments as exp_mod
-        import sonde.db.experiments.maintenance as exp_maintenance_mod
-        import sonde.db.experiments.read as exp_read_mod
-        import sonde.db.experiments.stats as exp_stats_mod
-        import sonde.db.experiments.tree as exp_tree_mod
-        import sonde.db.findings as find_mod
-        import sonde.db.health as health_mod
-        import sonde.db.ids as ids_mod
-        import sonde.db.notes as notes_mod
-        import sonde.db.notes as notes_poly_mod
-        import sonde.db.programs as prog_mod
-        import sonde.db.questions as q_mod
-        import sonde.db.reviews as review_mod
-        import sonde.db.tags as tags_mod
+    import sys
+    from contextlib import ExitStack
 
-        modules: list[Any] = [
-            admin_mod,
-            activity_mod,
-            art_crud_mod,
-            art_storage_mod,
-            dir_mod,
-            exp_mod,
-            exp_maintenance_mod,
-            exp_read_mod,
-            exp_stats_mod,
-            exp_tree_mod,
-            find_mod,
-            health_mod,
-            ids_mod,
-            notes_mod,
-            notes_poly_mod,
-            prog_mod,
-            q_mod,
-            review_mod,
-            tags_mod,
-        ]
-        originals = {mod: mod.get_client for mod in modules}
-        for mod in modules:
-            mod.get_client = lambda: mock_supabase
+    import sonde.db.client as client_mod
+    from sonde.db.compat import reset_cache
 
-        # Ensure the compat cache doesn't leak between tests
-        from sonde.db.compat import reset_cache
+    # Capture the real function before any patching so we can identify
+    # modules that currently hold a reference to it. Lambda rather than a
+    # plain object so we preserve the ``get_client()`` call shape.
+    def _mock_client_factory() -> MagicMock:
+        return mock_supabase
+
+    with ExitStack() as stack:
+        # Canonical patches on the client module.
+        stack.enter_context(patch.object(client_mod, "get_client", return_value=mock_supabase))
+        stack.enter_context(patch.object(client_mod, "_client", mock_supabase))
+        stack.enter_context(patch.object(client_mod, "_client_token", "eyJ-fake-access-token"))
+
+        # Dynamically patch every already-imported sonde module that bound
+        # get_client at import time. ``patch.object`` handles save/restore
+        # automatically; no manual bookkeeping. A module imported AFTER
+        # this point will see the patched ``sonde.db.client.get_client``
+        # directly at its own import time, so it's covered without being
+        # in this loop.
+        for name, module in list(sys.modules.items()):
+            if not name.startswith("sonde.") or module is client_mod:
+                continue
+            if getattr(module, "get_client", None) is None:
+                continue
+            stack.enter_context(patch.object(module, "get_client", new=_mock_client_factory))
 
         reset_cache()
         try:
             yield mock_supabase
         finally:
             reset_cache()
-            for mod, orig in originals.items():
-                mod.get_client = orig
