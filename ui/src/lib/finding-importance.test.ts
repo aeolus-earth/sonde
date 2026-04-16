@@ -171,17 +171,22 @@ describe("sortFindingsByImportanceAndRecency", () => {
   });
 
   it("falls back to created_at when valid_from is null", () => {
+    // The UI `Finding` type declares `valid_from: string` but the sort
+    // code has a defensive `?? right.created_at` fallback — so in
+    // practice the DB can return null. Force null past the type check
+    // to exercise the runtime fallback path.
+    const nullish = null as unknown as string;
     const findings = [
       makeFinding({
         id: "F-older",
         importance: "high",
-        valid_from: null,
+        valid_from: nullish,
         created_at: "2026-04-01T00:00:00Z",
       }),
       makeFinding({
         id: "F-newer",
         importance: "high",
-        valid_from: null,
+        valid_from: nullish,
         created_at: "2026-04-15T00:00:00Z",
       }),
     ];

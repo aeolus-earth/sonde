@@ -564,7 +564,7 @@ def test_noauth_allowlist_is_tight() -> None:
     from sonde.cli import _NO_AUTH
 
     expected = {"login", "logout", "whoami", "setup", "doctor", "skills"}
-    assert _NO_AUTH == expected, (
+    assert expected == _NO_AUTH, (
         f"_NO_AUTH changed to {_NO_AUTH!r}. If intentional, update this "
         f"test; otherwise a previously-auth-required command was silently "
         f"allowlisted."

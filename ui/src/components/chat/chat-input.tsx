@@ -11,7 +11,12 @@ import {
   Boxes,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { dedupeMentions, mentionTokenExists } from "@/lib/chat-mentions";
+import {
+  dedupeMentions,
+  escapeRegExp,
+  mentionTokenExists,
+  sameMention,
+} from "@/lib/chat-mentions";
 import { useChatMentions } from "@/hooks/use-chat-mentions";
 import { ChatMentionPopover } from "./chat-mention-popover";
 import type { ConnectionStatus, MentionRef, PageContext } from "@/types/chat";

@@ -11,7 +11,7 @@ no-op.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import patch
 
 import pytest
@@ -21,7 +21,7 @@ from sonde.models.review import ExperimentReview
 
 
 def _make_review(review_id: str, experiment_id: str) -> ExperimentReview:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return ExperimentReview(
         id=review_id,
         experiment_id=experiment_id,
