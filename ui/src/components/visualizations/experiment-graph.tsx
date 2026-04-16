@@ -6,13 +6,10 @@ import {
   MiniMap,
   useNodesState,
   useEdgesState,
-  type Node,
-  type Edge,
   type NodeProps,
   Handle,
   Position,
 } from "@xyflow/react";
-import dagre from "@dagrejs/dagre";
 import "@xyflow/react/dist/style.css";
 import {
   Briefcase,
@@ -29,7 +26,6 @@ import {
   useThemeCssColors,
 } from "@/hooks/use-theme-css-colors";
 import { findingConfidenceLabel } from "@/lib/finding-confidence";
-import { sortFindingsByImportanceAndRecency } from "@/lib/finding-importance";
 import type {
   DirectionSummary,
   ExperimentSummary,
@@ -39,6 +35,12 @@ import type {
   ProjectSummary,
   QuestionSummary,
 } from "@/types/sonde";
+import {
+  bucketProjectId,
+  buildExperimentGraph,
+  buildFindingsByExperiment,
+  projectNodeId,
+} from "./experiment-graph/graph-builder";
 
 type StatusColorMap = Record<ExperimentStatus, string>;
 type NodeAction = (() => void) | undefined;
@@ -98,16 +100,10 @@ type FindingNodeData = Finding & {
 
 // ── Node dimensions ────────────────────────────────────────────
 
-const EXP_W = 220;
-const EXP_H = 76;
-const PROJ_W = 280;
-const PROJ_H = 56;
-const DIR_W = 260;
-const DIR_H = 52;
-const QUESTION_W = 240;
-const QUESTION_H = 56;
-const FIND_W = 220;
-const FIND_H = 70;
+// Dimensions live in ./experiment-graph/graph-builder.ts (NODE_DIMENSIONS)
+// so the layout engine and the node-component widths stay in lockstep.
+// Keep the inline pixel values in each node component consistent with
+// NODE_DIMENSIONS when tweaking sizes.
 
 // ── Custom nodes ───────────────────────────────────────────────
 
@@ -501,537 +497,6 @@ const nodeTypes = {
   finding: memo(FindingNode),
 };
 
-// ── Dagre layout ───────────────────────────────────────────────
-
-function nodeBox(type: string | undefined): { w: number; h: number } {
-  if (type === "experiment") return { w: EXP_W, h: EXP_H };
-  if (type === "project") return { w: PROJ_W, h: PROJ_H };
-  if (type === "question") return { w: QUESTION_W, h: QUESTION_H };
-  if (type === "finding") return { w: FIND_W, h: FIND_H };
-  return { w: DIR_W, h: DIR_H };
-}
-
-function layoutGraph(
-  nodes: Node[],
-  edges: Edge[],
-): { nodes: Node[]; edges: Edge[] } {
-  const g = new dagre.graphlib.Graph();
-  g.setDefaultEdgeLabel(() => ({}));
-  g.setGraph({
-    rankdir: "TB",
-    ranksep: 88,
-    nodesep: 44,
-    marginx: 60,
-    marginy: 60,
-  });
-
-  for (const node of nodes) {
-    const { w, h } = nodeBox(node.type);
-    g.setNode(node.id, { width: w + 20, height: h + 16 });
-  }
-  for (const edge of edges) {
-    g.setEdge(edge.source, edge.target);
-  }
-
-  dagre.layout(g);
-
-  return {
-    nodes: nodes.map((node) => {
-      const pos = g.node(node.id);
-      const { w, h } = nodeBox(node.type);
-      return { ...node, position: { x: pos.x - w / 2, y: pos.y - h / 2 } };
-    }),
-    edges,
-  };
-}
-
-// ── Helpers ────────────────────────────────────────────────────
-
-function countStatuses(exps: ExperimentSummary[]): Record<string, number> {
-  const counts: Record<string, number> = {};
-  for (const e of exps) counts[e.status] = (counts[e.status] ?? 0) + 1;
-  return counts;
-}
-
-function buildFindingsByExperiment(
-  findings: Finding[],
-): Map<string, Finding[]> {
-  const map = new Map<string, Finding[]>();
-  for (const finding of findings) {
-    for (const experimentId of finding.evidence) {
-      const list = map.get(experimentId) ?? [];
-      list.push(finding);
-      map.set(experimentId, list);
-    }
-  }
-  for (const [experimentId, linkedFindings] of map.entries()) {
-    map.set(experimentId, sortFindingsByImportanceAndRecency(linkedFindings));
-  }
-  return map;
-}
-
-function buildChildMap(
-  exps: ExperimentSummary[],
-): Map<string, ExperimentSummary[]> {
-  const map = new Map<string, ExperimentSummary[]>();
-  for (const e of exps) {
-    if (e.parent_id) {
-      if (!map.has(e.parent_id)) map.set(e.parent_id, []);
-      map.get(e.parent_id)!.push(e);
-    }
-  }
-  return map;
-}
-
-function buildDirectionsByParent(
-  directions: DirectionSummary[],
-): Map<string, DirectionSummary[]> {
-  const map = new Map<string, DirectionSummary[]>();
-  for (const direction of directions) {
-    if (!direction.parent_direction_id) continue;
-    const list = map.get(direction.parent_direction_id) ?? [];
-    list.push(direction);
-    map.set(direction.parent_direction_id, list);
-  }
-  for (const list of map.values()) {
-    list.sort((a, b) => a.title.localeCompare(b.title));
-  }
-  return map;
-}
-
-function buildDirectionsBySpawnExperiment(
-  directions: DirectionSummary[],
-): Map<string, DirectionSummary[]> {
-  const map = new Map<string, DirectionSummary[]>();
-  for (const direction of directions) {
-    if (!direction.spawned_from_experiment_id) continue;
-    const list = map.get(direction.spawned_from_experiment_id) ?? [];
-    list.push(direction);
-    map.set(direction.spawned_from_experiment_id, list);
-  }
-  for (const list of map.values()) {
-    list.sort((a, b) => a.title.localeCompare(b.title));
-  }
-  return map;
-}
-
-function buildExperimentsByDirection(
-  experiments: ExperimentSummary[],
-): Map<string, ExperimentSummary[]> {
-  const map = new Map<string, ExperimentSummary[]>();
-  for (const experiment of experiments) {
-    if (!experiment.direction_id) continue;
-    const list = map.get(experiment.direction_id) ?? [];
-    list.push(experiment);
-    map.set(experiment.direction_id, list);
-  }
-  return map;
-}
-
-function buildQuestionsByDirection(
-  questions: QuestionSummary[],
-): Map<string, QuestionSummary[]> {
-  const map = new Map<string, QuestionSummary[]>();
-  for (const question of questions) {
-    if (!question.direction_id) continue;
-    const list = map.get(question.direction_id) ?? [];
-    list.push(question);
-    map.set(question.direction_id, list);
-  }
-  for (const list of map.values()) {
-    list.sort((a, b) => a.created_at.localeCompare(b.created_at));
-  }
-  return map;
-}
-
-function buildExperimentsByPrimaryQuestion(
-  experiments: ExperimentSummary[],
-): Map<string, ExperimentSummary[]> {
-  const map = new Map<string, ExperimentSummary[]>();
-  for (const experiment of experiments) {
-    if (!experiment.primary_question_id) continue;
-    const list = map.get(experiment.primary_question_id) ?? [];
-    list.push(experiment);
-    map.set(experiment.primary_question_id, list);
-  }
-  return map;
-}
-
-function rootExperimentsForGroup(
-  experiments: ExperimentSummary[],
-): ExperimentSummary[] {
-  const ids = new Set(experiments.map((experiment) => experiment.id));
-  return experiments.filter(
-    (experiment) => !experiment.parent_id || !ids.has(experiment.parent_id),
-  );
-}
-
-function countDescendants(
-  id: string,
-  childMap: Map<string, ExperimentSummary[]>,
-): number {
-  const children = childMap.get(id) ?? [];
-  let count = children.length;
-  for (const c of children) count += countDescendants(c.id, childMap);
-  return count;
-}
-
-function addExperimentSubtree(
-  exp: ExperimentSummary,
-  depth: number,
-  parentNodeId: string,
-  childMap: Map<string, ExperimentSummary[]>,
-  expandedNodes: Set<string>,
-  toggleNode: (key: string) => void,
-  statusColor: StatusColorMap,
-  borderColor: string,
-  directionsByParent: Map<string, DirectionSummary[]>,
-  directionsBySpawnExperiment: Map<string, DirectionSummary[]>,
-  experimentsByDirection: Map<string, ExperimentSummary[]>,
-  questionsByDirection: Map<string, QuestionSummary[]>,
-  experimentsByQuestion: Map<string, ExperimentSummary[]>,
-  findingsByExperiment: Map<string, Finding[]>,
-  nodes: Node[],
-  edges: Edge[],
-  onQuestionOpen?: (id: string) => void,
-  onExperimentOpen?: (id: string) => void,
-  onDirectionOpen?: (id: string) => void,
-  onFindingOpen?: (id: string) => void,
-) {
-  const children = childMap.get(exp.id) ?? [];
-  const spawnedDirections = directionsBySpawnExperiment.get(exp.id) ?? [];
-  const findings = findingsByExperiment.get(exp.id) ?? [];
-  const hasChildren =
-    children.length > 0 || spawnedDirections.length > 0 || findings.length > 0;
-  const isExpanded = expandedNodes.has(exp.id);
-
-  nodes.push({
-    id: exp.id,
-    type: "experiment",
-    position: { x: 0, y: 0 },
-    data: {
-      ...exp,
-      statusColors: statusColor,
-      hasChildren,
-      childCount:
-        countDescendants(exp.id, childMap) +
-        spawnedDirections.length +
-        findings.length,
-      isExpanded,
-      depth,
-      onToggle: hasChildren ? () => toggleNode(exp.id) : undefined,
-      onOpen: () => onExperimentOpen?.(exp.id),
-    } as Record<string, unknown>,
-    draggable: true,
-  });
-
-  edges.push({
-    id: `${parentNodeId}->${exp.id}`,
-    source: parentNodeId,
-    target: exp.id,
-    type: "smoothstep",
-    style: { stroke: borderColor, strokeWidth: 1 },
-    animated: exp.status === "running",
-  });
-
-  if (isExpanded) {
-    for (const finding of findings) {
-      const findingNodeId = `finding-${finding.id}-for-${exp.id}`;
-      nodes.push({
-        id: findingNodeId,
-        type: "finding",
-        position: { x: 0, y: 0 },
-        data: {
-          ...finding,
-          onOpen: () => onFindingOpen?.(finding.id),
-        } as Record<string, unknown>,
-        draggable: true,
-      });
-
-      edges.push({
-        id: `${exp.id}->${findingNodeId}`,
-        source: exp.id,
-        target: findingNodeId,
-        type: "smoothstep",
-        style: { stroke: borderColor, strokeWidth: 1, strokeDasharray: "3 3" },
-      });
-    }
-
-    for (const direction of spawnedDirections) {
-      addDirectionSubtree(
-        direction,
-        exp.id,
-        childMap,
-        expandedNodes,
-        toggleNode,
-        statusColor,
-        borderColor,
-        directionsByParent,
-        directionsBySpawnExperiment,
-        experimentsByDirection,
-        questionsByDirection,
-        experimentsByQuestion,
-        findingsByExperiment,
-        nodes,
-        edges,
-        onQuestionOpen,
-        onExperimentOpen,
-        onDirectionOpen,
-        onFindingOpen,
-      );
-    }
-
-    for (const child of children) {
-      addExperimentSubtree(
-        child,
-        depth + 1,
-        exp.id,
-        childMap,
-        expandedNodes,
-        toggleNode,
-        statusColor,
-        borderColor,
-        directionsByParent,
-        directionsBySpawnExperiment,
-        experimentsByDirection,
-        questionsByDirection,
-        experimentsByQuestion,
-        findingsByExperiment,
-        nodes,
-        edges,
-        onQuestionOpen,
-        onExperimentOpen,
-        onDirectionOpen,
-        onFindingOpen,
-      );
-    }
-  }
-}
-
-function addQuestionSubtree(
-  question: QuestionSummary,
-  parentNodeId: string,
-  childMap: Map<string, ExperimentSummary[]>,
-  expandedNodes: Set<string>,
-  toggleNode: (key: string) => void,
-  statusColor: StatusColorMap,
-  borderColor: string,
-  directionsByParent: Map<string, DirectionSummary[]>,
-  directionsBySpawnExperiment: Map<string, DirectionSummary[]>,
-  experimentsByDirection: Map<string, ExperimentSummary[]>,
-  questionsByDirection: Map<string, QuestionSummary[]>,
-  experimentsByQuestion: Map<string, ExperimentSummary[]>,
-  findingsByExperiment: Map<string, Finding[]>,
-  nodes: Node[],
-  edges: Edge[],
-  onExperimentOpen?: (id: string) => void,
-  onQuestionOpen?: (id: string) => void,
-  onDirectionOpen?: (id: string) => void,
-  onFindingOpen?: (id: string) => void,
-) {
-  const headerId = `question-${question.id}`;
-  const isExpanded = expandedNodes.has(headerId);
-  const questionExperiments = experimentsByQuestion.get(question.id) ?? [];
-  const questionRoots = rootExperimentsForGroup(questionExperiments);
-  const findingCount = question.linked_finding_count ?? 0;
-
-  nodes.push({
-    id: headerId,
-    type: "question",
-    position: { x: 0, y: 0 },
-    data: {
-      question: question.question,
-      questionId: question.id,
-      count: questionExperiments.length,
-      findingCount,
-      expanded: isExpanded,
-      onToggle: () => toggleNode(headerId),
-      onOpen: () => onQuestionOpen?.(question.id),
-    } as Record<string, unknown>,
-    draggable: true,
-  });
-
-  edges.push({
-    id: `${parentNodeId}->${headerId}`,
-    source: parentNodeId,
-    target: headerId,
-    type: "smoothstep",
-    style: { stroke: borderColor, strokeWidth: 1 },
-  });
-
-  if (!isExpanded) return;
-
-  for (const experiment of questionRoots) {
-    addExperimentSubtree(
-      experiment,
-      0,
-      headerId,
-      childMap,
-      expandedNodes,
-      toggleNode,
-      statusColor,
-      borderColor,
-      directionsByParent,
-      directionsBySpawnExperiment,
-      experimentsByDirection,
-      questionsByDirection,
-      experimentsByQuestion,
-      findingsByExperiment,
-      nodes,
-      edges,
-      onQuestionOpen,
-      onExperimentOpen,
-      onDirectionOpen,
-      onFindingOpen,
-    );
-  }
-}
-
-function addDirectionSubtree(
-  direction: DirectionSummary,
-  parentNodeId: string,
-  childMap: Map<string, ExperimentSummary[]>,
-  expandedNodes: Set<string>,
-  toggleNode: (key: string) => void,
-  statusColor: StatusColorMap,
-  borderColor: string,
-  directionsByParent: Map<string, DirectionSummary[]>,
-  directionsBySpawnExperiment: Map<string, DirectionSummary[]>,
-  experimentsByDirection: Map<string, ExperimentSummary[]>,
-  questionsByDirection: Map<string, QuestionSummary[]>,
-  experimentsByQuestion: Map<string, ExperimentSummary[]>,
-  findingsByExperiment: Map<string, Finding[]>,
-  nodes: Node[],
-  edges: Edge[],
-  onQuestionOpen?: (id: string) => void,
-  onExperimentOpen?: (id: string) => void,
-  onDirectionOpen?: (id: string) => void,
-  onFindingOpen?: (id: string) => void,
-) {
-  const headerId = `dir-${direction.id}`;
-  const isExpanded = expandedNodes.has(headerId);
-  const directionExperiments = experimentsByDirection.get(direction.id) ?? [];
-  const directionQuestions = questionsByDirection.get(direction.id) ?? [];
-  const directionRoots = rootExperimentsForGroup(
-    directionExperiments.filter(
-      (experiment) => !experiment.primary_question_id,
-    ),
-  );
-
-  nodes.push({
-    id: headerId,
-    type: "direction",
-    position: { x: 0, y: 0 },
-    data: {
-      label: direction.title,
-      dirId: direction.id,
-      count: directionExperiments.length,
-      expanded: isExpanded,
-      statusCounts: countStatuses(directionExperiments),
-      statusColors: statusColor,
-      onToggle: () => toggleNode(headerId),
-      onOpen: () => onDirectionOpen?.(direction.id),
-    } as Record<string, unknown>,
-    draggable: true,
-  });
-
-  edges.push({
-    id: `${parentNodeId}->${headerId}`,
-    source: parentNodeId,
-    target: headerId,
-    type: "smoothstep",
-    style: { stroke: borderColor, strokeWidth: 1 },
-  });
-
-  if (!isExpanded) return;
-
-  for (const question of directionQuestions) {
-    addQuestionSubtree(
-      question,
-      headerId,
-      childMap,
-      expandedNodes,
-      toggleNode,
-      statusColor,
-      borderColor,
-      directionsByParent,
-      directionsBySpawnExperiment,
-      experimentsByDirection,
-      questionsByDirection,
-      experimentsByQuestion,
-      findingsByExperiment,
-      nodes,
-      edges,
-      onExperimentOpen,
-      onQuestionOpen,
-      onDirectionOpen,
-      onFindingOpen,
-    );
-  }
-
-  for (const experiment of directionRoots) {
-    addExperimentSubtree(
-      experiment,
-      0,
-      headerId,
-      childMap,
-      expandedNodes,
-      toggleNode,
-      statusColor,
-      borderColor,
-      directionsByParent,
-      directionsBySpawnExperiment,
-      experimentsByDirection,
-      questionsByDirection,
-      experimentsByQuestion,
-      findingsByExperiment,
-      nodes,
-      edges,
-      onQuestionOpen,
-      onExperimentOpen,
-      onDirectionOpen,
-      onFindingOpen,
-    );
-  }
-
-  const childDirections = directionsByParent.get(direction.id) ?? [];
-  for (const childDirection of childDirections) {
-    addDirectionSubtree(
-      childDirection,
-      headerId,
-      childMap,
-      expandedNodes,
-      toggleNode,
-      statusColor,
-      borderColor,
-      directionsByParent,
-      directionsBySpawnExperiment,
-      experimentsByDirection,
-      questionsByDirection,
-      experimentsByQuestion,
-      findingsByExperiment,
-      nodes,
-      edges,
-      onQuestionOpen,
-      onExperimentOpen,
-      onDirectionOpen,
-      onFindingOpen,
-    );
-  }
-}
-
-function projectNodeId(raw: string | null): string {
-  return raw === null ? "proj-unassigned" : `proj-${raw}`;
-}
-
-/** Resolve FK to a known project row; orphan ids bucket with unassigned. */
-function bucketProjectId(
-  projectId: string | null | undefined,
-  knownIds: Set<string>,
-): string | null {
-  if (projectId == null) return null;
-  return knownIds.has(projectId) ? projectId : null;
-}
 
 // ── Main component ─────────────────────────────────────────────
 
@@ -1139,239 +604,62 @@ export const ExperimentGraph = memo(function ExperimentGraph({
     });
   }, []);
 
-  const childMap = useMemo(() => buildChildMap(experiments), [experiments]);
-  const directionsByParent = useMemo(
-    () => buildDirectionsByParent(directions),
-    [directions],
-  );
-  const directionsBySpawnExperiment = useMemo(
-    () => buildDirectionsBySpawnExperiment(directions),
-    [directions],
-  );
-  const questionsByDirection = useMemo(
-    () => buildQuestionsByDirection(questions),
-    [questions],
-  );
-  const experimentsByDirection = useMemo(
-    () => buildExperimentsByDirection(experiments),
-    [experiments],
-  );
-  const experimentsByQuestion = useMemo(
-    () => buildExperimentsByPrimaryQuestion(experiments),
-    [experiments],
-  );
-  const experimentIds = useMemo(
-    () => new Set(experiments.map((e) => e.id)),
-    [experiments],
-  );
-
-  const isRoot = useCallback(
-    (e: ExperimentSummary) => !e.parent_id || !experimentIds.has(e.parent_id),
-    [experimentIds],
-  );
-
-  const { nodes: initialNodes, edges: initialEdges } = useMemo(() => {
-    const rawNodes: Node[] = [];
-    const rawEdges: Edge[] = [];
-
-    const projEdgeStyle = { stroke: colors.textTertiary, strokeWidth: 2 };
-
-    const sortedProjects = [...projects].sort((a, b) =>
-      a.name.localeCompare(b.name),
-    );
-
-    const needsUnassigned =
-      directions.some(
-        (d) => bucketProjectId(d.project_id, knownProjectIds) === null,
-      ) ||
-      experiments.some(
-        (e) =>
-          bucketProjectId(e.project_id, knownProjectIds) === null && isRoot(e),
-      );
-
-    type PEntry = { id: string | null; label: string };
-    const entries: PEntry[] = sortedProjects.map((p) => ({
-      id: p.id,
-      label: p.name,
-    }));
-    if (needsUnassigned) {
-      entries.push({ id: null, label: "Unassigned" });
-    }
-
-    for (const p of entries) {
-      const projectId = p.id;
-      const bucketId = bucketProjectId(p.id, knownProjectIds);
-      const pid = projectNodeId(bucketId);
-      const isProjExpanded = expanded.has(pid);
-
-      const allInProject = experiments.filter(
-        (e) => bucketProjectId(e.project_id, knownProjectIds) === bucketId,
-      );
-
-      const dirsInProj = directions
-        .filter(
-          (d) =>
-            bucketProjectId(d.project_id, knownProjectIds) === bucketId &&
-            !d.parent_direction_id &&
-            (!d.spawned_from_experiment_id ||
-              !experimentIds.has(d.spawned_from_experiment_id)),
-        )
-        .sort((a, b) => a.title.localeCompare(b.title));
-
-      rawNodes.push({
-        id: pid,
-        type: "project",
-        position: { x: 0, y: 0 },
-        data: {
-          label: p.label,
-          projectId: p.id,
-          count: allInProject.length,
-          directionCount: dirsInProj.length,
-          expanded: isProjExpanded,
-          onToggle: () => toggle(pid),
-          onOpen:
-            projectId === null
-              ? undefined
-              : () => onProjectNavigate?.(projectId),
-        } as Record<string, unknown>,
-        draggable: true,
-      });
-
-      if (!isProjExpanded) continue;
-
-      for (const dir of dirsInProj) {
-        addDirectionSubtree(
-          dir,
-          pid,
-          childMap,
+  // Single call into the pure graph builder — replaces 200 lines of
+  // per-subtree recursion + manual orphan filtering. The builder
+  // guarantees that no edge reaches React Flow without both endpoints
+  // also in `nodes`; see ./experiment-graph/graph-builder.ts.
+  const { nodes: initialNodes, edges: initialEdges, droppedOrphanEdges } =
+    useMemo(
+      () =>
+        buildExperimentGraph({
+          projects,
+          directions,
+          experiments,
+          questions,
+          findings,
           expanded,
           toggle,
           statusColor,
-          colors.border,
-          directionsByParent,
-          directionsBySpawnExperiment,
-          experimentsByDirection,
-          questionsByDirection,
-          experimentsByQuestion,
-          findingsByExperiment,
-          rawNodes,
-          rawEdges,
-          onQuestionNavigate,
-          onNodeClick,
-          onDirectionNavigate,
-          onFindingNavigate,
-        );
-      }
-
-      const noDirExps = experiments.filter(
-        (e) =>
-          isRoot(e) &&
-          e.direction_id === null &&
-          bucketProjectId(e.project_id, knownProjectIds) === bucketId,
-      );
-
-      if (noDirExps.length > 0) {
-        const nodirId = `nodir-${pid}`;
-        const isNodirExpanded = expanded.has(nodirId);
-
-        rawNodes.push({
-          id: nodirId,
-          type: "ungrouped",
-          position: { x: 0, y: 0 },
-          data: {
-            count: noDirExps.length,
-            expanded: isNodirExpanded,
-            statusCounts: countStatuses(noDirExps),
-            statusColors: statusColor,
-            onToggle: () => toggle(nodirId),
-          } as Record<string, unknown>,
-          draggable: true,
-        });
-
-        rawEdges.push({
-          id: `${pid}->${nodirId}`,
-          source: pid,
-          target: nodirId,
-          type: "smoothstep",
-          style: projEdgeStyle,
-        });
-
-        if (isNodirExpanded) {
-          for (const exp of noDirExps) {
-            addExperimentSubtree(
-              exp,
-              0,
-              nodirId,
-              childMap,
-              expanded,
-              toggle,
-              statusColor,
-              colors.border,
-              directionsByParent,
-              directionsBySpawnExperiment,
-              experimentsByDirection,
-              questionsByDirection,
-              experimentsByQuestion,
-              findingsByExperiment,
-              rawNodes,
-              rawEdges,
-              onQuestionNavigate,
-              onNodeClick,
-              onDirectionNavigate,
-              onFindingNavigate,
-            );
-          }
-        }
-      }
-    }
-
-    // Drop any edges that reference nodes we never materialized. This is
-    // the safety net against a class of bug where a subtree builder
-    // creates an edge for a parent→child relationship eagerly, but the
-    // child node is only added when its own parent's `expanded` gate is
-    // true. When those states disagree, or when React Query hooks arrive
-    // staggered, React Flow silently renders the edge at (0,0) or at the
-    // source's last-known position — producing disconnected stubs on the
-    // map. Every edge has to pass this filter on the way to React Flow.
-    const nodeIds = new Set(rawNodes.map((node) => node.id));
-    const validEdges = rawEdges.filter(
-      (edge) => nodeIds.has(edge.source) && nodeIds.has(edge.target),
+          borderColor: colors.border,
+          projectEdgeColor: colors.textTertiary,
+          navigation: {
+            onExperimentOpen: onNodeClick,
+            onQuestionOpen: onQuestionNavigate,
+            onDirectionOpen: onDirectionNavigate,
+            onFindingOpen: onFindingNavigate,
+            onProjectOpen: onProjectNavigate,
+          },
+          knownProjectIds,
+        }),
+      [
+        projects,
+        directions,
+        experiments,
+        questions,
+        findings,
+        expanded,
+        knownProjectIds,
+        statusColor,
+        colors.border,
+        colors.textTertiary,
+        toggle,
+        onNodeClick,
+        onQuestionNavigate,
+        onDirectionNavigate,
+        onFindingNavigate,
+        onProjectNavigate,
+      ],
     );
-    const droppedCount = rawEdges.length - validEdges.length;
-    if (droppedCount > 0) {
+
+  useEffect(() => {
+    if (droppedOrphanEdges > 0) {
       // eslint-disable-next-line no-console
       console.warn(
-        `[experiment-graph] dropped ${droppedCount} orphan edge(s) ` +
+        `[experiment-graph] dropped ${droppedOrphanEdges} orphan edge(s) ` +
           `(references to nodes not in the rendered set)`,
       );
     }
-
-    return layoutGraph(rawNodes, validEdges);
-  }, [
-    projects,
-    directions,
-    experiments,
-    expanded,
-    childMap,
-    directionsByParent,
-    directionsBySpawnExperiment,
-    experimentsByDirection,
-    questionsByDirection,
-    experimentsByQuestion,
-    findingsByExperiment,
-    experimentIds,
-    statusColor,
-    colors.border,
-    colors.textTertiary,
-    knownProjectIds,
-    isRoot,
-    onQuestionNavigate,
-    onDirectionNavigate,
-    onFindingNavigate,
-    onNodeClick,
-    onProjectNavigate,
-    toggle,
-  ]);
+  }, [droppedOrphanEdges]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
