@@ -18,7 +18,7 @@ export const VersionBadge = memo(function VersionBadge() {
   return (
     <div
       aria-label={`Sonde ${version} · commit ${shortSha}`}
-      className="pointer-events-none fixed bottom-1.5 right-2 z-30 select-none text-[10px] leading-none text-text-quaternary"
+      className="pointer-events-none fixed bottom-1.5 left-2 z-30 select-none text-[10px] leading-none text-text-quaternary"
     >
       <span className="pointer-events-auto inline-flex items-center gap-1 rounded-[4px] bg-surface/70 px-1.5 py-[3px] font-mono backdrop-blur-sm">
         <span>{version}</span>

@@ -1,6 +1,7 @@
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+import { execSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { PluginOption } from "vite";
@@ -65,8 +66,29 @@ function versionMetadataPlugin(): PluginOption {
   };
 }
 
+function describeGitTag(): string | null {
+  try {
+    const out = execSync("git describe --tags --always --dirty", {
+      stdio: ["ignore", "pipe", "ignore"],
+    })
+      .toString()
+      .trim();
+    // Only use describe output when it's an actual tag reference
+    // ("v0.1.0", "v0.1.0-3-g1a2b3c4", "v0.1.0-dirty"). Bare-SHA output means
+    // no tag was reachable from HEAD — fall through to the branch-ref env.
+    return /^v\d+\.\d+\.\d+/.test(out) ? out : null;
+  } catch {
+    // Shallow clone with no tags, or git not installed — caller falls back.
+    return null;
+  }
+}
+
+// Prefer an explicit override; then the nearest git tag (so tagged main builds
+// render "v0.1.0" instead of the "main" branch label); then the platform's
+// branch env; then "dev".
 const appVersion =
   process.env.VITE_APP_VERSION?.trim() ||
+  describeGitTag() ||
   process.env.VERCEL_GIT_COMMIT_REF?.trim() ||
   process.env.RAILWAY_GIT_BRANCH?.trim() ||
   "dev";
