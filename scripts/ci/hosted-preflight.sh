@@ -147,5 +147,25 @@ for (const [name, json] of [
     throw new Error(`${name} vercel config is missing ${expectedWsOrigin} in connect-src`);
   }
 }
+// The UI CSP must allow cross-origin iframes/objects for Supabase Storage
+// so PDF artifact previews render. Historically this was omitted and
+// browsers fell back to `default-src 'self'`, silently blocking embeds.
+{
+  const uiConfig = JSON.parse(uiJson);
+  const uiCsp = cspHeader(uiConfig);
+  if (!/\bframe-src\b/.test(uiCsp)) {
+    throw new Error("ui vercel config is missing frame-src CSP (breaks PDF previews)");
+  }
+  if (!/\bframe-src\s+[^;]*https:\/\/\*\.supabase\.co/.test(uiCsp)) {
+    throw new Error(
+      "ui vercel config frame-src is missing https://*.supabase.co (breaks PDF previews)",
+    );
+  }
+  if (!/\bobject-src\s+[^;]*https:\/\/\*\.supabase\.co/.test(uiCsp)) {
+    throw new Error(
+      "ui vercel config object-src is missing https://*.supabase.co (PDF/embed fallback)",
+    );
+  }
+}
 console.log("vercel config CSP ok");
 NODE
