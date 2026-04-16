@@ -7,19 +7,45 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 
-def _make_client(existing_ids: list[str] | None = None) -> MagicMock:
-    """Build a mock Supabase client for ID generation tests."""
+def _make_client(
+    existing_ids: list[str] | None = None,
+    rpc_data: object = None,
+    rpc_raises: Exception | None = None,
+) -> MagicMock:
+    """Build a mock Supabase client for ID generation tests.
+
+    By default the RPC returns ``data=None`` so callers exercise the
+    paginated client-side fallback. Pass ``rpc_data`` (bare int, list, or
+    dict) to simulate a working RPC, or ``rpc_raises`` to simulate the RPC
+    being missing on this DB.
+    """
     client = MagicMock()
     table = client.table.return_value
-    for method in ("select", "order", "limit", "like", "insert"):
+    for method in ("select", "order", "limit", "like", "range", "insert"):
         getattr(table, method).return_value = table
 
-    # Default: no existing rows
     if existing_ids:
         table.execute.return_value = MagicMock(data=[{"id": eid} for eid in existing_ids])
     else:
         table.execute.return_value = MagicMock(data=[])
+
+    rpc_chain = client.rpc.return_value
+    if rpc_raises is not None:
+        rpc_chain.execute.side_effect = rpc_raises
+    else:
+        rpc_chain.execute.return_value = MagicMock(data=rpc_data)
+
     return client
+
+
+@pytest.fixture(autouse=True)
+def _reset_rpc_state():
+    """Each test starts with a clean RPC-availability cache."""
+    from sonde.db.ids import _reset_rpc_cache
+
+    _reset_rpc_cache()
+    yield
+    _reset_rpc_cache()
 
 
 class TestNextSequentialId:
@@ -59,14 +85,151 @@ class TestNextSequentialId:
         table.like.assert_called_with("id", "EXP-%")
 
 
+class TestRpcPath:
+    """The RPC is the fast path; verify it's used when available."""
+
+    def test_rpc_bare_int_response(self):
+        client = _make_client(rpc_data=43)
+        with patch("sonde.db.ids.get_client", return_value=client):
+            from sonde.db.ids import next_sequential_id
+
+            result = next_sequential_id("experiments", "EXP", 4)
+        assert result == "EXP-0043"
+        client.rpc.assert_called_with(
+            "sonde_next_sequential_id",
+            {"p_table": "experiments", "p_prefix": "EXP"},
+        )
+
+    def test_rpc_list_response(self):
+        """PostgREST sometimes wraps scalar returns in a single-element list."""
+        client = _make_client(rpc_data=[43])
+        with patch("sonde.db.ids.get_client", return_value=client):
+            from sonde.db.ids import next_sequential_id
+
+            result = next_sequential_id("experiments", "EXP", 4)
+        assert result == "EXP-0043"
+
+    def test_rpc_dict_response(self):
+        """And sometimes wraps it in a dict keyed by the function name."""
+        client = _make_client(rpc_data=[{"sonde_next_sequential_id": 43}])
+        with patch("sonde.db.ids.get_client", return_value=client):
+            from sonde.db.ids import next_sequential_id
+
+            result = next_sequential_id("experiments", "EXP", 4)
+        assert result == "EXP-0043"
+
+    def test_rpc_missing_falls_back_to_scan(self, caplog):
+        """RPC raises (function not found) — fall back to client-side scan."""
+        import logging
+
+        client = _make_client(
+            existing_ids=["EXP-0042"],
+            rpc_raises=Exception("function does not exist"),
+        )
+        with (
+            caplog.at_level(logging.WARNING, logger="sonde.db.ids"),
+            patch("sonde.db.ids.get_client", return_value=client),
+        ):
+            from sonde.db.ids import next_sequential_id
+
+            result = next_sequential_id("experiments", "EXP", 4)
+
+        assert result == "EXP-0043"
+        # Operators should see a one-time warning that the migration is missing.
+        assert any("RPC unavailable" in record.message for record in caplog.records)
+
+    def test_rpc_missing_is_cached(self):
+        """After the first failure we skip the RPC for the rest of the process."""
+        client = _make_client(
+            existing_ids=["EXP-0001"],
+            rpc_raises=Exception("function does not exist"),
+        )
+        with patch("sonde.db.ids.get_client", return_value=client):
+            from sonde.db.ids import next_sequential_id
+
+            next_sequential_id("experiments", "EXP", 4)
+            next_sequential_id("experiments", "EXP", 4)
+
+        # First call probes the RPC (raises); second call skips the probe.
+        assert client.rpc.return_value.execute.call_count == 1
+
+
+class TestPaginatedFallback:
+    """The original bug: PostgREST capped responses at 1000 rows.
+
+    These tests would have caught the bug before users ran into it.
+    """
+
+    def test_scan_pages_through_2500_rows(self):
+        """With 2500 rows split across 3 pages, the scan must see all of them.
+
+        Before the fix, ``client.table(t).select(...).like(...).execute()`` was
+        capped at 1000 rows and the client computed a stale max. After the fix,
+        we paginate via ``.range(start, end)`` until a short page is returned.
+        """
+        client = _make_client(rpc_raises=Exception("function does not exist"))
+        table = client.table.return_value
+
+        # 2500 ART rows: ART-0001 .. ART-2500. Split across 3 pages.
+        page_1 = [{"id": f"ART-{i:04d}"} for i in range(1, 1001)]
+        page_2 = [{"id": f"ART-{i:04d}"} for i in range(1001, 2001)]
+        page_3 = [{"id": f"ART-{i:04d}"} for i in range(2001, 2501)]
+        table.execute.side_effect = [
+            MagicMock(data=page_1),
+            MagicMock(data=page_2),
+            MagicMock(data=page_3),
+        ]
+
+        with patch("sonde.db.ids.get_client", return_value=client):
+            from sonde.db.ids import next_sequential_id
+
+            result = next_sequential_id("artifacts", "ART", 4)
+
+        # Auto-expands to 5 digits because 2501 > 9999? No — 2501 fits in 4.
+        assert result == "ART-2501"
+
+        # Confirm each page was requested with the correct .range() bounds.
+        range_calls = [c.args for c in table.range.call_args_list]
+        assert range_calls == [(0, 999), (1000, 1999), (2000, 2999)]
+
+    def test_scan_stops_when_page_short_returns(self):
+        """A page shorter than _PAGE_SIZE means we've reached the end."""
+        client = _make_client(rpc_raises=Exception("function does not exist"))
+        table = client.table.return_value
+        table.execute.side_effect = [
+            MagicMock(data=[{"id": f"ART-{i:04d}"} for i in range(1, 501)]),
+        ]
+
+        with patch("sonde.db.ids.get_client", return_value=client):
+            from sonde.db.ids import next_sequential_id
+
+            result = next_sequential_id("artifacts", "ART", 4)
+
+        assert result == "ART-0501"
+        # Only one .range() call because the first page came back short.
+        assert table.range.call_count == 1
+
+    def test_scan_auto_expands_digits_past_9999(self):
+        """PROJ-9999 -> PROJ-10000 must keep numeric ordering correct."""
+        client = _make_client(
+            existing_ids=["ART-9999"],
+            rpc_raises=Exception("function does not exist"),
+        )
+        with patch("sonde.db.ids.get_client", return_value=client):
+            from sonde.db.ids import next_sequential_id
+
+            result = next_sequential_id("artifacts", "ART", 4)
+        assert result == "ART-10000"
+
+
 class TestCreateWithRetry:
     def test_success_first_attempt(self):
         client = _make_client()
         inserted_row = {"id": "EXP-0001", "program": "test"}
-        # select for next_id returns empty, insert returns the row
+        # rpc returns data=None (default), so we hit the scan + insert path.
         table = client.table.return_value
         table.execute.side_effect = [
-            MagicMock(data=[]),  # next_sequential_id query
+            MagicMock(data=[]),  # scan
             MagicMock(data=[inserted_row]),  # insert
         ]
 
@@ -90,16 +253,12 @@ class TestCreateWithRetry:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
-                # First: next_sequential_id query
-                return MagicMock(data=[])
+                return MagicMock(data=[])  # first scan
             if call_count == 2:
-                # Second: insert fails with 23505
                 raise APIError({"message": "duplicate", "code": "23505", "details": "", "hint": ""})
             if call_count == 3:
-                # Third: next_sequential_id retry query
-                return MagicMock(data=[{"id": "EXP-0001"}])
-            # Fourth: insert succeeds
-            return MagicMock(data=[inserted_row])
+                return MagicMock(data=[{"id": "EXP-0001"}])  # second scan, fresh state
+            return MagicMock(data=[inserted_row])  # second insert
 
         table.execute.side_effect = execute_side_effect
 
@@ -109,7 +268,41 @@ class TestCreateWithRetry:
             result = create_with_retry("experiments", "EXP", 4, {"program": "test"})
 
         assert result == inserted_row
-        assert call_count == 4  # 2 attempts x (select + insert)
+        assert call_count == 4
+
+    def test_retry_advances_when_rpc_returns_higher_value(self):
+        """Bug-fix property: with the RPC, each retry sees fresh server state.
+
+        Previously every retry recomputed the same stale max because the
+        client SELECT was capped at 1000 rows. Now the RPC reads live data,
+        so a 23505 collision is followed by a higher ID on the next call.
+        """
+        from postgrest.exceptions import APIError
+
+        client = MagicMock()
+        table = client.table.return_value
+        for method in ("select", "order", "limit", "like", "range", "insert"):
+            getattr(table, method).return_value = table
+
+        inserted_row = {"id": "ART-1091", "kind": "log"}
+
+        # RPC returns 1090 first (collides), then 1091 on the second attempt.
+        client.rpc.return_value.execute.side_effect = [
+            MagicMock(data=1090),
+            MagicMock(data=1091),
+        ]
+        table.execute.side_effect = [
+            APIError({"message": "duplicate", "code": "23505", "details": "", "hint": ""}),
+            MagicMock(data=[inserted_row]),
+        ]
+
+        with patch("sonde.db.ids.get_client", return_value=client):
+            from sonde.db.ids import create_with_retry
+
+            result = create_with_retry("artifacts", "ART", 4, {"kind": "log"})
+
+        assert result == inserted_row
+        assert client.rpc.return_value.execute.call_count == 2
 
     def test_max_retries_exceeded(self):
         from postgrest.exceptions import APIError
@@ -117,14 +310,13 @@ class TestCreateWithRetry:
         client = _make_client()
         table = client.table.return_value
 
-        # Always return empty for next_id, always fail insert
         call_count = 0
 
         def execute_side_effect():
             nonlocal call_count
             call_count += 1
             if call_count % 2 == 1:
-                return MagicMock(data=[])  # next_id query
+                return MagicMock(data=[])  # scan
             raise APIError({"message": "duplicate", "code": "23505", "details": "", "hint": ""})
 
         table.execute.side_effect = execute_side_effect
@@ -141,7 +333,7 @@ class TestCreateWithRetry:
         client = _make_client()
         table = client.table.return_value
         table.execute.side_effect = [
-            MagicMock(data=[]),  # next_id
+            MagicMock(data=[]),  # scan
             APIError({"message": "forbidden", "code": "42501", "details": "", "hint": ""}),
         ]
 
