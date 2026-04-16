@@ -16,7 +16,10 @@ import {
 } from "./pricing.js";
 
 const PREWARM_ARCHIVE_TTL_MS = 2 * 60_000;
-const IDLE_ARCHIVE_TTL_MS = 15 * 60_000;
+// Users expect chat sessions to survive walking away from the desk for hours.
+// 8h covers a workday with lunches, meetings, etc. Override with
+// SONDE_MANAGED_IDLE_ARCHIVE_TTL_MS for tighter operator budgets.
+const IDLE_ARCHIVE_TTL_MS = 8 * 60 * 60_000;
 const DELETE_ARCHIVE_TTL_MS = 7 * 24 * 60 * 60_000;
 
 export interface ManagedCostAlert {

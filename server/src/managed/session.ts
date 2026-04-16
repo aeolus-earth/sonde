@@ -31,6 +31,7 @@ import {
 } from "./session-cache.js";
 import { clearPendingTasks } from "../mcp/tools/tasks.js";
 import {
+  cancelManagedSessionArchive,
   noteManagedApprovalResolved,
   noteManagedSessionError,
   noteManagedSessionSocketClosed,
@@ -826,6 +827,10 @@ export function createManagedAgentSession(
       abortController = new AbortController();
       const reconciled = await reconcileOrRefreshSession(sessionId);
       currentSessionId = reconciled.sessionId;
+      // The user is back. Cancel any archive scheduled by a prior socket
+      // close so the session they're actively resuming doesn't get archived
+      // out from under them mid-conversation.
+      cancelManagedSessionArchive(currentSessionId);
       rememberManagedSession(currentSessionId);
       announcedSessionId = true;
       yield { type: "session", sessionId: currentSessionId };
