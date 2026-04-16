@@ -2,7 +2,6 @@ import { lazy, Suspense } from "react";
 import { createRootRoute, Outlet } from "@tanstack/react-router";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { ToastContainer } from "@/components/ui/toast";
-import { VersionBadge } from "@/components/layout/version-badge";
 import { useHotkey } from "@/hooks/use-keyboard";
 import { useUIStore } from "@/stores/ui";
 import { useAuthStore } from "@/stores/auth";
@@ -39,7 +38,6 @@ function RootComponent() {
         <Outlet />
       </ErrorBoundary>
       <ToastContainer />
-      <VersionBadge />
       {session && commandPaletteOpen && (
         <Suspense fallback={null}>
           <CommandPalette />
