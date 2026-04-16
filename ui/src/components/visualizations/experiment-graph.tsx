@@ -1325,7 +1325,28 @@ export const ExperimentGraph = memo(function ExperimentGraph({
       }
     }
 
-    return layoutGraph(rawNodes, rawEdges);
+    // Drop any edges that reference nodes we never materialized. This is
+    // the safety net against a class of bug where a subtree builder
+    // creates an edge for a parent→child relationship eagerly, but the
+    // child node is only added when its own parent's `expanded` gate is
+    // true. When those states disagree, or when React Query hooks arrive
+    // staggered, React Flow silently renders the edge at (0,0) or at the
+    // source's last-known position — producing disconnected stubs on the
+    // map. Every edge has to pass this filter on the way to React Flow.
+    const nodeIds = new Set(rawNodes.map((node) => node.id));
+    const validEdges = rawEdges.filter(
+      (edge) => nodeIds.has(edge.source) && nodeIds.has(edge.target),
+    );
+    const droppedCount = rawEdges.length - validEdges.length;
+    if (droppedCount > 0) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[experiment-graph] dropped ${droppedCount} orphan edge(s) ` +
+          `(references to nodes not in the rendered set)`,
+      );
+    }
+
+    return layoutGraph(rawNodes, validEdges);
   }, [
     projects,
     directions,
