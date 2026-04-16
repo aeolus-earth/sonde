@@ -70,6 +70,28 @@ sonde search --text "spectral bin"
 sonde search --param ccn>1000
 ```
 
+## Upgrading
+
+The normal way to update sonde to the latest release:
+
+```bash
+sonde upgrade
+```
+
+Pin a specific version with `sonde upgrade --tag v0.1.4`. Check for
+updates without installing with `sonde upgrade --check`.
+
+Running `sonde` with no subcommand prints a one-line hint when a newer
+version is available. Set `SONDE_NO_UPDATE_CHECK=1` to silence it, or
+run `sonde upgrade --check` any time to see the current status.
+
+If something is broken such that `sonde upgrade` itself won't run,
+re-install manually:
+
+```bash
+uv tool install --force "git+https://github.com/aeolus-earth/sonde.git@main#subdirectory=cli"
+```
+
 ## Troubleshooting
 
 If install or login behaves strangely, first verify which `sonde` binary your shell is using:
@@ -81,11 +103,7 @@ sonde doctor
 ```
 
 If you see older login wording or noisy browser-open errors, you are likely running a stale install.
-Reinstall the current CLI:
-
-```bash
-uv tool install --force "git+https://github.com/aeolus-earth/sonde.git@main#subdirectory=cli"
-```
+Run `sonde upgrade` (or the manual `uv tool install --force …` fallback above).
 
 `sonde login` now uses the hosted activation flow by default and prints a short code
 plus a browser URL. The compatibility alias still works if you want to force that path

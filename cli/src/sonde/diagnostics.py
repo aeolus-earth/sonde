@@ -45,9 +45,11 @@ STATUS_ORDER: dict[DoctorStatus, int] = {
     "error": 4,
 }
 
-GIT_TOOL_INSTALL_COMMAND = (
-    'uv tool install --force "git+https://github.com/aeolus-earth/sonde.git@main#subdirectory=cli"'
-)
+# Keep the doctor's suggested install command in sync with the `sonde upgrade`
+# command by sourcing the URL from there. Prevents drift between the two.
+from sonde.commands.upgrade import _install_command as _upgrade_install_command  # noqa: E402
+
+GIT_TOOL_INSTALL_COMMAND = _upgrade_install_command("main")
 INSTALL_VERIFY_COMMANDS = (
     "which -a sonde",
     "sonde --version",
