@@ -34,6 +34,7 @@ import {
   type HandlerFactories,
   type StatusColorMap,
   buildExperimentGraph,
+  stabilizeNodes,
 } from "./graph-builder";
 
 // ── Fixture builders ──────────────────────────────────────────────
@@ -365,6 +366,102 @@ describe("buildExperimentGraph: primary-question filtering", () => {
       .map((e) => e.source);
     expect(parentsOfExp).toEqual(["question-Q-0001"]);
   });
+
+  it("does not emit duplicate nodes for spawned directions reached through a question lineage", () => {
+    const projects = [makeProject()];
+    const directions = [
+      makeDirection({ id: "DIR-030", title: "Wait-enabled ADA launch" }),
+      makeDirection({
+        id: "DIR-031",
+        title: "ADA kernel redesign",
+        spawned_from_experiment_id: "EXP-0242",
+      }),
+      makeDirection({
+        id: "DIR-045",
+        title: "ADA teardown finalizer",
+        spawned_from_experiment_id: "EXP-0378",
+      }),
+    ];
+    const questions = [
+      makeQuestion({ id: "Q-1026", direction_id: "DIR-030" }),
+      makeQuestion({ id: "Q-1029", direction_id: "DIR-031" }),
+      makeQuestion({ id: "Q-1044", direction_id: "DIR-045" }),
+    ];
+    const experiments = [
+      makeExperiment({
+        id: "EXP-0242",
+        direction_id: "DIR-030",
+        primary_question_id: "Q-1026",
+      }),
+      makeExperiment({
+        id: "EXP-0325",
+        direction_id: "DIR-031",
+        primary_question_id: "Q-1029",
+      }),
+      makeExperiment({
+        id: "EXP-0377",
+        direction_id: "DIR-031",
+        parent_id: "EXP-0325",
+      }),
+      makeExperiment({
+        id: "EXP-0378",
+        direction_id: "DIR-031",
+        parent_id: "EXP-0377",
+      }),
+      ...["0379", "0380", "0381", "0382", "0383", "0384"].map((suffix) =>
+        makeExperiment({
+          id: `EXP-${suffix}`,
+          direction_id: "DIR-045",
+        }),
+      ),
+      makeExperiment({ id: "EXP-1006", direction_id: "DIR-045" }),
+    ];
+
+    const out = buildExperimentGraph(
+      makeRealisticInput({
+        projects,
+        directions,
+        questions,
+        experiments,
+        findings: [],
+        expanded: new Set([
+          "proj-proj-1",
+          "dir-DIR-030",
+          "question-Q-1026",
+          "EXP-0242",
+          "dir-DIR-031",
+          "question-Q-1029",
+          "EXP-0325",
+          "EXP-0377",
+          "EXP-0378",
+          "dir-DIR-045",
+          "question-Q-1044",
+        ]),
+        knownProjectIds: new Set(projects.map((p) => p.id)),
+      }),
+    );
+    const counts = new Map<string, number>();
+    for (const node of out.nodes) {
+      counts.set(node.id, (counts.get(node.id) ?? 0) + 1);
+    }
+
+    for (const id of [
+      "dir-DIR-031",
+      "dir-DIR-045",
+      "question-Q-1044",
+      "EXP-0377",
+      "EXP-0378",
+      "EXP-0379",
+      "EXP-0380",
+      "EXP-0381",
+      "EXP-0382",
+      "EXP-0383",
+      "EXP-0384",
+      "EXP-1006",
+    ]) {
+      expect(counts.get(id)).toBe(1);
+    }
+  });
 });
 
 // ── Invariant: missing entities don't crash ───────────────────────
@@ -518,5 +615,98 @@ describe("buildExperimentGraph: handler identity stability", () => {
     const d1 = p1.data as Record<string, unknown>;
     const d2 = p2.data as Record<string, unknown>;
     expect(d2.onToggle).not.toBe(d1.onToggle);
+  });
+});
+
+// ── Invariant: stabilizeNodes preserves references when data is unchanged ──
+
+describe("stabilizeNodes", () => {
+  it("passes through unchanged when previous is null (first build)", () => {
+    const input = makeRealisticInput({
+      expanded: new Set(["proj-proj-1", "dir-DIR-0001"]),
+    });
+    const { nodes } = buildExperimentGraph(input);
+    const out = stabilizeNodes(null, nodes);
+    expect(out).toBe(nodes);
+  });
+
+  it("returns the SAME node object reference when data is unchanged across builds", () => {
+    // The core invariant. Two consecutive builds with the same input
+    // and the same handler factories must let stabilizeNodes return
+    // the previous-build objects verbatim. Reference equality is what
+    // lets React Flow skip reconciliation for unchanged subtrees.
+    const input = makeRealisticInput({
+      expanded: new Set([
+        "proj-proj-1",
+        "dir-DIR-0001",
+        "question-Q-0001",
+        "EXP-0001",
+      ]),
+    });
+
+    const first = buildExperimentGraph(input);
+    const firstMap = new Map(first.nodes.map((n) => [n.id, n]));
+
+    const second = buildExperimentGraph(input);
+    const stabilized = stabilizeNodes(firstMap, second.nodes);
+
+    for (const node of stabilized) {
+      const prev = firstMap.get(node.id);
+      expect(prev).toBeDefined();
+      if (!prev) continue;
+      expect(node).toBe(prev);
+    }
+  });
+
+  it("returns a new node object for ids whose data has changed", () => {
+    // Toggle a direction's expansion: its `expanded` flag flips, so
+    // the data shallow-compare must miss and stabilizeNodes must
+    // return the *new* node, not reuse the cached one. Otherwise the
+    // UI would never visually reflect the toggle.
+    const collapsed = makeRealisticInput({
+      expanded: new Set(["proj-proj-1"]),
+    });
+    const expanded = makeRealisticInput({
+      expanded: new Set(["proj-proj-1", "dir-DIR-0001"]),
+      handlers: collapsed.handlers,
+    });
+
+    const first = buildExperimentGraph(collapsed);
+    const firstMap = new Map(first.nodes.map((n) => [n.id, n]));
+    const second = buildExperimentGraph(expanded);
+    const stabilized = stabilizeNodes(firstMap, second.nodes);
+
+    const dirBefore = firstMap.get("dir-DIR-0001");
+    const dirAfter = stabilized.find((n) => n.id === "dir-DIR-0001");
+    expect(dirBefore).toBeDefined();
+    expect(dirAfter).toBeDefined();
+    // Data changed (expanded flag flipped), so reference must differ.
+    expect(dirAfter).not.toBe(dirBefore);
+  });
+
+  it("preserves the previous object's identity but patches position when only position changed", () => {
+    // Edge case: dagre can move a node on a sibling expansion even
+    // when its own data is unchanged. We want reference-equality for
+    // the data surface (so React Flow's memo pass skips) but the new
+    // position must make it through to the DOM. stabilizeNodes spreads
+    // into a new object in that case.
+    const input = makeRealisticInput({
+      expanded: new Set(["proj-proj-1", "dir-DIR-0001"]),
+    });
+    const { nodes } = buildExperimentGraph(input);
+    const target = nodes.find((n) => n.id === "dir-DIR-0001");
+    expect(target).toBeDefined();
+    if (!target) return;
+
+    const previousMap = new Map<string, (typeof nodes)[number]>([
+      [target.id, { ...target, position: { x: -999, y: -999 } }],
+    ]);
+    const stabilized = stabilizeNodes(previousMap, [target]);
+
+    expect(stabilized[0].position).toEqual(target.position);
+    // The returned object is a fresh clone of the *previous* one with
+    // position patched — not the freshly-built `target`.
+    expect(stabilized[0]).not.toBe(target);
+    expect(stabilized[0].data).toBe(previousMap.get(target.id)!.data);
   });
 });

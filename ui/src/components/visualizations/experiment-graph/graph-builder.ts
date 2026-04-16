@@ -211,6 +211,97 @@ export function layoutGraph(
   });
 }
 
+// ── Node identity stabilizer ──────────────────────────────────────
+
+/**
+ * Return a new `nodes` array where unchanged nodes are the *same
+ * object reference* as in the previous build.
+ *
+ * Why: `HandlerFactories` gives us stable callbacks per id (see
+ * Commit 2). That's necessary but not sufficient — React Flow also
+ * reconciles on the `Node` wrapper itself. If two builds produce
+ * different `Node` objects with identical `data`, React Flow treats
+ * them as "new" and spends O(N) work diffing them.
+ *
+ * This helper compares each new node's `data` against the previous
+ * build's node (looked up by id) using a shallow equality check.
+ * When every field matches, we return the *previous* `Node` object
+ * — giving React Flow reference equality and an early-out in the
+ * diff. Position gets patched through even on match, since dagre
+ * may have moved the node in response to a sibling change.
+ *
+ * The caller owns the `previous` map: typically a
+ * `useRef<Map<string, Node>>` that's updated after each build.
+ */
+export function stabilizeNodes(
+  previous: Map<string, Node> | null,
+  next: Node[],
+): Node[] {
+  if (!previous || previous.size === 0) return next;
+  return next.map((node) => {
+    const prev = previous.get(node.id);
+    if (!prev || prev.type !== node.type) return node;
+    if (!shallowDataEqual(prev.data, node.data)) return node;
+    // Data is identical. Keep the previous object reference so React
+    // Flow can fast-path. Update position only if it actually changed.
+    if (
+      prev.position.x === node.position.x &&
+      prev.position.y === node.position.y
+    ) {
+      return prev;
+    }
+    return { ...prev, position: node.position };
+  });
+}
+
+function shallowDataEqual(
+  prev: Record<string, unknown> | undefined,
+  next: Record<string, unknown> | undefined,
+): boolean {
+  if (prev === next) return true;
+  if (!prev || !next) return false;
+  const prevKeys = Object.keys(prev);
+  const nextKeys = Object.keys(next);
+  if (prevKeys.length !== nextKeys.length) return false;
+  for (const key of prevKeys) {
+    if (!nodeFieldEqual(prev[key], next[key])) return false;
+  }
+  return true;
+}
+
+/**
+ * Field-level equality tuned for the graph node `data` shape. Strict
+ * equality is the common case and the fast path; for the two nested
+ * shapes the builder emits — status-count records (`{open: 1, running:
+ * 2}`) and short arrays like `findings` or `rollup` — a one-level
+ * shallow check lets stabilizeNodes preserve identity even though the
+ * builder allocates a fresh container each call. Deeper than one level
+ * isn't worth it: we'd risk false positives and the builder doesn't
+ * emit nested-object-inside-object fields today.
+ */
+function nodeFieldEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (a === null || b === null) return false;
+  if (typeof a !== "object" || typeof b !== "object") return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (a[i] !== b[i]) return false;
+    }
+    return true;
+  }
+  const aObj = a as Record<string, unknown>;
+  const bObj = b as Record<string, unknown>;
+  const aKeys = Object.keys(aObj);
+  const bKeys = Object.keys(bObj);
+  if (aKeys.length !== bKeys.length) return false;
+  for (const key of aKeys) {
+    if (aObj[key] !== bObj[key]) return false;
+  }
+  return true;
+}
+
 // ── Index builders (pure) ─────────────────────────────────────────
 
 export function countStatuses(

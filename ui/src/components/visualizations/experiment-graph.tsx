@@ -19,11 +19,13 @@ import type {
   ProjectSummary,
   QuestionSummary,
 } from "@/types/sonde";
+import type { Node } from "@xyflow/react";
 import {
   bucketProjectId,
   buildExperimentGraph,
   buildFindingsByExperiment,
   projectNodeId,
+  stabilizeNodes,
   type HandlerFactories,
 } from "./experiment-graph/graph-builder";
 import { nodeTypes } from "./experiment-graph/node-types";
@@ -238,13 +240,27 @@ export const ExperimentGraph = memo(function ExperimentGraph({
     }
   }, [droppedOrphanEdges]);
 
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
+  // Stabilize node object references across builds. When a node's
+  // data is logically unchanged, reuse the previous `Node` wrapper so
+  // React Flow can fast-path through its internal diff. Combined with
+  // the handler-identity factories (Commit 2) this means that a
+  // single-subtree expansion touches only the nodes in that subtree
+  // — the other 999 in a 1000-node graph skip reconciliation
+  // entirely.
+  const previousNodesRef = useRef<Map<string, Node> | null>(null);
+  const stabilizedNodes = useMemo(() => {
+    const stable = stabilizeNodes(previousNodesRef.current, initialNodes);
+    previousNodesRef.current = new Map(stable.map((n) => [n.id, n]));
+    return stable;
+  }, [initialNodes]);
+
+  const [nodes, setNodes, onNodesChange] = useNodesState(stabilizedNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
 
   useEffect(() => {
-    setNodes(initialNodes);
+    setNodes(stabilizedNodes);
     setEdges(initialEdges);
-  }, [initialNodes, initialEdges, setNodes, setEdges]);
+  }, [stabilizedNodes, initialEdges, setNodes, setEdges]);
 
   return (
     <div className="flex h-full w-full min-h-0 flex-col gap-2">
