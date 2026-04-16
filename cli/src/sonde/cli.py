@@ -18,7 +18,7 @@ from sonde.cli_options import pass_output_options
 load_dotenv()
 
 # Commands that don't require authentication
-_NO_AUTH = {"login", "logout", "whoami", "setup", "doctor", "skills"}
+_NO_AUTH = {"login", "logout", "whoami", "setup", "doctor", "skills", "upgrade"}
 
 
 def _is_help_request() -> bool:
@@ -225,6 +225,14 @@ def cli(ctx: click.Context, use_json: bool, quiet: bool, verbose: bool, no_color
     # Show help when invoked with no subcommand
     if ctx.invoked_subcommand is None:
         click.echo(ctx.get_help())
+        # Best-effort nudge if a newer sonde is available. Lazy import
+        # avoids pulling network-adjacent code on every invocation.
+        try:
+            from sonde.commands.upgrade import maybe_nudge_for_update
+
+            maybe_nudge_for_update()
+        except Exception:
+            pass
 
 
 # -- Register commands --
@@ -258,6 +266,7 @@ from sonde.commands.sync import sync  # noqa: E402
 from sonde.commands.tag import tag  # noqa: E402
 from sonde.commands.takeaway import takeaway  # noqa: E402
 from sonde.commands.tree import tree_cmd  # noqa: E402
+from sonde.commands.upgrade import upgrade  # noqa: E402
 
 # Auth & Setup
 cli.add_command(login)
@@ -266,6 +275,7 @@ cli.add_command(whoami)
 cli.add_command(init_cmd)
 cli.add_command(setup)
 cli.add_command(doctor)
+cli.add_command(upgrade)
 cli.add_command(access)
 cli.add_command(skills)
 
