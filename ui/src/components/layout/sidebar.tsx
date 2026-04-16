@@ -22,6 +22,7 @@ import {
   useSetMobileMenuOpen,
 } from "@/stores/ui";
 import { ProgramSwitcher } from "./program-switcher";
+import { VersionBadge } from "./version-badge";
 
 const navPrimary = [
   { to: "/", label: "Assistant", icon: MessageSquare },
@@ -103,6 +104,10 @@ function SidebarContent({ iconOnly, onNavClick }: { iconOnly: boolean; onNavClic
           {renderLinks(navActivity)}
         </div>
       </nav>
+
+      <div className="border-t border-border-subtle">
+        <VersionBadge iconOnly={iconOnly} />
+      </div>
     </>
   );
 }
