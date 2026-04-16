@@ -87,7 +87,7 @@ test.describe("CI smoke", () => {
     expect(response.ok()).toBeTruthy();
 
     const body = (await response.json()) as { status: string };
-    expect(body.status).toBe("ok");
+    expect(body).toEqual({ status: "ok" });
   });
 
   test("authenticated routes render behind the auth gate", async ({ page }) => {
