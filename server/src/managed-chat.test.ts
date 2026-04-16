@@ -263,8 +263,33 @@ describe("managed chat websocket", () => {
     });
 
     const sessionEvent = messages.find((message) => message.type === "session");
-    assert.ok(sessionEvent);
+    assert.ok(sessionEvent, "websocket must emit a session event");
     assert.equal(sessionEvent.sessionId, sessionId);
+
+    // Contract assertions the frontend depends on. Previously this test
+    // only checked sessionId, so a regression that dropped other fields
+    // (e.g. stopped emitting the session event's model label, broke the
+    // message ordering so session came after done, etc.) would pass
+    // silently.
+    assert.equal(
+      typeof sessionEvent.sessionId,
+      "string",
+      "sessionId must be a string, not wrapped in an object",
+    );
+    const sessionIndex = messages.findIndex((m) => m.type === "session");
+    const doneIndex = messages.findIndex((m) => m.type === "done");
+    assert.ok(doneIndex > sessionIndex, "session event must arrive before done");
+
+    // At least one content-bearing message must reach the client. The
+    // old assertion would pass even if only a session+done pair arrived
+    // with no actual agent output — a silent chat failure.
+    const agentMessages = messages.filter(
+      (m) => m.type === "assistant_message" || m.type === "text_delta",
+    );
+    assert.ok(
+      agentMessages.length > 0,
+      `expected at least one agent content message; got types=${messages.map((m) => m.type).join(",")}`,
+    );
   });
 
   it("auto-allows read-only managed bash actions and continues streaming", async () => {

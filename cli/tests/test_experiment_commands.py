@@ -76,15 +76,18 @@ def _experiment_model(**overrides: Any) -> Experiment:
 
 class TestLog:
     def test_log_quick(self, runner: CliRunner, patched_db: MagicMock):
-        # Mock the ID generation query
+        # Mocks simulate an empty table so the ID-generation scan returns
+        # no rows, and the insert succeeds. The rewritten assertions
+        # verify the CLI transformed the arguments into the expected
+        # INSERT payload — a pure round-trip through the mock (insert
+        # returns whatever was passed in) would not catch a regression
+        # that silently drops --params or mis-assigns --program.
         patched_db.table("experiments").select("id").order("created_at", desc=True).limit(
             1
         ).execute.return_value = MagicMock(data=[])
 
-        # Mock the insert
-        patched_db.table("experiments").insert.return_value.execute.return_value = MagicMock(
-            data=[_EXPERIMENT_ROW]
-        )
+        insert_mock = patched_db.table("experiments").insert
+        insert_mock.return_value.execute.return_value = MagicMock(data=[_EXPERIMENT_ROW])
 
         result = runner.invoke(
             cli,
@@ -99,7 +102,39 @@ class TestLog:
                 '{"delta": 5.8}',
             ],
         )
-        assert result.exit_code == 0
+        assert result.exit_code == 0, result.output
+
+        # The CLI must have issued exactly one INSERT with the user-provided
+        # program, params, and result. If argument parsing regresses and
+        # drops a field, these assertions fail — the mock would still
+        # happily return the canned row, so the output check below is
+        # not enough on its own.
+        # The CLI writes to multiple tables (experiments, activity_log);
+        # the shared MagicMock records all of them on the same .insert.
+        # Pull out the experiment insert by shape rather than ordering —
+        # stable even if a future change reorders the writes.
+        experiment_inserts = [
+            call.args[0]
+            for call in insert_mock.call_args_list
+            if call.args
+            and isinstance(call.args[0], dict)
+            and "program" in call.args[0]
+            and "parameters" in call.args[0]
+        ]
+        assert len(experiment_inserts) == 1, (
+            f"expected exactly one experiment insert; got {len(experiment_inserts)} "
+            f"(call_args_list={insert_mock.call_args_list!r})"
+        )
+        inserted = experiment_inserts[0]
+        assert inserted["program"] == "weather-intervention"
+        assert inserted["parameters"] == {"ccn": 1200}
+        assert inserted["results"] == {"delta": 5.8}
+        assert inserted["status"] in {"complete", "running"}
+        # Source defaults to a human/* or codex/* label — exact format
+        # may vary but it must be set so the activity log isn't orphaned.
+        assert inserted["source"] and isinstance(inserted["source"], str)
+
+        # Output check: the insert-returned ID round-trips to the user.
         assert "EXP-0001" in result.output
 
     def test_log_requires_program(self, runner: CliRunner, patched_db: MagicMock):
