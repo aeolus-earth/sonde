@@ -141,3 +141,52 @@ uv run ruff format src/ tests/   # format
 uv run ty check src/             # type check
 uv run pytest                    # test
 ```
+
+## Releasing
+
+The version string is derived at build time from the nearest git tag by
+[hatch-vcs](https://github.com/ofek/hatch-vcs). Tagged commits become
+`0.1.1`; commits between tags become PEP 440 dev versions like
+`0.1.1.dev12+g8cf333af3` so bug reports carry an exact SHA.
+
+### Patch releases (the default, fully automatic)
+
+Every successful promotion from `staging` to `main` ships a new patch
+release. The chain:
+
+1. `staging` passes its smoke suite.
+2. `.github/workflows/promote-main.yml` opens (or updates) the
+   "Promote staging to main" PR and enables auto-merge.
+3. After the PR merges, `.github/workflows/tag-on-promote.yml` runs on the
+   push to `main`. It matches the merge-commit subject
+   (`Merge pull request #N from <owner>/staging`), computes the next patch
+   tag (the highest existing stable `vN.N.N` tag + 1, or `v0.1.0` if no
+   tags exist), and pushes it.
+4. The tag push triggers `.github/workflows/release.yml`, which builds the
+   wheel + sdist, test-installs **both** and verifies `sonde --version`
+   matches, then publishes a GitHub Release with a changelog generated
+   from commits since the previous tag.
+
+### Minor / major releases (manual)
+
+Run the `Release` workflow with `workflow_dispatch` and pass the version
+(e.g. `0.2.0`). The workflow creates the tag, builds, verifies, and
+publishes. A subsequent `tag-on-promote` run for the same version is a
+no-op — `release.yml` short-circuits when the release already exists.
+
+### Required secret
+
+`SONDE_PROMOTION_GITHUB_TOKEN` must be set as a repo secret: a fine-grained
+GitHub token with `Contents: Read and write` on this repo. Without it,
+`tag-on-promote.yml` fails fast (by design) — the default `GITHUB_TOKEN`
+cannot chain workflow runs, so tags pushed with it would never trigger
+`release.yml`.
+
+### Installing a specific release
+
+```bash
+uv tool install --force "git+https://github.com/aeolus-earth/sonde.git@v0.1.1#subdirectory=cli"
+```
+
+Installs from `main` (or any untagged commit) will show a dev-version
+suffix; installs from a tag will show the clean version.

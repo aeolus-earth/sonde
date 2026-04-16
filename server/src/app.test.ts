@@ -17,6 +17,8 @@ beforeEach(() => {
   process.env.SONDE_WS_TOKEN_SECRET = "test-ws-secret";
   process.env.SONDE_RUNTIME_AUDIT_TOKEN = "test-runtime-token";
   delete process.env.SONDE_COMMIT_SHA;
+  delete process.env.RAILWAY_GIT_COMMIT_SHA;
+  delete process.env.VERCEL_GIT_COMMIT_SHA;
   resetGitHubCachesForTests();
   resetManagedClientStateForTests();
   resetManagedSessionCacheForTests();
@@ -55,9 +57,10 @@ describe("createApp", () => {
   });
 
   it("returns a minimal public health response", async () => {
+    // /health is liveness-only by contract — the deployed-stack audit fails
+    // if it leaks any metadata. Commit SHA lives on /health/runtime instead.
     process.env.SONDE_COMMIT_SHA = "abc123";
-    process.env.SONDE_SCHEMA_VERSION = "20260407000123";
-    process.env.SONDE_CLI_GIT_REF = "refs/heads/staging";
+    process.env.SONDE_ENVIRONMENT = "production";
     process.env.ANTHROPIC_API_KEY = "sk-ant-api03-test-key";
     process.env.VITE_SUPABASE_URL = "https://oxajsxoedrmvrcatqser.supabase.co";
     const app = createApp();

@@ -8,6 +8,9 @@
 __pycache__/
 *.py[cod]
 
+# hatch-vcs writes the resolved version here at build time
+cli/src/sonde/_version.py
+
 # Upstream mirrors under repos/ and vendor/ keep their own clones locally; do not track nested .git
 repos/**/.git/
 vendor/**/.git/
