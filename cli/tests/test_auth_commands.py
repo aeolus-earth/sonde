@@ -36,6 +36,19 @@ def test_login_help_emphasizes_plain_login(runner: CliRunner) -> None:
     assert "sonde login --method loopback" in result.output
 
 
+def test_login_short_circuits_when_already_signed_in(runner: CliRunner, monkeypatch) -> None:
+    user = auth.UserInfo(email="mason@aeolus.earth", user_id="user-1", name="Mason Lee")
+    monkeypatch.setattr("sonde.auth.is_authenticated", lambda: True)
+    monkeypatch.setattr("sonde.auth.get_current_user", lambda: user)
+
+    with patch("sonde.auth.login", side_effect=AssertionError("login flow should not run")):
+        result = runner.invoke(cli, ["login"])
+
+    assert result.exit_code == 0
+    assert "Already signed in as mason@aeolus.earth" in result.output
+    assert "sonde logout" in result.output
+
+
 def test_login_reports_config_error_with_loopback_guidance(runner: CliRunner, monkeypatch) -> None:
     monkeypatch.setattr("sonde.auth.is_authenticated", lambda: False)
     monkeypatch.setattr(
@@ -544,6 +557,52 @@ def test_refresh_session_updates_stored_session(monkeypatch):
     user = cast(dict[str, Any], saved["user"])
     meta = cast(dict[str, Any], user["app_metadata"])
     assert meta["programs"] == ["dart-benchmarking", "shared"]
+
+
+def test_is_authenticated_refreshes_expired_human_session(monkeypatch) -> None:
+    session = {
+        "access_token": "expired-access-token",
+        "refresh_token": "refresh-token",
+        "user": {
+            "id": "00000000-0000-0000-0000-000000000001",
+            "email": "test@aeolus.earth",
+            "app_metadata": {"programs": ["shared"]},
+            "user_metadata": {},
+        },
+    }
+    monkeypatch.delenv("SONDE_TOKEN", raising=False)
+
+    with (
+        patch("sonde.auth.load_session", return_value=session),
+        patch("sonde.auth._is_expired", return_value=True),
+        patch("sonde.auth.refresh_session", return_value="new-access-token") as refresh_session,
+    ):
+        assert auth.is_authenticated() is True
+
+    refresh_session.assert_called_once_with()
+
+
+def test_is_authenticated_returns_false_when_human_refresh_fails(monkeypatch) -> None:
+    session = {
+        "access_token": "expired-access-token",
+        "refresh_token": "revoked-refresh-token",
+        "user": {
+            "id": "00000000-0000-0000-0000-000000000001",
+            "email": "test@aeolus.earth",
+            "app_metadata": {"programs": ["shared"]},
+            "user_metadata": {},
+        },
+    }
+    monkeypatch.delenv("SONDE_TOKEN", raising=False)
+
+    with (
+        patch("sonde.auth.load_session", return_value=session),
+        patch("sonde.auth._is_expired", return_value=True),
+        patch("sonde.auth.refresh_session", return_value=None) as refresh_session,
+    ):
+        assert auth.is_authenticated() is False
+
+    refresh_session.assert_called_once_with()
 
 
 # ---------------------------------------------------------------------------
