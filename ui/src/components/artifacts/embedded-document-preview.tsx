@@ -1,5 +1,6 @@
 /* eslint-disable react-refresh/only-export-components */
-import { Download, ExternalLink } from "lucide-react";
+import { useState } from "react";
+import { Download, ExternalLink, FileWarning } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 function DownloadLink({ url, filename }: { url: string; filename: string }) {
@@ -33,16 +34,38 @@ export function EmbeddedDocumentPreview({
   iframeClassName?: string;
   footerClassName?: string;
 }) {
+  // Track iframe failures so a CSP-blocked or cross-origin-refused embed
+  // surfaces a visible message instead of a mystery grey box. `error`
+  // fires for blocked subresources and network failures; combined with
+  // the Open/Download links below this gives the user a working path
+  // out when the preview itself can't render.
+  const [hasError, setHasError] = useState(false);
+
   return (
     <div className="space-y-2">
-      <iframe
-        src={embedUrl}
-        className={cn(
-          "h-[500px] w-full rounded-[8px] border border-border-subtle",
-          iframeClassName,
-        )}
-        title={title}
-      />
+      {hasError ? (
+        <div
+          role="alert"
+          data-testid="embedded-preview-fallback"
+          className={cn(
+            "flex h-[500px] w-full flex-col items-center justify-center gap-2 rounded-[8px] border border-border-subtle bg-surface-raised text-text-tertiary",
+            iframeClassName,
+          )}
+        >
+          <FileWarning className="h-6 w-6" aria-hidden="true" />
+          <p className="text-[12px]">Preview unavailable. Use Open or Download.</p>
+        </div>
+      ) : (
+        <iframe
+          src={embedUrl}
+          onError={() => setHasError(true)}
+          className={cn(
+            "h-[500px] w-full rounded-[8px] border border-border-subtle",
+            iframeClassName,
+          )}
+          title={title}
+        />
+      )}
       <div
         className={cn("flex items-center justify-center gap-3", footerClassName)}
       >
