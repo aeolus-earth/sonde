@@ -375,7 +375,7 @@ test.describe(SUITE_LABEL, () => {
     expect(response.ok()).toBeTruthy();
 
     const body = (await response.json()) as { status: string };
-    expect(body.status).toBe("ok");
+    expect(body).toEqual({ status: "ok" });
   });
 
   test("agent runtime metadata is available with the audit token", async ({ request }) => {

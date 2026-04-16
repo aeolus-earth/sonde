@@ -56,11 +56,11 @@ describe("createApp", () => {
     ]);
   });
 
-  it("returns a public health response with commit SHA", async () => {
+  it("returns a minimal public health response", async () => {
+    // /health is liveness-only by contract — the deployed-stack audit fails
+    // if it leaks any metadata. Commit SHA lives on /health/runtime instead.
     process.env.SONDE_COMMIT_SHA = "abc123";
     process.env.SONDE_ENVIRONMENT = "production";
-    process.env.SONDE_SCHEMA_VERSION = "20260407000123";
-    process.env.SONDE_CLI_GIT_REF = "refs/heads/staging";
     process.env.ANTHROPIC_API_KEY = "sk-ant-api03-test-key";
     process.env.VITE_SUPABASE_URL = "https://oxajsxoedrmvrcatqser.supabase.co";
     const app = createApp();
@@ -68,46 +68,8 @@ describe("createApp", () => {
     const response = await app.request("http://localhost/health");
     assert.equal(response.status, 200);
 
-    const body = (await response.json()) as {
-      status: string;
-      commitSha: string | null;
-      environment: string;
-    };
-    assert.equal(body.status, "ok");
-    assert.equal(body.commitSha, "abc123");
-    assert.equal(body.environment, "production");
-  });
-
-  it("health commitSha falls back to RAILWAY_GIT_COMMIT_SHA when SONDE_COMMIT_SHA is unset", async () => {
-    process.env.RAILWAY_GIT_COMMIT_SHA = "railway-sha";
-    process.env.ANTHROPIC_API_KEY = "sk-ant-api03-test-key";
-    process.env.VITE_SUPABASE_URL = "https://oxajsxoedrmvrcatqser.supabase.co";
-    const app = createApp();
-
-    const response = await app.request("http://localhost/health");
-    const body = (await response.json()) as { commitSha: string | null };
-    assert.equal(body.commitSha, "railway-sha");
-  });
-
-  it("health commitSha falls back to VERCEL_GIT_COMMIT_SHA when SONDE and RAILWAY are unset", async () => {
-    process.env.VERCEL_GIT_COMMIT_SHA = "vercel-sha";
-    process.env.ANTHROPIC_API_KEY = "sk-ant-api03-test-key";
-    process.env.VITE_SUPABASE_URL = "https://oxajsxoedrmvrcatqser.supabase.co";
-    const app = createApp();
-
-    const response = await app.request("http://localhost/health");
-    const body = (await response.json()) as { commitSha: string | null };
-    assert.equal(body.commitSha, "vercel-sha");
-  });
-
-  it("health commitSha is null when no SHA env vars are set", async () => {
-    process.env.ANTHROPIC_API_KEY = "sk-ant-api03-test-key";
-    process.env.VITE_SUPABASE_URL = "https://oxajsxoedrmvrcatqser.supabase.co";
-    const app = createApp();
-
-    const response = await app.request("http://localhost/health");
-    const body = (await response.json()) as { commitSha: string | null };
-    assert.equal(body.commitSha, null);
+    const body = (await response.json()) as { status: string };
+    assert.deepEqual(body, { status: "ok" });
   });
 
   it("returns runtime metadata only with the audit bearer token", async () => {
