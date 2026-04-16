@@ -126,17 +126,17 @@ class TestRpcPath:
             existing_ids=["EXP-0042"],
             rpc_raises=Exception("function does not exist"),
         )
-        with caplog.at_level(logging.WARNING, logger="sonde.db.ids"):
-            with patch("sonde.db.ids.get_client", return_value=client):
-                from sonde.db.ids import next_sequential_id
+        with (
+            caplog.at_level(logging.WARNING, logger="sonde.db.ids"),
+            patch("sonde.db.ids.get_client", return_value=client),
+        ):
+            from sonde.db.ids import next_sequential_id
 
-                result = next_sequential_id("experiments", "EXP", 4)
+            result = next_sequential_id("experiments", "EXP", 4)
 
         assert result == "EXP-0043"
         # Operators should see a one-time warning that the migration is missing.
-        assert any(
-            "RPC unavailable" in record.message for record in caplog.records
-        )
+        assert any("RPC unavailable" in record.message for record in caplog.records)
 
     def test_rpc_missing_is_cached(self):
         """After the first failure we skip the RPC for the rest of the process."""
@@ -255,9 +255,7 @@ class TestCreateWithRetry:
             if call_count == 1:
                 return MagicMock(data=[])  # first scan
             if call_count == 2:
-                raise APIError(
-                    {"message": "duplicate", "code": "23505", "details": "", "hint": ""}
-                )
+                raise APIError({"message": "duplicate", "code": "23505", "details": "", "hint": ""})
             if call_count == 3:
                 return MagicMock(data=[{"id": "EXP-0001"}])  # second scan, fresh state
             return MagicMock(data=[inserted_row])  # second insert
@@ -319,9 +317,7 @@ class TestCreateWithRetry:
             call_count += 1
             if call_count % 2 == 1:
                 return MagicMock(data=[])  # scan
-            raise APIError(
-                {"message": "duplicate", "code": "23505", "details": "", "hint": ""}
-            )
+            raise APIError({"message": "duplicate", "code": "23505", "details": "", "hint": ""})
 
         table.execute.side_effect = execute_side_effect
 
