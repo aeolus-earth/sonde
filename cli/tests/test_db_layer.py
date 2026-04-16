@@ -93,11 +93,62 @@ class TestFindings:
         patched_db.table("findings").execute.return_value = MagicMock(data=[_FINDING_ROW])
 
         from sonde.db import findings as db
+        from sonde.models.finding import Finding
 
         results = db.list_findings(program="weather-intervention")
         assert len(results) == 1
-        assert results[0].id == "FIND-001"
-        assert results[0].confidence == "high"
+        finding = results[0]
+
+        # Full-model assertions instead of single-field round-trip. A
+        # regression that dropped fields, mis-coerced types, or silently
+        # filtered rows would previously pass the single-field check.
+        assert isinstance(finding, Finding)
+        assert finding.id == "FIND-001"
+        assert finding.program == "weather-intervention"
+        assert finding.topic == "CCN saturation"
+        assert finding.finding == "Enhancement saturates at CCN ~1500"
+        assert finding.confidence == "high"
+        assert finding.evidence == ["EXP-0001", "EXP-0002"]
+        assert finding.source == "human/test"
+        assert finding.supersedes is None
+        assert finding.valid_until is None
+        # datetime round-trips through ISO string → datetime object
+        assert finding.valid_from.year == 2026
+
+    def test_list_findings_rejects_invalid_confidence(self, patched_db: MagicMock):
+        """The Finding model's Literal confidence field must reject
+        values outside the allowed set. If the DB ever returns a stale
+        row with a dropped confidence level, we want a loud ValidationError
+        at the boundary, not a silent downstream bug."""
+        import pydantic
+
+        bad_row = {**_FINDING_ROW, "confidence": "stellar"}
+        patched_db.table("findings").execute.return_value = MagicMock(data=[bad_row])
+
+        from sonde.db import findings as db
+
+        # Exact exception type — not a catch-all Exception. If Pydantic
+        # stops raising ValidationError for literal violations, the test
+        # must break so we notice.
+        try:
+            db.list_findings(program="weather-intervention")
+        except pydantic.ValidationError as exc:
+            assert "confidence" in str(exc).lower()
+        else:
+            raise AssertionError(
+                "Finding model accepted an invalid confidence literal; "
+                "validation must fail loudly at the boundary"
+            )
+
+    def test_list_findings_empty_result(self, patched_db: MagicMock):
+        """Empty DB response must round-trip as an empty list — not raise,
+        not return None. Pins the 'no findings yet' UX."""
+        patched_db.table("findings").execute.return_value = MagicMock(data=[])
+
+        from sonde.db import findings as db
+
+        results = db.list_findings(program="weather-intervention")
+        assert results == []
 
     def test_count_findings(self, patched_db: MagicMock):
         patched_db.table("findings").execute.return_value = MagicMock(data=[], count=5)
