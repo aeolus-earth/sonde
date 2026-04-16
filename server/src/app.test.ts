@@ -655,6 +655,92 @@ describe("createApp", () => {
     assert.equal(body.items[0]?.status, "idle");
   });
 
+  it("returns runtime metadata from the admin runtime endpoint", async () => {
+    process.env.SONDE_COMMIT_SHA = "admin-runtime-sha";
+    process.env.SONDE_ENVIRONMENT = "staging";
+    const app = createApp();
+
+    const response = await app.request("http://localhost/admin/runtime", {
+      headers: {
+        Authorization: `Bearer ${authToken}`,
+      },
+    });
+
+    assert.equal(response.status, 200);
+    const body = (await response.json()) as {
+      environment: string;
+      commitSha: string | null;
+      agentBackend: string;
+    };
+    assert.equal(body.environment, "staging");
+    assert.equal(body.commitSha, "admin-runtime-sha");
+    assert.equal(body.agentBackend, "managed");
+  });
+
+  it("returns a structured 404 for missing managed session details", async () => {
+    process.env.VITE_SUPABASE_URL = "https://oxajsxoedrmvrcatqser.supabase.co";
+    process.env.VITE_SUPABASE_ANON_KEY = "anon-key";
+    globalThis.fetch = async (input: string | URL | Request) => {
+      const url =
+        typeof input === "string"
+          ? new URL(input)
+          : input instanceof URL
+            ? input
+            : new URL(input.url);
+
+      if (url.pathname.endsWith("/rest/v1/managed_sessions")) {
+        return new Response(JSON.stringify(null), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+
+      throw new Error(`Unexpected fetch: ${url.toString()}`);
+    };
+
+    const app = createApp();
+    const response = await app.request("http://localhost/admin/managed-sessions/missing", {
+      headers: {
+        Authorization: `Bearer ${authToken}`,
+      },
+    });
+
+    assert.equal(response.status, 404);
+    const body = (await response.json()) as {
+      error: { type: string; message: string };
+    };
+    assert.equal(body.error.type, "managed_session_missing");
+    assert.equal(body.error.message, "Managed session not found.");
+  });
+
+  it("initializes the remote Sonde MCP endpoint for authenticated users", async () => {
+    const app = createApp();
+    const response = await app.request("http://localhost/mcp/sonde", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${authToken}`,
+        Accept: "application/json, text/event-stream",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-03-26",
+          capabilities: {},
+          clientInfo: { name: "sonde-test", version: "0.0.0" },
+        },
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("content-type"), "text/event-stream");
+    const body = await response.text();
+    assert.match(body, /"serverInfo":\{"name":"sonde","version":"0\.1\.0"\}/);
+    assert.match(body, /"tools":\{"listChanged":true\}/);
+  });
+
   it("mints a chat session token from an authenticated request", async () => {
     const app = createApp();
     const response = await app.request("http://localhost/chat/session-token", {
@@ -933,6 +1019,7 @@ describe("createApp", () => {
     { name: "GET /admin/managed-sessions", method: "GET", path: "/admin/managed-sessions" },
     { name: "GET /admin/managed-sessions/:id", method: "GET", path: "/admin/managed-sessions/abc-123" },
     { name: "POST /admin/managed-costs/reconcile", method: "POST", path: "/admin/managed-costs/reconcile", body: "{}" },
+    { name: "POST /mcp/sonde", method: "POST", path: "/mcp/sonde", body: "{}" },
     { name: "POST /chat/session-token", method: "POST", path: "/chat/session-token", body: "{}" },
     { name: "POST /chat/prewarm", method: "POST", path: "/chat/prewarm", body: "{}" },
   ];

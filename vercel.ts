@@ -43,7 +43,7 @@ function buildConfig() {
   return {
     $schema: "https://openapi.vercel.sh/vercel.json",
     installCommand: "npm ci --prefix ui",
-    buildCommand: "npm run build --prefix ui",
+    buildCommand: "git fetch --tags --force --quiet || true; npm run build --prefix ui",
     outputDirectory: "ui/dist",
     headers: [
       {
@@ -65,7 +65,7 @@ function buildConfig() {
           },
           {
             key: "Content-Security-Policy",
-            value: `default-src 'self'; script-src 'self' 'sha256-R/guIIIfwBNMKTuvNTrvVOAlszaDjyjpfpXQXmnPS/I='; style-src 'self' 'unsafe-inline' https://rsms.me https://fonts.googleapis.com; font-src 'self' https://rsms.me https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src ${connectSrc}; frame-ancestors 'none'; base-uri 'self'; form-action 'self'`,
+            value: `default-src 'self'; script-src 'self' 'sha256-R/guIIIfwBNMKTuvNTrvVOAlszaDjyjpfpXQXmnPS/I='; style-src 'self' 'unsafe-inline' https://rsms.me https://fonts.googleapis.com; font-src 'self' https://rsms.me https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src ${connectSrc}; frame-src 'self' blob: https://*.supabase.co https://view.officeapps.live.com; object-src 'self' blob: https://*.supabase.co; frame-ancestors 'none'; base-uri 'self'; form-action 'self'`,
           },
         ],
       },

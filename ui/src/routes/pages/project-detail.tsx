@@ -7,7 +7,12 @@ import {
 } from "@/hooks/use-projects";
 import { useQuestions } from "@/hooks/use-questions";
 import { useRecordActivity } from "@/hooks/use-activity";
-import { useArtifacts, useArtifactUrl } from "@/hooks/use-artifacts";
+import {
+  isBlobCacheable,
+  useArtifactBlob,
+  useArtifacts,
+  useArtifactUrl,
+} from "@/hooks/use-artifacts";
 import { useHotkey } from "@/hooks/use-keyboard";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -614,16 +619,22 @@ function ProjectExperimentRow({
 }
 
 function ProjectReportPdf({ artifact }: { artifact: Artifact }) {
-  const { data: url } = useArtifactUrl(artifact.storage_path);
+  const shouldEmbedBlob = isBlobCacheable(artifact.size_bytes);
+  const { data: signedUrl } = useArtifactUrl(artifact.storage_path);
+  const { data: blobUrl, error: blobError } = useArtifactBlob(
+    artifact.storage_path,
+    shouldEmbedBlob ? artifact.size_bytes : null,
+  );
+  const embedUrl = shouldEmbedBlob && !blobError ? blobUrl : signedUrl;
 
-  if (!url) {
+  if (!signedUrl || !embedUrl) {
     return <Skeleton className="h-[360px] w-full rounded-[8px]" />;
   }
 
   return (
     <EmbeddedDocumentPreview
-      fileUrl={url}
-      embedUrl={url}
+      fileUrl={signedUrl}
+      embedUrl={embedUrl}
       title={artifact.filename}
     />
   );

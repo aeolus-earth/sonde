@@ -147,23 +147,37 @@ for (const [name, json] of [
     throw new Error(`${name} vercel config is missing ${expectedWsOrigin} in connect-src`);
   }
 }
-// The UI CSP must allow cross-origin iframes/objects for Supabase Storage
-// so PDF artifact previews render. Historically this was omitted and
-// browsers fell back to `default-src 'self'`, silently blocking embeds.
-{
-  const uiConfig = JSON.parse(uiJson);
-  const uiCsp = cspHeader(uiConfig);
-  if (!/\bframe-src\b/.test(uiCsp)) {
-    throw new Error("ui vercel config is missing frame-src CSP (breaks PDF previews)");
+// Both Vercel configs must allow PDF/PPTX embeds. The root config is what
+// the hosted project uses when its root directory is the repository root;
+// ui/vercel.ts covers the alternate root-directory deployment shape.
+for (const [name, json] of [
+  ["root", rootJson],
+  ["ui", uiJson],
+]) {
+  const config = JSON.parse(json);
+  const csp = cspHeader(config);
+  if (!/\bframe-src\b/.test(csp)) {
+    throw new Error(`${name} vercel config is missing frame-src CSP (breaks PDF previews)`);
   }
-  if (!/\bframe-src\s+[^;]*https:\/\/\*\.supabase\.co/.test(uiCsp)) {
+  if (!/\bframe-src\s+[^;]*blob:/.test(csp)) {
+    throw new Error(`${name} vercel config frame-src is missing blob: (PDF object URLs)`);
+  }
+  if (!/\bframe-src\s+[^;]*https:\/\/\*\.supabase\.co/.test(csp)) {
     throw new Error(
-      "ui vercel config frame-src is missing https://*.supabase.co (breaks PDF previews)",
+      `${name} vercel config frame-src is missing https://*.supabase.co (signed URLs)`,
     );
   }
-  if (!/\bobject-src\s+[^;]*https:\/\/\*\.supabase\.co/.test(uiCsp)) {
+  if (!/\bframe-src\s+[^;]*https:\/\/view\.officeapps\.live\.com/.test(csp)) {
     throw new Error(
-      "ui vercel config object-src is missing https://*.supabase.co (PDF/embed fallback)",
+      `${name} vercel config frame-src is missing https://view.officeapps.live.com (PPTX previews)`,
+    );
+  }
+  if (!/\bobject-src\s+[^;]*blob:/.test(csp)) {
+    throw new Error(`${name} vercel config object-src is missing blob: (PDF fallback)`);
+  }
+  if (!/\bobject-src\s+[^;]*https:\/\/\*\.supabase\.co/.test(csp)) {
+    throw new Error(
+      `${name} vercel config object-src is missing https://*.supabase.co (PDF/embed fallback)`,
     );
   }
 }
