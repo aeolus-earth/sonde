@@ -190,3 +190,24 @@ uv tool install --force "git+https://github.com/aeolus-earth/sonde.git@v0.1.1#su
 
 Installs from `main` (or any untagged commit) will show a dev-version
 suffix; installs from a tag will show the clean version.
+
+### Upgrading past the >1000-row ID bug
+
+Versions before the `sonde_next_sequential_id` RPC fix computed the next
+`PREFIX-NNNN` ID by pulling every matching row client-side. PostgREST caps
+those responses at 1000 rows, so once a table (artifacts first, experiments
+and findings next) crossed that threshold, new inserts collided on the PK
+and the retry loop looped on the same stale value. The fix uses a Postgres
+RPC for O(1) allocation, with a paginated client-side fallback for deploys
+that don't yet have the migration applied.
+
+- Users on `@main` auto-update on the next install — just re-run
+  `uv tool install --force …@main`.
+- Users pinned to a tag should reinstall from the first tag that includes
+  the fix:
+  `uv tool install --force "git+https://github.com/aeolus-earth/sonde.git@<tag>#subdirectory=cli"`.
+- The migration is not strictly required: a post-fix CLI against a
+  pre-migration DB logs a one-time WARNING and falls back to the paginated
+  scan (correct, just slower on large tables). Apply
+  `supabase/migrations/20260415000001_add_next_sequential_id_rpc.sql` to
+  get the O(1) server-side path.
