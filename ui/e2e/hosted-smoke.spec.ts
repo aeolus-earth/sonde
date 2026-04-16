@@ -164,45 +164,49 @@ async function waitForHostedChatResponse(
   assistantMessage: Locator,
   approveButtons: Locator
 ): Promise<void> {
-  const deadline = Date.now() + 90_000;
+  await expect
+    .poll(
+      async () => {
+        const approveCount = await approveButtons.count().catch(() => 0);
+        for (let index = 0; index < approveCount; index += 1) {
+          const button = approveButtons.nth(index);
+          const isVisible = await button.isVisible().catch(() => false);
+          const isEnabled = await button.isEnabled().catch(() => false);
+          if (isVisible && isEnabled) {
+            await button.click().catch(() => {});
+          }
+        }
 
-  while (Date.now() < deadline) {
-    const approveCount = await approveButtons.count().catch(() => 0);
-    for (let index = 0; index < approveCount; index += 1) {
-      const button = approveButtons.nth(index);
-      const isVisible = await button.isVisible().catch(() => false);
-      const isEnabled = await button.isEnabled().catch(() => false);
-      if (isVisible && isEnabled) {
-        await button.click().catch(() => {});
+        const smokeMarkerVisible = await page
+          .getByText("SONDE_SMOKE_OK", { exact: false })
+          .isVisible()
+          .catch(() => false);
+        if (smokeMarkerVisible) {
+          return "complete";
+        }
+
+        const content = await assistantMessage
+          .locator("[data-chat-assistant-content]")
+          .last()
+          .textContent()
+          .catch(() => "");
+        if (content && CHAT_AUTH_FAILURE_MARKER.test(content)) {
+          throw new Error(
+            `Hosted chat surfaced an auth failure instead of tool output: ${content}`
+          );
+        }
+        if (content?.includes("SONDE_SMOKE_OK")) {
+          return "complete";
+        }
+
+        return "pending";
+      },
+      {
+        timeout: 90_000,
+        message: "Expected hosted chat to render SONDE_SMOKE_OK on the first turn.",
       }
-    }
-
-    const smokeMarkerVisible = await page
-      .getByText("SONDE_SMOKE_OK", { exact: false })
-      .isVisible()
-      .catch(() => false);
-    if (smokeMarkerVisible) {
-      return;
-    }
-
-    const content = await assistantMessage
-      .locator("[data-chat-assistant-content]")
-      .last()
-      .textContent()
-      .catch(() => "");
-    if (content && CHAT_AUTH_FAILURE_MARKER.test(content)) {
-      throw new Error(`Hosted chat surfaced an auth failure instead of tool output: ${content}`);
-    }
-    if (content?.includes("SONDE_SMOKE_OK")) {
-      return;
-    }
-
-    await page.waitForTimeout(1_000);
-  }
-
-  throw new Error(
-    "Expected hosted chat to render SONDE_SMOKE_OK on the first turn."
-  );
+    )
+    .toBe("complete");
 }
 
 async function startHostedDeviceActivation(

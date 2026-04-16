@@ -13,7 +13,8 @@
  */
 
 import { describe, expect, it } from "vitest";
-import config from "../../vercel";
+import rootConfig from "../../../vercel";
+import uiConfig from "../../vercel";
 
 type VercelConfig = {
   headers?: Array<{
@@ -33,7 +34,12 @@ function cspHeader(vercelConfig: VercelConfig): string {
   return "";
 }
 
-describe("ui/vercel.ts CSP", () => {
+const configs = [
+  ["root vercel.ts", rootConfig],
+  ["ui/vercel.ts", uiConfig],
+] as const;
+
+describe.each(configs)("%s CSP", (_name, config) => {
   const csp = cspHeader(config as VercelConfig);
 
   it("has a Content-Security-Policy header", () => {
@@ -52,6 +58,7 @@ describe("ui/vercel.ts CSP", () => {
     // Root-cause coverage for the PDF-preview bug: without frame-src,
     // browsers fall back to default-src 'self' and block all
     // cross-origin iframes. Signed Supabase Storage URLs are cross-origin.
+    expect(csp).toMatch(/\bframe-src\s+[^;]*blob:/);
     expect(csp).toMatch(/\bframe-src\s+[^;]*https:\/\/\*\.supabase\.co/);
   });
 
@@ -67,6 +74,7 @@ describe("ui/vercel.ts CSP", () => {
     // If we ever swap iframe for object/embed (or a browser routes PDFs
     // that way), object-src must also allow the Supabase origin.
     // default-src 'self' fallback would block it otherwise.
+    expect(csp).toMatch(/\bobject-src\s+[^;]*blob:/);
     expect(csp).toMatch(/\bobject-src\s+[^;]*https:\/\/\*\.supabase\.co/);
   });
 

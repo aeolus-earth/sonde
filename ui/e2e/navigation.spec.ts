@@ -42,8 +42,7 @@ test.describe("SPA navigation", () => {
     await page.waitForURL(/\/login/, { timeout: 10_000 }); // redirects back
 
     await page.goBack();
-    // Should go back in history without breaking
-    await page.waitForTimeout(500);
+    await page.waitForLoadState("domcontentloaded");
     expect(page.url()).toBeTruthy();
   });
 });

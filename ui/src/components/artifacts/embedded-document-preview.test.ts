@@ -1,19 +1,12 @@
-/**
- * Tests for the pure-function half of embedded-document-preview.
- *
- * The React component itself (iframe rendering + onError fallback) isn't
- * covered here because the UI test suite doesn't have React Testing
- * Library / jsdom set up, and adding that just for this one component
- * would be disproportionate. The fallback UI is covered by visual QA
- * on the preview deployment, and the CSP regression risk is guarded by
- * `scripts/ci/hosted-preflight.sh`'s CSP validation.
- *
- * What IS testable here: the `officeOnlineEmbedUrl` helper. A regression
- * in URL encoding there would silently break PPTX previews.
- */
+// @vitest-environment jsdom
 
+import { createElement } from "react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { officeOnlineEmbedUrl } from "./embedded-document-preview";
+import {
+  EmbeddedDocumentPreview,
+  officeOnlineEmbedUrl,
+} from "./embedded-document-preview";
 
 describe("officeOnlineEmbedUrl", () => {
   it("builds a view.officeapps.live.com embed URL", () => {
@@ -46,6 +39,37 @@ describe("officeOnlineEmbedUrl", () => {
     expect(() => officeOnlineEmbedUrl("")).not.toThrow();
     expect(officeOnlineEmbedUrl("")).toBe(
       "https://view.officeapps.live.com/op/embed.aspx?src=",
+    );
+  });
+});
+
+describe("EmbeddedDocumentPreview", () => {
+  it("renders a visible fallback while preserving open and download actions", () => {
+    render(
+      createElement(EmbeddedDocumentPreview, {
+        fileUrl: "https://project.supabase.co/storage/v1/object/sign/artifacts/report.pdf",
+        embedUrl: "blob:http://localhost/report-pdf",
+        title: "project-report.pdf",
+      }),
+    );
+
+    const frame = screen.getByTitle("project-report.pdf");
+    expect(frame).toHaveAttribute("src", "blob:http://localhost/report-pdf");
+
+    fireEvent(frame, new Event("error", { bubbles: true }));
+
+    expect(screen.getByTestId("embedded-preview-fallback")).toBeVisible();
+    expect(
+      screen.getByText("Preview unavailable. Use Open or Download."),
+    ).toBeVisible();
+    expect(screen.queryByTitle("project-report.pdf")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /open/i })).toHaveAttribute(
+      "href",
+      "https://project.supabase.co/storage/v1/object/sign/artifacts/report.pdf",
+    );
+    expect(screen.getByRole("link", { name: /download/i })).toHaveAttribute(
+      "download",
+      "project-report.pdf",
     );
   });
 });

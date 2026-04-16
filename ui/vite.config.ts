@@ -75,7 +75,7 @@ function describeGitTag(): string | null {
       .trim();
     // Only use describe output when it's an actual tag reference
     // ("v0.1.0", "v0.1.0-3-g1a2b3c4", "v0.1.0-dirty"). Bare-SHA output means
-    // no tag was reachable from HEAD — fall through to the branch-ref env.
+    // no tag was reachable from HEAD — fall through to the explicit fallback.
     return /^v\d+\.\d+\.\d+/.test(out) ? out : null;
   } catch {
     // Shallow clone with no tags, or git not installed — caller falls back.
@@ -83,14 +83,12 @@ function describeGitTag(): string | null {
   }
 }
 
-// Prefer an explicit override; then the nearest git tag (so tagged main builds
-// render "v0.1.0" instead of the "main" branch label); then the platform's
-// branch env; then "dev".
+// Prefer an explicit override; then the nearest git tag/describe label; then
+// "dev". Do not fall back to branch refs like "main" because the sidebar badge
+// is a product-version affordance, not a deploy-branch indicator.
 const appVersion =
   process.env.VITE_APP_VERSION?.trim() ||
   describeGitTag() ||
-  process.env.VERCEL_GIT_COMMIT_REF?.trim() ||
-  process.env.RAILWAY_GIT_BRANCH?.trim() ||
   "dev";
 const appCommitSha =
   process.env.VITE_APP_COMMIT_SHA?.trim() ||
@@ -102,6 +100,7 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["src/**/*.test.ts"],
+    setupFiles: ["src/test/setup.ts"],
   },
   define: {
     "import.meta.env.VITE_APP_VERSION": JSON.stringify(appVersion),
