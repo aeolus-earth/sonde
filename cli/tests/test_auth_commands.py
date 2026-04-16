@@ -544,3 +544,92 @@ def test_refresh_session_updates_stored_session(monkeypatch):
     user = cast(dict[str, Any], saved["user"])
     meta = cast(dict[str, Any], user["app_metadata"])
     assert meta["programs"] == ["dart-benchmarking", "shared"]
+
+
+# ---------------------------------------------------------------------------
+# Auth negative-path coverage
+# ---------------------------------------------------------------------------
+#
+# The CLI enforces auth in one place: ``cli.py`` invokes ``is_authenticated()``
+# for every subcommand not in the ``_NO_AUTH`` allowlist. These tests pin that
+# contract so a regression (accidental allowlist expansion, dropped auth
+# check, or a new subcommand registered without going through the gate)
+# fails loudly.
+
+
+def test_noauth_allowlist_is_tight() -> None:
+    """The _NO_AUTH set must stay tight. Any command outside this set
+    requires auth. If this assertion fires, someone added a command to
+    the allowlist — review whether that's intentional."""
+    from sonde.cli import _NO_AUTH
+
+    expected = {"login", "logout", "whoami", "setup", "doctor", "skills"}
+    assert _NO_AUTH == expected, (
+        f"_NO_AUTH changed to {_NO_AUTH!r}. If intentional, update this "
+        f"test; otherwise a previously-auth-required command was silently "
+        f"allowlisted."
+    )
+
+
+def _invoke_unauthenticated(runner: CliRunner, monkeypatch, *args: str):
+    """Run a CLI command with no credentials available."""
+    monkeypatch.delenv("SONDE_TOKEN", raising=False)
+    monkeypatch.delenv("SONDE_ACCESS_TOKEN", raising=False)
+    with (
+        patch("sonde.auth.is_authenticated", return_value=False),
+        patch("sonde.auth.load_session", return_value=None),
+        patch("sonde.auth.get_token", return_value=None),
+    ):
+        return runner.invoke(cli, list(args))
+
+
+def test_list_rejects_unauthenticated(runner: CliRunner, monkeypatch):
+    result = _invoke_unauthenticated(runner, monkeypatch, "list")
+    assert result.exit_code != 0
+    assert "Not logged in" in result.output
+    assert "sonde login" in result.output
+
+
+def test_show_rejects_unauthenticated(runner: CliRunner, monkeypatch):
+    result = _invoke_unauthenticated(runner, monkeypatch, "show", "EXP-0001")
+    assert result.exit_code != 0
+    assert "Not logged in" in result.output
+
+
+def test_push_rejects_unauthenticated(runner: CliRunner, monkeypatch):
+    result = _invoke_unauthenticated(runner, monkeypatch, "push")
+    assert result.exit_code != 0
+    assert "Not logged in" in result.output
+
+
+def test_pull_rejects_unauthenticated(runner: CliRunner, monkeypatch):
+    result = _invoke_unauthenticated(runner, monkeypatch, "pull")
+    assert result.exit_code != 0
+    assert "Not logged in" in result.output
+
+
+def test_recent_rejects_unauthenticated(runner: CliRunner, monkeypatch):
+    result = _invoke_unauthenticated(runner, monkeypatch, "recent")
+    assert result.exit_code != 0
+    assert "Not logged in" in result.output
+
+
+def test_brief_rejects_unauthenticated(runner: CliRunner, monkeypatch):
+    result = _invoke_unauthenticated(runner, monkeypatch, "brief")
+    assert result.exit_code != 0
+    assert "Not logged in" in result.output
+
+
+def test_login_does_not_require_prior_auth(runner: CliRunner, monkeypatch):
+    """`login` must remain reachable without credentials — otherwise users
+    can't recover from an expired session. Pins the allowlist inclusion."""
+    monkeypatch.delenv("SONDE_TOKEN", raising=False)
+    with (
+        patch("sonde.auth.is_authenticated", return_value=False),
+        patch("sonde.auth.load_session", return_value=None),
+    ):
+        # `login --help` is safe to run: it exercises the entry point
+        # without triggering the actual OAuth flow.
+        result = runner.invoke(cli, ["login", "--help"])
+    assert result.exit_code == 0
+    assert "Not logged in" not in result.output

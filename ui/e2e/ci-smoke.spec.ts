@@ -82,6 +82,26 @@ test.describe("CI smoke", () => {
     await expect(page.getByRole("button", { name: "Continue with Google" })).toBeVisible();
   });
 
+  test("unauthenticated admin deep-link redirects to login", async ({ page }) => {
+    // Specifically pin the admin guard: a direct deep-link to an
+    // admin-only route must bounce to login when no session cookie or
+    // localStorage token is present. Regression protection for the
+    // class of bug where an _authenticated route accidentally drops
+    // its guard.
+    await page.goto("/admin");
+    await page.waitForURL(/\/login/, { timeout: 10_000 });
+    await expect(page.getByRole("button", { name: "Continue with Google" })).toBeVisible();
+  });
+
+  test("unauthenticated experiments deep-link redirects to login", async ({ page }) => {
+    // Deep-linking to a protected user route with empty localStorage
+    // must redirect to login. Pairs with the admin test above: catches
+    // an auth-guard removal on the user (non-admin) side.
+    await page.goto("/experiments");
+    await page.waitForURL(/\/login/, { timeout: 10_000 });
+    await expect(page.getByRole("button", { name: "Continue with Google" })).toBeVisible();
+  });
+
   test("agent health is reachable through the UI proxy", async ({ request, baseURL }) => {
     const response = await request.get(new URL("/agent/health", baseURL).toString());
     expect(response.ok()).toBeTruthy();

@@ -914,4 +914,64 @@ describe("createApp", () => {
     assert.equal(body.error.type, "repo_not_allowed");
     assert.match(body.error.message, /private-org\/private-repo/);
   });
+
+  // Every auth-gated endpoint must reject requests that arrive without a
+  // valid session token. Individual happy-path tests rely on
+  // SONDE_TEST_AUTH_BYPASS_TOKEN; these tests confirm the real auth gate
+  // still fires when the bypass token isn't presented. Prevents a class
+  // of regression where an endpoint silently stops requiring auth.
+  const AUTH_GATED_ENDPOINTS: Array<{
+    name: string;
+    method: "GET" | "POST";
+    path: string;
+    body?: string;
+  }> = [
+    { name: "POST /auth/device/introspect", method: "POST", path: "/auth/device/introspect", body: "{}" },
+    { name: "POST /auth/device/approve", method: "POST", path: "/auth/device/approve", body: "{}" },
+    { name: "GET /admin/runtime", method: "GET", path: "/admin/runtime" },
+    { name: "GET /admin/managed-costs/summary", method: "GET", path: "/admin/managed-costs/summary" },
+    { name: "GET /admin/managed-sessions", method: "GET", path: "/admin/managed-sessions" },
+    { name: "GET /admin/managed-sessions/:id", method: "GET", path: "/admin/managed-sessions/abc-123" },
+    { name: "POST /admin/managed-costs/reconcile", method: "POST", path: "/admin/managed-costs/reconcile", body: "{}" },
+    { name: "POST /chat/session-token", method: "POST", path: "/chat/session-token", body: "{}" },
+    { name: "POST /chat/prewarm", method: "POST", path: "/chat/prewarm", body: "{}" },
+  ];
+
+  for (const endpoint of AUTH_GATED_ENDPOINTS) {
+    it(`rejects ${endpoint.name} without an Authorization header`, async () => {
+      // Intentionally leave the bypass token set so the test mirrors the
+      // real staging/prod config: the auth middleware must refuse
+      // unauthenticated requests even when the bypass token is configured.
+      process.env.ANTHROPIC_API_KEY = "sk-ant-api03-test-key";
+      process.env.VITE_SUPABASE_URL = "https://oxajsxoedrmvrcatqser.supabase.co";
+      const app = createApp();
+
+      const init: RequestInit = { method: endpoint.method };
+      if (endpoint.body !== undefined) {
+        init.headers = { "content-type": "application/json" };
+        init.body = endpoint.body;
+      }
+
+      const response = await app.request(`http://localhost${endpoint.path}`, init);
+      assert.equal(
+        response.status,
+        401,
+        `${endpoint.name} should return 401 without auth, got ${response.status}`,
+      );
+
+      const body = (await response.json()) as {
+        error?: { type: string; message: string };
+      };
+      assert.ok(body.error, `${endpoint.name} 401 response should include an error object`);
+      assert.equal(body.error?.type, "unauthorized");
+    });
+  }
+
+  // Admin-vs-user 403 coverage intentionally deferred: asserting "authed
+  // but not admin → 403" requires mocking verifyToken to return
+  // isAdmin: false, which TypeScript's ES module lock makes awkward
+  // without invasive refactoring. The 401 tests above catch the larger
+  // class of regression (endpoint dropping auth entirely); the
+  // authed-user-not-admin path can be added when we extract the auth
+  // middleware behind a seam that's easier to stub.
 });
