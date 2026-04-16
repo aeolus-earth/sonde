@@ -95,6 +95,35 @@ export interface NavigationHandlers {
   onProjectOpen?: (id: string) => void;
 }
 
+/**
+ * Factory functions the component supplies so the builder can obtain
+ * a *stable* 0-arg callback per id. Why factories instead of raw
+ * callbacks:
+ *
+ * If the builder wraps `toggle(id)` inline (`() => toggle(id)`) every
+ * call, the wrapped closure is a fresh reference on every build. That
+ * ends up in the node's `data` object → shallow-compare sees a
+ * different `data` → `memo(NodeComponent)` can't skip the render →
+ * every node re-renders on every toggle. For N=1000 that's 1000
+ * wasted renders per user click.
+ *
+ * Factories returning cached-per-id closures let every build hand
+ * React Flow the *same* `onToggle` reference for a given id as the
+ * previous build, so the shallow compare passes and React skips the
+ * un-needed render.
+ *
+ * Callers construct these with `useRef(new Map<string, () => void>())`
+ * caches — see `experiment-graph.tsx` for the idiom.
+ */
+export interface HandlerFactories {
+  toggleFor: (key: string) => () => void;
+  openExperimentFor: (id: string) => () => void;
+  openQuestionFor: (id: string) => () => void;
+  openDirectionFor: (id: string) => () => void;
+  openFindingFor: (id: string) => () => void;
+  openProjectFor: (id: string) => () => void;
+}
+
 export interface BuildGraphInput {
   projects: ProjectSummary[];
   directions: DirectionSummary[];
@@ -102,11 +131,10 @@ export interface BuildGraphInput {
   questions: QuestionSummary[];
   findings: Finding[];
   expanded: Set<string>;
-  toggle: (key: string) => void;
+  handlers: HandlerFactories;
   statusColor: StatusColorMap;
   borderColor: string;
   projectEdgeColor: string;
-  navigation: NavigationHandlers;
   knownProjectIds: Set<string>;
 }
 
@@ -305,14 +333,47 @@ function rootExperimentsForGroup(
   );
 }
 
-function countDescendants(
-  id: string,
+function visibleExperimentChildren(
+  exp: ExperimentSummary,
   childMap: Map<string, ExperimentSummary[]>,
+  directionsBySpawnExperiment: Map<string, DirectionSummary[]>,
+): ExperimentSummary[] {
+  const children = childMap.get(exp.id) ?? [];
+  const spawnedDirections = directionsBySpawnExperiment.get(exp.id) ?? [];
+  if (spawnedDirections.length === 0) return children;
+
+  const spawnedDirectionIds = new Set(
+    spawnedDirections.map((direction) => direction.id),
+  );
+  return children.filter(
+    (child) =>
+      !child.direction_id || !spawnedDirectionIds.has(child.direction_id),
+  );
+}
+
+function countDescendants(
+  exp: ExperimentSummary,
+  childMap: Map<string, ExperimentSummary[]>,
+  directionsBySpawnExperiment: Map<string, DirectionSummary[]>,
 ): number {
-  const children = childMap.get(id) ?? [];
+  const children = visibleExperimentChildren(
+    exp,
+    childMap,
+    directionsBySpawnExperiment,
+  );
   let count = children.length;
-  for (const c of children) count += countDescendants(c.id, childMap);
+  for (const c of children) {
+    count += countDescendants(c, childMap, directionsBySpawnExperiment);
+  }
   return count;
+}
+
+function rootUnlinkedExperimentsForDirection(
+  experiments: ExperimentSummary[],
+): ExperimentSummary[] {
+  return rootExperimentsForGroup(experiments).filter(
+    (experiment) => !experiment.primary_question_id,
+  );
 }
 
 export function projectNodeId(raw: string | null): string {
@@ -342,11 +403,13 @@ interface BuildContext {
   questionsByDirection: Map<string, QuestionSummary[]>;
   experimentsByQuestion: Map<string, ExperimentSummary[]>;
   findingsByExperiment: Map<string, Finding[]>;
+  renderedDirections: Set<string>;
+  renderedExperiments: Set<string>;
+  renderedQuestions: Set<string>;
   expanded: Set<string>;
-  toggle: (key: string) => void;
+  handlers: HandlerFactories;
   statusColor: StatusColorMap;
   borderColor: string;
-  navigation: NavigationHandlers;
 }
 
 function addExperimentSubtree(
@@ -357,8 +420,15 @@ function addExperimentSubtree(
   nodes: Node[],
   edges: Edge[],
 ): void {
-  const children = ctx.childMap.get(exp.id) ?? [];
+  if (ctx.renderedExperiments.has(exp.id)) return;
+  ctx.renderedExperiments.add(exp.id);
+
   const spawnedDirections = ctx.directionsBySpawnExperiment.get(exp.id) ?? [];
+  const children = visibleExperimentChildren(
+    exp,
+    ctx.childMap,
+    ctx.directionsBySpawnExperiment,
+  );
   const findings = ctx.findingsByExperiment.get(exp.id) ?? [];
   const hasChildren =
     children.length > 0 || spawnedDirections.length > 0 || findings.length > 0;
@@ -373,13 +443,17 @@ function addExperimentSubtree(
       statusColors: ctx.statusColor,
       hasChildren,
       childCount:
-        countDescendants(exp.id, ctx.childMap) +
+        countDescendants(
+          exp,
+          ctx.childMap,
+          ctx.directionsBySpawnExperiment,
+        ) +
         spawnedDirections.length +
         findings.length,
       isExpanded,
       depth,
-      onToggle: hasChildren ? () => ctx.toggle(exp.id) : undefined,
-      onOpen: () => ctx.navigation.onExperimentOpen?.(exp.id),
+      onToggle: hasChildren ? ctx.handlers.toggleFor(exp.id) : undefined,
+      onOpen: ctx.handlers.openExperimentFor(exp.id),
     } as Record<string, unknown>,
     draggable: true,
   });
@@ -403,7 +477,7 @@ function addExperimentSubtree(
       position: { x: 0, y: 0 },
       data: {
         ...finding,
-        onOpen: () => ctx.navigation.onFindingOpen?.(finding.id),
+        onOpen: ctx.handlers.openFindingFor(finding.id),
       } as Record<string, unknown>,
       draggable: true,
     });
@@ -437,6 +511,9 @@ function addQuestionSubtree(
   nodes: Node[],
   edges: Edge[],
 ): void {
+  if (ctx.renderedQuestions.has(question.id)) return;
+  ctx.renderedQuestions.add(question.id);
+
   const headerId = `question-${question.id}`;
   const isExpanded = ctx.expanded.has(headerId);
   const questionExperiments = ctx.experimentsByQuestion.get(question.id) ?? [];
@@ -453,8 +530,8 @@ function addQuestionSubtree(
       count: questionExperiments.length,
       findingCount,
       expanded: isExpanded,
-      onToggle: () => ctx.toggle(headerId),
-      onOpen: () => ctx.navigation.onQuestionOpen?.(question.id),
+      onToggle: ctx.handlers.toggleFor(headerId),
+      onOpen: ctx.handlers.openQuestionFor(question.id),
     } as Record<string, unknown>,
     draggable: true,
   });
@@ -481,16 +558,16 @@ function addDirectionSubtree(
   nodes: Node[],
   edges: Edge[],
 ): void {
+  if (ctx.renderedDirections.has(direction.id)) return;
+  ctx.renderedDirections.add(direction.id);
+
   const headerId = `dir-${direction.id}`;
   const isExpanded = ctx.expanded.has(headerId);
   const directionExperiments =
     ctx.experimentsByDirection.get(direction.id) ?? [];
   const directionQuestions = ctx.questionsByDirection.get(direction.id) ?? [];
-  const directionRoots = rootExperimentsForGroup(
-    directionExperiments.filter(
-      (experiment) => !experiment.primary_question_id,
-    ),
-  );
+  const directionRoots =
+    rootUnlinkedExperimentsForDirection(directionExperiments);
 
   nodes.push({
     id: headerId,
@@ -503,8 +580,8 @@ function addDirectionSubtree(
       expanded: isExpanded,
       statusCounts: countStatuses(directionExperiments),
       statusColors: ctx.statusColor,
-      onToggle: () => ctx.toggle(headerId),
-      onOpen: () => ctx.navigation.onDirectionOpen?.(direction.id),
+      onToggle: ctx.handlers.toggleFor(headerId),
+      onOpen: ctx.handlers.openDirectionFor(direction.id),
     } as Record<string, unknown>,
     draggable: true,
   });
@@ -562,11 +639,10 @@ function buildExperimentGraphImpl(input: BuildGraphInput): BuildGraphOutput {
     questions,
     findings,
     expanded,
-    toggle,
+    handlers,
     statusColor,
     borderColor,
     projectEdgeColor,
-    navigation,
     knownProjectIds,
   } = input;
 
@@ -590,11 +666,13 @@ function buildExperimentGraphImpl(input: BuildGraphInput): BuildGraphOutput {
     questionsByDirection,
     experimentsByQuestion,
     findingsByExperiment,
+    renderedDirections: new Set(),
+    renderedExperiments: new Set(),
+    renderedQuestions: new Set(),
     expanded,
-    toggle,
+    handlers,
     statusColor,
     borderColor,
-    navigation,
   };
 
   const isRoot = (e: ExperimentSummary): boolean =>
@@ -655,8 +733,8 @@ function buildExperimentGraphImpl(input: BuildGraphInput): BuildGraphOutput {
         count: allInProject.length,
         directionCount: dirsInProj.length,
         expanded: isProjExpanded,
-        onToggle: () => toggle(pid),
-        onOpen: p.id === null ? undefined : () => navigation.onProjectOpen?.(p.id!),
+        onToggle: handlers.toggleFor(pid),
+        onOpen: p.id === null ? undefined : handlers.openProjectFor(p.id),
       } as Record<string, unknown>,
       draggable: true,
     });
@@ -688,7 +766,7 @@ function buildExperimentGraphImpl(input: BuildGraphInput): BuildGraphOutput {
         expanded: isNodirExpanded,
         statusCounts: countStatuses(noDirExps),
         statusColors: statusColor,
-        onToggle: () => toggle(nodirId),
+        onToggle: handlers.toggleFor(nodirId),
       } as Record<string, unknown>,
       draggable: true,
     });

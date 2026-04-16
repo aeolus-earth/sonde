@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, memo, useEffect } from "react";
+import { useState, useMemo, useCallback, memo, useEffect, useRef } from "react";
 import {
   ReactFlow,
   Background,
@@ -24,8 +24,38 @@ import {
   buildExperimentGraph,
   buildFindingsByExperiment,
   projectNodeId,
+  type HandlerFactories,
 } from "./experiment-graph/graph-builder";
 import { nodeTypes } from "./experiment-graph/node-types";
+
+/**
+ * Build a factory that returns a stable-per-id callback. Backed by a
+ * persistent `Map` (via `useRef`) so the same id returns the same
+ * closure across builds — see the `HandlerFactories` docstring for
+ * why that matters for performance.
+ *
+ * `inner` should be a stable reference (memoized via `useCallback` in
+ * the caller). If it changes, existing cached closures stay valid —
+ * they close over the *call site*, not the identity of `inner` at
+ * cache time; refreshing is a deliberate no-op to avoid invalidating
+ * the whole cache on unrelated parent re-renders.
+ */
+function useIdKeyedCallback<Arg = string>(
+  inner: ((arg: Arg) => void) | undefined,
+): (arg: Arg) => () => void {
+  const innerRef = useRef(inner);
+  innerRef.current = inner;
+  const cacheRef = useRef(new Map<Arg, () => void>());
+  return useCallback((arg: Arg) => {
+    const cached = cacheRef.current.get(arg);
+    if (cached) return cached;
+    const fn = () => {
+      innerRef.current?.(arg);
+    };
+    cacheRef.current.set(arg, fn);
+    return fn;
+  }, []);
+}
 
 // ── Main component ─────────────────────────────────────────────
 
@@ -133,6 +163,37 @@ export const ExperimentGraph = memo(function ExperimentGraph({
     });
   }, []);
 
+  // Stable-per-id handler factories. Each call for a given id returns
+  // the same closure across builds, so node `data` objects keep the
+  // same `onToggle` / `onOpen` references and React Flow's
+  // `memo(NodeComponent)` shallow compare can skip the render.
+  // See `HandlerFactories` in graph-builder.ts for the rationale.
+  const toggleFor = useIdKeyedCallback(toggle);
+  const openExperimentFor = useIdKeyedCallback(onNodeClick);
+  const openQuestionFor = useIdKeyedCallback(onQuestionNavigate);
+  const openDirectionFor = useIdKeyedCallback(onDirectionNavigate);
+  const openFindingFor = useIdKeyedCallback(onFindingNavigate);
+  const openProjectFor = useIdKeyedCallback(onProjectNavigate);
+
+  const handlers = useMemo<HandlerFactories>(
+    () => ({
+      toggleFor,
+      openExperimentFor,
+      openQuestionFor,
+      openDirectionFor,
+      openFindingFor,
+      openProjectFor,
+    }),
+    [
+      toggleFor,
+      openExperimentFor,
+      openQuestionFor,
+      openDirectionFor,
+      openFindingFor,
+      openProjectFor,
+    ],
+  );
+
   // Single call into the pure graph builder — replaces 200 lines of
   // per-subtree recursion + manual orphan filtering. The builder
   // guarantees that no edge reaches React Flow without both endpoints
@@ -147,17 +208,10 @@ export const ExperimentGraph = memo(function ExperimentGraph({
           questions,
           findings,
           expanded,
-          toggle,
+          handlers,
           statusColor,
           borderColor: colors.border,
           projectEdgeColor: colors.textTertiary,
-          navigation: {
-            onExperimentOpen: onNodeClick,
-            onQuestionOpen: onQuestionNavigate,
-            onDirectionOpen: onDirectionNavigate,
-            onFindingOpen: onFindingNavigate,
-            onProjectOpen: onProjectNavigate,
-          },
           knownProjectIds,
         }),
       [
@@ -171,12 +225,7 @@ export const ExperimentGraph = memo(function ExperimentGraph({
         statusColor,
         colors.border,
         colors.textTertiary,
-        toggle,
-        onNodeClick,
-        onQuestionNavigate,
-        onDirectionNavigate,
-        onFindingNavigate,
-        onProjectNavigate,
+        handlers,
       ],
     );
 

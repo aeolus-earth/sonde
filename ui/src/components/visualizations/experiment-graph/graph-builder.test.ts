@@ -31,11 +31,44 @@ import type {
 
 import {
   type BuildGraphInput,
+  type HandlerFactories,
   type StatusColorMap,
   buildExperimentGraph,
 } from "./graph-builder";
 
 // ── Fixture builders ──────────────────────────────────────────────
+
+/**
+ * Handler factories that return no-op closures, cached per id so
+ * repeated calls for the same id return the *same* reference. The
+ * cache matters for the identity-stability tests below — the
+ * component-side factory uses the same pattern (useRef-backed Map).
+ */
+function makeStableHandlers(): HandlerFactories {
+  const caches = {
+    toggle: new Map<string, () => void>(),
+    experiment: new Map<string, () => void>(),
+    question: new Map<string, () => void>(),
+    direction: new Map<string, () => void>(),
+    finding: new Map<string, () => void>(),
+    project: new Map<string, () => void>(),
+  };
+  const factory = (cache: Map<string, () => void>) => (id: string) => {
+    const cached = cache.get(id);
+    if (cached) return cached;
+    const fn = () => {};
+    cache.set(id, fn);
+    return fn;
+  };
+  return {
+    toggleFor: factory(caches.toggle),
+    openExperimentFor: factory(caches.experiment),
+    openQuestionFor: factory(caches.question),
+    openDirectionFor: factory(caches.direction),
+    openFindingFor: factory(caches.finding),
+    openProjectFor: factory(caches.project),
+  };
+}
 
 const STATUS_COLORS: StatusColorMap = {
   open: "#60A5FA",
@@ -201,11 +234,10 @@ function makeRealisticInput(
     experiments,
     findings,
     expanded: new Set<string>(),
-    toggle: () => {},
+    handlers: makeStableHandlers(),
     statusColor: STATUS_COLORS,
     borderColor: "#ccc",
     projectEdgeColor: "#aaa",
-    navigation: {},
     knownProjectIds: new Set(projects.map((p) => p.id)),
     ...overrides,
   };
@@ -222,11 +254,10 @@ describe("buildExperimentGraph: no orphan edges", () => {
       experiments: [],
       findings: [],
       expanded: new Set(),
-      toggle: () => {},
+      handlers: makeStableHandlers(),
       statusColor: STATUS_COLORS,
       borderColor: "#ccc",
       projectEdgeColor: "#aaa",
-      navigation: {},
       knownProjectIds: new Set(),
     });
     expect(out.nodes).toEqual([]);
@@ -360,11 +391,10 @@ describe("buildExperimentGraph: malformed / partial data", () => {
         "dir-DIR-0001",
         "question-Q-MISSING",
       ]),
-      toggle: () => {},
+      handlers: makeStableHandlers(),
       statusColor: STATUS_COLORS,
       borderColor: "#ccc",
       projectEdgeColor: "#aaa",
-      navigation: {},
       knownProjectIds: new Set(["proj-1"]),
     };
     expect(() => buildExperimentGraph(input)).not.toThrow();
@@ -394,11 +424,10 @@ describe("buildExperimentGraph: malformed / partial data", () => {
       experiments: [],
       findings: [],
       expanded: new Set(["proj-proj-1"]),
-      toggle: () => {},
+      handlers: makeStableHandlers(),
       statusColor: STATUS_COLORS,
       borderColor: "#ccc",
       projectEdgeColor: "#aaa",
-      navigation: {},
       knownProjectIds: new Set(["proj-1"]),
     };
     const out = buildExperimentGraph(input);
@@ -429,5 +458,65 @@ describe("buildExperimentGraph: droppedOrphanEdges telemetry", () => {
     input.expanded = new Set(["proj-proj-1", "dir-DIR-0001"]);
     const out = buildExperimentGraph(input);
     expect(out.droppedOrphanEdges).toBe(0);
+  });
+});
+
+// ── Invariant: handler identity is stable across builds ───────────
+
+describe("buildExperimentGraph: handler identity stability", () => {
+  it("consecutive builds with the same handler factories return the same onToggle/onOpen references per node", () => {
+    // The factory-backed handlers are the key perf optimization:
+    // stable refs across builds let React Flow's `memo(NodeComponent)`
+    // shallow-compare pass, skipping renders for unchanged nodes.
+    // If a future refactor reintroduces inline lambdas — or the
+    // factory loses its cache — the `data.onToggle` references will
+    // differ across builds and this test fails.
+    const input = makeRealisticInput({
+      expanded: new Set([
+        "proj-proj-1",
+        "dir-DIR-0001",
+        "question-Q-0001",
+        "EXP-0001",
+      ]),
+    });
+
+    const first = buildExperimentGraph(input);
+    const second = buildExperimentGraph(input);
+
+    // For each node id that appears in both builds, the callback
+    // references on `data` must be === equal.
+    const byId = new Map(second.nodes.map((n) => [n.id, n]));
+    for (const firstNode of first.nodes) {
+      const secondNode = byId.get(firstNode.id);
+      expect(secondNode).toBeDefined();
+      if (!secondNode) continue;
+      const firstData = firstNode.data as Record<string, unknown>;
+      const secondData = secondNode.data as Record<string, unknown>;
+      if (firstData.onToggle !== undefined) {
+        expect(secondData.onToggle).toBe(firstData.onToggle);
+      }
+      if (firstData.onOpen !== undefined) {
+        expect(secondData.onOpen).toBe(firstData.onOpen);
+      }
+    }
+  });
+
+  it("different factory instances produce different onToggle references for the same id (no cross-instance cache)", () => {
+    // Sanity check: the test above asserts identity across calls with
+    // the *same* factory. This asserts that factories are isolated —
+    // a fresh factory means fresh closures. Rules out accidental
+    // global caches.
+    const input1 = makeRealisticInput();
+    const input2 = makeRealisticInput();
+    const out1 = buildExperimentGraph(input1);
+    const out2 = buildExperimentGraph(input2);
+    const p1 = out1.nodes.find((n) => n.id === "proj-proj-1");
+    const p2 = out2.nodes.find((n) => n.id === "proj-proj-1");
+    expect(p1).toBeDefined();
+    expect(p2).toBeDefined();
+    if (!p1 || !p2) return;
+    const d1 = p1.data as Record<string, unknown>;
+    const d2 = p2.data as Record<string, unknown>;
+    expect(d2.onToggle).not.toBe(d1.onToggle);
   });
 });
