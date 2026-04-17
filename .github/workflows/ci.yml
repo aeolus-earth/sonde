@@ -631,3 +631,11 @@ jobs:
       - if: steps.gate.outputs.run == 'true'
         name: Run data integration
         run: bash scripts/ci/data.sh
+
+      - if: failure() && steps.gate.outputs.run == 'true'
+        name: Upload RLS snapshot on failure
+        uses: actions/upload-artifact@v7
+        with:
+          name: rls-snapshot
+          path: /tmp/sonde-rls-snapshot.txt
+          if-no-files-found: ignore

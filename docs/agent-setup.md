@@ -8,7 +8,7 @@ An admin creates a scoped token for the agent:
 sonde admin create-token -n "my-agent" -p weather-intervention,shared
 ```
 
-This prints a `sonde_bt_...` token. **Save it immediately** — it cannot be retrieved later.
+This prints a `sonde_ak_...` opaque token. **Save it immediately** — it cannot be retrieved later. Older `sonde_bt_...` password-bundle tokens are no longer supported and must be rotated.
 
 Options:
 - `-n` — agent name (used in activity logs as `agent/my-agent`)
@@ -31,7 +31,7 @@ Or add manually:
       "args": ["tsx", "src/index.ts"],
       "cwd": "/path/to/sonde/server",
       "env": {
-        "SONDE_TOKEN": "sonde_bt_..."
+        "SONDE_TOKEN": "sonde_ak_..."
       }
     }
   }
@@ -45,7 +45,7 @@ Same config in `.cursor/mcp.json`.
 ### CLI only (no MCP)
 
 ```bash
-export SONDE_TOKEN="sonde_bt_..."
+export SONDE_TOKEN="sonde_ak_..."
 sonde list          # verify access
 sonde brief         # see research state
 ```
@@ -53,7 +53,7 @@ sonde brief         # see research state
 ## 3. Verify
 
 ```bash
-SONDE_TOKEN="sonde_bt_..." sonde whoami
+SONDE_TOKEN="sonde_ak_..." sonde whoami
 # Should show: agent/my-agent
 ```
 
@@ -61,17 +61,18 @@ SONDE_TOKEN="sonde_bt_..." sonde whoami
 
 ```bash
 sonde admin list-tokens        # see all tokens + expiry
-sonde admin revoke-token <id>  # revoke a token
+sonde admin revoke-token <name>  # revoke a token by name
 ```
 
-Tokens expire after 365 days by default. Create a new one when expired.
+Opaque tokens expire after 365 days by default. The CLI exchanges them through the hosted Sonde server for short-lived Supabase sessions, so revocation and expiry are enforced by the `agent_tokens` row instead of by a password embedded in the token.
 
 ## Troubleshooting
 
 | Problem | Fix |
 |---------|-----|
 | "Not authenticated" | Check `SONDE_TOKEN` is set in the agent's environment |
-| "Bot token authentication failed" | Token may be expired — create a new one |
+| "Legacy password-bundle agent tokens" | Rotate the old `sonde_bt_...` token with `sonde admin create-token` |
+| "Invalid or expired agent token" | Token may be expired or revoked — create a new one |
 | MCP tools not appearing | Check `cwd` points to the `server/` directory with `package.json` |
 | "uv not found" | Install [uv](https://docs.astral.sh/uv/) — the MCP server spawns CLI via `uv run sonde` |
 | "Permission denied" on programs | Token was scoped to specific programs — create a new token with the right `-p` flag |

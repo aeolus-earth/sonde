@@ -29,6 +29,9 @@ class TestCreateToken:
             )
         assert result.exit_code == 0
         assert "test-bot" in result.output
+        assert "Preview:" in result.output
+        assert "short-lived sessions" in result.output
+        assert "export SONDE_TOKEN=" in result.output
 
     def test_create_token_json(self, runner: CliRunner, patched_db: MagicMock):
         with patch(
