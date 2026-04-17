@@ -72,6 +72,7 @@ run_server() {
     npm run lint
     npm test
     npm run build
+    npm audit --omit=dev --audit-level=moderate
   )
 }
 

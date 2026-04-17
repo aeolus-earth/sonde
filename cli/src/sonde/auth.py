@@ -20,6 +20,7 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from importlib import resources
 from pathlib import Path
@@ -253,6 +254,8 @@ def get_current_user() -> UserInfo | None:
     if env_token:
         if env_token.startswith(BOT_TOKEN_PREFIX):
             bundle = _decode_bot_token(env_token)
+            if _bot_token_expired(bundle):
+                return None
             name = str(bundle.get("name") or bundle.get("email") or "agent")
             email = str(bundle.get("email") or f"{name}@aeolus.earth")
             return UserInfo(
@@ -416,6 +419,8 @@ def _login_loopback(remote: bool = False) -> UserInfo:
     assisted = _login_mode(remote=remote) == LOGIN_MODE_ASSISTED
     code = _wait_for_callback(port, auth_url, assisted=assisted)
 
+    # supabase-auth stores the PKCE verifier when it builds the OAuth URL.
+    # Passing an empty value makes exchange_code_for_session read that verifier.
     params = CodeExchangeParams(
         auth_code=code,
         code_verifier="",
@@ -726,6 +731,21 @@ def _bundle_programs(bundle: dict[str, Any]) -> list[str] | None:
     return None
 
 
+def _bot_token_expired(bundle: dict[str, Any]) -> bool:
+    raw_expires = bundle.get("expires_at")
+    if not isinstance(raw_expires, str) or not raw_expires.strip():
+        return False
+
+    try:
+        expires_at = datetime.fromisoformat(raw_expires.replace("Z", "+00:00"))
+    except ValueError:
+        return True
+
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=UTC)
+    return datetime.now(UTC) >= expires_at
+
+
 def _bot_token_fingerprint(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
@@ -789,6 +809,9 @@ def _sign_in_with_password_session(email: str, password: str) -> dict[str, Any]:
 
 
 def _bot_session_token(token: str, bundle: dict[str, Any]) -> str:
+    if _bot_token_expired(bundle):
+        raise NotAuthenticatedError("Bot token expired. Ask an admin to create a fresh token.")
+
     cached = _bot_cached_session(token)
     if cached:
         access_token = cached.get("access_token")

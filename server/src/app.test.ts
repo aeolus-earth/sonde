@@ -758,6 +758,20 @@ describe("createApp", () => {
     assert.ok(body.expires_at.length > 0);
   });
 
+  it("ignores frame-auth websocket bypass in production", async () => {
+    process.env.SONDE_ENVIRONMENT = "production";
+    process.env.SONDE_CHAT_ALLOW_FRAME_AUTH = "1";
+    const app = createApp();
+
+    const response = await app.request("http://localhost/chat", {
+      headers: {
+        Upgrade: "websocket",
+      },
+    });
+
+    assert.equal(response.status, 401);
+  });
+
   it("returns a managed prewarm status when managed mode is enabled", async () => {
     process.env.ANTHROPIC_API_KEY = "sk-ant-api03-test-key";
     process.env.SONDE_MANAGED_ENVIRONMENT_ID = "env_123";

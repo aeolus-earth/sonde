@@ -9,6 +9,7 @@ from threading import Thread
 from typing import Any, cast
 from unittest.mock import patch
 
+import pytest
 from click.testing import CliRunner
 
 from sonde import auth
@@ -208,6 +209,23 @@ def test_login_with_loopback_method_forces_loopback_path(runner: CliRunner, monk
     assert seen == ["loopback:False"]
 
 
+def test_loopback_oauth_url_uses_pkce() -> None:
+    client = auth._anon_client()
+
+    response = client.auth.sign_in_with_oauth(
+        {
+            "provider": "google",
+            "options": {
+                "redirect_to": "http://localhost:1234/callback",
+                "query_params": {"hd": "aeolus.earth"},
+            },
+        }
+    )
+
+    assert "code_challenge=" in response.url
+    assert "code_challenge_method=" in response.url
+
+
 def test_login_fail_closed_for_nondefault_supabase_target(runner: CliRunner, monkeypatch) -> None:
     monkeypatch.setattr("sonde.auth.is_authenticated", lambda: False)
     monkeypatch.setattr(auth, "SUPABASE_URL", "http://127.0.0.1:54321")
@@ -387,6 +405,27 @@ def test_get_token_reuses_cached_bot_session(monkeypatch, tmp_path):
 
     with patch("sonde.auth._anon_client", side_effect=AssertionError("should not sign in")):
         assert auth.get_token() == "cached-access-token"
+
+
+def test_get_token_rejects_expired_bot_token_bundle(monkeypatch, tmp_path):
+    token = auth.encode_bot_token(
+        {
+            "token_id": "tok-expired",
+            "name": "expired-agent",
+            "email": "expired-agent@aeolus.earth",
+            "password": "secret",
+            "programs": ["shared"],
+            "expires_at": "2000-01-01T00:00:00+00:00",
+        }
+    )
+    monkeypatch.setenv("SONDE_TOKEN", token)
+    monkeypatch.setattr(auth, "BOT_SESSION_FILE", tmp_path / "bot-session.json")
+
+    with (
+        patch("sonde.auth._anon_client", side_effect=AssertionError("should not sign in")),
+        pytest.raises(auth.NotAuthenticatedError, match="Bot token expired"),
+    ):
+        auth.get_token()
 
 
 def test_get_token_refreshes_cached_bot_session(monkeypatch, tmp_path):

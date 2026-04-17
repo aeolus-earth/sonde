@@ -20,22 +20,22 @@ def record_event(
     programs: list[str] | None = None,
     details: dict[str, Any] | None = None,
 ) -> None:
-    """Insert an auth event. Best-effort — failures are logged, not raised."""
+    """Record an auth event. Best-effort — failures are logged, not raised.
+
+    Actor identity is derived inside the database from the authenticated JWT.
+    The actor-related parameters are retained for call-site compatibility only.
+    """
     from sonde import __version__
 
     try:
         client = get_client()
-        client.table("auth_events").insert(
+        client.rpc(
+            "record_auth_event",
             {
-                "event_type": event_type,
-                "actor": actor,
-                "actor_email": actor_email,
-                "actor_name": actor_name,
-                "user_id": user_id,
-                "programs": programs,
-                "client_version": __version__,
-                "details": details or {},
-            }
+                "p_event_type": event_type,
+                "p_client_version": __version__,
+                "p_details": details or {},
+            },
         ).execute()
     except Exception:
         log.debug("Failed to record auth event", exc_info=True)

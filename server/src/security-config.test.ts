@@ -30,6 +30,28 @@ describe("assertSecurityConfig", () => {
     );
   });
 
+  it("rejects frame-auth bypass in strict environments", () => {
+    assert.throws(
+      () =>
+        assertSecurityConfig({
+          NODE_ENV: "production",
+          SONDE_CHAT_ALLOW_FRAME_AUTH: "1",
+          SONDE_WS_TOKEN_SECRET: "ws",
+          SONDE_RUNTIME_AUDIT_TOKEN: "audit",
+        }),
+      /SONDE_CHAT_ALLOW_FRAME_AUTH/,
+    );
+  });
+
+  it("allows frame-auth bypass outside strict environments", () => {
+    assert.doesNotThrow(() =>
+      assertSecurityConfig({
+        NODE_ENV: "test",
+        SONDE_CHAT_ALLOW_FRAME_AUTH: "1",
+      }),
+    );
+  });
+
   it("requires runtime audit and websocket config in strict environments", () => {
     assert.throws(
       () =>
