@@ -61,6 +61,7 @@ def create_token(name: str, programs: list[str], expires_days: int) -> dict[str,
     return {
         "token_id": token_id,
         "token": token,
+        "token_preview": _token_preview(token),
         "expires_at": expires_at.isoformat(),
         "programs": programs,
     }
