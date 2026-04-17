@@ -38,7 +38,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: dorny/paths-filter@v3
+      - uses: dorny/paths-filter@v4
         id: filter
         with:
           filters: |
@@ -341,7 +341,7 @@ jobs:
           AUDIT_REQUIRE_ANTHROPIC: ${{ steps.contract.outputs.audit_require_anthropic }}
           AUDIT_REQUIRE_AGENT_COMMIT_MATCH: ${{ steps.contract.outputs.audit_require_agent_commit_match }}
           AUDIT_REQUIRE_FIRST_PARTY_AGENT: ${{ steps.contract.outputs.audit_require_first_party_agent }}
-          AUDIT_REQUIRE_SHARED_RATE_LIMIT: ${{ steps.contract.outputs.audit_require_shared_rate_limit }}
+          AUDIT_REQUIRE_SHARED_RATE_LIMIT: ${{ steps.contract.outputs.require_shared_rate_limit }}
           AUDIT_REQUIRED_RUNTIME_KEYS: ${{ steps.contract.outputs.audit_required_runtime_keys_csv }}
           AUDIT_WAIT_TIMEOUT_MS: 300000
           AUDIT_WAIT_INTERVAL_MS: 10000

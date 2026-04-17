@@ -1,0 +1,49 @@
+name: Release Health
+
+on:
+  workflow_run:
+    workflows: ["Production Smoke"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      target_sha:
+        description: "Commit SHA to summarize (leave blank for the selected ref)"
+        required: false
+        type: string
+
+permissions:
+  actions: read
+  checks: read
+  contents: read
+  statuses: read
+
+concurrency:
+  group: release-health-${{ github.event.workflow_run.head_sha || inputs.target_sha || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  health:
+    if: >-
+      ${{
+        github.event_name == 'workflow_dispatch' ||
+        (
+          github.event.workflow_run.head_branch == 'main' &&
+          github.event.workflow_run.event == 'push'
+        )
+      }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Summarize release health
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_HEALTH_TARGET_SHA: ${{ inputs.target_sha || github.event.workflow_run.head_sha || github.sha }}
+          RELEASE_HEALTH_WAIT_TIMEOUT_MS: 1200000
+          RELEASE_HEALTH_WAIT_INTERVAL_MS: 15000
+        run: node server/scripts/release-health.mjs
