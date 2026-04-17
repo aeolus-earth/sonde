@@ -19,7 +19,9 @@ export type BuildMetadataOptions = {
 const STABLE_TAG_RE = /^v(\d+)\.(\d+)\.(\d+)$/;
 const DESCRIBE_TAG_RE = /^v\d+\.\d+\.\d+(?:[-+].*)?$/;
 const GIT_SHA_RE = /^[0-9a-f]{7,40}$/i;
-const REMOTE_TAGS_COMMAND = 'git ls-remote --tags origin "v*"';
+const ORIGIN_TAGS_COMMAND = 'git ls-remote --tags origin "v*"';
+const CANONICAL_TAGS_COMMAND =
+  'git ls-remote --tags https://github.com/aeolus-earth/sonde.git "v*"';
 const DEFAULT_STRICT_TAG_WAIT_MS = 180_000;
 const DEFAULT_STRICT_TAG_POLL_INTERVAL_MS = 5_000;
 
@@ -162,7 +164,10 @@ function exactStableTagForCommit(commitSha: string, runCommand: RunCommand): str
   if (localTag) return localTag;
 
   if (!GIT_SHA_RE.test(commitSha)) return null;
-  return exactStableTagFromLsRemote(run(runCommand, REMOTE_TAGS_COMMAND), commitSha);
+  return (
+    exactStableTagFromLsRemote(run(runCommand, ORIGIN_TAGS_COMMAND), commitSha) ||
+    exactStableTagFromLsRemote(run(runCommand, CANONICAL_TAGS_COMMAND), commitSha)
+  );
 }
 
 function trustedProductionBranch(env: BuildMetadataEnv): string | null {
@@ -194,7 +199,11 @@ function waitForExactStableTagForCommit(
 
 function strictTagCommands(commitSha: string): string {
   const localTarget = GIT_SHA_RE.test(commitSha) ? commitSha : "HEAD";
-  return [`git tag --points-at ${localTarget}`, REMOTE_TAGS_COMMAND].join("; ");
+  return [
+    `git tag --points-at ${localTarget}`,
+    ORIGIN_TAGS_COMMAND,
+    CANONICAL_TAGS_COMMAND,
+  ].join("; ");
 }
 
 function productionTargetError(

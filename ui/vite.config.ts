@@ -19,7 +19,7 @@ function runCommand(command: string): string | null {
   try {
     const out = execSync(command, {
       stdio: ["ignore", "pipe", "ignore"],
-      timeout: 5000,
+      timeout: 15000,
     })
       .toString()
       .trim();
