@@ -2,6 +2,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync, spawn } from "node:child_process";
+import { pathToFileURL } from "node:url";
+
+const OPAQUE_AGENT_TOKEN_PREFIX = "sonde_ak_";
+const LEGACY_BOT_TOKEN_PREFIX = "sonde_bt_";
 
 function requiredEnv(name) {
   const value = process.env[name]?.trim();
@@ -31,6 +35,23 @@ async function requestJson(url, init) {
 function parsePositiveInt(value, fallback) {
   const parsed = Number.parseInt(value ?? "", 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+export function validateAgentAuditToken(token) {
+  const value = token?.trim() ?? "";
+  if (!value) {
+    throw new Error("CLI_AUDIT_AUTH_MODE=token requires CLI_AUDIT_SONDE_TOKEN.");
+  }
+  if (value.startsWith(LEGACY_BOT_TOKEN_PREFIX)) {
+    throw new Error(
+      "CLI_AUDIT_SONDE_TOKEN uses legacy password-bundle agent token format (sonde_bt_); create a new opaque token with: sonde admin create-token.",
+    );
+  }
+  if (!value.startsWith(OPAQUE_AGENT_TOKEN_PREFIX)) {
+    throw new Error(
+      "CLI_AUDIT_SONDE_TOKEN must be an opaque agent token that starts with sonde_ak_.",
+    );
+  }
 }
 
 function sleep(ms) {
@@ -258,9 +279,7 @@ async function main() {
   }
 
   if (authMode === "token") {
-    if (!sondeToken) {
-      throw new Error("CLI_AUDIT_AUTH_MODE=token requires CLI_AUDIT_SONDE_TOKEN.");
-    }
+    validateAgentAuditToken(sondeToken);
     cliEnv.SONDE_TOKEN = sondeToken;
     if (agentBase) {
       cliEnv.SONDE_AGENT_HTTP_BASE = agentBase;
@@ -408,7 +427,9 @@ async function main() {
   console.log(JSON.stringify(summary));
 }
 
-main().catch((error) => {
-  console.error("[run-cli-hosted-audit] Failed:", error.message);
-  process.exit(1);
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((error) => {
+    console.error("[run-cli-hosted-audit] Failed:", error.message);
+    process.exit(1);
+  });
+}

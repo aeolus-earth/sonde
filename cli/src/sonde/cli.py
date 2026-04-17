@@ -205,11 +205,16 @@ def cli(ctx: click.Context, use_json: bool, quiet: bool, verbose: bool, no_color
     # Enforce auth for commands that require it
     sub = ctx.invoked_subcommand
     if sub and sub not in _NO_AUTH and not _is_help_request():
-        from sonde.auth import is_authenticated
+        from sonde.auth import NotAuthenticatedError, get_token, is_authenticated
 
         if not is_authenticated():
+            message = "Not logged in."
+            try:
+                get_token()
+            except NotAuthenticatedError as exc:
+                message = str(exc) or message
             raise SystemExit(
-                "Error: Not logged in.\n"
+                f"Error: {message}\n"
                 "  Run: sonde login\n\n"
                 "  For agents, set the SONDE_TOKEN environment variable."
             )

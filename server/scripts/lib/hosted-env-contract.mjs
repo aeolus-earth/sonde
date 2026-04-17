@@ -49,6 +49,14 @@ function chooseSource(primary, fallback = "") {
   return trim(primary) || trim(fallback);
 }
 
+function classifyCliAuditToken(value) {
+  const token = trim(value);
+  if (!token) return "missing";
+  if (token.startsWith("sonde_ak_")) return "opaque";
+  if (token.startsWith("sonde_bt_")) return "legacy-password-bundle";
+  return "unsupported";
+}
+
 const VALIDATION_PROFILES = new Set([
   "full",
   "deploy-db",
@@ -130,7 +138,7 @@ function profileFlags(profile) {
         requireSupabaseAnonKey: true,
         requireSmokeUser: true,
         requireCliAuditToken: true,
-        requireRuntimeAuditToken: false,
+        requireRuntimeAuditToken: true,
         requireGoogleOAuth: false,
         requireSharedRateLimit: false,
         requireExpectedProgram: true,
@@ -309,6 +317,7 @@ export function resolveHostedEnvironment(
   if (!environment) {
     throw new Error(`Unknown hosted environment '${name}'.`);
   }
+  const cliAuditToken = trim(env.HOSTED_CLI_AUDIT_TOKEN);
 
   return {
     schemaVersion: contract.schemaVersion,
@@ -322,7 +331,8 @@ export function resolveHostedEnvironment(
     supabaseAnonKey: trim(env.HOSTED_SUPABASE_ANON_KEY),
     smokeUserEmailConfigured: Boolean(trim(env.HOSTED_SMOKE_USER_EMAIL)),
     smokeUserPasswordConfigured: Boolean(trim(env.HOSTED_SMOKE_USER_PASSWORD)),
-    cliAuditTokenConfigured: Boolean(trim(env.HOSTED_CLI_AUDIT_TOKEN)),
+    cliAuditTokenConfigured: Boolean(cliAuditToken),
+    cliAuditTokenKind: classifyCliAuditToken(cliAuditToken),
     runtimeAuditTokenConfigured: Boolean(trim(env.HOSTED_RUNTIME_AUDIT_TOKEN)),
     redisUrlConfigured: Boolean(trim(env.HOSTED_REDIS_URL)),
     redisTokenConfigured: Boolean(trim(env.HOSTED_REDIS_TOKEN)),
@@ -445,7 +455,8 @@ export function resolveHostedGithubEnvironmentEnv(env = process.env) {
 
 export function validateResolvedHostedEnvironment(resolved, profile = "full") {
   const errors = [];
-  const flags = profileFlags(profile);
+  const validationProfile = getValidationProfile(profile);
+  const flags = profileFlags(validationProfile);
   const requireAgentUrl =
     typeof flags.requireAgentUrl === "function"
       ? flags.requireAgentUrl(resolved.requirements.agentUrlRequired)
@@ -516,8 +527,24 @@ export function validateResolvedHostedEnvironment(resolved, profile = "full") {
     }
   }
 
-  if (requireCliAuditToken && !resolved.cliAuditTokenConfigured) {
-    errors.push("HOSTED_CLI_AUDIT_TOKEN is required.");
+  if (requireCliAuditToken) {
+    if (!resolved.cliAuditTokenConfigured) {
+      errors.push("HOSTED_CLI_AUDIT_TOKEN is required.");
+    } else if (
+      validationProfile === "cli-audit" &&
+      resolved.cliAuditTokenKind === "legacy-password-bundle"
+    ) {
+      errors.push(
+        "HOSTED_CLI_AUDIT_TOKEN uses legacy password-bundle agent token format (sonde_bt_); create a new opaque token with: sonde admin create-token.",
+      );
+    } else if (
+      validationProfile === "cli-audit" &&
+      resolved.cliAuditTokenKind !== "opaque"
+    ) {
+      errors.push(
+        "HOSTED_CLI_AUDIT_TOKEN must be an opaque agent token that starts with sonde_ak_.",
+      );
+    }
   }
 
   if (requireRuntimeAuditToken && !resolved.runtimeAuditTokenConfigured) {

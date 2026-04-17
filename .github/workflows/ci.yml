@@ -106,7 +106,7 @@ jobs:
             SOURCE_SUPABASE_ANON_KEY: "sb_publishable_stage_test",
             SOURCE_SMOKE_USER_EMAIL: "stage-smoke@example.com",
             SOURCE_SMOKE_USER_PASSWORD: "not-a-real-password",
-            SOURCE_CLI_AUDIT_TOKEN: "stage-cli-token",
+            SOURCE_CLI_AUDIT_TOKEN: "sonde_ak_stage-cli-token",
             SOURCE_RUNTIME_AUDIT_TOKEN: "stage-runtime-token",
             SOURCE_GOOGLE_CLIENT_ID: "google-client-id",
             SOURCE_GOOGLE_CLIENT_SECRET: "google-client-secret",
