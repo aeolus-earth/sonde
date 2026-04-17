@@ -6,6 +6,7 @@ const GITHUB_REPO = "aeolus-earth/sonde";
 // should always be defined. The `??` defaults are belt-and-suspenders — if
 // the define ever silently fails (misconfigured build, test harness bypass),
 // render a harmless placeholder instead of crashing the shell.
+const branch = import.meta.env.VITE_APP_BRANCH ?? "local";
 const version = import.meta.env.VITE_APP_VERSION ?? "dev";
 const commitSha = import.meta.env.VITE_APP_COMMIT_SHA ?? "local";
 const shortSha = commitSha.slice(0, 7);
@@ -19,14 +20,15 @@ type Props = {
 };
 
 export const VersionBadge = memo(function VersionBadge({ iconOnly = false }: Props) {
-  const ariaLabel = `Sonde ${version} · commit ${shortSha}`;
+  const badgeLabel = `${branch} · ${version} · ${shortSha}`;
+  const ariaLabel = `Sonde ${branch} · ${version} · commit ${shortSha}`;
 
   if (iconOnly) {
     // Collapsed rail: show just the short SHA so the badge fits in the 56px column.
     return (
       <div
         aria-label={ariaLabel}
-        title={`${version} · ${shortSha}`}
+        title={badgeLabel}
         className="flex justify-center px-1 py-1.5 font-mono text-[10px] leading-none text-text-quaternary"
       >
         {commitHref ? (
@@ -46,7 +48,9 @@ export const VersionBadge = memo(function VersionBadge({ iconOnly = false }: Pro
       title={ariaLabel}
       className="flex items-center gap-1 overflow-hidden px-2 py-1.5 font-mono text-[10px] leading-none text-text-quaternary"
     >
-      <span className="truncate">{version}</span>
+      <span className="min-w-0 max-w-[4.25rem] truncate">{branch}</span>
+      <span aria-hidden="true" className="shrink-0">·</span>
+      <span className="min-w-0 max-w-[5.5rem] truncate">{version}</span>
       <span aria-hidden="true" className="shrink-0">·</span>
       {commitHref ? (
         <a

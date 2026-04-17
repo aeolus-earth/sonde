@@ -28,14 +28,15 @@ def _result_dict(data: object) -> dict[str, Any]:
 
 def create_token(name: str, programs: list[str], expires_days: int) -> dict[str, Any]:
     """Create a scoped bot credential and return an encoded SONDE_TOKEN."""
+    programs = _normalize_programs(programs)
     client = db_client.get_client()
     admin = db_client.get_admin_client()
     current_user = get_current_user()
     if current_user is None:
         raise ValueError("Expected an authenticated admin user.")
 
-    _ensure_admin(client, current_user.user_id)
     _ensure_programs_exist(client, programs)
+    _ensure_admin_for_programs(client, current_user.user_id, programs)
 
     expires_at = datetime.now(UTC) + timedelta(days=expires_days)
     token_row = _result_dict(
@@ -145,24 +146,40 @@ def revoke_token(token_id: str) -> None:
     ).execute()
 
 
-def _ensure_admin(client: Any, user_id: str) -> None:
+def _ensure_admin_for_programs(client: Any, user_id: str, programs: list[str]) -> None:
     result = (
         client.table("user_programs")
-        .select("role")
+        .select("program")
         .eq("user_id", user_id)
         .eq("role", "admin")
-        .limit(1)
+        .in_("program", programs)
         .execute()
     )
-    if not to_rows(result.data):
+    admin_programs = {str(row["program"]) for row in to_rows(result.data)}
+    missing = sorted(set(programs) - admin_programs)
+    if missing:
         raise APIError(
             {
-                "message": "Only admins can create tokens",
+                "message": f"Only program admins can create tokens for: {', '.join(missing)}",
                 "code": "42501",
                 "hint": None,
                 "details": None,
             }
         )
+
+
+def _normalize_programs(programs: list[str]) -> list[str]:
+    normalized = sorted({program.strip() for program in programs if program.strip()})
+    if not normalized:
+        raise APIError(
+            {
+                "message": "At least one program is required",
+                "code": "22023",
+                "hint": None,
+                "details": None,
+            }
+        )
+    return normalized
 
 
 def _ensure_programs_exist(client: Any, programs: list[str]) -> None:

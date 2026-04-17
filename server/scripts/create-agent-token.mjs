@@ -116,6 +116,29 @@ async function ensureProgramsExist(supabaseUrl, serviceRoleKey, programs) {
   }
 }
 
+async function ensureCreatorAdminForPrograms(
+  supabaseUrl,
+  serviceRoleKey,
+  creatorId,
+  programs
+) {
+  const programQuery = encodeURIComponent(`in.(${programs.join(",")})`);
+  const rows = await requestJson(
+    `${supabaseUrl}/rest/v1/user_programs?select=program&user_id=eq.${creatorId}&role=eq.admin&program=${programQuery}`,
+    {
+      headers: adminHeaders(serviceRoleKey),
+    }
+  );
+
+  const administered = new Set(rows.map((row) => row.program));
+  const missing = programs.filter((program) => !administered.has(program));
+  if (missing.length > 0) {
+    throw new Error(
+      `Creator is not an admin of requested programs: ${missing.join(", ")}`
+    );
+  }
+}
+
 async function insertAgentTokenRow(
   supabaseUrl,
   serviceRoleKey,
@@ -216,6 +239,10 @@ async function main() {
     .filter(Boolean);
   const expiresInDays = Number.parseInt(process.env.TOKEN_EXPIRES_DAYS ?? "365", 10);
 
+  if (tokenPrograms.length === 0) {
+    throw new Error("TOKEN_PROGRAMS must contain at least one program.");
+  }
+
   if (!Number.isFinite(expiresInDays) || expiresInDays <= 0) {
     throw new Error("TOKEN_EXPIRES_DAYS must be a positive integer.");
   }
@@ -226,6 +253,12 @@ async function main() {
   if (!creator?.id) {
     throw new Error(`Could not find creator user for ${creatorEmail}.`);
   }
+  await ensureCreatorAdminForPrograms(
+    supabaseUrl,
+    serviceRoleKey,
+    creator.id,
+    tokenPrograms
+  );
 
   const tokenId = crypto.randomUUID();
   const expiresAt = new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000).toISOString();

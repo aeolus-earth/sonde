@@ -16,7 +16,11 @@ import {
   fetchManagedSessionDetail,
   fetchManagedSessions,
 } from "./admin-managed-costs.js";
-import { constantTimeSecretEquals, getInternalAdminToken } from "./security-config.js";
+import {
+  constantTimeSecretEquals,
+  getInternalAdminToken,
+  isChatFrameAuthAllowed,
+} from "./security-config.js";
 import { isManagedConfigError } from "./managed/config.js";
 import {
   approveDeviceAuth,
@@ -229,7 +233,7 @@ export function createApp(): Hono {
       return;
     }
 
-    if ((process.env.SONDE_CHAT_ALLOW_FRAME_AUTH ?? "0").trim() === "1") {
+    if (isChatFrameAuthAllowed()) {
       await next();
       return;
     }
