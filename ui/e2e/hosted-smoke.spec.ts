@@ -68,6 +68,12 @@ function agentOrigin(value: string | null): string | null {
   return new URL(value).origin;
 }
 
+function expectedBranchForEnvironment(environment: string): string | null {
+  if (environment === "production") return "main";
+  if (environment === "staging") return "staging";
+  return null;
+}
+
 function normalizeAuthMode(value: string): string {
   return value.toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
 }
@@ -430,12 +436,23 @@ test.describe(SUITE_LABEL, () => {
 
     const body = (await response.json()) as {
       environment: string;
+      branch?: string | null;
+      appVersion?: string | null;
       commitSha: string | null;
       agentWsConfigured?: boolean;
       agentWsOrigin?: string | null;
     };
 
     expect(body.environment).toBeTruthy();
+    expect(body.branch).toBeTruthy();
+    expect(body.appVersion).toBeTruthy();
+    const expectedBranch = expectedBranchForEnvironment(DEPLOY_ENVIRONMENT);
+    if (expectedBranch) {
+      expect(body.branch).toBe(expectedBranch);
+    }
+    if (DEPLOY_ENVIRONMENT === "production") {
+      expect(body.appVersion).not.toBe("dev");
+    }
     expect(body.agentWsConfigured).toBeTruthy();
     expect(body.agentWsOrigin ?? null).toBe(agentOrigin(AGENT_HTTP_BASE));
   });

@@ -14,6 +14,8 @@ interface ImportMetaEnv {
   readonly VITE_PUBLIC_APP_ORIGIN?: string;
   /** Build-time version label: git tag/describe label in hosted builds, "dev" locally. */
   readonly VITE_APP_VERSION: string;
+  /** Build-time git branch/ref label. */
+  readonly VITE_APP_BRANCH: string;
   /** Build-time commit SHA (full). "local" on dev builds. */
   readonly VITE_APP_COMMIT_SHA: string;
 }

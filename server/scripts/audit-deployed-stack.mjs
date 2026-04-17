@@ -204,6 +204,14 @@ async function main() {
         "UI version metadata is missing commitSha"
       );
       ensure(
+        Object.prototype.hasOwnProperty.call(uiVersion ?? {}, "branch"),
+        "UI version metadata is missing branch"
+      );
+      ensure(
+        Object.prototype.hasOwnProperty.call(uiVersion ?? {}, "appVersion"),
+        "UI version metadata is missing appVersion"
+      );
+      ensure(
         Object.prototype.hasOwnProperty.call(uiVersion ?? {}, "agentWsConfigured"),
         "UI version metadata is missing agentWsConfigured"
       );
@@ -240,6 +248,25 @@ async function main() {
         ensure(
           agentRuntime.environment === expectedEnvironment,
           `Agent environment mismatch: expected ${expectedEnvironment}, got ${agentRuntime.environment}`
+        );
+      }
+
+      const expectedUiBranch =
+        expectedEnvironment === "production"
+          ? "main"
+          : expectedEnvironment === "staging"
+            ? "staging"
+            : null;
+      if (expectedUiBranch) {
+        ensure(
+          uiVersion.branch === expectedUiBranch,
+          `UI branch mismatch: expected ${expectedUiBranch}, got ${uiVersion.branch}`
+        );
+      }
+      if (expectedEnvironment === "production") {
+        ensure(
+          /^v\d+\.\d+\.\d+$/.test(uiVersion.appVersion ?? ""),
+          `Production UI appVersion must be a stable release tag, got ${uiVersion.appVersion}`
         );
       }
 
