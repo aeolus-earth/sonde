@@ -262,6 +262,9 @@ async function main() {
       throw new Error("CLI_AUDIT_AUTH_MODE=token requires CLI_AUDIT_SONDE_TOKEN.");
     }
     cliEnv.SONDE_TOKEN = sondeToken;
+    if (agentBase) {
+      cliEnv.SONDE_AGENT_HTTP_BASE = agentBase;
+    }
   } else {
     delete cliEnv.SONDE_TOKEN;
     if (!email || !password) {

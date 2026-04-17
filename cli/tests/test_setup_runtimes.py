@@ -264,11 +264,11 @@ class TestBuildDefaultMcpConfig:
         server_dir.mkdir()
         (server_dir / "package.json").write_text("{}")
         monkeypatch.setenv("SONDE_SERVER_DIR", str(server_dir))
-        monkeypatch.setenv("SONDE_TOKEN", "sonde_bt_test123")
+        monkeypatch.setenv("SONDE_TOKEN", "sonde_ak_test123")
 
         config = _build_default_mcp_config()
         assert config is not None
-        assert config["env"] == {"SONDE_TOKEN": "sonde_bt_test123"}
+        assert config["env"] == {"SONDE_TOKEN": "sonde_ak_test123"}
 
     def test_falls_back_to_cli_when_no_server(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

@@ -74,6 +74,7 @@ export function resolveHostedEnvironment(
 
 export function validateResolvedHostedEnvironment(
   resolved: ResolvedHostedEnvironment,
+  profile?: HostedValidationProfile,
 ): string[];
 
 export function formatHostedEnvironmentForGithubOutputs(

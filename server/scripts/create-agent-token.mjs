@@ -41,37 +41,16 @@ async function requestJson(url, init) {
   return body;
 }
 
-function stableSerialize(value) {
-  if (Array.isArray(value)) {
-    return `[${value.map((item) => stableSerialize(item)).join(",")}]`;
-  }
-
-  if (value && typeof value === "object") {
-    const entries = Object.entries(value).sort(([left], [right]) =>
-      left.localeCompare(right)
-    );
-    return `{${entries
-      .map(([key, entryValue]) => `${JSON.stringify(key)}:${stableSerialize(entryValue)}`)
-      .join(",")}}`;
-  }
-
-  return JSON.stringify(value);
+function createOpaqueAgentToken() {
+  return `sonde_ak_${crypto.randomBytes(32).toString("base64url")}`;
 }
 
-function encodeBotToken(bundle) {
-  const payload = stableSerialize(bundle);
-  const encoded = Buffer.from(payload, "utf-8").toString("base64url");
-  return `sonde_bt_${encoded}`;
+function tokenHash(token) {
+  return crypto.createHash("sha256").update(token, "utf8").digest("hex");
 }
 
-function botEmailForToken(tokenName, tokenId) {
-  const slug = tokenName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "agent";
-  const suffix = tokenId.replace(/-/g, "").slice(0, 12);
-  return `${slug}-${suffix}@aeolus.earth`;
-}
-
-function botPassword() {
-  return crypto.randomBytes(24).toString("base64url");
+function tokenPreview(token) {
+  return `${token.slice(0, 16)}...${token.slice(-6)}`;
 }
 
 async function findUserByEmail(supabaseUrl, serviceRoleKey, email) {
@@ -146,7 +125,8 @@ async function insertAgentTokenRow(
   tokenName,
   tokenPrograms,
   createdBy,
-  expiresAt
+  expiresAt,
+  opaqueToken
 ) {
   await requestJson(`${supabaseUrl}/rest/v1/agent_tokens`, {
     method: "POST",
@@ -160,60 +140,10 @@ async function insertAgentTokenRow(
       programs: tokenPrograms,
       created_by: createdBy,
       expires_at: expiresAt,
+      token_hash: tokenHash(opaqueToken),
+      token_prefix: "sonde_ak_",
+      token_preview: tokenPreview(opaqueToken),
     }),
-  });
-}
-
-async function createBotAuthUser(
-  supabaseUrl,
-  serviceRoleKey,
-  tokenId,
-  tokenName,
-  botEmail,
-  password
-) {
-  return requestJson(`${supabaseUrl}/auth/v1/admin/users`, {
-    method: "POST",
-    headers: adminHeaders(serviceRoleKey),
-    body: JSON.stringify({
-      email: botEmail,
-      password,
-      email_confirm: true,
-      app_metadata: {
-        agent: true,
-        token_id: tokenId,
-        token_name: tokenName,
-        agent_name: tokenName,
-      },
-      user_metadata: {
-        agent_name: tokenName,
-      },
-    }),
-  });
-}
-
-async function upsertProgramMemberships(supabaseUrl, serviceRoleKey, userId, programs) {
-  await requestJson(`${supabaseUrl}/rest/v1/user_programs?on_conflict=user_id,program`, {
-    method: "POST",
-    headers: {
-      ...adminHeaders(serviceRoleKey),
-      Prefer: "resolution=merge-duplicates,return=representation",
-    },
-    body: JSON.stringify(
-      programs.map((program) => ({
-        user_id: userId,
-        program,
-        role: "member",
-      }))
-    ),
-  });
-}
-
-async function deleteBotAuthUser(supabaseUrl, serviceRoleKey, userId) {
-  if (!userId) return;
-  await requestJson(`${supabaseUrl}/auth/v1/admin/users/${userId}`, {
-    method: "DELETE",
-    headers: adminHeaders(serviceRoleKey),
   });
 }
 
@@ -262,10 +192,8 @@ async function main() {
 
   const tokenId = crypto.randomUUID();
   const expiresAt = new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000).toISOString();
-  const botUserEmail = botEmailForToken(tokenName, tokenId);
-  const password = botPassword();
+  const token = createOpaqueAgentToken();
 
-  let authUserId = "";
   try {
     await insertAgentTokenRow(
       supabaseUrl,
@@ -274,40 +202,13 @@ async function main() {
       tokenName,
       tokenPrograms,
       creator.id,
-      expiresAt
+      expiresAt,
+      token
     );
-
-    const createdUser = await createBotAuthUser(
-      supabaseUrl,
-      serviceRoleKey,
-      tokenId,
-      tokenName,
-      botUserEmail,
-      password
-    );
-
-    authUserId = createdUser.user?.id ?? createdUser.id ?? "";
-    if (!authUserId) {
-      throw new Error("Supabase did not return the created bot user id.");
-    }
-
-    await upsertProgramMemberships(supabaseUrl, serviceRoleKey, authUserId, tokenPrograms);
   } catch (error) {
-    await Promise.allSettled([
-      deleteBotAuthUser(supabaseUrl, serviceRoleKey, authUserId),
-      deleteAgentTokenRow(supabaseUrl, serviceRoleKey, tokenId),
-    ]);
+    await deleteAgentTokenRow(supabaseUrl, serviceRoleKey, tokenId);
     throw error;
   }
-
-  const token = encodeBotToken({
-    email: botUserEmail,
-    expires_at: expiresAt,
-    name: tokenName,
-    password,
-    programs: tokenPrograms,
-    token_id: tokenId,
-  });
 
   setOutput("token", token);
   setOutput("token_id", tokenId);
@@ -315,9 +216,9 @@ async function main() {
     JSON.stringify({
       tokenId,
       tokenName,
-      botUserEmail,
       programs: tokenPrograms,
       expiresAt,
+      tokenPreview: tokenPreview(token),
     })
   );
 }
