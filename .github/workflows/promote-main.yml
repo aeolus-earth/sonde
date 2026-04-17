@@ -38,7 +38,7 @@ jobs:
           fi
 
       - name: Open or update staging promotion PR
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           github-token: ${{ secrets.SONDE_PROMOTION_GITHUB_TOKEN }}
           script: |
