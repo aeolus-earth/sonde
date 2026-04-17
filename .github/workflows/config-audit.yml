@@ -68,21 +68,13 @@ jobs:
           SMOKE_USER_PASSWORD: ${{ secrets.SONDE_STAGING_SMOKE_USER_PASSWORD }}
         run: node scripts/mint-smoke-session.mjs >/dev/null
 
-      - name: Resolve expected staging schema version
+      - name: Resolve hosted staging schema version
         id: schema
+        env:
+          SUPABASE_PROJECT_REF: ${{ steps.contract.outputs.supabase_project_ref }}
+          SUPABASE_ANON_KEY: ${{ steps.contract.outputs.supabase_anon_key }}
         run: |
-          VERSION="$(node - <<'NODE'
-          const fs = require("node:fs");
-          const text = fs.readFileSync("cli/src/sonde/db/compat.py", "utf8");
-          const match = text.match(/MINIMUM_SCHEMA_VERSION = (\d+)/);
-          if (!match) {
-            console.error("Could not determine MINIMUM_SCHEMA_VERSION from cli/src/sonde/db/compat.py");
-            process.exit(1);
-          }
-          process.stdout.write(match[1]);
-          NODE
-          )"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          node server/scripts/resolve-hosted-schema-version.mjs >> "$GITHUB_OUTPUT"
 
       - name: Wait for staging UI and agent
         run: |
@@ -106,7 +98,7 @@ jobs:
           PARITY_RUNTIME_TOKEN: ${{ secrets.SONDE_RUNTIME_AUDIT_TOKEN }}
           PARITY_EXPECT_COMMIT_SHA: ${{ github.sha }}
           PARITY_EXPECT_ENVIRONMENT: ${{ steps.contract.outputs.runtime_environment }}
-          PARITY_EXPECT_SCHEMA_VERSION: ${{ steps.schema.outputs.version }}
+          PARITY_EXPECT_SCHEMA_VERSION: ${{ steps.schema.outputs.remote_version }}
           PARITY_REQUIRED_KEYS: ${{ steps.contract.outputs.audit_required_runtime_keys_csv }}
           PARITY_WAIT_TIMEOUT_MS: 600000
           PARITY_WAIT_INTERVAL_MS: 10000
@@ -120,7 +112,7 @@ jobs:
           AUDIT_RUNTIME_TOKEN: ${{ secrets.SONDE_RUNTIME_AUDIT_TOKEN }}
           AUDIT_EXPECT_ENVIRONMENT: ${{ steps.contract.outputs.runtime_environment }}
           AUDIT_EXPECT_COMMIT_SHA: ${{ github.sha }}
-          AUDIT_EXPECT_SCHEMA_VERSION: ${{ steps.schema.outputs.version }}
+          AUDIT_EXPECT_SCHEMA_VERSION: ${{ steps.schema.outputs.remote_version }}
           AUDIT_EXPECT_SUPABASE_PROJECT_REF: ${{ steps.contract.outputs.supabase_project_ref }}
           AUDIT_REQUIRE_ANTHROPIC: ${{ steps.contract.outputs.audit_require_anthropic }}
           AUDIT_REQUIRE_AGENT_COMMIT_MATCH: ${{ steps.contract.outputs.audit_require_agent_commit_match }}
@@ -186,21 +178,13 @@ jobs:
           SMOKE_USER_PASSWORD: ${{ secrets.SONDE_PRODUCTION_SMOKE_USER_PASSWORD }}
         run: node scripts/mint-smoke-session.mjs >/dev/null
 
-      - name: Resolve expected production schema version
+      - name: Resolve hosted production schema version
         id: schema
+        env:
+          SUPABASE_PROJECT_REF: ${{ steps.contract.outputs.supabase_project_ref }}
+          SUPABASE_ANON_KEY: ${{ steps.contract.outputs.supabase_anon_key }}
         run: |
-          VERSION="$(node - <<'NODE'
-          const fs = require("node:fs");
-          const text = fs.readFileSync("cli/src/sonde/db/compat.py", "utf8");
-          const match = text.match(/MINIMUM_SCHEMA_VERSION = (\d+)/);
-          if (!match) {
-            console.error("Could not determine MINIMUM_SCHEMA_VERSION from cli/src/sonde/db/compat.py");
-            process.exit(1);
-          }
-          process.stdout.write(match[1]);
-          NODE
-          )"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          node server/scripts/resolve-hosted-schema-version.mjs >> "$GITHUB_OUTPUT"
 
       - name: Wait for production UI and agent
         run: |
@@ -224,7 +208,7 @@ jobs:
           PARITY_RUNTIME_TOKEN: ${{ secrets.SONDE_RUNTIME_AUDIT_TOKEN }}
           PARITY_EXPECT_COMMIT_SHA: ${{ github.sha }}
           PARITY_EXPECT_ENVIRONMENT: ${{ steps.contract.outputs.runtime_environment }}
-          PARITY_EXPECT_SCHEMA_VERSION: ${{ steps.schema.outputs.version }}
+          PARITY_EXPECT_SCHEMA_VERSION: ${{ steps.schema.outputs.remote_version }}
           PARITY_REQUIRED_KEYS: ${{ steps.contract.outputs.audit_required_runtime_keys_csv }}
           PARITY_WAIT_TIMEOUT_MS: 600000
           PARITY_WAIT_INTERVAL_MS: 10000
@@ -238,7 +222,7 @@ jobs:
           AUDIT_RUNTIME_TOKEN: ${{ secrets.SONDE_RUNTIME_AUDIT_TOKEN }}
           AUDIT_EXPECT_ENVIRONMENT: ${{ steps.contract.outputs.runtime_environment }}
           AUDIT_EXPECT_COMMIT_SHA: ${{ github.sha }}
-          AUDIT_EXPECT_SCHEMA_VERSION: ${{ steps.schema.outputs.version }}
+          AUDIT_EXPECT_SCHEMA_VERSION: ${{ steps.schema.outputs.remote_version }}
           AUDIT_EXPECT_SUPABASE_PROJECT_REF: ${{ steps.contract.outputs.supabase_project_ref }}
           AUDIT_REQUIRE_ANTHROPIC: ${{ steps.contract.outputs.audit_require_anthropic }}
           AUDIT_REQUIRE_AGENT_COMMIT_MATCH: ${{ steps.contract.outputs.audit_require_agent_commit_match }}

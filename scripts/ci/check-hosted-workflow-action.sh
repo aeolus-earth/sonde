@@ -50,6 +50,18 @@ if grep -REn '^[[:space:]]+HOSTED_[A-Z0-9_]+:' "${workflows[@]}" >/tmp/hosted-wo
   exit 1
 fi
 
+if grep -REn 'MINIMUM_SCHEMA_VERSION' "${workflows[@]}" >/tmp/hosted-workflow-schema-minimum.txt; then
+  echo "::error::Hosted workflows must not use the CLI minimum schema as an exact deployed schema. Use server/scripts/resolve-hosted-schema-version.mjs and pass remote_version to runtime parity."
+  cat /tmp/hosted-workflow-schema-minimum.txt
+  exit 1
+fi
+
+if grep -REn 'steps\.schema\.outputs\.version' "${workflows[@]}" >/tmp/hosted-workflow-schema-version-alias.txt; then
+  echo "::error::Hosted workflows must use steps.schema.outputs.remote_version for deployed runtime schema parity."
+  cat /tmp/hosted-workflow-schema-version-alias.txt
+  exit 1
+fi
+
 ruby <<'RUBY'
 require "yaml"
 

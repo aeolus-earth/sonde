@@ -185,15 +185,14 @@ jobs:
           google-client-id: ${{ secrets.SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID }}
           google-client-secret: ${{ secrets.SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET }}
 
-      - name: Resolve production schema version
+      - name: Resolve hosted production schema version
         id: schema
         if: ${{ steps.contract.outputs.supabase_project_ref != '' && steps.contract.outputs.supabase_anon_key != '' }}
+        env:
+          SUPABASE_PROJECT_REF: ${{ steps.contract.outputs.supabase_project_ref }}
+          SUPABASE_ANON_KEY: ${{ steps.contract.outputs.supabase_anon_key }}
         run: |
-          VERSION=$(curl -sf \
-            -H "apikey: ${{ steps.contract.outputs.supabase_anon_key }}" \
-            -H "Authorization: Bearer ${{ steps.contract.outputs.supabase_anon_key }}" \
-            "https://${{ steps.contract.outputs.supabase_project_ref }}.supabase.co/rest/v1/rpc/get_schema_version" | tr -d '"')
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          node server/scripts/resolve-hosted-schema-version.mjs >> "$GITHUB_OUTPUT"
 
       - name: Validate required production runtime secrets
         env:
@@ -250,7 +249,7 @@ jobs:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_PRODUCTION_PROJECT_TOKEN }}
           RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PRODUCTION_PROJECT_ID }}
           SONDE_MANAGED_ENVIRONMENT_ID: ${{ vars.SONDE_ANTHROPIC_MANAGED_ENVIRONMENT_ID }}
-          SONDE_SCHEMA_VERSION: ${{ steps.schema.outputs.version }}
+          SONDE_SCHEMA_VERSION: ${{ steps.schema.outputs.remote_version }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           SONDE_RUNTIME_AUDIT_TOKEN: ${{ secrets.SONDE_RUNTIME_AUDIT_TOKEN }}
           SONDE_WS_TOKEN_SECRET: ${{ secrets.SONDE_WS_TOKEN_SECRET }}
@@ -321,7 +320,7 @@ jobs:
           PARITY_RUNTIME_TOKEN: ${{ secrets.SONDE_RUNTIME_AUDIT_TOKEN }}
           PARITY_EXPECT_COMMIT_SHA: ${{ github.sha }}
           PARITY_EXPECT_ENVIRONMENT: ${{ steps.contract.outputs.runtime_environment }}
-          PARITY_EXPECT_SCHEMA_VERSION: ${{ steps.schema.outputs.version }}
+          PARITY_EXPECT_SCHEMA_VERSION: ${{ steps.schema.outputs.remote_version }}
           PARITY_REQUIRED_KEYS: ${{ steps.contract.outputs.audit_required_runtime_keys_csv }}
           PARITY_WAIT_TIMEOUT_MS: 300000
           PARITY_WAIT_INTERVAL_MS: 10000
@@ -336,7 +335,7 @@ jobs:
           AUDIT_RUNTIME_TOKEN: ${{ secrets.SONDE_RUNTIME_AUDIT_TOKEN }}
           AUDIT_EXPECT_ENVIRONMENT: ${{ steps.contract.outputs.runtime_environment }}
           AUDIT_EXPECT_COMMIT_SHA: ${{ github.sha }}
-          AUDIT_EXPECT_SCHEMA_VERSION: ${{ steps.schema.outputs.version }}
+          AUDIT_EXPECT_SCHEMA_VERSION: ${{ steps.schema.outputs.remote_version }}
           AUDIT_EXPECT_SUPABASE_PROJECT_REF: ${{ steps.contract.outputs.supabase_project_ref }}
           AUDIT_REQUIRE_ANTHROPIC: ${{ steps.contract.outputs.audit_require_anthropic }}
           AUDIT_REQUIRE_AGENT_COMMIT_MATCH: ${{ steps.contract.outputs.audit_require_agent_commit_match }}
