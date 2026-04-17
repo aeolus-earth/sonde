@@ -2,7 +2,10 @@ name: Config Audit
 
 on:
   push:
-    branches: [staging, main]
+    branches: [staging]
+  workflow_run:
+    workflows: ["Production Smoke"]
+    types: [completed]
   schedule:
     - cron: "23 14 * * *"
   workflow_dispatch:
@@ -26,8 +29,13 @@ jobs:
       ${{
         github.event_name == 'schedule' ||
         github.ref_name == 'staging' ||
-        github.event.inputs.target == 'staging' ||
-        github.event.inputs.target == 'both'
+        (
+          github.event_name == 'workflow_dispatch' &&
+          (
+            github.event.inputs.target == 'staging' ||
+            github.event.inputs.target == 'both'
+          )
+        )
       }}
     runs-on: ubuntu-latest
     environment: staging
@@ -135,15 +143,27 @@ jobs:
     if: >-
       ${{
         github.event_name == 'schedule' ||
-        github.ref_name == 'main' ||
-        github.event.inputs.target == 'production' ||
-        github.event.inputs.target == 'both'
+        (
+          github.event_name == 'workflow_run' &&
+          github.event.workflow_run.conclusion == 'success' &&
+          github.event.workflow_run.head_branch == 'main' &&
+          github.event.workflow_run.event == 'push'
+        ) ||
+        (
+          github.event_name == 'workflow_dispatch' &&
+          (
+            github.event.inputs.target == 'production' ||
+            github.event.inputs.target == 'both'
+          )
+        )
       }}
     runs-on: ubuntu-latest
     environment: production
 
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - uses: actions/setup-node@v6
         with:
@@ -206,7 +226,7 @@ jobs:
         env:
           PARITY_AGENT_BASE: ${{ steps.contract.outputs.agent_url }}
           PARITY_RUNTIME_TOKEN: ${{ secrets.SONDE_RUNTIME_AUDIT_TOKEN }}
-          PARITY_EXPECT_COMMIT_SHA: ${{ github.sha }}
+          PARITY_EXPECT_COMMIT_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
           PARITY_EXPECT_ENVIRONMENT: ${{ steps.contract.outputs.runtime_environment }}
           PARITY_EXPECT_SCHEMA_VERSION: ${{ steps.schema.outputs.remote_version }}
           PARITY_REQUIRED_KEYS: ${{ steps.contract.outputs.audit_required_runtime_keys_csv }}
@@ -221,7 +241,7 @@ jobs:
           AUDIT_AGENT_BASE: ${{ steps.contract.outputs.agent_url }}
           AUDIT_RUNTIME_TOKEN: ${{ secrets.SONDE_RUNTIME_AUDIT_TOKEN }}
           AUDIT_EXPECT_ENVIRONMENT: ${{ steps.contract.outputs.runtime_environment }}
-          AUDIT_EXPECT_COMMIT_SHA: ${{ github.sha }}
+          AUDIT_EXPECT_COMMIT_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
           AUDIT_EXPECT_SCHEMA_VERSION: ${{ steps.schema.outputs.remote_version }}
           AUDIT_EXPECT_SUPABASE_PROJECT_REF: ${{ steps.contract.outputs.supabase_project_ref }}
           AUDIT_REQUIRE_ANTHROPIC: ${{ steps.contract.outputs.audit_require_anthropic }}

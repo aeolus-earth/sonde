@@ -19,13 +19,13 @@ export const REQUIRED_WORKFLOWS = [
     label: "Config Audit",
     workflowId: "config-audit.yml",
     branch: "main",
-    event: "push",
+    event: "workflow_run",
   },
   {
     label: "CLI Hosted Audit",
     workflowId: "cli-hosted-audit.yml",
     branch: "main",
-    event: "push",
+    event: "workflow_run",
   },
   {
     label: "CI",
