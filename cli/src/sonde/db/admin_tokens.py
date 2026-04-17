@@ -34,8 +34,8 @@ def create_token(name: str, programs: list[str], expires_days: int) -> dict[str,
         raise ValueError("Expected an authenticated admin user.")
 
     _validate_expires_days(expires_days)
-    _ensure_programs_exist(client, programs)
     _ensure_admin_for_programs(client, current_user.user_id, programs)
+    _ensure_programs_exist(client, programs)
 
     expires_at = datetime.now(UTC) + timedelta(days=expires_days)
     token = _generate_opaque_token()
@@ -108,10 +108,12 @@ def _ensure_admin_for_programs(client: Any, user_id: str, programs: list[str]) -
         .select("program")
         .eq("user_id", user_id)
         .eq("role", "admin")
-        .in_("program", programs)
         .execute()
     )
     admin_programs = {str(row["program"]) for row in to_rows(result.data)}
+    if "shared" in admin_programs:
+        return
+
     missing = sorted(set(programs) - admin_programs)
     if missing:
         raise APIError(

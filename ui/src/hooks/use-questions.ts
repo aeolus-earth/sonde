@@ -26,12 +26,12 @@ export function useQuestions() {
 export function useQuestion(id: string) {
   return useQuery({
     queryKey: queryKeys.questions.detail(id),
-    queryFn: async (): Promise<QuestionSummary> => {
+    queryFn: async (): Promise<QuestionSummary | null> => {
       const { data, error } = await supabase
         .from("question_status")
         .select("*")
         .eq("id", id)
-        .single();
+        .maybeSingle();
 
       if (error) throw error;
       return data;

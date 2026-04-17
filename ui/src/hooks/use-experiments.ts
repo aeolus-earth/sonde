@@ -34,15 +34,16 @@ export function useExperiments() {
 export function useExperiment(id: string) {
   return useQuery({
     queryKey: queryKeys.experiments.detail(id),
-    queryFn: async (): Promise<ExperimentSummary> => {
+    queryFn: async (): Promise<ExperimentSummary | null> => {
       // Use the view (RLS-accessible) rather than the raw table
       const { data, error } = await supabase
         .from("experiment_summary")
         .select("*")
         .eq("id", id)
-        .single();
+        .maybeSingle();
 
       if (error) throw error;
+      if (!data) return null;
       return normalizeExperimentHypothesis(data);
     },
     enabled: !!id,

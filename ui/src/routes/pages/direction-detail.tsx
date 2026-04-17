@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/skeleton";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { Section, DetailRow } from "@/components/shared/detail-layout";
+import { RecordUnavailable } from "@/components/shared/record-unavailable";
 import { directionDetailShareUrl } from "@/lib/app-origin";
 import { formatDateTime, formatDateTimeShort } from "@/lib/utils";
 import { ArrowLeft, Copy, GitFork } from "lucide-react";
@@ -80,6 +81,10 @@ export default function DirectionDetailPage() {
       setLinkCopied(false);
     }
   }, [shareUrl]);
+
+  if (!loadingDir && !dir) {
+    return <RecordUnavailable recordLabel="Direction" recordId={id} />;
+  }
 
   if (loadingDir || !dir) {
     return (

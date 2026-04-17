@@ -54,14 +54,15 @@ export function useCurrentFindings() {
 export function useFinding(id: string) {
   return useQuery({
     queryKey: queryKeys.findings.detail(id),
-    queryFn: async (): Promise<Finding> => {
+    queryFn: async (): Promise<Finding | null> => {
       const { data, error } = await supabase
         .from("findings")
         .select("*")
         .eq("id", id)
-        .single();
+        .maybeSingle();
 
       if (error) throw error;
+      if (!data) return null;
       return normalizeFinding(data);
     },
     enabled: !!id,
