@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/skeleton";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { Section, DetailRow } from "@/components/shared/detail-layout";
+import { RecordUnavailable } from "@/components/shared/record-unavailable";
 import { RecordLink } from "@/components/shared/record-link";
 import { sortFindingsByImportanceAndRecency } from "@/lib/finding-importance";
 import { formatDateTime, formatDateTimeShort } from "@/lib/utils";
@@ -99,6 +100,10 @@ export default function QuestionDetailPage() {
     enabled: !!id,
   });
   const sortedFindings = sortFindingsByImportanceAndRecency(findings ?? []);
+
+  if (!isLoading && !question) {
+    return <RecordUnavailable recordLabel="Question" recordId={id} />;
+  }
 
   if (isLoading || !question) {
     return (

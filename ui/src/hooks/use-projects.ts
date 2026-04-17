@@ -27,12 +27,12 @@ export function useProjects() {
 export function useProject(id: string) {
   return useQuery({
     queryKey: queryKeys.projects.detail(id),
-    queryFn: async (): Promise<ProjectSummary> => {
+    queryFn: async (): Promise<ProjectSummary | null> => {
       const { data, error } = await supabase
         .from("project_status")
         .select("*")
         .eq("id", id)
-        .single();
+        .maybeSingle();
 
       if (error) throw error;
       return data;

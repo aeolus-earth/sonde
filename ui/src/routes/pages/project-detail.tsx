@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/skeleton";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { Section, DetailRow } from "@/components/shared/detail-layout";
+import { RecordUnavailable } from "@/components/shared/record-unavailable";
 import { RecordLink } from "@/components/shared/record-link";
 import { ArtifactGallery } from "@/components/artifacts/artifact-gallery";
 import { EmbeddedDocumentPreview } from "@/components/artifacts/embedded-document-preview";
@@ -133,6 +134,10 @@ export default function ProjectDetailPage() {
       ),
     [projectArtifacts, proj?.report_tex_artifact_id],
   );
+
+  if (!loadingProj && !proj) {
+    return <RecordUnavailable recordLabel="Project" recordId={id} />;
+  }
 
   if (loadingProj || !proj) {
     return (

@@ -19,6 +19,7 @@ import { Skeleton, DetailSectionSkeleton } from "@/components/ui/skeleton";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { MarkdownView } from "@/components/ui/markdown-view";
 import { Section, DetailRow } from "@/components/shared/detail-layout";
+import { RecordUnavailable } from "@/components/shared/record-unavailable";
 import { RecordLink } from "@/components/shared/record-link";
 import {
   FINDING_CONFIDENCE_LEVELS,
@@ -104,6 +105,10 @@ export default function FindingDetailPage() {
     "Escape",
     useCallback(() => nav({ to: "/findings" }), [nav]),
   );
+
+  if (!isLoading && !finding) {
+    return <RecordUnavailable recordLabel="Finding" recordId={id} />;
+  }
 
   if (isLoading || !finding) {
     return (

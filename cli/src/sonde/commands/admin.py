@@ -9,6 +9,7 @@ import click
 from postgrest.exceptions import APIError
 
 from sonde.cli_options import pass_output_options
+from sonde.db import admin_access as access_db
 from sonde.db import admin_tokens as db
 from sonde.db import artifacts as artifact_db
 from sonde.db.client import get_client, has_service_role_key
@@ -176,6 +177,152 @@ def revoke_token(ctx: click.Context, token_name: str, force: bool) -> None:
         print_success(f'Token "{token_name}" revoked')
 
 
+@admin.command("grant-user")
+@click.argument("email")
+@click.option("--program", "-p", required=True, help="Program id to grant")
+@click.option(
+    "--role",
+    "-r",
+    type=click.Choice(["contributor", "admin"]),
+    default="contributor",
+    show_default=True,
+    help="Program role to grant",
+)
+@pass_output_options
+@click.pass_context
+def grant_user(ctx: click.Context, email: str, program: str, role: str) -> None:
+    """Grant an Aeolus-managed user access to a program.
+
+    \b
+    Examples:
+      sonde admin grant-user contractor@aeolus.earth -p weather-intervention
+      sonde admin grant-user lead@aeolus.earth -p shared --role admin
+    """
+    try:
+        grant = access_db.grant_user(email=email, program=program, role=role)
+    except APIError as e:
+        _print_access_api_error(e, program=program, action="grant access")
+        raise SystemExit(1) from None
+    except Exception as e:
+        print_error("Failed to grant access", str(e), "Check your admin permissions and retry.")
+        raise SystemExit(1) from None
+
+    if ctx.obj.get("json"):
+        print_json(grant)
+        return
+
+    status = str(grant.get("status", "active"))
+    print_success(f"Granted {grant['role']} access to {grant['email']}")
+    err.print(f"  Program: {grant['program']}")
+    err.print(f"  Status:  {status}")
+    if status == "pending":
+        err.print("  The grant will apply automatically when this Aeolus account first signs in.")
+
+
+@admin.command("revoke-user")
+@click.argument("email")
+@click.option("--program", "-p", required=True, help="Program id to revoke")
+@click.option("--force", "-f", is_flag=True, help="Skip confirmation")
+@pass_output_options
+@click.pass_context
+def revoke_user(ctx: click.Context, email: str, program: str, force: bool) -> None:
+    """Revoke a user's active or pending program access.
+
+    \b
+    Examples:
+      sonde admin revoke-user contractor@aeolus.earth -p weather-intervention
+    """
+    if not force:
+        click.confirm(f"Revoke {email}'s access to {program}?", abort=True)
+
+    try:
+        revoked = access_db.revoke_user(email=email, program=program)
+    except APIError as e:
+        _print_access_api_error(e, program=program, action="revoke access")
+        raise SystemExit(1) from None
+    except Exception as e:
+        print_error("Failed to revoke access", str(e), "Check your admin permissions and retry.")
+        raise SystemExit(1) from None
+
+    if ctx.obj.get("json"):
+        print_json(revoked)
+        return
+
+    if revoked.get("revoked_active") or revoked.get("revoked_pending"):
+        print_success(f"Revoked access for {revoked['email']}")
+        err.print(f"  Program: {revoked['program']}")
+    else:
+        err.print(f"[yellow]No active or pending access found for {email} on {program}.[/yellow]")
+
+
+@admin.command("list-users")
+@click.option("--program", "-p", required=True, help="Program id to inspect")
+@pass_output_options
+@click.pass_context
+def list_users(ctx: click.Context, program: str) -> None:
+    """List users with active or pending access to a program.
+
+    \b
+    Examples:
+      sonde admin list-users -p weather-intervention
+    """
+    try:
+        rows = access_db.list_users(program)
+    except APIError as e:
+        _print_access_api_error(e, program=program, action="list access")
+        raise SystemExit(1) from None
+    except Exception as e:
+        print_error("Failed to list access", str(e), "Check your admin permissions and retry.")
+        raise SystemExit(1) from None
+
+    if ctx.obj.get("json"):
+        print_json(rows)
+        return
+
+    if not rows:
+        err.print(f"[dim]No active or pending users found for {program}.[/dim]")
+        return
+
+    print_table(
+        ["email", "program", "role", "status", "granted"],
+        [_format_access_table_row(row) for row in rows],
+    )
+
+
+@admin.command("user-access")
+@click.argument("email")
+@pass_output_options
+@click.pass_context
+def user_access(ctx: click.Context, email: str) -> None:
+    """Show manageable program access for a user.
+
+    \b
+    Examples:
+      sonde admin user-access contractor@aeolus.earth
+    """
+    try:
+        rows = access_db.user_access(email)
+    except APIError as e:
+        _print_access_api_error(e, action="show user access")
+        raise SystemExit(1) from None
+    except Exception as e:
+        print_error("Failed to show user access", str(e), "Check your admin permissions and retry.")
+        raise SystemExit(1) from None
+
+    if ctx.obj.get("json"):
+        print_json(rows)
+        return
+
+    if not rows:
+        err.print(f"[dim]No manageable program access found for {email}.[/dim]")
+        return
+
+    print_table(
+        ["email", "program", "role", "status", "granted"],
+        [_format_access_table_row(row) for row in rows],
+    )
+
+
 @admin.command("reconcile-artifacts")
 @click.option(
     "--limit",
@@ -317,3 +464,53 @@ def _print_audit_table(title: str, columns_csv: str, rows: list[dict[str, Any]])
     if not rows:
         return
     print_table(columns_csv.split(","), rows, title=title)
+
+
+def _format_access_table_row(row: dict[str, Any]) -> dict[str, Any]:
+    granted_at = str(row.get("granted_at") or "")
+    return {
+        "email": row.get("email", ""),
+        "program": row.get("program", ""),
+        "role": row.get("role", ""),
+        "status": row.get("status", ""),
+        "granted": granted_at[:10],
+    }
+
+
+def _print_access_api_error(
+    error: APIError,
+    *,
+    action: str,
+    program: str | None = None,
+) -> None:
+    msg = error.message or ""
+    if error.code == "42501":
+        if "last shared admin" in msg:
+            print_error(
+                "Cannot change access",
+                msg,
+                "Grant another trusted user shared admin first, then retry.",
+            )
+        else:
+            print_error(
+                "Permission denied",
+                f"You are not an admin for {program or 'the requested program'}.",
+                "Ask a shared admin or that program's admin to make this change.",
+            )
+    elif error.code == "22023" or "@aeolus.earth" in msg:
+        print_error(
+            "Invalid user",
+            msg or "Only Aeolus-managed Google accounts can receive Sonde access.",
+            "Use an @aeolus.earth Google account.",
+        )
+    elif error.code == "P0001" or "Program does not exist" in msg:
+        print_error(
+            "Invalid program",
+            f"{program or 'The requested program'} does not exist or is not visible to you.",
+            "List accessible programs in the UI or ask a shared admin to confirm the program id.",
+        )
+    else:
+        from sonde.db import classify_api_error
+
+        what, why, fix = classify_api_error(error, table="user_programs", action=action)
+        print_error(what, why, fix)
