@@ -4,8 +4,11 @@ import {
   useGrantProgramAccess,
   useManageableProgramAccess,
   useManageablePrograms,
+  useProgramAccessEvents,
   useRevokeProgramAccess,
   type BulkGrantProgramAccessResult,
+  type ProgramAccessEventAction,
+  type ProgramAccessEventRow,
 } from "@/hooks/use-admin-access";
 import {
   buildBulkGrantPreview,
@@ -24,6 +27,19 @@ import type { Program } from "@/types/sonde";
 const cardClass = "rounded-[8px] border border-border bg-surface p-3";
 const controlClass =
   "rounded-[6px] border border-border bg-surface px-2 py-1 text-[12px] text-text placeholder:text-text-quaternary";
+
+type AccessMatrixStatusFilter = "all" | "active" | "pending";
+type ProgramAccessEventActionFilter = "all" | ProgramAccessEventAction;
+
+const accessEventActionOptions: Array<{
+  value: ProgramAccessEventActionFilter;
+  label: string;
+}> = [
+  { value: "all", label: "All changes" },
+  { value: "grant", label: "Grants" },
+  { value: "revoke", label: "Revokes" },
+  { value: "apply_pending", label: "Pending activations" },
+];
 
 function AccessStatCard({
   label,
@@ -57,6 +73,10 @@ function roleLabel(role: ProgramAccessRole): string {
   return role === "admin" ? "admin" : "contributor";
 }
 
+function optionalRoleLabel(role: ProgramAccessRole | null): string {
+  return role ? roleLabel(role) : "access";
+}
+
 function statusVariant(cell: ProgramAccessCell): "complete" | "open" | "running" {
   if (cell.status === "pending") {
     return "open";
@@ -72,6 +92,38 @@ function currentCellTitle(cell: ProgramAccessCell): string {
 
 function normalizeSearch(value: string): string {
   return value.trim().toLowerCase();
+}
+
+function eventActionLabel(action: ProgramAccessEventAction): string {
+  if (action === "revoke") {
+    return "Revoked";
+  }
+  if (action === "apply_pending") {
+    return "Activated";
+  }
+  return "Granted";
+}
+
+function eventVariant(
+  action: ProgramAccessEventAction,
+): "complete" | "open" | "superseded" {
+  if (action === "apply_pending") {
+    return "open";
+  }
+  return action === "revoke" ? "superseded" : "complete";
+}
+
+function eventRoleSummary(event: ProgramAccessEventRow): string {
+  if (event.action === "revoke") {
+    return `${optionalRoleLabel(event.old_role)} removed`;
+  }
+  if (event.old_role && event.new_role && event.old_role !== event.new_role) {
+    return `${roleLabel(event.old_role)} -> ${roleLabel(event.new_role)}`;
+  }
+  if (event.new_role) {
+    return roleLabel(event.new_role);
+  }
+  return "access updated";
 }
 
 function grantableProgramsForBulk({
@@ -91,10 +143,15 @@ function grantableProgramsForBulk({
 
 export function AdminAccessManagement() {
   const [userFilter, setUserFilter] = useState("");
+  const [accessStatusFilter, setAccessStatusFilter] =
+    useState<AccessMatrixStatusFilter>("all");
   const [grantEmail, setGrantEmail] = useState("");
   const [grantProgram, setGrantProgram] = useState("");
   const [grantRole, setGrantRole] = useState<ProgramAccessRole>("contributor");
   const [bulkInput, setBulkInput] = useState("");
+  const [eventActionFilter, setEventActionFilter] =
+    useState<ProgramAccessEventActionFilter>("all");
+  const [eventProgramFilter, setEventProgramFilter] = useState("");
   const [lastBulkResult, setLastBulkResult] =
     useState<BulkGrantProgramAccessResult | null>(null);
 
@@ -108,22 +165,42 @@ export function AdminAccessManagement() {
     isLoading: accessLoading,
     error: accessError,
   } = useManageableProgramAccess();
+  const {
+    data: accessEvents = [],
+    isLoading: accessEventsLoading,
+    error: accessEventsError,
+  } = useProgramAccessEvents({
+    action: eventActionFilter === "all" ? undefined : eventActionFilter,
+    program: eventProgramFilter || undefined,
+  });
   const grantAccess = useGrantProgramAccess();
   const revokeAccess = useRevokeProgramAccess();
   const bulkGrantAccess = useBulkGrantProgramAccess();
 
   const selectedGrantProgram = grantProgram || programs[0]?.id || "";
+  const programsById = useMemo(
+    () => new Map(programs.map((program) => [program.id, program])),
+    [programs],
+  );
   const matrix = useMemo(
     () => buildProgramAccessMatrix(programs, accessRows),
     [accessRows, programs],
   );
   const filteredMatrix = useMemo(() => {
     const filter = normalizeSearch(userFilter);
-    if (!filter) {
-      return matrix;
-    }
-    return matrix.filter((row) => row.email.includes(filter));
-  }, [matrix, userFilter]);
+    return matrix.filter((row) => {
+      if (filter && !row.email.includes(filter)) {
+        return false;
+      }
+      if (accessStatusFilter === "active" && row.activeCount === 0) {
+        return false;
+      }
+      if (accessStatusFilter === "pending" && row.pendingCount === 0) {
+        return false;
+      }
+      return true;
+    });
+  }, [accessStatusFilter, matrix, userFilter]);
   const bulkPreview = useMemo(
     () =>
       buildBulkGrantPreview({
@@ -175,6 +252,13 @@ export function AdminAccessManagement() {
     if (!canBulkGrant) {
       return;
     }
+    if (
+      !window.confirm(
+        `Apply FTE grants for ${bulkPreview.validEmails.length} emails across ${bulkGrantablePrograms.length} programs? This will add ${bulkPreview.grantCount} contributor grants and skip ${bulkPreview.alreadyGrantedCount} existing grants. Existing admins will not be downgraded.`,
+      )
+    ) {
+      return;
+    }
     bulkGrantAccess.mutate(
       {
         emails: bulkPreview.validEmails,
@@ -212,12 +296,12 @@ export function AdminAccessManagement() {
             Access management
           </h2>
           <p className="mt-0.5 max-w-[720px] text-[11px] leading-relaxed text-text-quaternary">
-            Manage who can see each Sonde program / library. FTE bulk grants add
-            contributor access only where it is missing, so existing admin grants are
-            preserved instead of silently downgraded.
+            Manage users with active or pending Sonde program / library access. FTE
+            bulk grants add contributor access only where it is missing, so existing
+            admin grants are preserved instead of silently downgraded.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <input
             type="search"
             value={userFilter}
@@ -225,6 +309,18 @@ export function AdminAccessManagement() {
             placeholder="Filter users"
             className={cn(controlClass, "w-full sm:w-[220px]")}
           />
+          <select
+            value={accessStatusFilter}
+            onChange={(event) =>
+              setAccessStatusFilter(event.target.value as AccessMatrixStatusFilter)
+            }
+            className={cn(controlClass, "w-full sm:w-[130px]")}
+            aria-label="Filter users by access status"
+          >
+            <option value="all">All access</option>
+            <option value="active">Active</option>
+            <option value="pending">Pending</option>
+          </select>
         </div>
       </div>
 
@@ -390,8 +486,8 @@ export function AdminAccessManagement() {
               User access matrix
             </h3>
             <p className="mt-0.5 text-[11px] text-text-quaternary">
-              Role changes here are explicit. Bulk FTE grants never downgrade existing
-              admins.
+              Showing users with active or pending program access. Role changes here
+              are explicit; bulk FTE grants never downgrade existing admins.
             </p>
           </div>
           <Badge variant="tag">{filteredMatrix.length} shown</Badge>
@@ -409,7 +505,7 @@ export function AdminAccessManagement() {
           </p>
         ) : filteredMatrix.length === 0 ? (
           <p className="px-3 py-4 text-[12px] text-text-quaternary">
-            No users match this filter yet.
+            No users match these access filters yet.
           </p>
         ) : (
           <div className="overflow-x-auto">
@@ -511,6 +607,107 @@ export function AdminAccessManagement() {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+      </div>
+
+      <div className={cn(cardClass, "overflow-hidden p-0")}>
+        <div className="flex flex-col gap-3 border-b border-border px-3 py-2 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h3 className="text-[12px] font-medium text-text">
+              Recent access changes
+            </h3>
+            <p className="mt-0.5 text-[11px] leading-relaxed text-text-quaternary">
+              Audit trail for grants, revokes, and pending grants that became active
+              on first sign-in. Visibility is scoped by the same program-admin RLS.
+            </p>
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <select
+              value={eventActionFilter}
+              onChange={(event) =>
+                setEventActionFilter(
+                  event.target.value as ProgramAccessEventActionFilter,
+                )
+              }
+              className={cn(controlClass, "w-full sm:w-[170px]")}
+              aria-label="Filter access changes by action"
+            >
+              {accessEventActionOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            <select
+              value={eventProgramFilter}
+              onChange={(event) => setEventProgramFilter(event.target.value)}
+              className={cn(controlClass, "w-full sm:w-[180px]")}
+              aria-label="Filter access changes by program"
+            >
+              <option value="">All programs</option>
+              {programs.map((program) => (
+                <option key={program.id} value={program.id}>
+                  {program.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {accessEventsLoading ? (
+          <div className="space-y-2 px-3 py-3">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </div>
+        ) : accessEventsError instanceof Error ? (
+          <div className="px-3 py-4">
+            <p className="text-[12px] font-medium text-status-failed">
+              Access changes failed to load
+            </p>
+            <p className="mt-1 text-[11px] text-status-failed">
+              {accessEventsError.message}
+            </p>
+          </div>
+        ) : accessEvents.length === 0 ? (
+          <p className="px-3 py-4 text-[12px] text-text-quaternary">
+            No access changes match these filters yet.
+          </p>
+        ) : (
+          <div className="divide-y divide-border-subtle">
+            {accessEvents.map((event) => {
+              const program = programsById.get(event.program);
+              return (
+                <div
+                  key={event.id}
+                  className="grid gap-2 px-3 py-2 text-[12px] sm:grid-cols-[150px_1fr_170px]"
+                >
+                  <div className="flex items-center gap-2">
+                    <Badge variant={eventVariant(event.action)}>
+                      {eventActionLabel(event.action)}
+                    </Badge>
+                    <span className="text-[10px] text-text-quaternary">
+                      {formatDateTimeShort(event.created_at)}
+                    </span>
+                  </div>
+                  <div className="min-w-0">
+                    <p className="truncate font-medium text-text" title={event.target_email}>
+                      {event.target_email}
+                    </p>
+                    <p className="mt-0.5 truncate text-[11px] text-text-quaternary">
+                      {program?.name ?? event.program} · {eventRoleSummary(event)}
+                    </p>
+                  </div>
+                  <p
+                    className="truncate text-[11px] text-text-quaternary sm:text-right"
+                    title={event.actor_email ?? "system"}
+                  >
+                    by {event.actor_email ?? "system"}
+                  </p>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>

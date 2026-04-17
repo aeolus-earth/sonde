@@ -13,7 +13,21 @@ import type { Program } from "@/types/sonde";
 const adminAccessKeys = {
   programs: ["admin", "access", "programs"] as const,
   rows: ["admin", "access", "rows"] as const,
+  eventsBase: ["admin", "access", "events"] as const,
+  events: ({
+    program,
+    action,
+    limit,
+  }: {
+    program?: string;
+    action?: ProgramAccessEventAction;
+    limit: number;
+  }) => ["admin", "access", "events", program ?? "all", action ?? "all", limit] as const,
 };
+
+const DEFAULT_ACCESS_EVENT_LIMIT = 25;
+
+export type ProgramAccessEventAction = "grant" | "revoke" | "apply_pending";
 
 interface RawProgramAccessRow {
   email: string;
@@ -23,6 +37,36 @@ interface RawProgramAccessRow {
   status: string;
   granted_at: string | null;
   applied_at: string | null;
+}
+
+interface RawProgramAccessEventRow {
+  id: number;
+  action: string;
+  actor_email: string | null;
+  target_email: string;
+  program: string;
+  old_role: string | null;
+  new_role: string | null;
+  details: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export interface ProgramAccessEventRow {
+  id: number;
+  action: ProgramAccessEventAction;
+  actor_email: string | null;
+  target_email: string;
+  program: string;
+  old_role: ProgramAccessRole | null;
+  new_role: ProgramAccessRole | null;
+  details: Record<string, unknown>;
+  created_at: string;
+}
+
+interface ProgramAccessEventFilters {
+  program?: string;
+  action?: ProgramAccessEventAction;
+  limit?: number;
 }
 
 interface GrantProgramAccessInput {
@@ -60,6 +104,31 @@ function normalizeAccessRow(row: RawProgramAccessRow): ProgramAccessRow {
     status: row.status === "pending" ? "pending" : "active",
     granted_at: row.granted_at,
     applied_at: row.applied_at,
+  };
+}
+
+function normalizeProgramAccessEventAction(action: string): ProgramAccessEventAction {
+  if (action === "revoke" || action === "apply_pending") {
+    return action;
+  }
+  return "grant";
+}
+
+function normalizeNullableRole(role: string | null): ProgramAccessRole | null {
+  return role ? normalizeProgramAccessRole(role) : null;
+}
+
+function normalizeAccessEventRow(row: RawProgramAccessEventRow): ProgramAccessEventRow {
+  return {
+    id: row.id,
+    action: normalizeProgramAccessEventAction(row.action),
+    actor_email: row.actor_email,
+    target_email: row.target_email,
+    program: row.program,
+    old_role: normalizeNullableRole(row.old_role),
+    new_role: normalizeNullableRole(row.new_role),
+    details: row.details ?? {},
+    created_at: row.created_at,
   };
 }
 
@@ -129,6 +198,39 @@ export function useManageableProgramAccess() {
   });
 }
 
+export function useProgramAccessEvents({
+  program,
+  action,
+  limit = DEFAULT_ACCESS_EVENT_LIMIT,
+}: ProgramAccessEventFilters = {}) {
+  return useQuery({
+    queryKey: adminAccessKeys.events({ program, action, limit }),
+    queryFn: async (): Promise<ProgramAccessEventRow[]> => {
+      let query = supabase
+        .from("program_access_events")
+        .select(
+          "id,action,actor_email,target_email,program,old_role,new_role,details,created_at",
+        )
+        .order("created_at", { ascending: false })
+        .limit(limit);
+
+      if (program) {
+        query = query.eq("program", program);
+      }
+      if (action) {
+        query = query.eq("action", action);
+      }
+
+      const { data, error } = await query;
+      if (error) {
+        throw error;
+      }
+      return ((data ?? []) as RawProgramAccessEventRow[]).map(normalizeAccessEventRow);
+    },
+    staleTime: 30_000,
+  });
+}
+
 export function useGrantProgramAccess() {
   const queryClient = useQueryClient();
   const addToast = useAddToast();
@@ -139,6 +241,7 @@ export function useGrantProgramAccess() {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: adminAccessKeys.rows }),
         queryClient.invalidateQueries({ queryKey: adminAccessKeys.programs }),
+        queryClient.invalidateQueries({ queryKey: adminAccessKeys.eventsBase }),
         queryClient.invalidateQueries({ queryKey: queryKeys.programs.all() }),
       ]);
       addToast({
@@ -167,6 +270,7 @@ export function useRevokeProgramAccess() {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: adminAccessKeys.rows }),
         queryClient.invalidateQueries({ queryKey: adminAccessKeys.programs }),
+        queryClient.invalidateQueries({ queryKey: adminAccessKeys.eventsBase }),
         queryClient.invalidateQueries({ queryKey: queryKeys.programs.all() }),
       ]);
       addToast({
@@ -252,6 +356,7 @@ export function useBulkGrantProgramAccess() {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: adminAccessKeys.rows }),
         queryClient.invalidateQueries({ queryKey: adminAccessKeys.programs }),
+        queryClient.invalidateQueries({ queryKey: adminAccessKeys.eventsBase }),
         queryClient.invalidateQueries({ queryKey: queryKeys.programs.all() }),
       ]);
       addToast({
