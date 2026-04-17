@@ -17,8 +17,11 @@ class TestCreateToken:
         with patch(
             "sonde.commands.admin.db.create_token",
             return_value={
+                "token_id": "tok-001",
                 "token": "sonde_ak_bundle",
+                "token_preview": "sonde_ak_bundle...bundle",
                 "expires_at": "2027-03-29T00:00:00Z",
+                "programs": ["weather-intervention"],
             },
         ):
             result = runner.invoke(
@@ -30,7 +33,13 @@ class TestCreateToken:
     def test_create_token_json(self, runner: CliRunner, patched_db: MagicMock):
         with patch(
             "sonde.commands.admin.db.create_token",
-            return_value={"token": "sonde_ak_bundle", "expires_at": "2027-03-29"},
+            return_value={
+                "token_id": "tok-001",
+                "token": "sonde_ak_bundle",
+                "token_preview": "sonde_ak_bundle...bundle",
+                "expires_at": "2027-03-29",
+                "programs": ["shared"],
+            },
         ):
             result = runner.invoke(
                 cli,
@@ -38,6 +47,7 @@ class TestCreateToken:
             )
         assert result.exit_code == 0
         assert '"token"' in result.output
+        assert '"token_preview": "sonde_ak_bundle...bundle"' in result.output
 
     def test_create_token_permission_denied(self, runner: CliRunner, patched_db: MagicMock):
         with patch(
@@ -126,6 +136,7 @@ class TestCreateToken:
 
         payload = table.insert.call_args.args[0]
         assert result["token"] == "sonde_ak_known-secret"
+        assert result["token_preview"] == "sonde_ak_known-s...secret"
         assert payload["token_hash"] == admin_tokens._token_hash("sonde_ak_known-secret")
         assert payload["token_prefix"] == "sonde_ak_"
         assert payload["token_preview"] == "sonde_ak_known-s...secret"
