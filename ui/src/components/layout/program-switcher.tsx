@@ -25,7 +25,9 @@ export function ProgramSwitcher() {
   }, [programs, active, setActive]);
 
   const activeProgram = programs?.find((p) => p.id === active);
-  const label = activeProgram?.name ?? (isLoading ? "Loading…" : "Program");
+  const label =
+    activeProgram?.name ??
+    (isLoading ? "Loading…" : programs?.length === 0 ? "No programs" : "Program");
 
   const close = useCallback(() => setOpen(false), []);
 

@@ -28,6 +28,7 @@ jobs:
       }}
     runs-on: ubuntu-latest
     environment: staging
+    timeout-minutes: 20
 
     steps:
       - uses: actions/checkout@v6
@@ -66,21 +67,13 @@ jobs:
           google-client-id: ${{ secrets.SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID }}
           google-client-secret: ${{ secrets.SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET }}
 
-      - name: Resolve expected staging schema version
+      - name: Resolve hosted staging schema version
         id: schema
+        env:
+          SUPABASE_PROJECT_REF: ${{ steps.contract.outputs.supabase_project_ref }}
+          SUPABASE_ANON_KEY: ${{ steps.contract.outputs.supabase_anon_key }}
         run: |
-          VERSION="$(node - <<'NODE'
-          const fs = require("node:fs");
-          const text = fs.readFileSync("cli/src/sonde/db/compat.py", "utf8");
-          const match = text.match(/MINIMUM_SCHEMA_VERSION = (\d+)/);
-          if (!match) {
-            console.error("Could not determine MINIMUM_SCHEMA_VERSION from cli/src/sonde/db/compat.py");
-            process.exit(1);
-          }
-          process.stdout.write(match[1]);
-          NODE
-          )"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          node server/scripts/resolve-hosted-schema-version.mjs >> "$GITHUB_OUTPUT"
 
       - name: Wait for staging agent runtime parity
         working-directory: server
@@ -89,7 +82,7 @@ jobs:
           PARITY_RUNTIME_TOKEN: ${{ secrets.SONDE_RUNTIME_AUDIT_TOKEN }}
           PARITY_EXPECT_COMMIT_SHA: ${{ github.sha }}
           PARITY_EXPECT_ENVIRONMENT: ${{ steps.contract.outputs.runtime_environment }}
-          PARITY_EXPECT_SCHEMA_VERSION: ${{ steps.schema.outputs.version }}
+          PARITY_EXPECT_SCHEMA_VERSION: ${{ steps.schema.outputs.remote_version }}
           PARITY_REQUIRED_KEYS: ${{ steps.contract.outputs.audit_required_runtime_keys_csv }}
           PARITY_WAIT_TIMEOUT_MS: ${{ steps.contract.outputs.audit_wait_timeout_ms }}
           PARITY_WAIT_INTERVAL_MS: ${{ steps.contract.outputs.audit_wait_interval_ms }}
@@ -118,6 +111,7 @@ jobs:
         run: node scripts/run-cli-hosted-audit.mjs
 
       - name: Run staging CLI audit (device approval contract)
+        timeout-minutes: 5
         working-directory: server
         env:
           CLI_AUDIT_AGENT_BASE: ${{ steps.contract.outputs.agent_url }}
@@ -130,6 +124,7 @@ jobs:
           CLI_AUDIT_EXPECT_EXPERIMENT_ID: ${{ steps.contract.outputs.smoke_expected_experiment_id }}
           CLI_AUDIT_WAIT_TIMEOUT_MS: ${{ steps.contract.outputs.audit_wait_timeout_ms }}
           CLI_AUDIT_WAIT_INTERVAL_MS: ${{ steps.contract.outputs.audit_wait_interval_ms }}
+          CLI_AUDIT_LOGIN_TIMEOUT_MS: "120000"
           SMOKE_USER_EMAIL: ${{ secrets.SONDE_STAGING_SMOKE_USER_EMAIL }}
           SMOKE_USER_PASSWORD: ${{ secrets.SONDE_STAGING_SMOKE_USER_PASSWORD }}
         run: node scripts/run-cli-hosted-audit.mjs
@@ -143,6 +138,7 @@ jobs:
       }}
     runs-on: ubuntu-latest
     environment: production
+    timeout-minutes: 20
 
     steps:
       - uses: actions/checkout@v6
@@ -181,21 +177,13 @@ jobs:
           google-client-id: ${{ secrets.SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID }}
           google-client-secret: ${{ secrets.SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET }}
 
-      - name: Resolve expected production schema version
+      - name: Resolve hosted production schema version
         id: schema
+        env:
+          SUPABASE_PROJECT_REF: ${{ steps.contract.outputs.supabase_project_ref }}
+          SUPABASE_ANON_KEY: ${{ steps.contract.outputs.supabase_anon_key }}
         run: |
-          VERSION="$(node - <<'NODE'
-          const fs = require("node:fs");
-          const text = fs.readFileSync("cli/src/sonde/db/compat.py", "utf8");
-          const match = text.match(/MINIMUM_SCHEMA_VERSION = (\d+)/);
-          if (!match) {
-            console.error("Could not determine MINIMUM_SCHEMA_VERSION from cli/src/sonde/db/compat.py");
-            process.exit(1);
-          }
-          process.stdout.write(match[1]);
-          NODE
-          )"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          node server/scripts/resolve-hosted-schema-version.mjs >> "$GITHUB_OUTPUT"
 
       - name: Wait for production agent runtime parity
         working-directory: server
@@ -204,7 +192,7 @@ jobs:
           PARITY_RUNTIME_TOKEN: ${{ secrets.SONDE_RUNTIME_AUDIT_TOKEN }}
           PARITY_EXPECT_COMMIT_SHA: ${{ github.sha }}
           PARITY_EXPECT_ENVIRONMENT: ${{ steps.contract.outputs.runtime_environment }}
-          PARITY_EXPECT_SCHEMA_VERSION: ${{ steps.schema.outputs.version }}
+          PARITY_EXPECT_SCHEMA_VERSION: ${{ steps.schema.outputs.remote_version }}
           PARITY_REQUIRED_KEYS: ${{ steps.contract.outputs.audit_required_runtime_keys_csv }}
           PARITY_WAIT_TIMEOUT_MS: ${{ steps.contract.outputs.audit_wait_timeout_ms }}
           PARITY_WAIT_INTERVAL_MS: ${{ steps.contract.outputs.audit_wait_interval_ms }}
@@ -232,6 +220,7 @@ jobs:
         run: node scripts/run-cli-hosted-audit.mjs
 
       - name: Run production CLI audit (device approval contract)
+        timeout-minutes: 5
         working-directory: server
         env:
           CLI_AUDIT_AGENT_BASE: ${{ steps.contract.outputs.agent_url }}
@@ -243,6 +232,7 @@ jobs:
           CLI_AUDIT_EXPECT_EXPERIMENT_ID: ${{ steps.contract.outputs.smoke_expected_experiment_id }}
           CLI_AUDIT_WAIT_TIMEOUT_MS: ${{ steps.contract.outputs.audit_wait_timeout_ms }}
           CLI_AUDIT_WAIT_INTERVAL_MS: ${{ steps.contract.outputs.audit_wait_interval_ms }}
+          CLI_AUDIT_LOGIN_TIMEOUT_MS: "120000"
           SMOKE_USER_EMAIL: ${{ secrets.SONDE_PRODUCTION_SMOKE_USER_EMAIL }}
           SMOKE_USER_PASSWORD: ${{ secrets.SONDE_PRODUCTION_SMOKE_USER_PASSWORD }}
         run: node scripts/run-cli-hosted-audit.mjs

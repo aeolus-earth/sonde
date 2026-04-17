@@ -54,6 +54,49 @@ export function validateAgentAuditToken(token) {
   }
 }
 
+export async function assertAgentExchangeRejectsInvalidTokens(agentBase) {
+  const base = agentBase?.trim().replace(/\/+$/, "") ?? "";
+  if (!base) {
+    throw new Error("Agent exchange negative probes require CLI_AUDIT_AGENT_BASE.");
+  }
+
+  const cases = [
+    {
+      label: "legacy password-bundle",
+      token: "sonde_bt_password-envelope-audit-probe",
+    },
+    {
+      label: "malformed opaque",
+      token: "sonde_ak_malformed-audit-probe",
+    },
+  ];
+
+  for (const testCase of cases) {
+    const response = await fetch(`${base}/auth/agent/exchange`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        token: testCase.token,
+        cli_version: "hosted-audit",
+        host_label: "hosted-audit-negative-probe",
+      }),
+    });
+
+    if (response.ok) {
+      throw new Error(
+        `Agent exchange unexpectedly accepted ${testCase.label} token probe.`
+      );
+    }
+
+    if (response.status < 400 || response.status >= 500) {
+      const body = await response.text();
+      throw new Error(
+        `Agent exchange rejected ${testCase.label} token with unexpected HTTP ${response.status}: ${body}`
+      );
+    }
+  }
+}
+
 function sleep(ms) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -98,12 +141,77 @@ function runCli(command, args, env) {
   }
 }
 
-function waitForChildExit(child) {
+function childOutputForError(stdout, stderr) {
+  const trimmedStdout = stdout().trim();
+  const trimmedStderr = stderr().trim();
+  return `stdout:\n${trimmedStdout}\nstderr:\n${trimmedStderr}`;
+}
+
+function stopChild(child) {
+  if (child.exitCode !== null || child.signalCode !== null) {
+    return;
+  }
+  child.kill("SIGTERM");
+  const killTimer = setTimeout(() => {
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill("SIGKILL");
+    }
+  }, 3_000);
+  killTimer.unref?.();
+}
+
+export function waitForChildExit(
+  child,
+  {
+    timeoutMs,
+    description,
+    stdout = () => "",
+    stderr = () => "",
+  } = {},
+) {
   return new Promise((resolve, reject) => {
-    child.on("error", reject);
-    child.on("close", (code, signal) => {
-      resolve({ code, signal });
-    });
+    let settled = false;
+    const cleanup = () => {
+      child.off("error", onError);
+      child.off("close", onClose);
+      if (timer) {
+        clearTimeout(timer);
+      }
+    };
+    const finish = (callback) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      callback();
+    };
+    const onError = (error) => {
+      finish(() => reject(error));
+    };
+    const onClose = (code, signal) => {
+      finish(() => resolve({ code, signal }));
+    };
+
+    const parsedTimeoutMs = parsePositiveInt(String(timeoutMs ?? ""), 0);
+    const timer =
+      parsedTimeoutMs > 0
+        ? setTimeout(() => {
+            stopChild(child);
+            finish(() =>
+              reject(
+                new Error(
+                  `${description ?? "child process"} timed out after ${parsedTimeoutMs}ms\n` +
+                    childOutputForError(stdout, stderr)
+                )
+              )
+            );
+          }, parsedTimeoutMs)
+        : null;
+    timer?.unref?.();
+
+    child.on("error", onError);
+    child.on("close", onClose);
   });
 }
 
@@ -172,6 +280,7 @@ async function completeHostedCliLogin({
   env,
   agentBase,
   approvalSession,
+  timeoutMs,
 }) {
   const child = spawn(command, ["login", "--json"], {
     env,
@@ -189,55 +298,79 @@ async function completeHostedCliLogin({
     stderr += chunk;
   });
 
-  const userCode = await new Promise((resolve, reject) => {
-    const deadline = Date.now() + 60_000;
-
-    const poll = () => {
-      const details = extractActivationDetails(stderr);
-      if (details.userCode) {
-        resolve(details.userCode);
-        return;
-      }
-      if (Date.now() >= deadline) {
-        reject(
-          new Error(
-            `Timed out waiting for sonde login activation code.\nCLI stderr:\n${stderr.trim()}`
-          )
-        );
-        return;
-      }
-      setTimeout(poll, 100);
-    };
-
-    poll();
+  const childExit = waitForChildExit(child, {
+    timeoutMs,
+    description: "sonde login --json",
+    stdout: () => stdout,
+    stderr: () => stderr,
   });
+  childExit.catch(() => {});
 
-  await requestJson(`${agentBase}/auth/device/approve`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      Authorization: `Bearer ${approvalSession.access_token}`,
-    },
-    body: JSON.stringify({
-      user_code: userCode,
-      decision: "approve",
-      session: approvalSession,
-    }),
-  });
+  try {
+    const userCode = await new Promise((resolve, reject) => {
+      const activationTimeoutMs = Math.min(
+        parsePositiveInt(String(timeoutMs), 60_000),
+        60_000,
+      );
+      const deadline = Date.now() + activationTimeoutMs;
 
-  const { code, signal } = await waitForChildExit(child);
-  if (code !== 0) {
-    const signalSuffix = signal ? ` (signal ${signal})` : "";
-    throw new Error(
-      `sonde login --json failed with exit code ${code}${signalSuffix}\nstdout:\n${stdout.trim()}\nstderr:\n${stderr.trim()}`
-    );
+      const poll = () => {
+        const details = extractActivationDetails(stderr);
+        if (details.userCode) {
+          resolve(details.userCode);
+          return;
+        }
+        if (Date.now() >= deadline) {
+          reject(
+            new Error(
+              `Timed out waiting for sonde login activation code.\nCLI stderr:\n${stderr.trim()}`
+            )
+          );
+          return;
+        }
+        setTimeout(poll, 100);
+      };
+
+      poll();
+    });
+    console.log(`[run-cli-hosted-audit] Approving hosted activation code ${userCode}.`);
+
+    const approval = await requestJson(`${agentBase}/auth/device/approve`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        Authorization: `Bearer ${approvalSession.access_token}`,
+      },
+      body: JSON.stringify({
+        user_code: userCode,
+        decision: "approve",
+        session: approvalSession,
+      }),
+    });
+    if (approval?.status !== "approved") {
+      throw new Error(
+        `Hosted activation approval returned status=${approval?.status ?? "unknown"}.`
+      );
+    }
+    console.log("[run-cli-hosted-audit] Hosted activation approved; waiting for CLI session.");
+
+    const { code, signal } = await childExit;
+    if (code !== 0) {
+      const signalSuffix = signal ? ` (signal ${signal})` : "";
+      throw new Error(
+        `sonde login --json failed with exit code ${code}${signalSuffix}\nstdout:\n${stdout.trim()}\nstderr:\n${stderr.trim()}`
+      );
+    }
+
+    const loginOutput = parseJsonOutput(stdout, "login");
+    if (!loginOutput?.email) {
+      throw new Error(`Hosted CLI login did not emit a usable JSON payload: ${stdout.trim()}`);
+    }
+    return loginOutput;
+  } catch (error) {
+    stopChild(child);
+    throw error;
   }
-
-  const loginOutput = parseJsonOutput(stdout, "login");
-  if (!loginOutput?.email) {
-    throw new Error(`Hosted CLI login did not emit a usable JSON payload: ${stdout.trim()}`);
-  }
-  return loginOutput;
 }
 
 function persistSession(configDir, session) {
@@ -261,6 +394,7 @@ async function main() {
   const sondeExecutable = process.env.CLI_AUDIT_SONDE_BIN?.trim() || "sonde";
   const waitTimeoutMs = parsePositiveInt(process.env.CLI_AUDIT_WAIT_TIMEOUT_MS, 0);
   const waitIntervalMs = parsePositiveInt(process.env.CLI_AUDIT_WAIT_INTERVAL_MS, 10_000);
+  const loginTimeoutMs = parsePositiveInt(process.env.CLI_AUDIT_LOGIN_TIMEOUT_MS, 120_000);
 
   const configDir = fs.mkdtempSync(path.join(os.tmpdir(), "sonde-cli-audit-"));
   fs.chmodSync(configDir, 0o700);
@@ -276,6 +410,10 @@ async function main() {
 
   if (!["token", "session"].includes(authMode)) {
     throw new Error("CLI_AUDIT_AUTH_MODE must be one of: auto, token, session.");
+  }
+
+  if (agentBase) {
+    await assertAgentExchangeRejectsInvalidTokens(agentBase);
   }
 
   if (authMode === "token") {
@@ -301,6 +439,7 @@ async function main() {
       env: cliEnv,
       agentBase,
       approvalSession: session,
+      timeoutMs: loginTimeoutMs,
     });
   }
 
@@ -359,6 +498,7 @@ async function main() {
     allowWrite,
     briefKeys: Object.keys(brief),
     authMode,
+    agentExchangeNegativeProbes: Boolean(agentBase),
   };
 
   if (expectedExperimentId) {

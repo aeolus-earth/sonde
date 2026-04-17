@@ -313,7 +313,14 @@ def build_local_section(*, deep: bool = False) -> DoctorSection:
 
 def build_auth_section(*, deep: bool = False) -> DoctorSection:
     """Inspect current auth state."""
-    checks = [check_auth_session(), check_device_login_base(), check_device_login_health()]
+    checks = [
+        check_auth_token_source(),
+        check_auth_session(),
+        check_opaque_agent_exchange_cache(),
+        check_auth_environment_overrides(),
+        check_device_login_base(),
+        check_device_login_health(),
+    ]
     return build_section("auth", checks, required=True)
 
 
@@ -598,6 +605,250 @@ def check_auth_session() -> DoctorCheck:
         }
 
     return _timed_check("auth-session", "Current session", build, required=True)
+
+
+def check_auth_token_source() -> DoctorCheck:
+    """Classify the configured auth source without exposing credential material."""
+
+    def build() -> dict[str, Any]:
+        token = os.environ.get("SONDE_TOKEN", "").strip()
+        if not token:
+            session = auth.load_session()
+            if session and isinstance(session.get("access_token"), str):
+                return {
+                    "status": "info",
+                    "summary": "No SONDE_TOKEN set; using stored human session.",
+                    "details": [f"Session store: {auth.SESSION_FILE}"],
+                    "metadata": {"kind": "human-session", "has_session": True},
+                }
+            return {
+                "status": "info",
+                "summary": "No SONDE_TOKEN set and no stored session detected.",
+                "details": [f"Session store: {auth.SESSION_FILE}"],
+                "metadata": {"kind": "none", "has_session": False},
+            }
+
+        if token.startswith(auth.BOT_TOKEN_PREFIX):
+            return {
+                "status": "error",
+                "summary": "Legacy password-bundle SONDE_TOKEN is unsupported.",
+                "details": [
+                    "Tokens that start with sonde_bt_ contained a bot password "
+                    "and must be rotated.",
+                    "New agent credentials must start with sonde_ak_ and exchange "
+                    "through the hosted server.",
+                ],
+                "fix": "Ask a program admin to create a fresh token: sonde admin create-token",
+                "metadata": {"kind": "legacy-password-bundle"},
+            }
+
+        if token.startswith(auth.OPAQUE_AGENT_TOKEN_PREFIX):
+            origin, source = _resolved_agent_exchange_origin()
+            details = [
+                "Credential kind: opaque agent token (sonde_ak_).",
+                "The CLI exchanges this token for a short-lived Supabase session.",
+            ]
+            if origin:
+                details.append(f"Exchange origin: {origin} ({source})")
+            return {
+                "status": "ok",
+                "summary": "SONDE_TOKEN is an opaque exchange-backed agent token.",
+                "details": details,
+                "metadata": {
+                    "kind": "opaque-agent-token",
+                    "exchange_origin": origin,
+                    "exchange_origin_source": source,
+                },
+            }
+
+        if token.startswith(auth.AGENT_TOKEN_PREFIX):
+            return {
+                "status": "warn",
+                "summary": "SONDE_TOKEN uses the old signed agent-token format.",
+                "details": [
+                    "Old sonde_at_ tokens are not exchange-backed, so revocation and expiry "
+                    "diagnostics are weaker than with sonde_ak_ tokens.",
+                    "Rotate this credential to the opaque token model.",
+                ],
+                "fix": "Ask a program admin to create a fresh token: sonde admin create-token",
+                "metadata": {"kind": "signed-agent-token"},
+            }
+
+        claims = _safe_token_claims(token)
+        if _looks_like_access_token(claims):
+            return {
+                "status": "warn",
+                "summary": "SONDE_TOKEN looks like a raw Supabase access token.",
+                "details": [
+                    "Raw access tokens are bearer credentials and are not revocable through "
+                    "Sonde agent-token management.",
+                    "Use human login for people or sonde_ak_ tokens for agents.",
+                ],
+                "fix": "For agents, rotate to: sonde admin create-token",
+                "metadata": {"kind": "raw-access-token", "programs": _claim_programs(claims)},
+            }
+
+        return {
+            "status": "warn",
+            "summary": "SONDE_TOKEN has an unrecognized format.",
+            "details": [
+                "Expected an opaque agent token that starts with sonde_ak_, or a valid "
+                "Supabase access token for advanced workflows."
+            ],
+            "fix": "Unset SONDE_TOKEN and run sonde login, or create a fresh agent token.",
+            "metadata": {"kind": "unknown"},
+        }
+
+    return _timed_check("auth-token-source", "Auth source", build, required=True)
+
+
+def check_opaque_agent_exchange_cache() -> DoctorCheck:
+    """Report the cached short-lived session for opaque agent tokens."""
+
+    def build() -> dict[str, Any]:
+        token = os.environ.get("SONDE_TOKEN", "").strip()
+        if not token.startswith(auth.OPAQUE_AGENT_TOKEN_PREFIX):
+            return {
+                "status": "skipped",
+                "summary": "Opaque agent exchange cache not applicable.",
+            }
+
+        session = auth._agent_cached_session(token)
+        if not session:
+            return {
+                "status": "info",
+                "summary": "No cached agent exchange session found yet.",
+                "details": [
+                    "The next authenticated command will exchange SONDE_TOKEN through "
+                    "/auth/agent/exchange."
+                ],
+                "metadata": {"has_cached_session": False},
+            }
+
+        access_token = session.get("access_token")
+        if not isinstance(access_token, str) or not access_token:
+            return {
+                "status": "warn",
+                "summary": "Cached agent exchange session is incomplete.",
+                "details": [f"Cache file: {auth.AGENT_SESSION_FILE}"],
+                "fix": "Delete the cache and retry: rm ~/.config/sonde/agent-session.json",
+                "metadata": {"has_cached_session": True, "valid": False},
+            }
+
+        claims = _safe_token_claims(access_token)
+        expires_at = _claim_expiry(claims)
+        expired = auth._is_expired(access_token)
+        programs = _claim_programs(claims)
+        seconds_left = (
+            int((expires_at - datetime.now(UTC)).total_seconds())
+            if expires_at is not None
+            else None
+        )
+        details = [f"Cache file: {auth.AGENT_SESSION_FILE}"]
+        if expires_at is not None:
+            details.append(f"Cached session expires: {expires_at.isoformat()}")
+        if programs:
+            details.append(f"Programs in cached claims: {', '.join(programs)}")
+
+        metadata: dict[str, Any] = {
+            "has_cached_session": True,
+            "valid": not expired,
+            "expires_at": expires_at.isoformat() if expires_at is not None else None,
+            "seconds_left": seconds_left,
+            "programs": programs or [],
+            "token_id": claims.get("app_metadata", {}).get("token_id")
+            if isinstance(claims.get("app_metadata"), dict)
+            else None,
+        }
+
+        if expired:
+            return {
+                "status": "info",
+                "summary": "Cached agent session is expired and will be re-exchanged.",
+                "details": details,
+                "metadata": metadata,
+            }
+
+        if seconds_left is not None and seconds_left <= 300:
+            return {
+                "status": "info",
+                "summary": "Cached agent session is valid but near expiry.",
+                "details": [
+                    *details,
+                    "Sonde will automatically exchange the opaque token again when needed.",
+                ],
+                "metadata": metadata,
+            }
+
+        return {
+            "status": "ok",
+            "summary": "Cached agent exchange session is valid.",
+            "details": details,
+            "metadata": metadata,
+        }
+
+    return _timed_check("auth-agent-exchange-cache", "Agent exchange cache", build)
+
+
+def check_auth_environment_overrides() -> DoctorCheck:
+    """Explain env vars that change auth, config, or hosted-target precedence."""
+
+    def build() -> dict[str, Any]:
+        details: list[str] = []
+        metadata: dict[str, Any] = {}
+        token = os.environ.get("SONDE_TOKEN", "").strip()
+        session = auth.load_session()
+
+        if token:
+            kind = auth_source()
+            details.append(f"SONDE_TOKEN is set; credential kind: {kind}.")
+            metadata["sonde_token_kind"] = kind
+            if session and isinstance(session.get("access_token"), str):
+                details.append("SONDE_TOKEN overrides the stored human session for this shell.")
+                metadata["token_shadows_session"] = True
+
+        if os.environ.get("SONDE_AGENT_HTTP_BASE"):
+            details.append("SONDE_AGENT_HTTP_BASE is set and takes precedence for hosted auth/API.")
+            metadata["sonde_agent_http_base_set"] = True
+            if os.environ.get("SONDE_UI_URL"):
+                details.append("SONDE_UI_URL is also set, but SONDE_AGENT_HTTP_BASE wins for auth.")
+                metadata["agent_base_shadows_ui_url"] = True
+        elif os.environ.get("SONDE_UI_URL"):
+            details.append("SONDE_UI_URL is set and will be used for hosted activation.")
+            metadata["sonde_ui_url_set"] = True
+
+        if os.environ.get("AEOLUS_SUPABASE_URL"):
+            details.append("AEOLUS_SUPABASE_URL is set and overrides the default Supabase project.")
+            metadata["aeolus_supabase_url_set"] = True
+        if os.environ.get("AEOLUS_SUPABASE_ANON_KEY"):
+            details.append("AEOLUS_SUPABASE_ANON_KEY is set; value is intentionally not displayed.")
+            metadata["aeolus_supabase_anon_key_set"] = True
+        if os.environ.get("SONDE_CONFIG_DIR"):
+            details.append(f"SONDE_CONFIG_DIR is set; config/session path: {auth.CONFIG_DIR}")
+            metadata["sonde_config_dir"] = str(auth.CONFIG_DIR)
+
+        if not details:
+            return {
+                "status": "ok",
+                "summary": "No auth-related environment overrides detected.",
+                "metadata": metadata,
+            }
+
+        status: DoctorStatus = "warn" if metadata.get("token_shadows_session") else "info"
+        summary = "Auth environment overrides detected."
+        if metadata.get("token_shadows_session"):
+            summary = "SONDE_TOKEN is shadowing a stored human session."
+        return {
+            "status": status,
+            "summary": summary,
+            "details": details,
+            "fix": "Unset SONDE_TOKEN to use your stored human login."
+            if metadata.get("token_shadows_session")
+            else None,
+            "metadata": metadata,
+        }
+
+    return _timed_check("auth-env-overrides", "Auth environment", build)
 
 
 def check_device_login_base() -> DoctorCheck:
@@ -1243,6 +1494,43 @@ def auth_source() -> str:
     if token.startswith(auth.AGENT_TOKEN_PREFIX):
         return "signed-agent-token"
     return "token"
+
+
+def _resolved_agent_exchange_origin() -> tuple[str, str]:
+    """Return the normalized hosted exchange origin and its precedence source."""
+    resolved, source = auth._resolve_hosted_login_origin()
+    normalized = auth._normalize_hosted_login_origin(resolved)
+    return normalized, source
+
+
+def _safe_token_claims(token: str) -> dict[str, Any]:
+    try:
+        return auth._token_claims(token)
+    except Exception:
+        return {}
+
+
+def _claim_programs(claims: dict[str, Any]) -> list[str]:
+    programs = auth._claim_programs(claims)
+    return programs or []
+
+
+def _claim_expiry(claims: dict[str, Any]) -> datetime | None:
+    exp = claims.get("exp")
+    if isinstance(exp, (int, float)):
+        return datetime.fromtimestamp(exp, UTC)
+    return None
+
+
+def _looks_like_access_token(claims: dict[str, Any]) -> bool:
+    if not claims:
+        return False
+    sub = claims.get("sub")
+    if not isinstance(sub, str) or not sub.strip():
+        return False
+    role = claims.get("role")
+    aud = claims.get("aud")
+    return role == "authenticated" or aud == "authenticated"
 
 
 def detect_s3_credentials() -> str | None:

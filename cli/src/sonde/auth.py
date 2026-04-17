@@ -718,7 +718,8 @@ def _agent_token_fingerprint(token: str) -> str:
 def _legacy_bot_token_message() -> str:
     return (
         "Legacy password-bundle agent tokens (sonde_bt_) are no longer supported. "
-        "Ask an admin to create a new opaque token with: sonde admin create-token"
+        "Rotate this credential by asking a program admin to create a new opaque "
+        "token with: sonde admin create-token"
     )
 
 

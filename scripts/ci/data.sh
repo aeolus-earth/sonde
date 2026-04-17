@@ -83,6 +83,8 @@ if [[ "$file_count" != "$applied_count" ]]; then
   exit 1
 fi
 
+SONDE_SECURITY_ASSUME_READY=1 bash scripts/ci/security.sh
+
 (
   cd cli
   uv sync

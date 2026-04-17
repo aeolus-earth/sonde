@@ -19,6 +19,7 @@ import { MarkdownView } from "@/components/ui/markdown-view";
 import { ArtifactGallery } from "@/components/artifacts/artifact-gallery";
 import { cn, formatDateTime, formatDateTimeShort } from "@/lib/utils";
 import { Section, DetailRow } from "@/components/shared/detail-layout";
+import { RecordUnavailable } from "@/components/shared/record-unavailable";
 import { RecordLink } from "@/components/shared/record-link";
 import { SondeLinkifiedText } from "@/components/shared/sonde-linkified-text";
 import { AuthGate } from "@/components/auth/auth-gate";
@@ -76,6 +77,10 @@ export default function ExperimentDetailPage() {
       setLinkCopied(false);
     }
   }, [shareUrl]);
+
+  if (!isLoading && !exp) {
+    return <RecordUnavailable recordLabel="Experiment" recordId={id} />;
+  }
 
   if (isLoading || !exp) {
     return (

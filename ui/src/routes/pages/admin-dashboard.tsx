@@ -19,6 +19,7 @@ import { useRealtimeInvalidation } from "@/hooks/use-realtime";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
+import { AdminAccessManagement } from "@/components/admin/access-management";
 import { RecordLink } from "@/components/shared/record-link";
 import { UsageChart } from "@/components/visualizations/usage-chart";
 import {
@@ -281,6 +282,8 @@ export default function AdminDashboard() {
           loading={statsLoading}
         />
       </div>
+
+      <AdminAccessManagement />
 
       {/* Managed cost hygiene */}
       <section className="space-y-3">

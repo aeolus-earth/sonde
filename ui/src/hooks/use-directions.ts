@@ -7,12 +7,12 @@ import type { DirectionSummary } from "@/types/sonde";
 export function useDirection(id: string) {
   return useQuery({
     queryKey: queryKeys.directions.detail(id),
-    queryFn: async (): Promise<DirectionSummary> => {
+    queryFn: async (): Promise<DirectionSummary | null> => {
       const { data, error } = await supabase
         .from("direction_status")
         .select("*")
         .eq("id", id)
-        .single();
+        .maybeSingle();
 
       if (error) throw error;
       return data;
@@ -60,12 +60,12 @@ export function useChildDirections(parentId: string) {
 export function useParentDirection(parentId: string | null | undefined) {
   return useQuery({
     queryKey: queryKeys.directions.detail(parentId ?? ""),
-    queryFn: async (): Promise<DirectionSummary> => {
+    queryFn: async (): Promise<DirectionSummary | null> => {
       const { data, error } = await supabase
         .from("direction_status")
         .select("*")
         .eq("id", parentId!)
-        .single();
+        .maybeSingle();
 
       if (error) throw error;
       return data;
