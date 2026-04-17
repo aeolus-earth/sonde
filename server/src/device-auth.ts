@@ -477,6 +477,15 @@ function updateMemoryRecord(
   return { ...next };
 }
 
+function recordIncludesUpdates(
+  record: StoredDeviceAuthRequest,
+  updates: Partial<StoredDeviceAuthRequest>,
+): boolean {
+  return Object.entries(updates).every(
+    ([key, value]) => record[key as keyof StoredDeviceAuthRequest] === value,
+  );
+}
+
 async function updateRecord(
   id: string,
   updates: Partial<StoredDeviceAuthRequest>,
@@ -502,7 +511,11 @@ async function updateRecord(
     throw new Error(`Failed to update device login request: ${error.message}`);
   }
   if (!data) {
-    return null;
+    const refreshed = await findRecordById(id, env);
+    if (recordIncludesUpdates(refreshed, updates)) {
+      return refreshed;
+    }
+    throw new Error("Failed to update device login request: no row was updated.");
   }
   return toStoredRecord(data as Record<string, unknown>);
 }

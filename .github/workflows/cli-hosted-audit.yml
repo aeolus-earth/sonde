@@ -28,6 +28,7 @@ jobs:
       }}
     runs-on: ubuntu-latest
     environment: staging
+    timeout-minutes: 20
 
     steps:
       - uses: actions/checkout@v6
@@ -110,6 +111,7 @@ jobs:
         run: node scripts/run-cli-hosted-audit.mjs
 
       - name: Run staging CLI audit (device approval contract)
+        timeout-minutes: 5
         working-directory: server
         env:
           CLI_AUDIT_AGENT_BASE: ${{ steps.contract.outputs.agent_url }}
@@ -122,6 +124,7 @@ jobs:
           CLI_AUDIT_EXPECT_EXPERIMENT_ID: ${{ steps.contract.outputs.smoke_expected_experiment_id }}
           CLI_AUDIT_WAIT_TIMEOUT_MS: ${{ steps.contract.outputs.audit_wait_timeout_ms }}
           CLI_AUDIT_WAIT_INTERVAL_MS: ${{ steps.contract.outputs.audit_wait_interval_ms }}
+          CLI_AUDIT_LOGIN_TIMEOUT_MS: "120000"
           SMOKE_USER_EMAIL: ${{ secrets.SONDE_STAGING_SMOKE_USER_EMAIL }}
           SMOKE_USER_PASSWORD: ${{ secrets.SONDE_STAGING_SMOKE_USER_PASSWORD }}
         run: node scripts/run-cli-hosted-audit.mjs
@@ -135,6 +138,7 @@ jobs:
       }}
     runs-on: ubuntu-latest
     environment: production
+    timeout-minutes: 20
 
     steps:
       - uses: actions/checkout@v6
@@ -216,6 +220,7 @@ jobs:
         run: node scripts/run-cli-hosted-audit.mjs
 
       - name: Run production CLI audit (device approval contract)
+        timeout-minutes: 5
         working-directory: server
         env:
           CLI_AUDIT_AGENT_BASE: ${{ steps.contract.outputs.agent_url }}
@@ -227,6 +232,7 @@ jobs:
           CLI_AUDIT_EXPECT_EXPERIMENT_ID: ${{ steps.contract.outputs.smoke_expected_experiment_id }}
           CLI_AUDIT_WAIT_TIMEOUT_MS: ${{ steps.contract.outputs.audit_wait_timeout_ms }}
           CLI_AUDIT_WAIT_INTERVAL_MS: ${{ steps.contract.outputs.audit_wait_interval_ms }}
+          CLI_AUDIT_LOGIN_TIMEOUT_MS: "120000"
           SMOKE_USER_EMAIL: ${{ secrets.SONDE_PRODUCTION_SMOKE_USER_EMAIL }}
           SMOKE_USER_PASSWORD: ${{ secrets.SONDE_PRODUCTION_SMOKE_USER_PASSWORD }}
         run: node scripts/run-cli-hosted-audit.mjs

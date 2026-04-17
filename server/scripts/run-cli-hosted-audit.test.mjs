@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import http from "node:http";
 import { describe, it } from "node:test";
 import {
   assertAgentExchangeRejectsInvalidTokens,
   validateAgentAuditToken,
+  waitForChildExit,
 } from "./run-cli-hosted-audit.mjs";
 
 describe("run-cli-hosted-audit", () => {
@@ -82,6 +84,38 @@ describe("run-cli-hosted-audit", () => {
       );
     } finally {
       await new Promise((resolve) => server.close(resolve));
+    }
+  });
+
+  it("times out and terminates hung child processes", async () => {
+    const child = spawn(
+      process.execPath,
+      ["-e", "console.error('waiting forever'); setInterval(() => {}, 1000);"],
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+
+    try {
+      await assert.rejects(
+        waitForChildExit(child, {
+          timeoutMs: 50,
+          description: "test child",
+          stdout: () => stdout,
+          stderr: () => stderr,
+        }),
+        /test child timed out after 50ms/,
+      );
+    } finally {
+      child.kill("SIGKILL");
     }
   });
 });
