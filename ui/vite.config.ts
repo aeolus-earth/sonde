@@ -19,7 +19,7 @@ function runCommand(command: string): string | null {
   try {
     const out = execSync(command, {
       stdio: ["ignore", "pipe", "ignore"],
-      timeout: 5000,
+      timeout: 15000,
     })
       .toString()
       .trim();
@@ -82,6 +82,10 @@ export default defineConfig({
   server: {
     proxy: {
       "/auth/device": {
+        target: devAgentTarget,
+        changeOrigin: true,
+      },
+      "/auth/agent": {
         target: devAgentTarget,
         changeOrigin: true,
       },

@@ -147,6 +147,7 @@ jobs:
               `- staging commit: \`${triggerSha}\``,
               "- release method: merge commit",
               "- promotion guard: only `staging -> main` PRs are allowed to pass `merge-readiness`",
+              "- human gate: CODEOWNERS approval is required before auto-merge can complete",
               "",
               "## Staging gate",
               "",

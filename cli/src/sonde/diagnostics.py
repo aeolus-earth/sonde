@@ -1237,9 +1237,11 @@ def auth_source() -> str:
     if not token:
         return "session"
     if token.startswith(auth.BOT_TOKEN_PREFIX):
-        return "bot-token"
+        return "legacy-bot-token"
+    if token.startswith(auth.OPAQUE_AGENT_TOKEN_PREFIX):
+        return "opaque-agent-token"
     if token.startswith(auth.AGENT_TOKEN_PREFIX):
-        return "agent-token"
+        return "signed-agent-token"
     return "token"
 
 
