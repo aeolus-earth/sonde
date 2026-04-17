@@ -54,6 +54,49 @@ export function validateAgentAuditToken(token) {
   }
 }
 
+export async function assertAgentExchangeRejectsInvalidTokens(agentBase) {
+  const base = agentBase?.trim().replace(/\/+$/, "") ?? "";
+  if (!base) {
+    throw new Error("Agent exchange negative probes require CLI_AUDIT_AGENT_BASE.");
+  }
+
+  const cases = [
+    {
+      label: "legacy password-bundle",
+      token: "sonde_bt_password-envelope-audit-probe",
+    },
+    {
+      label: "malformed opaque",
+      token: "sonde_ak_malformed-audit-probe",
+    },
+  ];
+
+  for (const testCase of cases) {
+    const response = await fetch(`${base}/auth/agent/exchange`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        token: testCase.token,
+        cli_version: "hosted-audit",
+        host_label: "hosted-audit-negative-probe",
+      }),
+    });
+
+    if (response.ok) {
+      throw new Error(
+        `Agent exchange unexpectedly accepted ${testCase.label} token probe.`
+      );
+    }
+
+    if (response.status < 400 || response.status >= 500) {
+      const body = await response.text();
+      throw new Error(
+        `Agent exchange rejected ${testCase.label} token with unexpected HTTP ${response.status}: ${body}`
+      );
+    }
+  }
+}
+
 function sleep(ms) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -278,6 +321,10 @@ async function main() {
     throw new Error("CLI_AUDIT_AUTH_MODE must be one of: auto, token, session.");
   }
 
+  if (agentBase) {
+    await assertAgentExchangeRejectsInvalidTokens(agentBase);
+  }
+
   if (authMode === "token") {
     validateAgentAuditToken(sondeToken);
     cliEnv.SONDE_TOKEN = sondeToken;
@@ -359,6 +406,7 @@ async function main() {
     allowWrite,
     briefKeys: Object.keys(brief),
     authMode,
+    agentExchangeNegativeProbes: Boolean(agentBase),
   };
 
   if (expectedExperimentId) {

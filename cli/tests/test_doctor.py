@@ -2,19 +2,25 @@
 
 from __future__ import annotations
 
+import base64
+import json
 import sys
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from urllib.error import HTTPError, URLError
 
+from sonde import auth
 from sonde.cli import cli
 from sonde.commands.upgrade import UpgradeCheckResult
 from sonde.diagnostics import (
     GIT_TOOL_INSTALL_COMMAND,
+    check_auth_environment_overrides,
+    check_auth_token_source,
     check_cli_update,
     check_device_login_base,
     check_device_login_health,
     check_install_shadows,
+    check_opaque_agent_exchange_cache,
     check_s3_settings,
     check_stac_settings,
     run_doctor,
@@ -27,6 +33,14 @@ from sonde.models.doctor import (
     DoctorStatus,
     DoctorSummary,
 )
+
+
+def _jwt(payload: dict[str, object]) -> str:
+    def encode(value: dict[str, object]) -> str:
+        raw = json.dumps(value, separators=(",", ":")).encode("utf-8")
+        return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
+
+    return f"{encode({'alg': 'none', 'typ': 'JWT'})}.{encode(payload)}.signature"
 
 
 def _check(
@@ -273,6 +287,91 @@ def test_check_device_login_health_warns_on_404(monkeypatch) -> None:
 
     assert check.status == "warn"
     assert "returned 404" in check.summary.lower()
+
+
+def test_check_auth_token_source_rejects_legacy_bot_token(monkeypatch):
+    monkeypatch.setenv("SONDE_TOKEN", "sonde_bt_password-envelope")
+
+    check = check_auth_token_source()
+
+    assert check.id == "auth-token-source"
+    assert check.status == "error"
+    assert "Legacy password-bundle" in check.summary
+    assert check.metadata["kind"] == "legacy-password-bundle"
+    assert "sonde admin create-token" in (check.fix or "")
+
+
+def test_check_auth_token_source_reports_opaque_agent_token(monkeypatch):
+    monkeypatch.setenv("SONDE_TOKEN", "sonde_ak_secret")
+    monkeypatch.setattr(
+        "sonde.diagnostics.auth._resolve_hosted_login_origin",
+        lambda: ("https://agent.example.com/", "agent-http-base"),
+    )
+    monkeypatch.setattr(
+        "sonde.diagnostics.auth._normalize_hosted_login_origin",
+        lambda value: value.rstrip("/"),
+    )
+
+    check = check_auth_token_source()
+
+    assert check.status == "ok"
+    assert check.metadata["kind"] == "opaque-agent-token"
+    assert check.metadata["exchange_origin"] == "https://agent.example.com"
+    assert "short-lived" in "\n".join(check.details)
+
+
+def test_check_opaque_agent_exchange_cache_reports_cached_programs(monkeypatch, tmp_path):
+    token = "sonde_ak_secret"
+    expires_at = datetime.now(UTC) + timedelta(minutes=20)
+    cached_access_token = _jwt(
+        {
+            "sub": "token-1",
+            "role": "authenticated",
+            "aud": "authenticated",
+            "exp": int(expires_at.timestamp()),
+            "app_metadata": {
+                "agent": True,
+                "token_id": "tok-001",
+                "programs": ["shared", "weather-intervention"],
+            },
+        }
+    )
+    cache_path = tmp_path / "agent-session.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "access_token": cached_access_token,
+                "agent_token_fingerprint": auth._agent_token_fingerprint(token),
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("SONDE_TOKEN", token)
+    monkeypatch.setattr(auth, "AGENT_SESSION_FILE", cache_path)
+
+    check = check_opaque_agent_exchange_cache()
+
+    assert check.status == "ok"
+    assert check.metadata["valid"] is True
+    assert check.metadata["programs"] == ["shared", "weather-intervention"]
+    assert check.metadata["token_id"] == "tok-001"
+
+
+def test_check_auth_environment_overrides_warns_when_token_shadows_session(monkeypatch):
+    monkeypatch.setenv("SONDE_TOKEN", "sonde_ak_secret")
+    monkeypatch.setenv("SONDE_AGENT_HTTP_BASE", "https://agent.example.com")
+    monkeypatch.setenv("SONDE_UI_URL", "https://ui.example.com")
+    monkeypatch.setattr(
+        "sonde.diagnostics.auth.load_session",
+        lambda: {"access_token": "stored-human-token"},
+    )
+
+    check = check_auth_environment_overrides()
+
+    assert check.status == "warn"
+    assert check.metadata["token_shadows_session"] is True
+    assert check.metadata["agent_base_shadows_ui_url"] is True
+    assert "Unset SONDE_TOKEN" in (check.fix or "")
 
 
 def test_check_install_shadows_reports_shadowed_binary(monkeypatch):

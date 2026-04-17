@@ -82,14 +82,21 @@ def create_token(ctx: click.Context, name: str, programs: str, expires: int) -> 
     else:
         expires_str = str(token_data.get("expires_at", ""))[:10]
         token_str = str(token_data.get("token", ""))
+        token_preview = str(token_data.get("token_preview", ""))
         print_success(f"Token created: {name}")
         err.print(f"  Programs: {', '.join(program_list)}")
         err.print(f"  Expires:  {expires_str}")
+        if token_preview:
+            err.print(f"  Preview:  {token_preview}")
         err.print()
         err.print(f"  [bold]Token: {token_str}[/bold]")
         err.print()
         err.print("  [yellow]Save this token now — it cannot be retrieved later.[/yellow]")
-        err.print("  Set it as an environment variable for your agent:")
+        err.print(
+            "  This opaque token is exchanged for short-lived sessions; "
+            "revocation and expiry are enforced server-side."
+        )
+        err.print("  Set it as an environment variable for your agent or CI job:")
         err.print(f'    export SONDE_TOKEN="{token_str}"')
 
 
