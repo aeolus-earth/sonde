@@ -695,6 +695,16 @@ def test_list_rejects_unauthenticated(runner: CliRunner, monkeypatch):
     assert "sonde login" in result.output
 
 
+def test_auth_guard_preserves_legacy_bot_token_message(runner: CliRunner, monkeypatch):
+    monkeypatch.setenv("SONDE_TOKEN", "sonde_bt_password-envelope")
+
+    result = runner.invoke(cli, ["program", "list", "--json"])
+
+    assert result.exit_code != 0
+    assert "Legacy password-bundle agent tokens" in result.output
+    assert "sonde admin create-token" in result.output
+
+
 def test_show_rejects_unauthenticated(runner: CliRunner, monkeypatch):
     result = _invoke_unauthenticated(runner, monkeypatch, "show", "EXP-0001")
     assert result.exit_code != 0

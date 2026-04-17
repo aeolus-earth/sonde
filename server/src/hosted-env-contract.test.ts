@@ -21,7 +21,7 @@ describe("hosted environment contract", () => {
       HOSTED_SUPABASE_ANON_KEY: "sb_publishable_stage",
       HOSTED_SMOKE_USER_EMAIL: "smoke@aeolus.earth",
       HOSTED_SMOKE_USER_PASSWORD: "secret",
-      HOSTED_CLI_AUDIT_TOKEN: "cli-audit",
+      HOSTED_CLI_AUDIT_TOKEN: "sonde_ak_cli-audit",
       HOSTED_RUNTIME_AUDIT_TOKEN: "runtime-audit",
       HOSTED_GOOGLE_CLIENT_ID: "google-id",
       HOSTED_GOOGLE_CLIENT_SECRET: "google-secret",
@@ -74,7 +74,7 @@ describe("hosted environment contract", () => {
       HOSTED_SUPABASE_ANON_KEY: "sb_publishable_prod",
       HOSTED_SMOKE_USER_EMAIL: "smoke@aeolus.earth",
       HOSTED_SMOKE_USER_PASSWORD: "secret",
-      HOSTED_CLI_AUDIT_TOKEN: "cli-audit",
+      HOSTED_CLI_AUDIT_TOKEN: "sonde_ak_cli-audit",
       HOSTED_RUNTIME_AUDIT_TOKEN: "runtime-audit",
       HOSTED_GOOGLE_CLIENT_ID: "google-id",
       HOSTED_GOOGLE_CLIENT_SECRET: "google-secret",
@@ -94,12 +94,61 @@ describe("hosted environment contract", () => {
       HOSTED_SUPABASE_ANON_KEY: "sb_publishable_stage",
       HOSTED_SMOKE_USER_EMAIL: "smoke@aeolus.earth",
       HOSTED_SMOKE_USER_PASSWORD: "secret",
-      HOSTED_CLI_AUDIT_TOKEN: "cli-audit",
+      HOSTED_CLI_AUDIT_TOKEN: "sonde_ak_cli-audit",
+      HOSTED_RUNTIME_AUDIT_TOKEN: "runtime-audit",
     });
 
     assert.deepEqual(validateResolvedHostedEnvironment(resolved, "cli-audit"), [
       "HOSTED_AGENT_URL is required.",
     ]);
+  });
+
+  it("rejects legacy password-bundle tokens for CLI token audits", () => {
+    const resolved = resolveHostedEnvironment("production", {
+      HOSTED_AGENT_URL: "https://agent.example.com",
+      HOSTED_SUPABASE_PROJECT_REF: "prodproj",
+      HOSTED_SUPABASE_ANON_KEY: "sb_publishable_prod",
+      HOSTED_SMOKE_USER_EMAIL: "smoke@aeolus.earth",
+      HOSTED_SMOKE_USER_PASSWORD: "secret",
+      HOSTED_CLI_AUDIT_TOKEN: "sonde_bt_password-envelope",
+      HOSTED_RUNTIME_AUDIT_TOKEN: "runtime-audit",
+    });
+
+    assert.deepEqual(validateResolvedHostedEnvironment(resolved, "cli-audit"), [
+      "HOSTED_CLI_AUDIT_TOKEN uses legacy password-bundle agent token format (sonde_bt_); create a new opaque token with: sonde admin create-token.",
+    ]);
+  });
+
+  it("rejects non-opaque CLI audit tokens for CLI token audits", () => {
+    const resolved = resolveHostedEnvironment("production", {
+      HOSTED_AGENT_URL: "https://agent.example.com",
+      HOSTED_SUPABASE_PROJECT_REF: "prodproj",
+      HOSTED_SUPABASE_ANON_KEY: "sb_publishable_prod",
+      HOSTED_SMOKE_USER_EMAIL: "smoke@aeolus.earth",
+      HOSTED_SMOKE_USER_PASSWORD: "secret",
+      HOSTED_CLI_AUDIT_TOKEN: "plain-token",
+      HOSTED_RUNTIME_AUDIT_TOKEN: "runtime-audit",
+    });
+
+    assert.deepEqual(validateResolvedHostedEnvironment(resolved, "cli-audit"), [
+      "HOSTED_CLI_AUDIT_TOKEN must be an opaque agent token that starts with sonde_ak_.",
+    ]);
+  });
+
+  it("does not validate CLI audit token shape outside CLI token audits", () => {
+    const resolved = resolveHostedEnvironment("production", {
+      HOSTED_AGENT_URL: "https://agent.example.com",
+      HOSTED_SUPABASE_PROJECT_REF: "prodproj",
+      HOSTED_SUPABASE_ANON_KEY: "sb_publishable_prod",
+      HOSTED_SMOKE_USER_EMAIL: "smoke@aeolus.earth",
+      HOSTED_SMOKE_USER_PASSWORD: "secret",
+      HOSTED_CLI_AUDIT_TOKEN: "sonde_bt_password-envelope",
+      HOSTED_RUNTIME_AUDIT_TOKEN: "runtime-audit",
+      HOSTED_GOOGLE_CLIENT_ID: "google-id",
+      HOSTED_GOOGLE_CLIENT_SECRET: "google-secret",
+    });
+
+    assert.deepEqual(validateResolvedHostedEnvironment(resolved, "config-audit"), []);
   });
 
   it("formats GitHub outputs with the contract-derived smoke expectations", () => {

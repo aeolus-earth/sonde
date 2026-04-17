@@ -5,24 +5,28 @@ import { fileURLToPath } from "node:url";
 
 const serverRoot = fileURLToPath(new URL("..", import.meta.url));
 const sourceRoot = join(serverRoot, "src");
+const scriptsRoot = join(serverRoot, "scripts");
 
-function collectTestFiles(directory) {
+function collectTestFiles(directory, suffix) {
   const entries = readdirSync(directory, { withFileTypes: true });
   const files = [];
   for (const entry of entries) {
     const entryPath = join(directory, entry.name);
     if (entry.isDirectory()) {
-      files.push(...collectTestFiles(entryPath));
+      files.push(...collectTestFiles(entryPath, suffix));
       continue;
     }
-    if (entry.isFile() && entry.name.endsWith(".test.ts")) {
+    if (entry.isFile() && entry.name.endsWith(suffix)) {
       files.push(entryPath);
     }
   }
   return files;
 }
 
-const testFiles = collectTestFiles(sourceRoot)
+const testFiles = [
+  ...collectTestFiles(sourceRoot, ".test.ts"),
+  ...collectTestFiles(scriptsRoot, ".test.mjs"),
+]
   .sort((left, right) => left.localeCompare(right))
   .map((file) => relative(serverRoot, file));
 
