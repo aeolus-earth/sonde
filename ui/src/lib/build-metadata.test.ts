@@ -132,6 +132,26 @@ describe("build metadata", () => {
     expect(sleeps).toEqual([5_000]);
   });
 
+  it("falls back to canonical GitHub tag lookup when the build remote has no tags", () => {
+    const metadata = resolveBuildMetadata(
+      {
+        VERCEL_ENV: "production",
+        VERCEL_GIT_COMMIT_REF: "main",
+        VERCEL_GIT_COMMIT_SHA: COMMIT_SHA,
+      },
+      commandRunner({
+        [`git tag --points-at ${COMMIT_SHA}`]: "",
+        'git ls-remote --tags origin "v*"': "",
+        'git ls-remote --tags https://github.com/aeolus-earth/sonde.git "v*"':
+          `${COMMIT_SHA}\trefs/tags/v0.1.9^{}`,
+      }),
+      { strictTagWaitMs: 0 },
+    );
+
+    expect(metadata.appVersion).toBe("v0.1.9");
+    expect(metadata.appVersionSource).toBe("exact-tag");
+  });
+
   it("throws instead of falling back when production main has no exact tag", () => {
     expect(() =>
       resolveBuildMetadata(
