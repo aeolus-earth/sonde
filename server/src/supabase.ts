@@ -10,7 +10,7 @@ export function telemetryRequiresServiceRole(
   return getRuntimeEnvironment(env) === "production";
 }
 
-function getSupabaseUrl(env: NodeJS.ProcessEnv = process.env): string {
+export function getSupabaseUrl(env: NodeJS.ProcessEnv = process.env): string {
   const value = env.VITE_SUPABASE_URL?.trim() || env.SUPABASE_URL?.trim();
   if (!value) {
     throw new Error("Missing SUPABASE_URL / VITE_SUPABASE_URL.");
@@ -18,7 +18,7 @@ function getSupabaseUrl(env: NodeJS.ProcessEnv = process.env): string {
   return value;
 }
 
-function getSupabaseAnonKey(env: NodeJS.ProcessEnv = process.env): string {
+export function getSupabaseAnonKey(env: NodeJS.ProcessEnv = process.env): string {
   const value =
     env.VITE_SUPABASE_ANON_KEY?.trim() || env.SUPABASE_ANON_KEY?.trim();
   if (!value) {
@@ -27,13 +27,19 @@ function getSupabaseAnonKey(env: NodeJS.ProcessEnv = process.env): string {
   return value;
 }
 
-function getSupabaseServiceRoleKey(env: NodeJS.ProcessEnv = process.env): string | null {
+export function getSupabaseServiceRoleKey(
+  env: NodeJS.ProcessEnv = process.env
+): string | null {
   const value = env.SUPABASE_SERVICE_ROLE_KEY?.trim();
   return value || null;
 }
 
-function createServerSupabaseClient(key: string, accessToken?: string): SupabaseClient {
-  return createClient(getSupabaseUrl(), key, {
+function createServerSupabaseClient(
+  key: string,
+  accessToken?: string,
+  env: NodeJS.ProcessEnv = process.env
+): SupabaseClient {
+  return createClient(getSupabaseUrl(env), key, {
     auth: { persistSession: false, autoRefreshToken: false },
     global: accessToken
       ? {
@@ -45,8 +51,11 @@ function createServerSupabaseClient(key: string, accessToken?: string): Supabase
   });
 }
 
-export function createUserSupabaseClient(accessToken: string): SupabaseClient {
-  return createServerSupabaseClient(getSupabaseAnonKey(), accessToken);
+export function createUserSupabaseClient(
+  accessToken: string,
+  env: NodeJS.ProcessEnv = process.env
+): SupabaseClient {
+  return createServerSupabaseClient(getSupabaseAnonKey(env), accessToken, env);
 }
 
 export function getServiceRoleSupabaseClient(
@@ -54,7 +63,7 @@ export function getServiceRoleSupabaseClient(
 ): SupabaseClient | null {
   const key = getSupabaseServiceRoleKey(env);
   if (!key) return null;
-  return createServerSupabaseClient(key);
+  return createServerSupabaseClient(key, undefined, env);
 }
 
 export function createTelemetrySupabaseClient(

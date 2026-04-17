@@ -191,10 +191,12 @@ describe("createApp", () => {
     });
   });
 
-  it("exchanges opaque agent tokens through the service-role RPC", async () => {
+  it("exchanges opaque agent tokens through service-role validation and Supabase Auth", async () => {
     process.env.VITE_SUPABASE_URL = "https://utvmqjssbkzpumsdpgdy.supabase.co";
     process.env.VITE_SUPABASE_ANON_KEY = "sb_publishable_test";
     process.env.SUPABASE_SERVICE_ROLE_KEY = "service-role-key";
+    const tokenId = "00000000-0000-0000-0000-000000000042";
+    const agentEmail = `agent-${tokenId}@aeolus.earth`;
     globalThis.fetch = async (input: string | URL | Request, init?: RequestInit) => {
       const request = input instanceof Request ? input : new Request(input, init);
       const url = new URL(request.url);
@@ -205,12 +207,72 @@ describe("createApp", () => {
         assert.equal(request.headers.get("authorization"), "Bearer service-role-key");
         return new Response(
           JSON.stringify({
+            token_id: tokenId,
+            name: "hosted-cli-audit",
+            programs: ["weather-intervention", "shared"],
+            expires_at: "2026-07-17T02:00:00Z",
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      }
+
+      if (url.pathname === "/auth/v1/admin/users" && request.method === "GET") {
+        assert.equal(request.headers.get("authorization"), "Bearer service-role-key");
+        return new Response(JSON.stringify({ users: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+
+      if (url.pathname === "/auth/v1/admin/users" && request.method === "POST") {
+        assert.equal(request.headers.get("authorization"), "Bearer service-role-key");
+        const body = (await request.json()) as {
+          email: string;
+          email_confirm: boolean;
+          app_metadata: {
+            agent: boolean;
+            programs: string[];
+            token_id: string;
+            token_name: string;
+          };
+        };
+        assert.equal(body.email, agentEmail);
+        assert.equal(body.email_confirm, true);
+        assert.deepEqual(body.app_metadata, {
+          agent: true,
+          programs: ["weather-intervention", "shared"],
+          token_id: tokenId,
+          token_name: "hosted-cli-audit",
+          agent_name: "hosted-cli-audit",
+        });
+        return new Response(JSON.stringify({ id: "auth-user-id", email: agentEmail }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+
+      if (url.pathname === "/auth/v1/admin/generate_link") {
+        assert.equal(request.headers.get("authorization"), "Bearer service-role-key");
+        const body = (await request.json()) as { type: string; email: string };
+        assert.deepEqual(body, { type: "magiclink", email: agentEmail });
+        return new Response(JSON.stringify({ hashed_token: "magic-link-hash" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+
+      if (url.pathname === "/auth/v1/verify") {
+        assert.equal(request.headers.get("authorization"), "Bearer sb_publishable_test");
+        const body = (await request.json()) as { type: string; token_hash: string };
+        assert.deepEqual(body, { type: "magiclink", token_hash: "magic-link-hash" });
+        return new Response(
+          JSON.stringify({
             access_token: "agent-access-jwt",
             token_type: "bearer",
-            expires_in: 900,
-            expires_at: "2026-04-17T02:00:00Z",
-            token_id: "00000000-0000-0000-0000-000000000042",
-            programs: ["shared"],
+            expires_in: 3600,
           }),
           {
             status: 200,
@@ -241,7 +303,7 @@ describe("createApp", () => {
     };
     assert.equal(body.access_token, "agent-access-jwt");
     assert.equal(body.token_type, "bearer");
-    assert.deepEqual(body.programs, ["shared"]);
+    assert.deepEqual(body.programs, ["weather-intervention", "shared"]);
   });
 
   it("rejects legacy password-bundle tokens at the exchange endpoint", async () => {
