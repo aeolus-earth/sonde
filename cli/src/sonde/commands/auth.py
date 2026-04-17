@@ -76,7 +76,10 @@ def login(ctx: click.Context, remote: bool, method: str) -> None:
       sonde login --method loopback
     """
     if auth.is_authenticated():
-        user = auth.get_current_user()
+        try:
+            user = auth.get_current_user()
+        except auth.NotAuthenticatedError:
+            user = None
         if user and not user.is_agent:
             err.print(f"[sonde.muted]Already signed in as {user.email}[/]")
             err.print("[sonde.muted]Run 'sonde logout' first to switch accounts.[/]")
@@ -180,7 +183,15 @@ def whoami(ctx: click.Context) -> None:
       sonde whoami
       sonde --json whoami
     """
-    user = auth.get_current_user()
+    try:
+        user = auth.get_current_user()
+    except auth.NotAuthenticatedError as exc:
+        print_error(
+            "Not signed in",
+            str(exc),
+            "Run: sonde login, or ask an admin to create a fresh SONDE_TOKEN.",
+        )
+        raise SystemExit(1) from None
 
     if not user:
         print_error(

@@ -85,6 +85,10 @@ export default defineConfig({
         target: devAgentTarget,
         changeOrigin: true,
       },
+      "/auth/agent": {
+        target: devAgentTarget,
+        changeOrigin: true,
+      },
       "/agent": {
         target: devAgentTarget,
         ws: true,

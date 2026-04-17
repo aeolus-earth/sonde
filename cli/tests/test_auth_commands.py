@@ -268,23 +268,46 @@ def test_logout(runner: CliRunner, authenticated: None, tmp_path):
     assert result.exit_code == 0
 
 
-def test_whoami_with_bot_token_bundle(runner: CliRunner, monkeypatch):
-    token = auth.encode_bot_token(
+def test_whoami_rejects_legacy_bot_token_bundle(runner: CliRunner, monkeypatch):
+    monkeypatch.setenv("SONDE_TOKEN", "sonde_bt_password-envelope")
+
+    result = runner.invoke(cli, ["--json", "whoami"])
+
+    assert result.exit_code == 1
+    assert "Legacy password-bundle agent tokens" in result.output
+
+
+def test_whoami_with_opaque_agent_token(runner: CliRunner, monkeypatch, tmp_path):
+    token = f"{auth.OPAQUE_AGENT_TOKEN_PREFIX}test-token"
+    access_token = _fake_jwt(
         {
-            "token_id": "tok-001",
-            "name": "artifacts-smoke",
-            "email": "artifacts-smoke@aeolus.earth",
-            "password": "secret",
-            "programs": ["weather-intervention"],
+            "sub": "tok-001",
+            "exp": 4102444800,
+            "app_metadata": {
+                "agent": True,
+                "programs": ["weather-intervention"],
+                "token_name": "artifacts-smoke",
+            },
+            "user_metadata": {"agent_name": "artifacts-smoke"},
         }
     )
     monkeypatch.setenv("SONDE_TOKEN", token)
+    monkeypatch.setattr(auth, "AGENT_SESSION_FILE", tmp_path / "agent-session.json")
+    monkeypatch.setattr(
+        auth,
+        "_exchange_agent_token",
+        lambda _token: {
+            "access_token": access_token,
+            "expires_at": "2100-01-01T00:00:00+00:00",
+            "token_id": "tok-001",
+        },
+    )
 
     result = runner.invoke(cli, ["--json", "whoami"])
 
     assert result.exit_code == 0
     assert '"is_agent": true' in result.output
-    assert "artifacts-smoke@aeolus.earth" in result.output
+    assert "artifacts-smoke@agents.sonde" in result.output
 
 
 def test_whoami_with_human_access_token_env(runner: CliRunner, monkeypatch):
@@ -311,198 +334,182 @@ def test_whoami_with_human_access_token_env(runner: CliRunner, monkeypatch):
     assert "mason@aeolus.earth" in result.output
 
 
-def test_get_token_signs_in_with_bot_token(monkeypatch, tmp_path):
-    token = auth.encode_bot_token(
+def test_get_token_exchanges_opaque_agent_token(monkeypatch, tmp_path):
+    token = f"{auth.OPAQUE_AGENT_TOKEN_PREFIX}test-token"
+    access_token = _fake_jwt(
         {
-            "token_id": "tok-001",
-            "name": "artifacts-smoke",
-            "email": "artifacts-smoke@aeolus.earth",
-            "password": "secret",
-            "programs": ["weather-intervention"],
+            "sub": "tok-001",
+            "exp": 4102444800,
+            "app_metadata": {"agent": True, "programs": ["weather-intervention"]},
+            "user_metadata": {"agent_name": "artifacts-smoke"},
         }
     )
     monkeypatch.setenv("SONDE_TOKEN", token)
+    monkeypatch.setattr(auth, "AGENT_SESSION_FILE", tmp_path / "agent-session.json")
 
-    fake_session = type(
-        "Session",
-        (),
-        {
-            "access_token": "access-token",
-            "refresh_token": "refresh-token",
-            "user": type(
-                "User",
-                (),
-                {
-                    "id": "00000000-0000-0000-0000-000000000001",
-                    "email": "artifacts-smoke@aeolus.earth",
-                    "app_metadata": {"programs": ["weather-intervention"]},
-                    "user_metadata": {},
-                },
-            )(),
+    with patch(
+        "sonde.auth._exchange_agent_token",
+        return_value={
+            "access_token": access_token,
+            "expires_at": "2100-01-01T00:00:00+00:00",
+            "token_id": "tok-001",
         },
-    )()
-    fake_response = type("Response", (), {"session": fake_session})()
-    fake_client = type(
-        "Client",
-        (),
-        {
-            "auth": type(
-                "Auth",
-                (),
-                {
-                    "sign_in_with_password": staticmethod(
-                        lambda creds: (
-                            creds["email"] == "artifacts-smoke@aeolus.earth"
-                            and creds["password"] == "secret"
-                            and fake_response
-                        )
-                    )
-                },
-            )()
-        },
-    )()
+    ) as exchange:
+        assert auth.get_token() == access_token
 
-    monkeypatch.setattr(auth, "BOT_SESSION_FILE", tmp_path / "bot-session.json")
-
-    with patch("sonde.auth._anon_client", return_value=fake_client):
-        assert auth.get_token() == "access-token"
-
-    cached = json.loads(auth.BOT_SESSION_FILE.read_text())
-    assert cached["access_token"] == "access-token"
-    assert cached["refresh_token"] == "refresh-token"
-    assert cached["bot_token_fingerprint"] == auth._bot_token_fingerprint(token)
+    exchange.assert_called_once_with(token)
+    cached = json.loads(auth.AGENT_SESSION_FILE.read_text())
+    assert cached["access_token"] == access_token
+    assert cached["agent_token_fingerprint"] == auth._agent_token_fingerprint(token)
 
     monkeypatch.delenv("SONDE_TOKEN", raising=False)
 
 
-def test_get_token_reuses_cached_bot_session(monkeypatch, tmp_path):
-    token = auth.encode_bot_token(
+def test_get_token_reuses_cached_opaque_agent_session(monkeypatch, tmp_path):
+    token = f"{auth.OPAQUE_AGENT_TOKEN_PREFIX}cached-token"
+    access_token = _fake_jwt(
         {
-            "token_id": "tok-002",
-            "name": "cached-agent",
-            "email": "cached-agent@aeolus.earth",
-            "password": "secret",
-            "programs": ["shared"],
+            "sub": "tok-002",
+            "exp": 4102444800,
+            "app_metadata": {"agent": True, "programs": ["shared"]},
+            "user_metadata": {"agent_name": "cached-agent"},
         }
     )
     monkeypatch.setenv("SONDE_TOKEN", token)
-    monkeypatch.setattr(auth, "BOT_SESSION_FILE", tmp_path / "bot-session.json")
+    monkeypatch.setattr(auth, "AGENT_SESSION_FILE", tmp_path / "agent-session.json")
     monkeypatch.setattr(auth, "_is_expired", lambda _token: False)
     auth._write_json_file(
-        auth.BOT_SESSION_FILE,
+        auth.AGENT_SESSION_FILE,
         {
-            "access_token": "cached-access-token",
-            "refresh_token": "cached-refresh-token",
+            "access_token": access_token,
             "user": {
                 "id": "00000000-0000-0000-0000-000000000001",
-                "email": "cached-agent@aeolus.earth",
+                "email": "cached-agent@agents.sonde",
                 "app_metadata": {"programs": ["shared"]},
                 "user_metadata": {},
             },
-            "bot_token_fingerprint": auth._bot_token_fingerprint(token),
+            "agent_token_fingerprint": auth._agent_token_fingerprint(token),
         },
     )
 
-    with patch("sonde.auth._anon_client", side_effect=AssertionError("should not sign in")):
-        assert auth.get_token() == "cached-access-token"
+    with patch(
+        "sonde.auth._exchange_agent_token",
+        side_effect=AssertionError("should not exchange"),
+    ):
+        assert auth.get_token() == access_token
 
 
-def test_get_token_rejects_expired_bot_token_bundle(monkeypatch, tmp_path):
-    token = auth.encode_bot_token(
-        {
-            "token_id": "tok-expired",
-            "name": "expired-agent",
-            "email": "expired-agent@aeolus.earth",
-            "password": "secret",
-            "programs": ["shared"],
-            "expires_at": "2000-01-01T00:00:00+00:00",
-        }
-    )
-    monkeypatch.setenv("SONDE_TOKEN", token)
-    monkeypatch.setattr(auth, "BOT_SESSION_FILE", tmp_path / "bot-session.json")
+def test_get_token_rejects_legacy_bot_token_bundle(monkeypatch):
+    monkeypatch.setenv("SONDE_TOKEN", "sonde_bt_password-envelope")
 
     with (
-        patch("sonde.auth._anon_client", side_effect=AssertionError("should not sign in")),
-        pytest.raises(auth.NotAuthenticatedError, match="Bot token expired"),
+        patch(
+            "sonde.auth._exchange_agent_token",
+            side_effect=AssertionError("should not exchange"),
+        ),
+        pytest.raises(auth.NotAuthenticatedError, match="Legacy password-bundle"),
     ):
         auth.get_token()
 
 
-def test_get_token_refreshes_cached_bot_session(monkeypatch, tmp_path):
-    token = auth.encode_bot_token(
+def test_get_token_reexchanges_expired_cached_opaque_agent_session(monkeypatch, tmp_path):
+    token = f"{auth.OPAQUE_AGENT_TOKEN_PREFIX}refresh-token"
+    refreshed_access_token = _fake_jwt(
         {
-            "token_id": "tok-003",
-            "name": "refreshing-agent",
-            "email": "refreshing-agent@aeolus.earth",
-            "password": "secret",
-            "programs": ["shared"],
+            "sub": "tok-003",
+            "exp": 4102444800,
+            "app_metadata": {"agent": True, "programs": ["shared"]},
+            "user_metadata": {"agent_name": "refreshing-agent"},
         }
     )
     monkeypatch.setenv("SONDE_TOKEN", token)
-    monkeypatch.setattr(auth, "BOT_SESSION_FILE", tmp_path / "bot-session.json")
+    monkeypatch.setattr(auth, "AGENT_SESSION_FILE", tmp_path / "agent-session.json")
     monkeypatch.setattr(auth, "_is_expired", lambda _token: True)
     auth._write_json_file(
-        auth.BOT_SESSION_FILE,
+        auth.AGENT_SESSION_FILE,
         {
             "access_token": "expired-access-token",
-            "refresh_token": "cached-refresh-token",
             "user": {
                 "id": "00000000-0000-0000-0000-000000000001",
-                "email": "refreshing-agent@aeolus.earth",
+                "email": "refreshing-agent@agents.sonde",
                 "app_metadata": {"programs": ["shared"]},
                 "user_metadata": {},
             },
-            "bot_token_fingerprint": auth._bot_token_fingerprint(token),
+            "agent_token_fingerprint": auth._agent_token_fingerprint(token),
         },
     )
 
-    refreshed_session = type(
-        "Session",
-        (),
-        {
-            "access_token": "new-access-token",
-            "refresh_token": "new-refresh-token",
-            "user": type(
-                "User",
-                (),
-                {
-                    "id": "00000000-0000-0000-0000-000000000001",
-                    "email": "refreshing-agent@aeolus.earth",
-                    "app_metadata": {"programs": ["shared"]},
-                    "user_metadata": {},
-                },
-            )(),
+    with patch(
+        "sonde.auth._exchange_agent_token",
+        return_value={
+            "access_token": refreshed_access_token,
+            "expires_at": "2100-01-01T00:00:00+00:00",
+            "token_id": "tok-003",
         },
-    )()
-    fake_response = type("Response", (), {"session": refreshed_session})()
-    fake_client = type(
-        "Client",
-        (),
+    ):
+        assert auth.get_token() == refreshed_access_token
+
+    cached = json.loads(auth.AGENT_SESSION_FILE.read_text())
+    assert cached["access_token"] == refreshed_access_token
+    assert cached["agent_token_fingerprint"] == auth._agent_token_fingerprint(token)
+
+
+def test_exchange_agent_token_uses_hosted_exchange_endpoint(monkeypatch):
+    token = f"{auth.OPAQUE_AGENT_TOKEN_PREFIX}http-token"
+    access_token = _fake_jwt(
         {
-            "auth": type(
-                "Auth",
-                (),
+            "sub": "tok-http",
+            "exp": 4102444800,
+            "app_metadata": {"agent": True, "programs": ["shared"]},
+            "user_metadata": {"agent_name": "http-agent"},
+        }
+    )
+
+    class AgentExchangeHandler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            length = int(self.headers.get("content-length", "0"))
+            raw = self.rfile.read(length).decode("utf-8")
+            body = json.loads(raw) if raw else {}
+
+            assert self.path == auth.AGENT_EXCHANGE_PATH
+            assert body["token"] == token
+            assert body["cli_version"]
+            assert body["host_label"]
+
+            encoded = json.dumps(
                 {
-                    "refresh_session": staticmethod(
-                        lambda refresh_token: (
-                            refresh_token == "cached-refresh-token" and fake_response
-                        )
-                    ),
-                    "sign_in_with_password": staticmethod(
-                        lambda _creds: (_ for _ in ()).throw(AssertionError("should not sign in"))
-                    ),
-                },
-            )()
-        },
-    )()
+                    "access_token": access_token,
+                    "token_type": "bearer",
+                    "expires_in": 900,
+                    "expires_at": "2100-01-01T00:00:00+00:00",
+                    "token_id": "tok-http",
+                    "programs": ["shared"],
+                }
+            ).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(encoded)))
+            self.end_headers()
+            self.wfile.write(encoded)
 
-    with patch("sonde.auth._anon_client", return_value=fake_client):
-        assert auth.get_token() == "new-access-token"
+        def log_message(self, format: str, *args) -> None:
+            pass
 
-    cached = json.loads(auth.BOT_SESSION_FILE.read_text())
-    assert cached["access_token"] == "new-access-token"
-    assert cached["refresh_token"] == "new-refresh-token"
-    assert cached["bot_token_fingerprint"] == auth._bot_token_fingerprint(token)
+    server = HTTPServer(("127.0.0.1", 0), AgentExchangeHandler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    monkeypatch.setenv("SONDE_AGENT_HTTP_BASE", f"http://127.0.0.1:{server.server_port}")
+
+    try:
+        session = auth._exchange_agent_token(token)
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+        server.server_close()
+
+    assert session["access_token"] == access_token
+    assert session["token_id"] == "tok-http"
+    assert session["user"]["email"] == "http-agent@agents.sonde"
 
 
 def test_get_current_user_with_human_access_token_env(monkeypatch):

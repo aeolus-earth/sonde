@@ -125,7 +125,7 @@ function profileFlags(profile) {
     case "cli-audit":
       return {
         requireUiUrl: false,
-        requireAgentUrl: false,
+        requireAgentUrl: true,
         requireSupabaseProjectRef: true,
         requireSupabaseAnonKey: true,
         requireSmokeUser: true,
