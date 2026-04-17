@@ -36,7 +36,14 @@ def create_token(ctx: click.Context, name: str, programs: str, expires: int) -> 
       sonde admin create-token -n "codex-weather" -p weather-intervention,shared
       sonde admin create-token -n "slack-bot" -p shared --expires 90
     """
-    program_list = [p.strip() for p in programs.split(",")]
+    program_list = [p.strip() for p in programs.split(",") if p.strip()]
+    if not program_list:
+        print_error(
+            "Invalid program",
+            "At least one program is required.",
+            "Pass one or more program ids, for example: sonde admin create-token -n bot -p shared",
+        )
+        raise SystemExit(1)
 
     try:
         token_data = db.create_token(name, program_list, expires)
@@ -45,8 +52,8 @@ def create_token(ctx: click.Context, name: str, programs: str, expires: int) -> 
         if "Only admins" in msg or e.code == "42501":
             print_error(
                 "Permission denied",
-                "Only admins can create agent tokens.",
-                "Ask an existing admin to grant you admin access.",
+                "Only program admins can create agent tokens for the requested programs.",
+                "Ask an admin of each requested program to grant you access or create the token.",
             )
         elif "extensions.sign" in msg or "pgjwt" in msg:
             print_error(

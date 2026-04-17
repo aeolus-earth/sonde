@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
 from click.testing import CliRunner
 from postgrest.exceptions import APIError
 
 from sonde.cli import cli
+from sonde.db import admin_tokens
 
 
 class TestCreateToken:
@@ -15,7 +17,7 @@ class TestCreateToken:
         with patch(
             "sonde.commands.admin.db.create_token",
             return_value={
-                "token": "sonde_bt_bundle",
+                "token": "sonde_ak_bundle",
                 "expires_at": "2027-03-29T00:00:00Z",
             },
         ):
@@ -28,7 +30,7 @@ class TestCreateToken:
     def test_create_token_json(self, runner: CliRunner, patched_db: MagicMock):
         with patch(
             "sonde.commands.admin.db.create_token",
-            return_value={"token": "sonde_bt_bundle", "expires_at": "2027-03-29"},
+            return_value={"token": "sonde_ak_bundle", "expires_at": "2027-03-29"},
         ):
             result = runner.invoke(
                 cli,
@@ -71,6 +73,12 @@ class TestCreateToken:
         assert result.exit_code == 1
         assert "Invalid program" in result.output
 
+    def test_create_token_requires_nonempty_program(self, runner: CliRunner, patched_db: MagicMock):
+        result = runner.invoke(cli, ["admin", "create-token", "-n", "test-bot", "-p", " , "])
+
+        assert result.exit_code == 1
+        assert "At least one program is required" in result.output
+
     def test_create_token_reports_missing_signing_function(
         self, runner: CliRunner, patched_db: MagicMock
     ):
@@ -92,6 +100,37 @@ class TestCreateToken:
         assert result.exit_code == 1
         assert "Agent token signing is unavailable" in result.output
         assert "supabase db push" in result.output
+
+    def test_admin_check_requires_every_requested_program(self):
+        client = MagicMock()
+        query = client.table.return_value.select.return_value.eq.return_value.eq.return_value
+        query.in_.return_value.execute.return_value = MagicMock(data=[{"program": "alpha"}])
+
+        with pytest.raises(APIError, match="beta"):
+            admin_tokens._ensure_admin_for_programs(client, "user-1", ["alpha", "beta"])
+
+    def test_create_token_stores_only_opaque_token_hash(self, monkeypatch: pytest.MonkeyPatch):
+        client = MagicMock()
+        table = client.table.return_value
+        table.insert.return_value = table
+        table.execute.return_value = MagicMock(data=[{"id": "tok-001"}])
+        user = MagicMock(user_id="00000000-0000-0000-0000-000000000001")
+
+        monkeypatch.setattr(admin_tokens.db_client, "get_client", lambda: client)
+        monkeypatch.setattr(admin_tokens, "get_current_user", lambda: user)
+        monkeypatch.setattr(admin_tokens, "_ensure_programs_exist", lambda *_args: None)
+        monkeypatch.setattr(admin_tokens, "_ensure_admin_for_programs", lambda *_args: None)
+        monkeypatch.setattr(admin_tokens, "_generate_opaque_token", lambda: "sonde_ak_known-secret")
+
+        result = admin_tokens.create_token("test-bot", ["shared"], 7)
+
+        payload = table.insert.call_args.args[0]
+        assert result["token"] == "sonde_ak_known-secret"
+        assert payload["token_hash"] == admin_tokens._token_hash("sonde_ak_known-secret")
+        assert payload["token_prefix"] == "sonde_ak_"
+        assert payload["token_preview"] == "sonde_ak_known-s...secret"
+        assert "password" not in payload
+        assert "email" not in payload
 
 
 class TestListTokens:

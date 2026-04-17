@@ -1,3 +1,7 @@
+import { execFileSync } from "node:child_process";
+
+const STABLE_VERSION_RE = /^v\d+\.\d+\.\d+$/;
+
 function requiredEnv(name) {
   const value = process.env[name]?.trim();
   if (!value) {
@@ -94,6 +98,47 @@ async function fetchHtmlDocument(url) {
 function ensure(condition, message) {
   if (!condition) {
     throw new Error(message);
+  }
+}
+
+function remoteTagCommitFromLsRemote(output, tag) {
+  const directRef = `refs/tags/${tag}`;
+  const peeledRef = `${directRef}^{}`;
+  let directSha = null;
+  let peeledSha = null;
+
+  for (const line of output.split(/\r?\n/)) {
+    const [sha, ref] = line.trim().split(/\s+/, 2);
+    if (!sha || !ref) continue;
+    if (ref === peeledRef) peeledSha = sha;
+    if (ref === directRef) directSha = sha;
+  }
+
+  return peeledSha ?? directSha;
+}
+
+function remoteTagCommit(tag) {
+  if (!STABLE_VERSION_RE.test(tag)) return null;
+
+  try {
+    const output = execFileSync(
+      "git",
+      [
+        "ls-remote",
+        "--tags",
+        "origin",
+        `refs/tags/${tag}`,
+        `refs/tags/${tag}^{}`,
+      ],
+      {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+        timeout: 15_000,
+      },
+    );
+    return remoteTagCommitFromLsRemote(output, tag);
+  } catch {
+    return null;
   }
 }
 
@@ -204,6 +249,18 @@ async function main() {
         "UI version metadata is missing commitSha"
       );
       ensure(
+        Object.prototype.hasOwnProperty.call(uiVersion ?? {}, "branch"),
+        "UI version metadata is missing branch"
+      );
+      ensure(
+        Object.prototype.hasOwnProperty.call(uiVersion ?? {}, "appVersion"),
+        "UI version metadata is missing appVersion"
+      );
+      ensure(
+        Object.prototype.hasOwnProperty.call(uiVersion ?? {}, "appVersionSource"),
+        "UI version metadata is missing appVersionSource"
+      );
+      ensure(
         Object.prototype.hasOwnProperty.call(uiVersion ?? {}, "agentWsConfigured"),
         "UI version metadata is missing agentWsConfigured"
       );
@@ -240,6 +297,38 @@ async function main() {
         ensure(
           agentRuntime.environment === expectedEnvironment,
           `Agent environment mismatch: expected ${expectedEnvironment}, got ${agentRuntime.environment}`
+        );
+      }
+
+      const expectedUiBranch =
+        expectedEnvironment === "production"
+          ? "main"
+          : expectedEnvironment === "staging"
+            ? "staging"
+            : null;
+      if (expectedUiBranch) {
+        ensure(
+          uiVersion.branch === expectedUiBranch,
+          `UI branch mismatch: expected ${expectedUiBranch}, got ${uiVersion.branch}`
+        );
+      }
+      if (expectedEnvironment === "production") {
+        ensure(
+          STABLE_VERSION_RE.test(uiVersion.appVersion ?? ""),
+          `Production UI appVersion must be a stable release tag, got ${uiVersion.appVersion}`
+        );
+        ensure(
+          uiVersion.appVersionSource === "exact-tag",
+          `Production UI appVersionSource must be exact-tag, got ${uiVersion.appVersionSource}`
+        );
+        const tagCommit = remoteTagCommit(uiVersion.appVersion);
+        ensure(
+          tagCommit,
+          `Production UI appVersion ${uiVersion.appVersion} was not found on origin`
+        );
+        ensure(
+          tagCommit === uiVersion.commitSha,
+          `Production UI appVersion ${uiVersion.appVersion} points to ${tagCommit}, but UI commit is ${uiVersion.commitSha}`
         );
       }
 

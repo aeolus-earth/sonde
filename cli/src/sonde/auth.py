@@ -2,7 +2,7 @@
 
 Two auth paths, one interface:
   Human: sonde login → hosted Sonde activation by default, loopback fallback when requested
-  Agent: SONDE_TOKEN env var → custom JWT → flows through RLS
+  Agent: SONDE_TOKEN env var → opaque exchange → short-lived JWT → flows through RLS
 """
 
 from __future__ import annotations
@@ -13,7 +13,6 @@ import json
 import logging
 import os
 import platform
-import secrets
 import shutil
 import socket
 import subprocess
@@ -50,14 +49,17 @@ logger = logging.getLogger(__name__)
 KEYRING_SERVICE = "sonde-cli"
 CALLBACK_TIMEOUT = 120
 AGENT_TOKEN_PREFIX = "sonde_at_"
+OPAQUE_AGENT_TOKEN_PREFIX = "sonde_ak_"
 BOT_TOKEN_PREFIX = "sonde_bt_"
-BOT_SESSION_FILE = CONFIG_DIR / "bot-session.json"
+AGENT_SESSION_FILE = CONFIG_DIR / "agent-session.json"
+LEGACY_BOT_SESSION_FILE = CONFIG_DIR / "bot-session.json"
 LOGIN_MODE_AUTO = "auto"
 LOGIN_MODE_ASSISTED = "assisted"
 LOGIN_METHOD_AUTO = "auto"
 LOGIN_METHOD_DEVICE = "device"
 LOGIN_METHOD_LOOPBACK = "loopback"
 DEVICE_AUTH_PATH = "/auth/device"
+AGENT_EXCHANGE_PATH = "/auth/agent/exchange"
 
 
 def _load_callback_html() -> bytes:
@@ -176,8 +178,10 @@ def clear_session() -> None:
     """Remove stored session from all backends."""
     if SESSION_FILE.exists():
         SESSION_FILE.unlink()
-    if BOT_SESSION_FILE.exists():
-        BOT_SESSION_FILE.unlink()
+    if AGENT_SESSION_FILE.exists():
+        AGENT_SESSION_FILE.unlink()
+    if LEGACY_BOT_SESSION_FILE.exists():
+        LEGACY_BOT_SESSION_FILE.unlink()
 
     try:
         import keyring
@@ -205,7 +209,9 @@ def get_token() -> str:
     env_token = os.environ.get("SONDE_TOKEN", "")
     if env_token:
         if env_token.startswith(BOT_TOKEN_PREFIX):
-            return _bot_session_token(env_token, _decode_bot_token(env_token))
+            raise NotAuthenticatedError(_legacy_bot_token_message())
+        if env_token.startswith(OPAQUE_AGENT_TOKEN_PREFIX):
+            return _opaque_agent_session_token(env_token)
         return env_token.removeprefix(AGENT_TOKEN_PREFIX)
 
     # Path 2: Human session from storage
@@ -247,21 +253,23 @@ def refresh_session() -> str | None:
 
 
 def get_current_user() -> UserInfo | None:
-    """Get the current user from stored session or agent token. No network call."""
+    """Get the current user from stored session or agent token."""
     # Agent token
     env_token = os.environ.get("SONDE_TOKEN", "")
     if env_token:
         if env_token.startswith(BOT_TOKEN_PREFIX):
-            bundle = _decode_bot_token(env_token)
-            name = str(bundle.get("name") or bundle.get("email") or "agent")
-            email = str(bundle.get("email") or f"{name}@aeolus.earth")
+            raise NotAuthenticatedError(_legacy_bot_token_message())
+        if env_token.startswith(OPAQUE_AGENT_TOKEN_PREFIX):
+            claims = _token_claims(_opaque_agent_session_token(env_token))
+            identity = _agent_identity(claims)
+            app_meta = claims.get("app_metadata", {})
             return UserInfo(
-                email=email,
-                user_id=str(bundle.get("token_id") or email),
-                name=name,
+                email=f"{identity}@agents.sonde",
+                user_id=str(claims.get("sub") or identity),
+                name=identity,
                 is_agent=True,
-                is_admin=False,
-                programs=_bundle_programs(bundle),
+                is_admin=bool(app_meta.get("is_admin", False)),
+                programs=_claim_programs(claims),
             )
         try:
             claims = _token_claims(env_token.removeprefix(AGENT_TOKEN_PREFIX))
@@ -333,8 +341,9 @@ def resolve_source(user: UserInfo | None = None) -> str:
 
 def is_authenticated() -> bool:
     """Quick check — is there a usable token? Attempts refresh if expired."""
-    if os.environ.get("SONDE_TOKEN"):
-        return True
+    env_token = os.environ.get("SONDE_TOKEN", "")
+    if env_token:
+        return not env_token.startswith(BOT_TOKEN_PREFIX)
     session = load_session()
     if session is None or "access_token" not in session:
         return False
@@ -416,6 +425,8 @@ def _login_loopback(remote: bool = False) -> UserInfo:
     assisted = _login_mode(remote=remote) == LOGIN_MODE_ASSISTED
     code = _wait_for_callback(port, auth_url, assisted=assisted)
 
+    # supabase-auth stores the PKCE verifier when it builds the OAuth URL.
+    # Passing an empty value makes exchange_code_for_session read that verifier.
     params = CodeExchangeParams(
         auth_code=code,
         code_verifier="",
@@ -700,49 +711,30 @@ def _poll_for_device_session(
     )
 
 
-def encode_bot_token(bundle: dict[str, Any]) -> str:
-    """Encode bot credentials for non-interactive agent auth."""
-    payload = json.dumps(bundle, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    encoded = base64.urlsafe_b64encode(payload).decode("utf-8").rstrip("=")
-    return f"{BOT_TOKEN_PREFIX}{encoded}"
-
-
-def generate_bot_password() -> str:
-    """Generate a high-entropy password for bot auth users."""
-    return secrets.token_urlsafe(32)
-
-
-def _decode_bot_token(token: str) -> dict[str, Any]:
-    payload = token.removeprefix(BOT_TOKEN_PREFIX)
-    padding = "=" * (-len(payload) % 4)
-    decoded = json.loads(base64.urlsafe_b64decode(payload + padding))
-    return decoded if isinstance(decoded, dict) else {}
-
-
-def _bundle_programs(bundle: dict[str, Any]) -> list[str] | None:
-    programs = bundle.get("programs")
-    if isinstance(programs, list) and all(isinstance(program, str) for program in programs):
-        return programs
-    return None
-
-
-def _bot_token_fingerprint(token: str) -> str:
+def _agent_token_fingerprint(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
-def _bot_cached_session(token: str) -> dict[str, Any] | None:
-    session = _read_json_file(BOT_SESSION_FILE)
+def _legacy_bot_token_message() -> str:
+    return (
+        "Legacy password-bundle agent tokens (sonde_bt_) are no longer supported. "
+        "Ask an admin to create a new opaque token with: sonde admin create-token"
+    )
+
+
+def _agent_cached_session(token: str) -> dict[str, Any] | None:
+    session = _read_json_file(AGENT_SESSION_FILE)
     if not session:
         return None
-    if session.get("bot_token_fingerprint") != _bot_token_fingerprint(token):
+    if session.get("agent_token_fingerprint") != _agent_token_fingerprint(token):
         return None
     return session
 
 
-def _save_bot_session(token: str, session_data: dict[str, Any]) -> None:
+def _save_agent_session(token: str, session_data: dict[str, Any]) -> None:
     payload = dict(session_data)
-    payload["bot_token_fingerprint"] = _bot_token_fingerprint(token)
-    _write_json_file(BOT_SESSION_FILE, payload)
+    payload["agent_token_fingerprint"] = _agent_token_fingerprint(token)
+    _write_json_file(AGENT_SESSION_FILE, payload)
 
 
 def _session_payload(session: Any) -> dict[str, Any]:
@@ -767,46 +759,56 @@ def _refresh_session_data(refresh_token: str) -> dict[str, Any] | None:
     return _session_payload(refreshed.session)
 
 
-def _sign_in_with_password_session(email: str, password: str) -> dict[str, Any]:
-    if not email or not password:
-        raise NotAuthenticatedError("Malformed bot token")
-
-    client = _anon_client()
-    try:
-        session_response = client.auth.sign_in_with_password(
-            {
-                "email": email,
-                "password": password,
-            }
-        )
-    except AuthApiError as exc:
-        raise NotAuthenticatedError(f"Bot token authentication failed: {exc}") from None
-
-    session = getattr(session_response, "session", None)
-    if not session or not session.access_token:
-        raise NotAuthenticatedError("Bot token authentication failed")
-    return _session_payload(session)
-
-
-def _bot_session_token(token: str, bundle: dict[str, Any]) -> str:
-    cached = _bot_cached_session(token)
+def _opaque_agent_session_token(token: str) -> str:
+    cached = _agent_cached_session(token)
     if cached:
         access_token = cached.get("access_token")
         if isinstance(access_token, str) and access_token and not _is_expired(access_token):
             return access_token
 
-        refresh_token = cached.get("refresh_token")
-        if isinstance(refresh_token, str) and refresh_token:
-            refreshed = _refresh_session_data(refresh_token)
-            if refreshed:
-                _save_bot_session(token, refreshed)
-                return str(refreshed["access_token"])
-
-    email = str(bundle.get("email") or "")
-    password = str(bundle.get("password") or "")
-    session_data = _sign_in_with_password_session(email, password)
-    _save_bot_session(token, session_data)
+    session_data = _exchange_agent_token(token)
+    _save_agent_session(token, session_data)
     return str(session_data["access_token"])
+
+
+def _exchange_agent_token(token: str) -> dict[str, Any]:
+    if not token.startswith(OPAQUE_AGENT_TOKEN_PREFIX):
+        raise NotAuthenticatedError("Malformed opaque agent token.")
+
+    base = _device_auth_base_url()
+    try:
+        response = _post_json(
+            f"{base}{AGENT_EXCHANGE_PATH}",
+            {
+                "token": token,
+                "cli_version": __version__,
+                "host_label": _device_host_label(),
+            },
+            timeout=35.0,
+        )
+    except HostedLoginError as exc:
+        raise NotAuthenticatedError(f"Agent token exchange failed: {exc.detail}") from None
+    except RuntimeError as exc:
+        raise NotAuthenticatedError(f"Agent token exchange failed: {exc}") from None
+
+    access_token = response.get("access_token")
+    if not isinstance(access_token, str) or not access_token:
+        raise NotAuthenticatedError("Agent token exchange returned an incomplete session.")
+
+    claims = _token_claims(access_token)
+    app_metadata = claims.get("app_metadata", {})
+    user_metadata = claims.get("user_metadata", {})
+    return {
+        "access_token": access_token,
+        "expires_at": response.get("expires_at"),
+        "token_id": response.get("token_id"),
+        "user": {
+            "id": str(claims.get("sub") or response.get("token_id") or ""),
+            "email": f"{_agent_identity(claims)}@agents.sonde",
+            "app_metadata": app_metadata if isinstance(app_metadata, dict) else {},
+            "user_metadata": user_metadata if isinstance(user_metadata, dict) else {},
+        },
+    }
 
 
 def _token_claims(token: str) -> dict[str, Any]:

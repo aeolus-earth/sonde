@@ -87,6 +87,21 @@ describe("hosted environment contract", () => {
     ]);
   });
 
+  it("requires an agent URL for CLI token audits", () => {
+    const resolved = resolveHostedEnvironment("staging", {
+      HOSTED_AGENT_URL: "",
+      HOSTED_SUPABASE_PROJECT_REF: "stageproj",
+      HOSTED_SUPABASE_ANON_KEY: "sb_publishable_stage",
+      HOSTED_SMOKE_USER_EMAIL: "smoke@aeolus.earth",
+      HOSTED_SMOKE_USER_PASSWORD: "secret",
+      HOSTED_CLI_AUDIT_TOKEN: "cli-audit",
+    });
+
+    assert.deepEqual(validateResolvedHostedEnvironment(resolved, "cli-audit"), [
+      "HOSTED_AGENT_URL is required.",
+    ]);
+  });
+
   it("formats GitHub outputs with the contract-derived smoke expectations", () => {
     const resolved = resolveHostedEnvironment("production", {
       HOSTED_AGENT_URL: "https://agent.example.com",

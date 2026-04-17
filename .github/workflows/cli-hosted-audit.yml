@@ -71,12 +71,14 @@ jobs:
           uv tool install --force ./cli
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-      - name: Run staging CLI audit (bot token)
+      - name: Run staging CLI audit (agent token)
         working-directory: server
         env:
           SUPABASE_URL: https://${{ steps.contract.outputs.supabase_project_ref }}.supabase.co
           SUPABASE_ANON_KEY: ${{ steps.contract.outputs.supabase_anon_key }}
           CLI_AUDIT_SONDE_TOKEN: ${{ secrets.SONDE_STAGING_CLI_AUDIT_TOKEN }}
+          CLI_AUDIT_AGENT_BASE: ${{ steps.contract.outputs.agent_url }}
+          SONDE_AGENT_HTTP_BASE: ${{ steps.contract.outputs.agent_url }}
           CLI_AUDIT_AUTH_MODE: token
           CLI_AUDIT_ENV: ${{ steps.contract.outputs.runtime_environment }}
           CLI_AUDIT_ALLOW_WRITE: "1"
@@ -155,12 +157,14 @@ jobs:
           uv tool install --force ./cli
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-      - name: Run production CLI audit (bot token)
+      - name: Run production CLI audit (agent token)
         working-directory: server
         env:
           SUPABASE_URL: https://${{ steps.contract.outputs.supabase_project_ref }}.supabase.co
           SUPABASE_ANON_KEY: ${{ steps.contract.outputs.supabase_anon_key }}
           CLI_AUDIT_SONDE_TOKEN: ${{ secrets.SONDE_PRODUCTION_CLI_AUDIT_TOKEN }}
+          CLI_AUDIT_AGENT_BASE: ${{ steps.contract.outputs.agent_url }}
+          SONDE_AGENT_HTTP_BASE: ${{ steps.contract.outputs.agent_url }}
           CLI_AUDIT_AUTH_MODE: token
           CLI_AUDIT_ENV: ${{ steps.contract.outputs.runtime_environment }}
           CLI_AUDIT_PROGRAM: ${{ steps.contract.outputs.smoke_expected_program_id }}

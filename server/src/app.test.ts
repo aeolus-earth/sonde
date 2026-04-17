@@ -191,6 +191,74 @@ describe("createApp", () => {
     });
   });
 
+  it("exchanges opaque agent tokens through the service-role RPC", async () => {
+    process.env.VITE_SUPABASE_URL = "https://utvmqjssbkzpumsdpgdy.supabase.co";
+    process.env.VITE_SUPABASE_ANON_KEY = "sb_publishable_test";
+    process.env.SUPABASE_SERVICE_ROLE_KEY = "service-role-key";
+    globalThis.fetch = async (input: string | URL | Request, init?: RequestInit) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      const url = new URL(request.url);
+
+      if (url.pathname === "/rest/v1/rpc/exchange_agent_token") {
+        const body = (await request.json()) as { p_token_hash: string };
+        assert.match(body.p_token_hash, /^[0-9a-f]{64}$/);
+        assert.equal(request.headers.get("authorization"), "Bearer service-role-key");
+        return new Response(
+          JSON.stringify({
+            access_token: "agent-access-jwt",
+            token_type: "bearer",
+            expires_in: 900,
+            expires_at: "2026-04-17T02:00:00Z",
+            token_id: "00000000-0000-0000-0000-000000000042",
+            programs: ["shared"],
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      }
+
+      throw new Error(`Unexpected fetch: ${url.toString()}`);
+    };
+    const app = createApp();
+
+    const response = await app.request("http://localhost/auth/agent/exchange", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        token: "sonde_ak_test-token",
+        cli_version: "0.1.0",
+        host_label: "ssh://stormbox",
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    const body = (await response.json()) as {
+      access_token: string;
+      token_type: string;
+      programs: string[];
+    };
+    assert.equal(body.access_token, "agent-access-jwt");
+    assert.equal(body.token_type, "bearer");
+    assert.deepEqual(body.programs, ["shared"]);
+  });
+
+  it("rejects legacy password-bundle tokens at the exchange endpoint", async () => {
+    const app = createApp();
+
+    const response = await app.request("http://localhost/auth/agent/exchange", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token: "sonde_bt_password-envelope" }),
+    });
+
+    assert.equal(response.status, 401);
+    const body = (await response.json()) as { error: { type: string; message: string } };
+    assert.equal(body.error.type, "unauthorized");
+    assert.equal(body.error.message, "Invalid or expired agent token.");
+  });
+
   it("completes a device login request without a localhost callback", async () => {
     const app = createApp();
 
@@ -756,6 +824,20 @@ describe("createApp", () => {
     };
     assert.ok(body.token.length > 20);
     assert.ok(body.expires_at.length > 0);
+  });
+
+  it("ignores frame-auth websocket bypass in production", async () => {
+    process.env.SONDE_ENVIRONMENT = "production";
+    process.env.SONDE_CHAT_ALLOW_FRAME_AUTH = "1";
+    const app = createApp();
+
+    const response = await app.request("http://localhost/chat", {
+      headers: {
+        Upgrade: "websocket",
+      },
+    });
+
+    assert.equal(response.status, 401);
   });
 
   it("returns a managed prewarm status when managed mode is enabled", async () => {

@@ -120,6 +120,17 @@ jobs:
           echo "::error::Production UI did not become reachable in time"
           exit 1
 
+      - name: Audit production UI release metadata
+        working-directory: server
+        env:
+          UI_RELEASE_AUDIT_BASE: ${{ steps.targets.outputs.ui_url }}
+          UI_RELEASE_AUDIT_EXPECT_ENVIRONMENT: ${{ steps.contract.outputs.runtime_environment }}
+          UI_RELEASE_AUDIT_EXPECT_BRANCH: main
+          UI_RELEASE_AUDIT_EXPECT_COMMIT_SHA: ${{ github.sha }}
+          UI_RELEASE_AUDIT_WAIT_TIMEOUT_MS: ${{ steps.contract.outputs.audit_wait_timeout_ms }}
+          UI_RELEASE_AUDIT_WAIT_INTERVAL_MS: ${{ steps.contract.outputs.audit_wait_interval_ms }}
+        run: node scripts/audit-ui-release-metadata.mjs
+
       - name: Wait for production agent
         if: ${{ steps.targets.outputs.agent_url != '' }}
         run: |
