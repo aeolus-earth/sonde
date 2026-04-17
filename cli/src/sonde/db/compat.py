@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 # Bump this when a migration adds features the CLI requires.
 # The corresponding migration should run:
 #   UPDATE schema_version SET version = <N>, updated_at = now();
-MINIMUM_SCHEMA_VERSION = 4
+MINIMUM_SCHEMA_VERSION = 5
 
 # Cached per-process after the first successful check.
 _checked: bool = False
