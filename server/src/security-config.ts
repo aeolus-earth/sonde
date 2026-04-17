@@ -14,9 +14,21 @@ function getEnvironment(env: NodeJS.ProcessEnv = process.env): string {
   );
 }
 
-function isStrictEnvironment(env: NodeJS.ProcessEnv = process.env): boolean {
+export function isStrictEnvironment(env: NodeJS.ProcessEnv = process.env): boolean {
   const current = getEnvironment(env);
   return current === "production" || current === "staging";
+}
+
+function isChatFrameAuthBypassEnabled(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return (env.SONDE_CHAT_ALLOW_FRAME_AUTH ?? "0").trim() === "1";
+}
+
+export function isChatFrameAuthAllowed(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return isChatFrameAuthBypassEnabled(env) && !isStrictEnvironment(env);
 }
 
 function normalizeSecret(
@@ -114,6 +126,12 @@ export function assertSecurityConfig(
   if (bypass && env.NODE_ENV !== "test") {
     throw new Error(
       "SONDE_TEST_AUTH_BYPASS_TOKEN may only be set when NODE_ENV=test",
+    );
+  }
+
+  if (isStrictEnvironment(env) && isChatFrameAuthBypassEnabled(env)) {
+    throw new Error(
+      "SONDE_CHAT_ALLOW_FRAME_AUTH may only be set outside staging and production",
     );
   }
 

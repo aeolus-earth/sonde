@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
 from click.testing import CliRunner
 from postgrest.exceptions import APIError
 
 from sonde.cli import cli
+from sonde.db import admin_tokens
 
 
 class TestCreateToken:
@@ -71,6 +73,12 @@ class TestCreateToken:
         assert result.exit_code == 1
         assert "Invalid program" in result.output
 
+    def test_create_token_requires_nonempty_program(self, runner: CliRunner, patched_db: MagicMock):
+        result = runner.invoke(cli, ["admin", "create-token", "-n", "test-bot", "-p", " , "])
+
+        assert result.exit_code == 1
+        assert "At least one program is required" in result.output
+
     def test_create_token_reports_missing_signing_function(
         self, runner: CliRunner, patched_db: MagicMock
     ):
@@ -92,6 +100,14 @@ class TestCreateToken:
         assert result.exit_code == 1
         assert "Agent token signing is unavailable" in result.output
         assert "supabase db push" in result.output
+
+    def test_admin_check_requires_every_requested_program(self):
+        client = MagicMock()
+        query = client.table.return_value.select.return_value.eq.return_value.eq.return_value
+        query.in_.return_value.execute.return_value = MagicMock(data=[{"program": "alpha"}])
+
+        with pytest.raises(APIError, match="beta"):
+            admin_tokens._ensure_admin_for_programs(client, "user-1", ["alpha", "beta"])
 
 
 class TestListTokens:
