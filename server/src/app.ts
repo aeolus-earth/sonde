@@ -29,6 +29,11 @@ import {
   pollDeviceAuth,
   startDeviceAuth,
 } from "./device-auth.js";
+import {
+  AgentTokenExchangeConfigError,
+  AgentTokenExchangeDeniedError,
+  exchangeAgentToken,
+} from "./agent-token-exchange.js";
 
 const LOCAL_UI_ORIGINS = [
   "http://localhost:5173",
@@ -171,6 +176,8 @@ export function createApp(): Hono {
   app.use("/mcp/*", chatCors);
   app.use("/auth/device", chatCors);
   app.use("/auth/device/*", chatCors);
+  app.use("/auth/agent", chatCors);
+  app.use("/auth/agent/*", chatCors);
   app.use("/admin", adminCors);
   app.use("/admin/*", adminCors);
 
@@ -564,6 +571,86 @@ export function createApp(): Hono {
           },
         },
         400,
+      );
+    }
+  });
+
+  app.post("/auth/agent/exchange", async (c) => {
+    const ipRateLimit = await checkUserRateLimit(
+      "agent-token-exchange-ip",
+      getClientAddress(c),
+      60,
+      15 * 60_000,
+    );
+    if (!ipRateLimit.allowed) {
+      return c.json(
+        {
+          error: {
+            type: "rate_limited",
+            message: "Too many agent token exchange attempts. Please retry shortly.",
+          },
+        },
+        429,
+      );
+    }
+
+    let body: Record<string, unknown>;
+    try {
+      body = (await c.req.json()) as Record<string, unknown>;
+    } catch {
+      return c.json(
+        {
+          error: {
+            type: "bad_request",
+            message: "token is required.",
+          },
+        },
+        400,
+      );
+    }
+
+    const token = typeof body.token === "string" ? body.token.trim() : "";
+    if (!token) {
+      return c.json(
+        {
+          error: {
+            type: "bad_request",
+            message: "token is required.",
+          },
+        },
+        400,
+      );
+    }
+
+    try {
+      const exchanged = await exchangeAgentToken({
+        token,
+        cliVersion: typeof body.cli_version === "string" ? body.cli_version : null,
+        hostLabel: typeof body.host_label === "string" ? body.host_label : null,
+      });
+      return c.json(exchanged);
+    } catch (error) {
+      if (error instanceof AgentTokenExchangeDeniedError) {
+        return errorResponse(
+          c,
+          401,
+          "unauthorized",
+          "Invalid or expired agent token.",
+        );
+      }
+      if (error instanceof AgentTokenExchangeConfigError) {
+        return errorResponse(
+          c,
+          503,
+          "agent_token_exchange_unavailable",
+          error.message,
+        );
+      }
+      return errorResponse(
+        c,
+        500,
+        "agent_token_exchange_failed",
+        error instanceof Error ? error.message : "Failed to exchange agent token.",
       );
     }
   });

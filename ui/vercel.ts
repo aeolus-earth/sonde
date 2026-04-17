@@ -37,6 +37,10 @@ function buildConfig() {
       source: "/auth/device/:path*",
       destination: `${authProxyTarget}/auth/device/:path*`,
     });
+    rewrites.push({
+      source: "/auth/agent/:path*",
+      destination: `${authProxyTarget}/auth/agent/:path*`,
+    });
   }
   rewrites.push({ source: "/((?!.*\\.).*)", destination: "/index.html" });
 
