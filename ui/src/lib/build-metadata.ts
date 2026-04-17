@@ -20,7 +20,7 @@ const STABLE_TAG_RE = /^v(\d+)\.(\d+)\.(\d+)$/;
 const DESCRIBE_TAG_RE = /^v\d+\.\d+\.\d+(?:[-+].*)?$/;
 const GIT_SHA_RE = /^[0-9a-f]{7,40}$/i;
 const REMOTE_TAGS_COMMAND = 'git ls-remote --tags origin "v*"';
-const DEFAULT_STRICT_TAG_WAIT_MS = 90_000;
+const DEFAULT_STRICT_TAG_WAIT_MS = 180_000;
 const DEFAULT_STRICT_TAG_POLL_INTERVAL_MS = 5_000;
 
 function clean(value: string | null | undefined): string | null {
@@ -128,12 +128,27 @@ export function resolveCommitSha(env: BuildMetadataEnv, runCommand: RunCommand):
   );
 }
 
-export function resolveBranch(env: BuildMetadataEnv, runCommand: RunCommand): string {
+export function resolveBranch(
+  env: BuildMetadataEnv,
+  runCommand: RunCommand,
+  environment = resolveEnvironment(env),
+): string {
   const localBranch = run(runCommand, "git rev-parse --abbrev-ref HEAD");
+  const vercelBranch = clean(env.VERCEL_GIT_COMMIT_REF);
+  const explicitBranch = clean(env.VITE_APP_BRANCH);
+
+  if (environment === "production") {
+    return (
+      vercelBranch ||
+      explicitBranch ||
+      (localBranch && localBranch !== "HEAD" ? localBranch : null) ||
+      "local"
+    );
+  }
 
   return (
-    clean(env.VITE_APP_BRANCH) ||
-    clean(env.VERCEL_GIT_COMMIT_REF) ||
+    explicitBranch ||
+    vercelBranch ||
     (localBranch && localBranch !== "HEAD" ? localBranch : null) ||
     "local"
   );
@@ -150,8 +165,8 @@ function exactStableTagForCommit(commitSha: string, runCommand: RunCommand): str
   return exactStableTagFromLsRemote(run(runCommand, REMOTE_TAGS_COMMAND), commitSha);
 }
 
-function shouldRequireExactReleaseTag(environment: string, branch: string): boolean {
-  return environment === "production" && branch === "main";
+function trustedProductionBranch(env: BuildMetadataEnv): string | null {
+  return clean(env.VERCEL_GIT_COMMIT_REF);
 }
 
 function waitForExactStableTagForCommit(
@@ -177,12 +192,44 @@ function waitForExactStableTagForCommit(
   }
 }
 
-function productionReleaseError(commitSha: string, branch: string): Error {
+function strictTagCommands(commitSha: string): string {
+  const localTarget = GIT_SHA_RE.test(commitSha) ? commitSha : "HEAD";
+  return [`git tag --points-at ${localTarget}`, REMOTE_TAGS_COMMAND].join("; ");
+}
+
+function productionTargetError(
+  environment: string,
+  branch: string,
+  trustedBranch: string | null,
+): Error {
+  return new Error(
+    [
+      "Production UI builds require a trusted Vercel main branch before release metadata can be published.",
+      `Resolved environment: ${environment}.`,
+      `Trusted Vercel branch: ${trustedBranch ?? "<missing>"}.`,
+      `Display branch: ${branch}.`,
+      "Refusing to use explicit, describe, or dev version fallbacks for production.",
+    ].join(" "),
+  );
+}
+
+function productionReleaseError(
+  commitSha: string,
+  environment: string,
+  branch: string,
+  trustedBranch: string | null,
+  waitMs: number,
+): Error {
   return new Error(
     [
       "Production UI builds on main require an exact stable release tag.",
       `No vN.N.N tag was found whose peeled ref points to commit ${commitSha}.`,
-      `Resolved branch: ${branch}.`,
+      `Resolved environment: ${environment}.`,
+      `Trusted Vercel branch: ${trustedBranch ?? "<missing>"}.`,
+      `Display branch: ${branch}.`,
+      `Waited ${waitMs}ms.`,
+      `Commands attempted: ${strictTagCommands(commitSha)}.`,
+      "Refusing to use explicit, describe, or dev version fallbacks for production.",
     ].join(" "),
   );
 }
@@ -200,9 +247,17 @@ export function resolveAppVersion(
   branch: string,
   options: BuildMetadataOptions = {},
 ): ResolvedAppVersion {
-  if (shouldRequireExactReleaseTag(environment, branch)) {
+  if (environment === "production") {
+    const trustedBranch = trustedProductionBranch(env);
+    if (trustedBranch !== "main") {
+      throw productionTargetError(environment, branch, trustedBranch);
+    }
+
+    const waitMs = options.strictTagWaitMs ?? DEFAULT_STRICT_TAG_WAIT_MS;
     const exactTag = waitForExactStableTagForCommit(commitSha, runCommand, options);
-    if (!exactTag) throw productionReleaseError(commitSha, branch);
+    if (!exactTag) {
+      throw productionReleaseError(commitSha, environment, branch, trustedBranch, waitMs);
+    }
     return { appVersion: exactTag, appVersionSource: "exact-tag" };
   }
 
@@ -227,7 +282,7 @@ export function resolveBuildMetadata(
 ): BuildMetadata {
   const commitSha = resolveCommitSha(env, runCommand);
   const environment = resolveEnvironment(env);
-  const branch = resolveBranch(env, runCommand);
+  const branch = resolveBranch(env, runCommand, environment);
   const { appVersion, appVersionSource } = resolveAppVersion(
     env,
     runCommand,

@@ -156,6 +156,7 @@ describe("build metadata", () => {
         VERCEL_ENV: "production",
         VERCEL_GIT_COMMIT_REF: "main",
         VERCEL_GIT_COMMIT_SHA: COMMIT_SHA,
+        VITE_APP_BRANCH: "staging",
         VITE_APP_VERSION: "v0.1.8",
       },
       commandRunner({
@@ -167,6 +168,42 @@ describe("build metadata", () => {
 
     expect(metadata.appVersion).toBe("v0.1.9");
     expect(metadata.appVersionSource).toBe("exact-tag");
+    expect(metadata.branch).toBe("main");
+  });
+
+  it("throws instead of falling back when production is missing a trusted Vercel branch", () => {
+    expect(() =>
+      resolveBuildMetadata(
+        {
+          VERCEL_ENV: "production",
+          VERCEL_GIT_COMMIT_SHA: COMMIT_SHA,
+          VITE_APP_BRANCH: "main",
+          VITE_APP_VERSION: "v0.1.8",
+        },
+        commandRunner({
+          "git rev-parse --abbrev-ref HEAD": "HEAD",
+          "git describe --tags --always --dirty": "v0.1.8-12-ga53e7a9",
+        }),
+        { strictTagWaitMs: 0 },
+      ),
+    ).toThrow(/trusted Vercel main branch/);
+  });
+
+  it("throws instead of falling back when production is not the trusted main branch", () => {
+    expect(() =>
+      resolveBuildMetadata(
+        {
+          VERCEL_ENV: "production",
+          VERCEL_GIT_COMMIT_REF: "staging",
+          VERCEL_GIT_COMMIT_SHA: COMMIT_SHA,
+          VITE_APP_VERSION: "v0.1.8",
+        },
+        commandRunner({
+          "git describe --tags --always --dirty": "v0.1.8-12-ga53e7a9",
+        }),
+        { strictTagWaitMs: 0 },
+      ),
+    ).toThrow(/Trusted Vercel branch: staging/);
   });
 
   it("selects the highest stable tag when multiple refs match the commit", () => {
