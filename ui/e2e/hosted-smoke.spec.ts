@@ -438,6 +438,7 @@ test.describe(SUITE_LABEL, () => {
       environment: string;
       branch?: string | null;
       appVersion?: string | null;
+      appVersionSource?: string | null;
       commitSha: string | null;
       agentWsConfigured?: boolean;
       agentWsOrigin?: string | null;
@@ -446,12 +447,14 @@ test.describe(SUITE_LABEL, () => {
     expect(body.environment).toBeTruthy();
     expect(body.branch).toBeTruthy();
     expect(body.appVersion).toBeTruthy();
+    expect(body.appVersionSource).toBeTruthy();
     const expectedBranch = expectedBranchForEnvironment(DEPLOY_ENVIRONMENT);
     if (expectedBranch) {
       expect(body.branch).toBe(expectedBranch);
     }
     if (DEPLOY_ENVIRONMENT === "production") {
-      expect(body.appVersion).not.toBe("dev");
+      expect(body.appVersion).toMatch(/^v\d+\.\d+\.\d+$/);
+      expect(body.appVersionSource).toBe("exact-tag");
     }
     expect(body.agentWsConfigured).toBeTruthy();
     expect(body.agentWsOrigin ?? null).toBe(agentOrigin(AGENT_HTTP_BASE));

@@ -53,6 +53,7 @@ function versionMetadataPlugin(): PluginOption {
             environment: buildMetadata.environment,
             branch: buildMetadata.branch,
             appVersion: buildMetadata.appVersion,
+            appVersionSource: buildMetadata.appVersionSource,
             commitSha: buildMetadata.commitSha,
             agentWsConfigured: Boolean(explicitAgentWsBase),
             agentWsOrigin,

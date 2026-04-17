@@ -7,8 +7,19 @@ import {
 
 const COMMIT_SHA = "a53e7a9db20b1513b4ceaa67aed6daf2b171ed2c";
 
-function commandRunner(outputs: Record<string, string | null | undefined>): RunCommand {
-  return (command) => outputs[command] ?? null;
+type CommandOutput = string | null | undefined;
+
+function commandRunner(outputs: Record<string, CommandOutput | CommandOutput[]>): RunCommand {
+  const calls = new Map<string, number>();
+
+  return (command) => {
+    const output = outputs[command];
+    if (!Array.isArray(output)) return output ?? null;
+
+    const callCount = calls.get(command) ?? 0;
+    calls.set(command, callCount + 1);
+    return output[Math.min(callCount, output.length - 1)] ?? null;
+  };
 }
 
 describe("build metadata", () => {
@@ -28,12 +39,14 @@ describe("build metadata", () => {
           `${COMMIT_SHA}\trefs/tags/v0.1.9^{}`,
         ].join("\n"),
       }),
+      { strictTagWaitMs: 0 },
     );
 
     expect(metadata).toEqual({
       environment: "production",
       branch: "main",
       appVersion: "v0.1.9",
+      appVersionSource: "exact-tag",
       commitSha: COMMIT_SHA,
     });
   });
@@ -51,6 +64,7 @@ describe("build metadata", () => {
 
     expect(metadata.branch).toBe("release/manual");
     expect(metadata.appVersion).toBe("v9.9.9");
+    expect(metadata.appVersionSource).toBe("explicit");
     expect(metadata.commitSha).toBe(COMMIT_SHA);
   });
 
@@ -68,25 +82,91 @@ describe("build metadata", () => {
 
     expect(metadata.branch).toBe("feature/deploy-labels");
     expect(metadata.appVersion).toBe("v0.1.8-12-ga53e7a9");
+    expect(metadata.appVersionSource).toBe("describe");
     expect(metadata.commitSha).toBe(COMMIT_SHA);
   });
 
-  it("uses the dev fallback only when no version signal is available", () => {
+  it("uses the dev fallback only outside strict production release builds", () => {
     const metadata = resolveBuildMetadata(
       {
-        VERCEL_ENV: "production",
-        VERCEL_GIT_COMMIT_REF: "main",
+        VERCEL_ENV: "preview",
+        VERCEL_GIT_COMMIT_REF: "feature/no-tag",
         VERCEL_GIT_COMMIT_SHA: COMMIT_SHA,
       },
       commandRunner({}),
     );
 
     expect(metadata).toMatchObject({
-      environment: "production",
-      branch: "main",
+      environment: "development",
+      branch: "feature/no-tag",
       appVersion: "dev",
+      appVersionSource: "fallback",
       commitSha: COMMIT_SHA,
     });
+  });
+
+  it("waits for the exact stable tag in production main builds", () => {
+    const sleeps: number[] = [];
+    const metadata = resolveBuildMetadata(
+      {
+        VERCEL_ENV: "production",
+        VERCEL_GIT_COMMIT_REF: "main",
+        VERCEL_GIT_COMMIT_SHA: COMMIT_SHA,
+      },
+      commandRunner({
+        [`git tag --points-at ${COMMIT_SHA}`]: "",
+        'git ls-remote --tags origin "v*"': [
+          "",
+          `${COMMIT_SHA}\trefs/tags/v0.1.9^{}`,
+        ],
+      }),
+      {
+        strictTagWaitMs: 10_000,
+        strictTagPollIntervalMs: 5_000,
+        sleep: (ms) => sleeps.push(ms),
+      },
+    );
+
+    expect(metadata.appVersion).toBe("v0.1.9");
+    expect(metadata.appVersionSource).toBe("exact-tag");
+    expect(sleeps).toEqual([5_000]);
+  });
+
+  it("throws instead of falling back when production main has no exact tag", () => {
+    expect(() =>
+      resolveBuildMetadata(
+        {
+          VERCEL_ENV: "production",
+          VERCEL_GIT_COMMIT_REF: "main",
+          VERCEL_GIT_COMMIT_SHA: COMMIT_SHA,
+        },
+        commandRunner({
+          [`git tag --points-at ${COMMIT_SHA}`]: "",
+          'git ls-remote --tags origin "v*"': "",
+          "git describe --tags --always --dirty": "v0.1.8-12-ga53e7a9",
+        }),
+        { strictTagWaitMs: 0 },
+      ),
+    ).toThrow(/require an exact stable release tag/);
+  });
+
+  it("ignores stale explicit versions in production main builds", () => {
+    const metadata = resolveBuildMetadata(
+      {
+        VERCEL_ENV: "production",
+        VERCEL_GIT_COMMIT_REF: "main",
+        VERCEL_GIT_COMMIT_SHA: COMMIT_SHA,
+        VITE_APP_VERSION: "v0.1.8",
+      },
+      commandRunner({
+        [`git tag --points-at ${COMMIT_SHA}`]: "",
+        'git ls-remote --tags origin "v*"': `${COMMIT_SHA}\trefs/tags/v0.1.9^{}`,
+      }),
+      { strictTagWaitMs: 0 },
+    );
+
+    expect(metadata.appVersion).toBe("v0.1.9");
+    expect(metadata.appVersionSource).toBe("exact-tag");
   });
 
   it("selects the highest stable tag when multiple refs match the commit", () => {

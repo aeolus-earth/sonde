@@ -4,15 +4,24 @@ export type BuildMetadata = {
   environment: string;
   branch: string;
   appVersion: string;
+  appVersionSource: AppVersionSource;
   commitSha: string;
 };
 
 export type RunCommand = (command: string) => string | null | undefined;
+export type AppVersionSource = "explicit" | "exact-tag" | "describe" | "fallback";
+export type BuildMetadataOptions = {
+  strictTagWaitMs?: number;
+  strictTagPollIntervalMs?: number;
+  sleep?: (ms: number) => void;
+};
 
 const STABLE_TAG_RE = /^v(\d+)\.(\d+)\.(\d+)$/;
 const DESCRIBE_TAG_RE = /^v\d+\.\d+\.\d+(?:[-+].*)?$/;
 const GIT_SHA_RE = /^[0-9a-f]{7,40}$/i;
 const REMOTE_TAGS_COMMAND = 'git ls-remote --tags origin "v*"';
+const DEFAULT_STRICT_TAG_WAIT_MS = 90_000;
+const DEFAULT_STRICT_TAG_POLL_INTERVAL_MS = 5_000;
 
 function clean(value: string | null | undefined): string | null {
   const trimmed = value?.trim() ?? "";
@@ -25,6 +34,10 @@ function run(runCommand: RunCommand, command: string): string | null {
   } catch {
     return null;
   }
+}
+
+function defaultSleep(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
 function stableTagName(ref: string): string | null {
@@ -101,7 +114,6 @@ export function resolveEnvironment(env: BuildMetadataEnv): string {
   return (
     clean(env.SONDE_ENVIRONMENT) ||
     inferredEnvironment ||
-    clean(env.NODE_ENV) ||
     "development"
   );
 }
@@ -138,29 +150,98 @@ function exactStableTagForCommit(commitSha: string, runCommand: RunCommand): str
   return exactStableTagFromLsRemote(run(runCommand, REMOTE_TAGS_COMMAND), commitSha);
 }
 
+function shouldRequireExactReleaseTag(environment: string, branch: string): boolean {
+  return environment === "production" && branch === "main";
+}
+
+function waitForExactStableTagForCommit(
+  commitSha: string,
+  runCommand: RunCommand,
+  options: BuildMetadataOptions,
+): string | null {
+  const waitMs = options.strictTagWaitMs ?? DEFAULT_STRICT_TAG_WAIT_MS;
+  const pollIntervalMs =
+    options.strictTagPollIntervalMs ?? DEFAULT_STRICT_TAG_POLL_INTERVAL_MS;
+  const sleep = options.sleep ?? defaultSleep;
+
+  let elapsedMs = 0;
+  while (true) {
+    const tag = exactStableTagForCommit(commitSha, runCommand);
+    if (tag) return tag;
+    if (elapsedMs >= waitMs) return null;
+
+    const nextSleepMs = Math.min(pollIntervalMs, waitMs - elapsedMs);
+    if (nextSleepMs <= 0) return null;
+    sleep(nextSleepMs);
+    elapsedMs += nextSleepMs;
+  }
+}
+
+function productionReleaseError(commitSha: string, branch: string): Error {
+  return new Error(
+    [
+      "Production UI builds on main require an exact stable release tag.",
+      `No vN.N.N tag was found whose peeled ref points to commit ${commitSha}.`,
+      `Resolved branch: ${branch}.`,
+    ].join(" "),
+  );
+}
+
+type ResolvedAppVersion = {
+  appVersion: string;
+  appVersionSource: AppVersionSource;
+};
+
 export function resolveAppVersion(
   env: BuildMetadataEnv,
   runCommand: RunCommand,
   commitSha: string,
-): string {
-  return (
-    clean(env.VITE_APP_VERSION) ||
-    exactStableTagForCommit(commitSha, runCommand) ||
-    describeGitTag(runCommand) ||
-    "dev"
-  );
+  environment: string,
+  branch: string,
+  options: BuildMetadataOptions = {},
+): ResolvedAppVersion {
+  if (shouldRequireExactReleaseTag(environment, branch)) {
+    const exactTag = waitForExactStableTagForCommit(commitSha, runCommand, options);
+    if (!exactTag) throw productionReleaseError(commitSha, branch);
+    return { appVersion: exactTag, appVersionSource: "exact-tag" };
+  }
+
+  const explicitVersion = clean(env.VITE_APP_VERSION);
+  if (explicitVersion) {
+    return { appVersion: explicitVersion, appVersionSource: "explicit" };
+  }
+
+  const exactTag = exactStableTagForCommit(commitSha, runCommand);
+  if (exactTag) return { appVersion: exactTag, appVersionSource: "exact-tag" };
+
+  const described = describeGitTag(runCommand);
+  if (described) return { appVersion: described, appVersionSource: "describe" };
+
+  return { appVersion: "dev", appVersionSource: "fallback" };
 }
 
 export function resolveBuildMetadata(
   env: BuildMetadataEnv,
   runCommand: RunCommand,
+  options: BuildMetadataOptions = {},
 ): BuildMetadata {
   const commitSha = resolveCommitSha(env, runCommand);
+  const environment = resolveEnvironment(env);
+  const branch = resolveBranch(env, runCommand);
+  const { appVersion, appVersionSource } = resolveAppVersion(
+    env,
+    runCommand,
+    commitSha,
+    environment,
+    branch,
+    options,
+  );
 
   return {
-    environment: resolveEnvironment(env),
-    branch: resolveBranch(env, runCommand),
-    appVersion: resolveAppVersion(env, runCommand, commitSha),
+    environment,
+    branch,
+    appVersion,
+    appVersionSource,
     commitSha,
   };
 }
