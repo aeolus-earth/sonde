@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  REQUIRED_WORKFLOWS,
   itemStateFromCheckGroup,
   itemStateFromCommitStatus,
   itemStateFromReleaseTag,
@@ -70,6 +71,16 @@ describe("release-health", () => {
 
     assert.equal(state.status, "pending");
     assert.match(state.details, /v0.1.12 points to old-sha/);
+  });
+
+  it("expects production audits to run after production smoke", () => {
+    const configAudit = REQUIRED_WORKFLOWS.find((workflow) => workflow.label === "Config Audit");
+    const cliHostedAudit = REQUIRED_WORKFLOWS.find(
+      (workflow) => workflow.label === "CLI Hosted Audit",
+    );
+
+    assert.equal(configAudit?.event, "workflow_run");
+    assert.equal(cliHostedAudit?.event, "workflow_run");
   });
 
   it("turns pending items into failures at the final timeout", () => {
