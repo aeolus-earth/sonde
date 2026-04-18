@@ -20,6 +20,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { ExperimentRowSkeleton } from "@/components/ui/skeleton";
 import { TimeRangeBar } from "@/components/shared/time-range-bar";
+import { InlineMarkdownText } from "@/components/shared/inline-markdown-text";
 import { formatDateTimeShort, formatDateTime, cn } from "@/lib/utils";
 import {
   buildExperimentsProjectTree,
@@ -104,12 +105,14 @@ const ExperimentRow = memo(function ExperimentRow({
       <span className="flex items-center">
         <Badge variant={exp.status}>{exp.status}</Badge>
       </span>
-      <span className="truncate text-[13px] text-text-secondary">
-        {exp.hypothesis ?? "\u2014"}
-      </span>
-      <span className="truncate text-[13px] text-text-secondary">
-        {exp.finding ?? "\u2014"}
-      </span>
+      <InlineMarkdownText
+        content={exp.hypothesis}
+        className="truncate text-[13px] text-text-secondary"
+      />
+      <InlineMarkdownText
+        content={exp.finding}
+        className="truncate text-[13px] text-text-secondary"
+      />
       <span className="truncate text-[12px] text-text-tertiary">
         {exp.source}
       </span>

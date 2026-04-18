@@ -37,6 +37,7 @@ interface RawProgramAccessRow {
   status: string;
   granted_at: string | null;
   applied_at: string | null;
+  expires_at: string | null;
 }
 
 interface RawProgramAccessEventRow {
@@ -73,6 +74,7 @@ interface GrantProgramAccessInput {
   email: string;
   program: string;
   role: ProgramAccessRole;
+  expiresAt?: string | null;
 }
 
 interface RevokeProgramAccessInput {
@@ -85,6 +87,23 @@ interface BulkGrantProgramAccessInput {
   programs: Program[];
   matrix: ProgramAccessUserRow[];
   role: ProgramAccessRole;
+  expiresAt?: string | null;
+}
+
+interface OffboardProgramAccessInput {
+  email: string;
+}
+
+export interface OffboardProgramAccessResult {
+  email: string;
+  revoked_count: number;
+  skipped_count: number;
+  revoked_programs: Array<{
+    program: string;
+    revoked_active: boolean;
+    revoked_grant: boolean;
+  }>;
+  skipped_programs: Array<{ program: string; reason: string }>;
 }
 
 export interface BulkGrantProgramAccessResult {
@@ -101,9 +120,15 @@ function normalizeAccessRow(row: RawProgramAccessRow): ProgramAccessRow {
     user_id: row.user_id,
     program: row.program,
     role: normalizeProgramAccessRole(row.role),
-    status: row.status === "pending" ? "pending" : "active",
+    status:
+      row.status === "pending"
+        ? "pending"
+        : row.status === "expired"
+          ? "expired"
+          : "active",
     granted_at: row.granted_at,
     applied_at: row.applied_at,
+    expires_at: row.expires_at,
   };
 }
 
@@ -136,11 +161,13 @@ async function grantProgramAccess({
   email,
   program,
   role,
+  expiresAt,
 }: GrantProgramAccessInput): Promise<unknown> {
   const { data, error } = await supabase.rpc("grant_program_access", {
     p_email: email,
     p_program: program,
     p_role: role,
+    p_expires_at: expiresAt ?? null,
   });
 
   if (error) {
@@ -164,6 +191,20 @@ async function revokeProgramAccess({
   }
 
   return data;
+}
+
+async function offboardProgramAccess({
+  email,
+}: OffboardProgramAccessInput): Promise<OffboardProgramAccessResult> {
+  const { data, error } = await supabase.rpc("revoke_user_program_access", {
+    p_email: email,
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  return data as OffboardProgramAccessResult;
 }
 
 function errorMessage(error: unknown): string {
@@ -289,6 +330,42 @@ export function useRevokeProgramAccess() {
   });
 }
 
+export function useOffboardProgramAccess() {
+  const queryClient = useQueryClient();
+  const addToast = useAddToast();
+
+  return useMutation({
+    mutationFn: offboardProgramAccess,
+    onSuccess: async (result) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: adminAccessKeys.rows }),
+        queryClient.invalidateQueries({ queryKey: adminAccessKeys.programs }),
+        queryClient.invalidateQueries({ queryKey: adminAccessKeys.eventsBase }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.programs.all() }),
+      ]);
+      addToast({
+        title:
+          result.skipped_count > 0
+            ? "User partially offboarded"
+            : "User access revoked",
+        description:
+          result.skipped_count > 0
+            ? `${result.revoked_count} program grant(s) revoked; ${result.skipped_count} skipped for safety.`
+            : `${result.revoked_count} program grant(s) revoked for ${result.email}.`,
+        variant: result.skipped_count > 0 ? "error" : "success",
+        duration: result.skipped_count > 0 ? 8000 : undefined,
+      });
+    },
+    onError: (error: Error) => {
+      addToast({
+        title: "Failed to offboard user",
+        description: error.message,
+        variant: "error",
+      });
+    },
+  });
+}
+
 export function useBulkGrantProgramAccess() {
   const queryClient = useQueryClient();
   const addToast = useAddToast();
@@ -299,6 +376,7 @@ export function useBulkGrantProgramAccess() {
       programs,
       matrix,
       role,
+      expiresAt,
     }: BulkGrantProgramAccessInput): Promise<BulkGrantProgramAccessResult> => {
       const rowsByEmail = new Map(matrix.map((row) => [row.email, row]));
       const tasks: Array<Promise<void>> = [];
@@ -308,7 +386,8 @@ export function useBulkGrantProgramAccess() {
       for (const email of emails) {
         const row = rowsByEmail.get(email);
         for (const program of programs) {
-          if (row?.cells[program.id]) {
+          const currentCell = row?.cells[program.id];
+          if (currentCell && currentCell.status !== "expired") {
             skipped += 1;
             continue;
           }
@@ -319,6 +398,7 @@ export function useBulkGrantProgramAccess() {
               email,
               program: program.id,
               role,
+              expiresAt,
             }).then(() => undefined),
           );
         }

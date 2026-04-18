@@ -1,9 +1,10 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   useBulkGrantProgramAccess,
   useGrantProgramAccess,
   useManageableProgramAccess,
   useManageablePrograms,
+  useOffboardProgramAccess,
   useProgramAccessEvents,
   useRevokeProgramAccess,
   type BulkGrantProgramAccessResult,
@@ -27,8 +28,9 @@ import type { Program } from "@/types/sonde";
 const cardClass = "rounded-[8px] border border-border bg-surface p-3";
 const controlClass =
   "rounded-[6px] border border-border bg-surface px-2 py-1 text-[12px] text-text placeholder:text-text-quaternary";
+const DEFAULT_CONTRACTOR_GRANT_DAYS = 90;
 
-type AccessMatrixStatusFilter = "all" | "active" | "pending";
+type AccessMatrixStatusFilter = "all" | "active" | "pending" | "expired";
 type ProgramAccessEventActionFilter = "all" | ProgramAccessEventAction;
 
 const accessEventActionOptions: Array<{
@@ -77,7 +79,12 @@ function optionalRoleLabel(role: ProgramAccessRole | null): string {
   return role ? roleLabel(role) : "access";
 }
 
-function statusVariant(cell: ProgramAccessCell): "complete" | "open" | "running" {
+function statusVariant(
+  cell: ProgramAccessCell,
+): "complete" | "open" | "running" | "failed" {
+  if (cell.status === "expired") {
+    return "failed";
+  }
   if (cell.status === "pending") {
     return "open";
   }
@@ -86,7 +93,12 @@ function statusVariant(cell: ProgramAccessCell): "complete" | "open" | "running"
 
 function currentCellTitle(cell: ProgramAccessCell): string {
   const when = cell.appliedAt ?? cell.grantedAt;
-  const status = cell.status === "pending" ? "pending grant" : "active grant";
+  const status =
+    cell.status === "expired"
+      ? "expired grant"
+      : cell.status === "pending"
+        ? "pending grant"
+        : "active grant";
   return when ? `${status}, ${formatDateTimeShort(when)}` : status;
 }
 
@@ -126,6 +138,37 @@ function eventRoleSummary(event: ProgramAccessEventRow): string {
   return "access updated";
 }
 
+function eventExpirySummary(event: ProgramAccessEventRow): string | null {
+  const expiresAt = event.details.expires_at;
+  if (typeof expiresAt !== "string" || !expiresAt) {
+    return null;
+  }
+  return `expires ${formatDateTimeShort(expiresAt)}`;
+}
+
+function defaultContractorExpiryDate(): string {
+  const date = new Date();
+  date.setDate(date.getDate() + DEFAULT_CONTRACTOR_GRANT_DAYS);
+  return date.toISOString().slice(0, 10);
+}
+
+function dateInputToExpiryIso(value: string): string | null {
+  if (!value) {
+    return null;
+  }
+  const expiry = new Date(`${value}T23:59:59.999Z`);
+  if (Number.isNaN(expiry.getTime()) || expiry <= new Date()) {
+    return null;
+  }
+  return expiry.toISOString();
+}
+
+function futureExpiryIso(days: number): string {
+  const expiry = new Date();
+  expiry.setDate(expiry.getDate() + days);
+  return expiry.toISOString();
+}
+
 function grantableProgramsForBulk({
   programs,
   matrix,
@@ -137,7 +180,10 @@ function grantableProgramsForBulk({
 }): Program[] {
   const rowsByEmail = new Map(matrix.map((row) => [row.email, row]));
   return programs.filter((program) =>
-    emails.some((email) => !rowsByEmail.get(email)?.cells[program.id]),
+    emails.some((email) => {
+      const cell = rowsByEmail.get(email)?.cells[program.id];
+      return !cell || cell.status === "expired";
+    }),
   );
 }
 
@@ -146,8 +192,9 @@ export function AdminAccessManagement() {
   const [accessStatusFilter, setAccessStatusFilter] =
     useState<AccessMatrixStatusFilter>("all");
   const [grantEmail, setGrantEmail] = useState("");
-  const [grantProgram, setGrantProgram] = useState("");
+  const [grantProgramIds, setGrantProgramIds] = useState<string[]>([]);
   const [grantRole, setGrantRole] = useState<ProgramAccessRole>("contributor");
+  const [grantExpiresOn, setGrantExpiresOn] = useState(defaultContractorExpiryDate);
   const [bulkInput, setBulkInput] = useState("");
   const [eventActionFilter, setEventActionFilter] =
     useState<ProgramAccessEventActionFilter>("all");
@@ -175,12 +222,30 @@ export function AdminAccessManagement() {
   });
   const grantAccess = useGrantProgramAccess();
   const revokeAccess = useRevokeProgramAccess();
+  const offboardAccess = useOffboardProgramAccess();
   const bulkGrantAccess = useBulkGrantProgramAccess();
 
-  const selectedGrantProgram = grantProgram || programs[0]?.id || "";
   const programsById = useMemo(
     () => new Map(programs.map((program) => [program.id, program])),
     [programs],
+  );
+  useEffect(() => {
+    setGrantProgramIds((current) => {
+      const visible = current.filter((id) => programsById.has(id));
+      if (visible.length > 0 || programs.length === 0) {
+        return visible;
+      }
+      return [programs[0]!.id];
+    });
+  }, [programs, programsById]);
+
+  const selectedGrantPrograms = useMemo(
+    () => programs.filter((program) => grantProgramIds.includes(program.id)),
+    [grantProgramIds, programs],
+  );
+  const grantExpiresAt = useMemo(
+    () => dateInputToExpiryIso(grantExpiresOn),
+    [grantExpiresOn],
   );
   const matrix = useMemo(
     () => buildProgramAccessMatrix(programs, accessRows),
@@ -196,6 +261,9 @@ export function AdminAccessManagement() {
         return false;
       }
       if (accessStatusFilter === "pending" && row.pendingCount === 0) {
+        return false;
+      }
+      if (accessStatusFilter === "expired" && row.expiredCount === 0) {
         return false;
       }
       return true;
@@ -225,12 +293,14 @@ export function AdminAccessManagement() {
   );
   const activeGrantCount = accessRows.filter((row) => row.status === "active").length;
   const pendingGrantCount = accessRows.filter((row) => row.status === "pending").length;
+  const expiredGrantCount = accessRows.filter((row) => row.status === "expired").length;
   const isLoading = programsLoading || accessLoading;
   const loadError = programsError ?? accessError;
   const canSingleGrant =
     singleGrantParsed.validEmails.length === 1 &&
     singleGrantParsed.invalidEntries.length === 0 &&
-    Boolean(selectedGrantProgram);
+    selectedGrantPrograms.length > 0 &&
+    Boolean(grantExpiresAt);
   const canBulkGrant =
     bulkPreview.validEmails.length > 0 &&
     bulkPreview.invalidEntries.length === 0 &&
@@ -241,11 +311,23 @@ export function AdminAccessManagement() {
     if (!canSingleGrant) {
       return;
     }
-    grantAccess.mutate({
-      email: singleGrantParsed.validEmails[0]!,
-      program: selectedGrantProgram,
-      role: grantRole,
-    });
+    bulkGrantAccess.mutate(
+      {
+        emails: [singleGrantParsed.validEmails[0]!],
+        programs: selectedGrantPrograms,
+        matrix,
+        role: grantRole,
+        expiresAt: grantExpiresAt,
+      },
+      {
+        onSuccess: (result) => {
+          if (result.failed === 0) {
+            setGrantEmail("");
+            setGrantExpiresOn(defaultContractorExpiryDate());
+          }
+        },
+      },
+    );
   }
 
   function handleBulkGrant() {
@@ -265,6 +347,7 @@ export function AdminAccessManagement() {
         programs: bulkGrantablePrograms,
         matrix,
         role: "contributor",
+        expiresAt: null,
       },
       {
         onSuccess: (result) => {
@@ -288,6 +371,25 @@ export function AdminAccessManagement() {
     revokeAccess.mutate({ email, program });
   }
 
+  function handleOffboard(email: string) {
+    if (
+      !window.confirm(
+        `Revoke all manageable program access for ${email}? This removes their active, pending, and expired grants from every library you can manage.`,
+      )
+    ) {
+      return;
+    }
+    offboardAccess.mutate({ email });
+  }
+
+  function toggleGrantProgram(programId: string) {
+    setGrantProgramIds((current) =>
+      current.includes(programId)
+        ? current.filter((id) => id !== programId)
+        : [...current, programId],
+    );
+  }
+
   return (
     <section className="space-y-3">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -296,9 +398,9 @@ export function AdminAccessManagement() {
             Access management
           </h2>
           <p className="mt-0.5 max-w-[720px] text-[11px] leading-relaxed text-text-quaternary">
-            Manage users with active or pending Sonde program / library access. FTE
-            bulk grants add contributor access only where it is missing, so existing
-            admin grants are preserved instead of silently downgraded.
+            Manage users with active, pending, or expired Sonde program / library
+            access. FTE bulk grants add contributor access only where it is missing,
+            so existing admin grants are preserved instead of silently downgraded.
           </p>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -320,11 +422,12 @@ export function AdminAccessManagement() {
             <option value="all">All access</option>
             <option value="active">Active</option>
             <option value="pending">Pending</option>
+            <option value="expired">Expired</option>
           </select>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         <AccessStatCard
           value={programs.length}
           label="Manageable programs"
@@ -339,6 +442,11 @@ export function AdminAccessManagement() {
         <AccessStatCard
           value={pendingGrantCount}
           label="Pending grants"
+          loading={isLoading}
+        />
+        <AccessStatCard
+          value={expiredGrantCount}
+          label="Expired grants"
           loading={isLoading}
         />
       </div>
@@ -356,10 +464,13 @@ export function AdminAccessManagement() {
 
       <div className="grid gap-3 lg:grid-cols-[1fr_1.4fr]">
         <div className={cardClass}>
-          <h3 className="text-[12px] font-medium text-text">Grant one user</h3>
+          <h3 className="text-[12px] font-medium text-text">
+            Grant contractor access
+          </h3>
           <p className="mt-1 text-[11px] leading-relaxed text-text-quaternary">
-            Use this for contractors or one-off changes. New users can be granted access
-            before they sign in; the grant becomes active on first login.
+            Use this for contractors or one-off scoped access. Grants default to a
+            90-day expiration and can target one or more libraries before the user
+            first signs in.
           </p>
           <div className="mt-3 grid gap-2">
             <input
@@ -370,18 +481,33 @@ export function AdminAccessManagement() {
               className={controlClass}
             />
             <div className="grid gap-2 sm:grid-cols-[1fr_150px]">
-              <select
-                value={selectedGrantProgram}
-                onChange={(event) => setGrantProgram(event.target.value)}
-                className={controlClass}
-                disabled={programs.length === 0}
-              >
-                {programs.map((program) => (
-                  <option key={program.id} value={program.id}>
-                    {program.name}
-                  </option>
-                ))}
-              </select>
+              <div className="max-h-[150px] overflow-y-auto rounded-[6px] border border-border bg-surface-raised px-2 py-1.5">
+                {programs.length === 0 ? (
+                  <p className="py-1 text-[11px] text-text-quaternary">
+                    No manageable libraries.
+                  </p>
+                ) : (
+                  programs.map((program) => (
+                    <label
+                      key={program.id}
+                      className="flex cursor-pointer items-start gap-2 py-1 text-[12px] text-text-secondary"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={grantProgramIds.includes(program.id)}
+                        onChange={() => toggleGrantProgram(program.id)}
+                        className="mt-0.5"
+                      />
+                      <span className="min-w-0">
+                        <span className="block truncate">{program.name}</span>
+                        <span className="block truncate text-[10px] text-text-quaternary">
+                          {program.id}
+                        </span>
+                      </span>
+                    </label>
+                  ))
+                )}
+              </div>
               <select
                 value={grantRole}
                 onChange={(event) => setGrantRole(event.target.value as ProgramAccessRole)}
@@ -391,17 +517,31 @@ export function AdminAccessManagement() {
                 <option value="admin">admin</option>
               </select>
             </div>
+            <label className="grid gap-1 text-[11px] text-text-tertiary">
+              <span>Expires on</span>
+              <input
+                type="date"
+                value={grantExpiresOn}
+                onChange={(event) => setGrantExpiresOn(event.target.value)}
+                className={controlClass}
+              />
+            </label>
             {singleGrantParsed.invalidEntries.length > 0 && (
               <p className="text-[11px] text-status-failed">
                 Only @aeolus.earth emails can receive access.
               </p>
             )}
+            {!grantExpiresAt && (
+              <p className="text-[11px] text-status-failed">
+                Contractor access needs a valid future expiration date.
+              </p>
+            )}
             <Button
               size="sm"
               onClick={handleSingleGrant}
-              disabled={!canSingleGrant || grantAccess.isPending}
+              disabled={!canSingleGrant || bulkGrantAccess.isPending}
             >
-              Grant access
+              Grant scoped access
             </Button>
           </div>
         </div>
@@ -414,10 +554,11 @@ export function AdminAccessManagement() {
               </h3>
               <p className="mt-1 text-[11px] leading-relaxed text-text-quaternary">
                 Paste Aeolus FTE emails to give contributor access to every manageable
-                program / library. Existing grants are skipped.
+                program / library. Existing active or pending grants are skipped;
+                expired grants are renewed without an expiration.
               </p>
             </div>
-            <Badge variant="tag">contributor only</Badge>
+            <Badge variant="tag">contributor · no expiry</Badge>
           </div>
           <textarea
             value={bulkInput}
@@ -472,7 +613,8 @@ export function AdminAccessManagement() {
             </Button>
             {bulkPreview.grantCount === 0 && bulkPreview.validEmails.length > 0 && (
               <span className="text-[11px] text-text-quaternary">
-                Everyone in this list already has access to all manageable programs.
+                Everyone in this list already has active or pending access to all
+                manageable programs.
               </span>
             )}
           </div>
@@ -486,8 +628,9 @@ export function AdminAccessManagement() {
               User access matrix
             </h3>
             <p className="mt-0.5 text-[11px] text-text-quaternary">
-              Showing users with active or pending program access. Role changes here
-              are explicit; bulk FTE grants never downgrade existing admins.
+              Showing users with active, pending, or expired program access. Role
+              changes here are explicit; bulk FTE grants never downgrade existing
+              admins.
             </p>
           </div>
           <Badge variant="tag">{filteredMatrix.length} shown</Badge>
@@ -533,8 +676,24 @@ export function AdminAccessManagement() {
                     <td className="sticky left-0 z-10 bg-surface px-3 py-2 align-top">
                       <p className="font-medium text-text">{row.email}</p>
                       <p className="mt-1 text-[11px] text-text-quaternary">
-                        {row.activeCount} active, {row.pendingCount} pending
+                        {row.activeCount} active, {row.pendingCount} pending,
+                        {" "}
+                        {row.expiredCount} expired
                       </p>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="mt-2"
+                        onClick={() => handleOffboard(row.email)}
+                        disabled={
+                          grantAccess.isPending ||
+                          revokeAccess.isPending ||
+                          offboardAccess.isPending
+                        }
+                      >
+                        Offboard
+                      </Button>
                     </td>
                     {programs.map((program) => {
                       const cell = row.cells[program.id];
@@ -544,34 +703,67 @@ export function AdminAccessManagement() {
                             <div className="space-y-2">
                               <div className="flex flex-wrap items-center gap-2">
                                 <Badge variant={statusVariant(cell)}>
-                                  {cell.status === "pending"
-                                    ? "pending"
-                                    : roleLabel(cell.role)}
+                                  {cell.status === "expired"
+                                    ? "expired"
+                                    : cell.status === "pending"
+                                      ? "pending"
+                                      : roleLabel(cell.role)}
                                 </Badge>
                                 <span
                                   className="text-[10px] text-text-quaternary"
                                   title={currentCellTitle(cell)}
                                 >
-                                  {cell.status === "pending" ? "not signed in" : "active"}
+                                  {cell.status === "expired"
+                                    ? "needs renewal"
+                                    : cell.status === "pending"
+                                      ? "not signed in"
+                                      : "active"}
                                 </span>
+                                {cell.expiresAt && (
+                                  <span className="text-[10px] text-text-quaternary">
+                                    expires {formatDateTimeShort(cell.expiresAt)}
+                                  </span>
+                                )}
                               </div>
                               <div className="flex flex-wrap items-center gap-1.5">
-                                <select
-                                  value={cell.role}
-                                  onChange={(event) =>
-                                    grantAccess.mutate({
-                                      email: row.email,
-                                      program: program.id,
-                                      role: event.target.value as ProgramAccessRole,
-                                    })
-                                  }
-                                  className={cn(controlClass, "max-w-[118px]")}
-                                  aria-label={`Role for ${row.email} in ${program.name}`}
-                                  disabled={grantAccess.isPending || revokeAccess.isPending}
-                                >
-                                  <option value="contributor">contributor</option>
-                                  <option value="admin">admin</option>
-                                </select>
+                                {cell.status === "expired" ? (
+                                  <Button
+                                    type="button"
+                                    variant="secondary"
+                                    size="sm"
+                                    onClick={() =>
+                                      grantAccess.mutate({
+                                        email: row.email,
+                                        program: program.id,
+                                        role: cell.role,
+                                        expiresAt: futureExpiryIso(
+                                          DEFAULT_CONTRACTOR_GRANT_DAYS,
+                                        ),
+                                      })
+                                    }
+                                    disabled={grantAccess.isPending || revokeAccess.isPending}
+                                  >
+                                    Renew 90d
+                                  </Button>
+                                ) : (
+                                  <select
+                                    value={cell.role}
+                                    onChange={(event) =>
+                                      grantAccess.mutate({
+                                        email: row.email,
+                                        program: program.id,
+                                        role: event.target.value as ProgramAccessRole,
+                                        expiresAt: cell.expiresAt,
+                                      })
+                                    }
+                                    className={cn(controlClass, "max-w-[118px]")}
+                                    aria-label={`Role for ${row.email} in ${program.name}`}
+                                    disabled={grantAccess.isPending || revokeAccess.isPending}
+                                  >
+                                    <option value="contributor">contributor</option>
+                                    <option value="admin">admin</option>
+                                  </select>
+                                )}
                                 <Button
                                   type="button"
                                   variant="ghost"
@@ -593,6 +785,7 @@ export function AdminAccessManagement() {
                                   email: row.email,
                                   program: program.id,
                                   role: "contributor",
+                                  expiresAt: null,
                                 })
                               }
                               disabled={grantAccess.isPending || revokeAccess.isPending}
@@ -618,8 +811,9 @@ export function AdminAccessManagement() {
               Recent access changes
             </h3>
             <p className="mt-0.5 text-[11px] leading-relaxed text-text-quaternary">
-              Audit trail for grants, revokes, and pending grants that became active
-              on first sign-in. Visibility is scoped by the same program-admin RLS.
+              Audit trail for grants, revokes, pending grants that became active on
+              first sign-in, and grant expiration metadata. Visibility is scoped by
+              the same program-admin RLS.
             </p>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -697,6 +891,9 @@ export function AdminAccessManagement() {
                     </p>
                     <p className="mt-0.5 truncate text-[11px] text-text-quaternary">
                       {program?.name ?? event.program} · {eventRoleSummary(event)}
+                      {eventExpirySummary(event)
+                        ? ` · ${eventExpirySummary(event)}`
+                        : ""}
                     </p>
                   </div>
                   <p

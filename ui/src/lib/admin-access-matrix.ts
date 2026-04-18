@@ -1,7 +1,7 @@
 import type { Program } from "@/types/sonde";
 
 export type ProgramAccessRole = "contributor" | "admin";
-export type ProgramAccessStatus = "active" | "pending";
+export type ProgramAccessStatus = "active" | "pending" | "expired";
 
 export interface ProgramAccessRow {
   email: string;
@@ -11,6 +11,7 @@ export interface ProgramAccessRow {
   status: ProgramAccessStatus;
   granted_at: string | null;
   applied_at: string | null;
+  expires_at: string | null;
 }
 
 export interface ProgramAccessCell {
@@ -20,6 +21,7 @@ export interface ProgramAccessCell {
   status: ProgramAccessStatus;
   grantedAt: string | null;
   appliedAt: string | null;
+  expiresAt: string | null;
 }
 
 export interface ProgramAccessUserRow {
@@ -28,6 +30,7 @@ export interface ProgramAccessUserRow {
   cells: Record<string, ProgramAccessCell | undefined>;
   activeCount: number;
   pendingCount: number;
+  expiredCount: number;
   adminCount: number;
   contributorCount: number;
 }
@@ -55,9 +58,14 @@ export function normalizeProgramAccessRole(role: string): ProgramAccessRole {
 }
 
 function cellRank(cell: ProgramAccessCell): number {
-  const statusScore = cell.status === "active" ? 2 : 0;
+  const statusScore =
+    cell.status === "active" ? 3 : cell.status === "pending" ? 2 : 0;
   const roleScore = cell.role === "admin" ? 1 : 0;
   return statusScore + roleScore;
+}
+
+function isCoveredGrant(cell: ProgramAccessCell | undefined): boolean {
+  return Boolean(cell && cell.status !== "expired");
 }
 
 export function parseAeolusEmailList(input: string): ParsedEmailList {
@@ -114,6 +122,7 @@ export function buildProgramAccessMatrix(
         cells: {},
         activeCount: 0,
         pendingCount: 0,
+        expiredCount: 0,
         adminCount: 0,
         contributorCount: 0,
       };
@@ -129,6 +138,7 @@ export function buildProgramAccessMatrix(
       status: row.status,
       grantedAt: row.granted_at,
       appliedAt: row.applied_at,
+      expiresAt: row.expires_at,
     };
     const currentCell = existingUser.cells[row.program];
     if (!currentCell || cellRank(nextCell) >= cellRank(currentCell)) {
@@ -142,6 +152,7 @@ export function buildProgramAccessMatrix(
     .map((user) => {
       let activeCount = 0;
       let pendingCount = 0;
+      let expiredCount = 0;
       let adminCount = 0;
       let contributorCount = 0;
 
@@ -151,8 +162,10 @@ export function buildProgramAccessMatrix(
         }
         if (cell.status === "active") {
           activeCount += 1;
-        } else {
+        } else if (cell.status === "pending") {
           pendingCount += 1;
+        } else {
+          expiredCount += 1;
         }
         if (cell.role === "admin") {
           adminCount += 1;
@@ -165,6 +178,7 @@ export function buildProgramAccessMatrix(
         ...user,
         activeCount,
         pendingCount,
+        expiredCount,
         adminCount,
         contributorCount,
       };
@@ -189,7 +203,7 @@ export function buildBulkGrantPreview({
   for (const email of parsed.validEmails) {
     const row = rowsByEmail.get(email);
     for (const program of programs) {
-      if (row?.cells[program.id]) {
+      if (isCoveredGrant(row?.cells[program.id])) {
         alreadyGrantedCount += 1;
       } else {
         grantCount += 1;
