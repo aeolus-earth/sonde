@@ -62,6 +62,26 @@ if grep -REn 'steps\.schema\.outputs\.version' "${workflows[@]}" >/tmp/hosted-wo
   exit 1
 fi
 
+production_audit_workflows=(
+  ".github/workflows/config-audit.yml"
+  ".github/workflows/cli-hosted-audit.yml"
+)
+
+for workflow in "${production_audit_workflows[@]}"; do
+  if grep -Eq 'branches:[[:space:]]+\[[^]]*main' "$workflow"; then
+    echo "::error file=${workflow}::Production hosted audits must not run directly on main push. Run them after Production Smoke so migrations/deploys finish before schema parity is resolved."
+    exit 1
+  fi
+  if ! grep -Eq 'workflows:[[:space:]]+\["Production Smoke"\]' "$workflow"; then
+    echo "::error file=${workflow}::Production hosted audits must be triggered by Production Smoke workflow_run."
+    exit 1
+  fi
+  if ! grep -Eq 'github\.event\.workflow_run\.head_sha[[:space:]]+\|\|[[:space:]]+github\.sha' "$workflow"; then
+    echo "::error file=${workflow}::Production hosted audits must use the Production Smoke head SHA when auditing workflow_run events."
+    exit 1
+  fi
+done
+
 ruby <<'RUBY'
 require "yaml"
 
