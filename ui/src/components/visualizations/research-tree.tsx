@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { FindingImportanceBadge } from "@/components/shared/finding-importance-badge";
 import { Badge } from "@/components/ui/badge";
+import { InlineMarkdownText } from "@/components/shared/inline-markdown-text";
 import { Input } from "@/components/ui/input";
 import {
   useStatusChartColors,
@@ -1385,12 +1386,11 @@ export const ResearchTree = memo(function ResearchTree({
             </span>
           )}
           {summary && (
-            <span
+            <InlineMarkdownText
+              content={summary}
               className="min-w-0 flex-1 truncate text-[11px] text-text-tertiary"
               title={summary}
-            >
-              {summary}
-            </span>
+            />
           )}
           {row.findings.length > 0 && (
             <div className="flex shrink-0 flex-wrap items-center gap-1">

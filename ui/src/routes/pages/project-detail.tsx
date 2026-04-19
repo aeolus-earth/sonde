@@ -24,6 +24,7 @@ import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { Section, DetailRow } from "@/components/shared/detail-layout";
 import { RecordUnavailable } from "@/components/shared/record-unavailable";
 import { RecordLink } from "@/components/shared/record-link";
+import { InlineMarkdownText } from "@/components/shared/inline-markdown-text";
 import { ArtifactGallery } from "@/components/artifacts/artifact-gallery";
 import { EmbeddedDocumentPreview } from "@/components/artifacts/embedded-document-preview";
 import { formatDateTime, formatDateTimeShort } from "@/lib/utils";
@@ -610,9 +611,10 @@ function ProjectExperimentRow({
         {experiment.id}
       </span>
       <Badge variant={experiment.status}>{experiment.status}</Badge>
-      <span className="min-w-0 flex-1 truncate text-[12px] text-text-tertiary">
-        {experiment.finding ?? experiment.hypothesis ?? "—"}
-      </span>
+      <InlineMarkdownText
+        content={experiment.finding ?? experiment.hypothesis}
+        className="min-w-0 flex-1 truncate text-[12px] text-text-tertiary"
+      />
       <span
         className="text-[11px] text-text-quaternary"
         title={formatDateTime(experiment.created_at)}

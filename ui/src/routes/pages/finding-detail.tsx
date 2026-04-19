@@ -21,6 +21,7 @@ import { MarkdownView } from "@/components/ui/markdown-view";
 import { Section, DetailRow } from "@/components/shared/detail-layout";
 import { RecordUnavailable } from "@/components/shared/record-unavailable";
 import { RecordLink } from "@/components/shared/record-link";
+import { InlineMarkdownText } from "@/components/shared/inline-markdown-text";
 import {
   FINDING_CONFIDENCE_LEVELS,
   findingConfidenceLabel,
@@ -455,9 +456,11 @@ function EvidenceExperimentRow({
           <RecordLink recordId={experiment.id} />
           <Badge variant={experiment.status}>{experiment.status}</Badge>
         </div>
-        <p className="mt-1 line-clamp-2 text-[12px] text-text-tertiary">
-          {experiment.finding ?? experiment.hypothesis ?? "No finding recorded"}
-        </p>
+        <InlineMarkdownText
+          content={experiment.finding ?? experiment.hypothesis}
+          fallback="No finding recorded"
+          className="mt-1 line-clamp-2 text-[12px] text-text-tertiary"
+        />
       </div>
       <div className="flex shrink-0 flex-col items-end gap-1 text-right">
         {project ? (
