@@ -12,6 +12,7 @@ import { FindingImportanceBadge } from "@/components/shared/finding-importance-b
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { RecordLink } from "@/components/shared/record-link";
+import { InlineMarkdownText } from "@/components/shared/inline-markdown-text";
 import { Section } from "@/components/shared/detail-layout";
 import { MarkdownView } from "@/components/ui/markdown-view";
 import { sortFindingsByImportanceAndRecency } from "@/lib/finding-importance";
@@ -312,9 +313,10 @@ export default function BriefPage() {
                 <Badge variant={active.status}>{active.status}</Badge>
               </div>
               {(active.finding || active.hypothesis) && (
-                <p className="mt-1.5 text-[13px] leading-relaxed text-text">
-                  {active.finding ?? active.hypothesis}
-                </p>
+                <InlineMarkdownText
+                  content={active.finding ?? active.hypothesis}
+                  className="mt-1.5 block text-[13px] leading-relaxed text-text"
+                />
               )}
               {active.project_id && (
                 <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-text-tertiary">
@@ -426,9 +428,10 @@ export default function BriefPage() {
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <RecordLink recordId={e.id} />
-                        <span className="line-clamp-2 text-[12px] text-text-tertiary">
-                          {e.finding ?? e.hypothesis ?? "—"}
-                        </span>
+                        <InlineMarkdownText
+                          content={e.finding ?? e.hypothesis}
+                          className="line-clamp-2 text-[12px] text-text-tertiary"
+                        />
                       </div>
                       <BriefExperimentLinks
                         projectId={e.project_id}
@@ -456,9 +459,10 @@ export default function BriefPage() {
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <RecordLink recordId={e.id} />
-                        <span className="line-clamp-2 text-[12px] text-text-tertiary">
-                          {e.hypothesis ?? "—"}
-                        </span>
+                        <InlineMarkdownText
+                          content={e.hypothesis}
+                          className="line-clamp-2 text-[12px] text-text-tertiary"
+                        />
                       </div>
                       <BriefExperimentLinks
                         projectId={e.project_id}

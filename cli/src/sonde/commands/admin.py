@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import click
@@ -188,18 +188,57 @@ def revoke_token(ctx: click.Context, token_name: str, force: bool) -> None:
     show_default=True,
     help="Program role to grant",
 )
+@click.option(
+    "--contractor",
+    is_flag=True,
+    help="Create a contractor-style grant that expires in 90 days unless --expires-days is set.",
+)
+@click.option(
+    "--expires-days",
+    type=click.IntRange(min=1),
+    help="Expire access after this many days.",
+)
+@click.option("--no-expiry", is_flag=True, help="Create or renew a non-expiring grant.")
 @pass_output_options
 @click.pass_context
-def grant_user(ctx: click.Context, email: str, program: str, role: str) -> None:
+def grant_user(
+    ctx: click.Context,
+    email: str,
+    program: str,
+    role: str,
+    contractor: bool,
+    expires_days: int | None,
+    no_expiry: bool,
+) -> None:
     """Grant an Aeolus-managed user access to a program.
 
     \b
     Examples:
       sonde admin grant-user contractor@aeolus.earth -p weather-intervention
+      sonde admin grant-user contractor@aeolus.earth -p weather-intervention --contractor
       sonde admin grant-user lead@aeolus.earth -p shared --role admin
     """
     try:
-        grant = access_db.grant_user(email=email, program=program, role=role)
+        expires_at = _resolve_access_expiry(
+            contractor=contractor,
+            expires_days=expires_days,
+            no_expiry=no_expiry,
+        )
+    except ValueError as e:
+        print_error(
+            "Invalid expiration",
+            str(e),
+            "Use either --contractor/--expires-days for expiring access or --no-expiry.",
+        )
+        raise SystemExit(1) from None
+
+    try:
+        grant = access_db.grant_user(
+            email=email,
+            program=program,
+            role=role,
+            expires_at=expires_at,
+        )
     except APIError as e:
         _print_access_api_error(e, program=program, action="grant access")
         raise SystemExit(1) from None
@@ -215,6 +254,7 @@ def grant_user(ctx: click.Context, email: str, program: str, role: str) -> None:
     print_success(f"Granted {grant['role']} access to {grant['email']}")
     err.print(f"  Program: {grant['program']}")
     err.print(f"  Status:  {status}")
+    err.print(f"  Expires: {_format_access_expiry(grant.get('expires_at'))}")
     if status == "pending":
         err.print("  The grant will apply automatically when this Aeolus account first signs in.")
 
@@ -255,6 +295,75 @@ def revoke_user(ctx: click.Context, email: str, program: str, force: bool) -> No
         err.print(f"[yellow]No active or pending access found for {email} on {program}.[/yellow]")
 
 
+@admin.command("offboard-user")
+@click.argument("email")
+@click.option("--force", "-f", is_flag=True, help="Skip confirmation")
+@pass_output_options
+@click.pass_context
+def offboard_user(ctx: click.Context, email: str, force: bool) -> None:
+    """Revoke all manageable program access for a user.
+
+    \b
+    Examples:
+      sonde admin offboard-user contractor@aeolus.earth --force
+    """
+    if not force:
+        click.confirm(
+            f"Revoke all manageable active and pending access for {email}?",
+            abort=True,
+        )
+
+    try:
+        result = access_db.offboard_user(email=email)
+    except APIError as e:
+        _print_access_api_error(e, action="offboard user")
+        raise SystemExit(1) from None
+    except Exception as e:
+        print_error("Failed to offboard user", str(e), "Check your admin permissions and retry.")
+        raise SystemExit(1) from None
+
+    if ctx.obj.get("json"):
+        print_json(result)
+        return
+
+    revoked_count = int(result.get("revoked_count") or 0)
+    skipped_count = int(result.get("skipped_count") or 0)
+    if revoked_count:
+        print_success(f"Revoked {revoked_count} program grant(s) for {result['email']}")
+    else:
+        err.print(f"[yellow]No manageable access found for {email}.[/yellow]")
+
+    revoked_programs = result.get("revoked_programs")
+    if isinstance(revoked_programs, list) and revoked_programs:
+        print_table(
+            ["program", "active", "grant"],
+            [
+                {
+                    "program": row.get("program", ""),
+                    "active": "yes" if row.get("revoked_active") else "no",
+                    "grant": "yes" if row.get("revoked_grant") else "no",
+                }
+                for row in revoked_programs
+                if isinstance(row, dict)
+            ],
+        )
+
+    skipped_programs = result.get("skipped_programs")
+    if skipped_count and isinstance(skipped_programs, list):
+        err.print("[yellow]Some access was skipped for safety:[/yellow]")
+        print_table(
+            ["program", "reason"],
+            [
+                {
+                    "program": row.get("program", ""),
+                    "reason": row.get("reason", ""),
+                }
+                for row in skipped_programs
+                if isinstance(row, dict)
+            ],
+        )
+
+
 @admin.command("list-users")
 @click.option("--program", "-p", required=True, help="Program id to inspect")
 @pass_output_options
@@ -284,7 +393,7 @@ def list_users(ctx: click.Context, program: str) -> None:
         return
 
     print_table(
-        ["email", "program", "role", "status", "granted"],
+        ["email", "program", "role", "status", "granted", "expires"],
         [_format_access_table_row(row) for row in rows],
     )
 
@@ -318,7 +427,7 @@ def user_access(ctx: click.Context, email: str) -> None:
         return
 
     print_table(
-        ["email", "program", "role", "status", "granted"],
+        ["email", "program", "role", "status", "granted", "expires"],
         [_format_access_table_row(row) for row in rows],
     )
 
@@ -474,7 +583,36 @@ def _format_access_table_row(row: dict[str, Any]) -> dict[str, Any]:
         "role": row.get("role", ""),
         "status": row.get("status", ""),
         "granted": granted_at[:10],
+        "expires": _format_access_expiry(row.get("expires_at")),
     }
+
+
+def _resolve_access_expiry(
+    *,
+    contractor: bool,
+    expires_days: int | None,
+    no_expiry: bool,
+) -> str | None:
+    if no_expiry and (contractor or expires_days is not None):
+        raise ValueError("--no-expiry cannot be combined with --contractor or --expires-days.")
+
+    if no_expiry:
+        return None
+
+    days = expires_days
+    if contractor and days is None:
+        days = 90
+
+    if days is None:
+        return None
+
+    return (datetime.now(UTC) + timedelta(days=days)).isoformat()
+
+
+def _format_access_expiry(value: object) -> str:
+    if not value:
+        return "never"
+    return str(value)[:10]
 
 
 def _print_access_api_error(
@@ -497,6 +635,12 @@ def _print_access_api_error(
                 f"You are not an admin for {program or 'the requested program'}.",
                 "Ask a shared admin or that program's admin to make this change.",
             )
+    elif "Expiration" in msg:
+        print_error(
+            "Invalid expiration",
+            msg,
+            "Use a future expiration date or create a non-expiring FTE grant.",
+        )
     elif error.code == "22023" or "@aeolus.earth" in msg:
         print_error(
             "Invalid user",

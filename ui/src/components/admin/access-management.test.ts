@@ -10,6 +10,7 @@ const useManageableProgramAccessMock = vi.fn();
 const useProgramAccessEventsMock = vi.fn();
 const useGrantProgramAccessMock = vi.fn();
 const useRevokeProgramAccessMock = vi.fn();
+const useOffboardProgramAccessMock = vi.fn();
 const useBulkGrantProgramAccessMock = vi.fn();
 
 vi.mock("@/hooks/use-admin-access", () => ({
@@ -18,6 +19,7 @@ vi.mock("@/hooks/use-admin-access", () => ({
   useProgramAccessEvents: (filters: unknown) => useProgramAccessEventsMock(filters),
   useGrantProgramAccess: () => useGrantProgramAccessMock(),
   useRevokeProgramAccess: () => useRevokeProgramAccessMock(),
+  useOffboardProgramAccess: () => useOffboardProgramAccessMock(),
   useBulkGrantProgramAccess: () => useBulkGrantProgramAccessMock(),
 }));
 
@@ -72,15 +74,28 @@ const accessEvents = [
   },
 ];
 
+const activeAccessRow = {
+  email: "alice@aeolus.earth",
+  user_id: "user-1",
+  program: "alpha",
+  role: "admin",
+  status: "active",
+  granted_at: "2026-04-01T00:00:00Z",
+  applied_at: "2026-04-01T00:01:00Z",
+  expires_at: null,
+};
+
 describe("AdminAccessManagement", () => {
   const grantMutate = vi.fn();
   const revokeMutate = vi.fn();
+  const offboardMutate = vi.fn();
   const bulkMutate = vi.fn();
   let confirmMock: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     grantMutate.mockReset();
     revokeMutate.mockReset();
+    offboardMutate.mockReset();
     bulkMutate.mockReset();
     confirmMock = vi.spyOn(window, "confirm").mockReturnValue(true);
     useManageableProgramsMock.mockReturnValue({
@@ -89,17 +104,7 @@ describe("AdminAccessManagement", () => {
       error: null,
     });
     useManageableProgramAccessMock.mockReturnValue({
-      data: [
-        {
-          email: "alice@aeolus.earth",
-          user_id: "user-1",
-          program: "alpha",
-          role: "admin",
-          status: "active",
-          granted_at: "2026-04-01T00:00:00Z",
-          applied_at: "2026-04-01T00:01:00Z",
-        },
-      ],
+      data: [activeAccessRow],
       isLoading: false,
       error: null,
     });
@@ -126,6 +131,10 @@ describe("AdminAccessManagement", () => {
     });
     useRevokeProgramAccessMock.mockReturnValue({
       mutate: revokeMutate,
+      isPending: false,
+    });
+    useOffboardProgramAccessMock.mockReturnValue({
+      mutate: offboardMutate,
       isPending: false,
     });
     useBulkGrantProgramAccessMock.mockReturnValue({
@@ -155,7 +164,7 @@ describe("AdminAccessManagement", () => {
     expect(screen.getByText("bob@aeolus.earth")).toBeVisible();
   });
 
-  it("previews, confirms, and applies bulk FTE contributor grants", () => {
+  it("previews, confirms, and applies bulk FTE contributor grants without expiry", () => {
     render(createElement(AdminAccessManagement));
 
     fireEvent.change(screen.getByPlaceholderText(/alice@aeolus/i), {
@@ -178,6 +187,7 @@ describe("AdminAccessManagement", () => {
         emails: ["alice@aeolus.earth", "bob@aeolus.earth"],
         programs,
         role: "contributor",
+        expiresAt: null,
       }),
       expect.objectContaining({
         onSuccess: expect.any(Function),
@@ -216,15 +226,7 @@ describe("AdminAccessManagement", () => {
   it("filters users by pending access", () => {
     useManageableProgramAccessMock.mockReturnValue({
       data: [
-        {
-          email: "alice@aeolus.earth",
-          user_id: "user-1",
-          program: "alpha",
-          role: "admin",
-          status: "active",
-          granted_at: "2026-04-01T00:00:00Z",
-          applied_at: "2026-04-01T00:01:00Z",
-        },
+        activeAccessRow,
         {
           email: "carol@aeolus.earth",
           user_id: null,
@@ -233,6 +235,7 @@ describe("AdminAccessManagement", () => {
           status: "pending",
           granted_at: "2026-04-02T00:00:00Z",
           applied_at: null,
+          expires_at: "2026-07-01T00:00:00Z",
         },
       ],
       isLoading: false,
@@ -250,6 +253,70 @@ describe("AdminAccessManagement", () => {
     expect(matrixPanel).toBeTruthy();
     expect(within(matrixPanel!).queryByText("alice@aeolus.earth")).not.toBeInTheDocument();
     expect(within(matrixPanel!).getByText("carol@aeolus.earth")).toBeVisible();
+  });
+
+  it("grants scoped contractor access with a 90-day expiry", () => {
+    render(createElement(AdminAccessManagement));
+
+    fireEvent.change(screen.getByPlaceholderText("person@aeolus.earth"), {
+      target: { value: "contractor@aeolus.earth" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Grant scoped access" }));
+
+    expect(bulkMutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        emails: ["contractor@aeolus.earth"],
+        programs: [programs[0]],
+        role: "contributor",
+        expiresAt: expect.any(String),
+      }),
+      expect.objectContaining({
+        onSuccess: expect.any(Function),
+      }),
+    );
+  });
+
+  it("shows expired grants and can renew them", () => {
+    useManageableProgramAccessMock.mockReturnValue({
+      data: [
+        {
+          email: "dana@aeolus.earth",
+          user_id: "user-2",
+          program: "alpha",
+          role: "contributor",
+          status: "expired",
+          granted_at: "2026-01-01T00:00:00Z",
+          applied_at: "2026-01-01T00:01:00Z",
+          expires_at: "2026-02-01T00:00:00Z",
+        },
+      ],
+      isLoading: false,
+      error: null,
+    });
+    render(createElement(AdminAccessManagement));
+
+    fireEvent.change(screen.getByLabelText("Filter users by access status"), {
+      target: { value: "expired" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Renew 90d" }));
+
+    expect(screen.getByText("dana@aeolus.earth")).toBeVisible();
+    expect(grantMutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        email: "dana@aeolus.earth",
+        program: "alpha",
+        expiresAt: expect.any(String),
+      }),
+    );
+  });
+
+  it("offboards a user from manageable programs", () => {
+    render(createElement(AdminAccessManagement));
+
+    fireEvent.click(screen.getByRole("button", { name: "Offboard" }));
+
+    expect(confirmMock).toHaveBeenCalledWith(expect.stringContaining("alice@aeolus.earth"));
+    expect(offboardMutate).toHaveBeenCalledWith({ email: "alice@aeolus.earth" });
   });
 
   it("filters recent access changes by action and program", () => {

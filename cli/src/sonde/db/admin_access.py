@@ -11,7 +11,12 @@ PUBLIC_ROLE = "contributor"
 DB_ROLE = "member"
 
 
-def grant_user(email: str, program: str, role: str = PUBLIC_ROLE) -> dict[str, Any]:
+def grant_user(
+    email: str,
+    program: str,
+    role: str = PUBLIC_ROLE,
+    expires_at: str | None = None,
+) -> dict[str, Any]:
     """Grant a human user access to one program.
 
     Existing Aeolus-managed Google users are updated immediately; users who
@@ -25,6 +30,7 @@ def grant_user(email: str, program: str, role: str = PUBLIC_ROLE) -> dict[str, A
                 "p_email": email,
                 "p_program": program,
                 "p_role": _to_db_role(role),
+                "p_expires_at": expires_at,
             },
         )
         .execute()
@@ -42,6 +48,22 @@ def revoke_user(email: str, program: str) -> dict[str, Any]:
             {
                 "p_email": email,
                 "p_program": program,
+            },
+        )
+        .execute()
+        .data
+    )
+    return _result_dict(data)
+
+
+def offboard_user(email: str) -> dict[str, Any]:
+    """Revoke all manageable active or pending access for one user."""
+    data = (
+        db_client.get_client()
+        .rpc(
+            "revoke_user_program_access",
+            {
+                "p_email": email,
             },
         )
         .execute()
