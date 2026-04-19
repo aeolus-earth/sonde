@@ -1,0 +1,77 @@
+name: Production Backup Archive
+
+on:
+  workflow_dispatch:
+    inputs:
+      retention_days:
+        description: "Number of daily production backup snapshots to retain"
+        required: false
+        type: number
+        default: 14
+      part_size_bytes:
+        description: "Encrypted archive part size before upload"
+        required: false
+        type: number
+        default: 104857600
+  schedule:
+    - cron: "31 09 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-backup-archive
+  cancel-in-progress: false
+
+jobs:
+  production:
+    name: production
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: "server/package-lock.json"
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Install age
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y age
+
+      - name: Install server dependencies
+        working-directory: server
+        run: npm ci
+
+      - name: Create encrypted production backup archive
+        env:
+          SONDE_BACKUP_ENVIRONMENT: production
+          SONDE_BACKUP_OUTPUT_DIR: production-backup-summary
+          SONDE_BACKUP_RETENTION_DAYS: ${{ github.event.inputs.retention_days || 14 }}
+          SONDE_BACKUP_PART_SIZE_BYTES: ${{ github.event.inputs.part_size_bytes || 104857600 }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_URL: https://${{ secrets.SUPABASE_PROJECT_REF }}.supabase.co
+          SUPABASE_BACKUP_PROJECT_REF: ${{ vars.SUPABASE_BACKUP_PROJECT_REF || secrets.SUPABASE_BACKUP_PROJECT_REF }}
+          SUPABASE_BACKUP_BUCKET: ${{ vars.SUPABASE_BACKUP_BUCKET || 'sonde-production-backups' }}
+          SUPABASE_BACKUP_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_BACKUP_SERVICE_ROLE_KEY }}
+          SONDE_BACKUP_AGE_RECIPIENT: ${{ vars.SONDE_BACKUP_AGE_RECIPIENT || secrets.SONDE_BACKUP_AGE_RECIPIENT }}
+        run: node server/scripts/supabase-production-backup.mjs backup
+
+      - name: Upload sanitized backup summary
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: production-backup-summary
+          path: production-backup-summary/
+          if-no-files-found: ignore
+          retention-days: 14
