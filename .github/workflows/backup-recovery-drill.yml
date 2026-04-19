@@ -1,0 +1,90 @@
+name: Backup Recovery Drill
+
+on:
+  workflow_dispatch:
+    inputs:
+      sample_download_limit:
+        description: "Number of small artifact objects to download and checksum"
+        required: false
+        type: number
+        default: 3
+      skip_restore:
+        description: "Skip local restore validation and run remote manifest/parity only"
+        required: false
+        type: boolean
+        default: false
+  schedule:
+    - cron: "17 10 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backup-recovery-drill-staging
+  cancel-in-progress: false
+
+jobs:
+  staging:
+    name: staging
+    runs-on: ubuntu-latest
+    environment: staging
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: "server/package-lock.json"
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Install server dependencies
+        working-directory: server
+        run: npm ci
+
+      - name: Load hosted staging contract
+        id: contract
+        uses: ./.github/actions/load-hosted-env
+        with:
+          environment-name: staging
+          validation-profile: deploy-db
+          ui-url: ${{ vars.SONDE_STAGING_UI_URL }}
+          agent-url: ${{ vars.SONDE_STAGING_AGENT_HTTP_BASE }}
+          supabase-project-ref: ${{ vars.SUPABASE_STAGING_PROJECT_REF }}
+          supabase-anon-key: ${{ vars.SUPABASE_STAGING_ANON_KEY }}
+          smoke-user-email: ${{ secrets.SONDE_STAGING_SMOKE_USER_EMAIL }}
+          smoke-user-password: ${{ secrets.SONDE_STAGING_SMOKE_USER_PASSWORD }}
+          cli-audit-token: ${{ secrets.SONDE_STAGING_CLI_AUDIT_TOKEN }}
+          runtime-audit-token: ${{ secrets.SONDE_RUNTIME_AUDIT_TOKEN }}
+          redis-url: ${{ vars.SONDE_STAGING_UPSTASH_REDIS_REST_URL }}
+          redis-token: ${{ secrets.SONDE_STAGING_UPSTASH_REDIS_REST_TOKEN }}
+          require-shared-rate-limit: ${{ vars.SONDE_REQUIRE_SHARED_RATE_LIMIT }}
+          google-client-id: ${{ secrets.SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID }}
+          google-client-secret: ${{ secrets.SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET }}
+
+      - name: Run staging backup recovery drill
+        env:
+          SONDE_BACKUP_DRILL_ENVIRONMENT: staging
+          SONDE_BACKUP_DRILL_OUTPUT_DIR: backup-recovery-drill
+          SONDE_BACKUP_DRILL_SAMPLE_DOWNLOAD_LIMIT: ${{ inputs.sample_download_limit || 3 }}
+          SONDE_BACKUP_DRILL_SKIP_RESTORE: ${{ inputs.skip_restore || false }}
+          SONDE_BACKUP_DRILL_EXPECTED_PROGRAM_ID: ${{ steps.contract.outputs.smoke_expected_program_id }}
+          SONDE_BACKUP_DRILL_EXPECTED_EXPERIMENT_ID: ${{ steps.contract.outputs.smoke_expected_experiment_id }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ steps.contract.outputs.supabase_project_ref }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_URL: https://${{ steps.contract.outputs.supabase_project_ref }}.supabase.co
+        run: node server/scripts/supabase-backup-drill.mjs audit
+
+      - name: Upload sanitized drill summary
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: staging-backup-recovery-drill
+          path: backup-recovery-drill/
+          if-no-files-found: ignore
+          retention-days: 14
