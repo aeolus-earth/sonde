@@ -19,6 +19,7 @@ import {
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { Section, DetailRow } from "@/components/shared/detail-layout";
 import { RecordUnavailable } from "@/components/shared/record-unavailable";
+import { InlineMarkdownText } from "@/components/shared/inline-markdown-text";
 import { directionDetailShareUrl } from "@/lib/app-origin";
 import { formatDateTime, formatDateTimeShort } from "@/lib/utils";
 import { ArrowLeft, Copy, GitFork } from "lucide-react";
@@ -314,9 +315,10 @@ export default function DirectionDetailPage() {
                       {exp.id}
                     </span>
                     <Badge variant={exp.status}>{exp.status}</Badge>
-                    <span className="min-w-0 flex-1 truncate text-[12px] text-text-tertiary">
-                      {exp.finding ?? exp.hypothesis ?? "—"}
-                    </span>
+                    <InlineMarkdownText
+                      content={exp.finding ?? exp.hypothesis}
+                      className="min-w-0 flex-1 truncate text-[12px] text-text-tertiary"
+                    />
                     <span
                       className="shrink-0 text-[11px] text-text-quaternary"
                       title={formatDateTime(exp.created_at)}

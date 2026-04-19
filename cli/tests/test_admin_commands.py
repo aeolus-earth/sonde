@@ -226,6 +226,7 @@ class TestUserAccessAdmin:
                 "role": "contributor",
                 "status": "active",
                 "user_id": "user-1",
+                "expires_at": None,
             },
         ):
             result = runner.invoke(
@@ -242,6 +243,35 @@ class TestUserAccessAdmin:
         assert result.exit_code == 0
         assert "Granted contributor access" in result.output
         assert "weather-intervention" in result.output
+        assert "Expires:" in result.output
+
+    def test_grant_user_contractor_sets_expiry(self, runner: CliRunner, patched_db: MagicMock):
+        with patch(
+            "sonde.commands.admin.access_db.grant_user",
+            return_value={
+                "email": "contractor@aeolus.earth",
+                "program": "weather-intervention",
+                "role": "contributor",
+                "status": "active",
+                "user_id": "user-1",
+                "expires_at": "2026-07-16T00:00:00+00:00",
+            },
+        ) as grant_user:
+            result = runner.invoke(
+                cli,
+                [
+                    "admin",
+                    "grant-user",
+                    "contractor@aeolus.earth",
+                    "-p",
+                    "weather-intervention",
+                    "--contractor",
+                ],
+            )
+
+        assert result.exit_code == 0
+        assert grant_user.call_args.kwargs["expires_at"] is not None
+        assert "2026-07-16" in result.output
 
     def test_grant_user_pending_json(self, runner: CliRunner, patched_db: MagicMock):
         with patch(
@@ -252,6 +282,7 @@ class TestUserAccessAdmin:
                 "role": "contributor",
                 "status": "pending",
                 "user_id": None,
+                "expires_at": None,
             },
         ):
             result = runner.invoke(
@@ -326,6 +357,7 @@ class TestUserAccessAdmin:
                     "role": "contributor",
                     "status": "active",
                     "granted_at": "2026-04-17T12:00:00+00:00",
+                    "expires_at": "2026-07-16T12:00:00+00:00",
                 }
             ],
         ):
@@ -334,6 +366,7 @@ class TestUserAccessAdmin:
         assert result.exit_code == 0
         assert "contractor" in result.output
         assert "contributor" in result.output
+        assert "2026-07-16" in result.output
 
     def test_user_access_json(self, runner: CliRunner, patched_db: MagicMock):
         with patch(
@@ -345,6 +378,7 @@ class TestUserAccessAdmin:
                     "role": "contributor",
                     "status": "active",
                     "granted_at": "2026-04-17T12:00:00+00:00",
+                    "expires_at": None,
                 }
             ],
         ):
@@ -355,6 +389,37 @@ class TestUserAccessAdmin:
 
         assert result.exit_code == 0
         assert '"program": "weather-intervention"' in result.output
+
+    def test_offboard_user_force(self, runner: CliRunner, patched_db: MagicMock):
+        with patch(
+            "sonde.commands.admin.access_db.offboard_user",
+            return_value={
+                "email": "contractor@aeolus.earth",
+                "revoked_count": 2,
+                "skipped_count": 0,
+                "revoked_programs": [
+                    {
+                        "program": "weather-intervention",
+                        "revoked_active": True,
+                        "revoked_grant": True,
+                    },
+                    {
+                        "program": "shared",
+                        "revoked_active": False,
+                        "revoked_grant": True,
+                    },
+                ],
+                "skipped_programs": [],
+            },
+        ):
+            result = runner.invoke(
+                cli,
+                ["admin", "offboard-user", "contractor@aeolus.earth", "--force"],
+            )
+
+        assert result.exit_code == 0
+        assert "Revoked 2 program grant" in result.output
+        assert "weather-intervention" in result.output
 
     def test_last_shared_admin_error_has_safe_next_step(
         self, runner: CliRunner, patched_db: MagicMock

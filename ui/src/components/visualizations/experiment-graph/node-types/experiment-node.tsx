@@ -2,6 +2,7 @@ import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { ChevronDown, ChevronRight, GitFork } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import { InlineMarkdownText } from "@/components/shared/inline-markdown-text";
 import type { ExperimentSummary } from "@/types/sonde";
 
 import type { StatusColorMap } from "../graph-builder";
@@ -73,9 +74,10 @@ export function ExperimentNode({ data }: NodeProps) {
               </div>
             )}
             {(d.finding || d.hypothesis) && (
-              <p className="mt-1 line-clamp-2 text-[10px] leading-snug text-text-tertiary">
-                {d.finding ?? d.hypothesis}
-              </p>
+              <InlineMarkdownText
+                content={d.finding ?? d.hypothesis}
+                className="mt-1 line-clamp-2 text-[10px] leading-snug text-text-tertiary"
+              />
             )}
             {!d.isExpanded && d.childCount > 0 && (
               <p className="mt-1 text-[9px] text-text-quaternary">

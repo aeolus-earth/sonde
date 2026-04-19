@@ -45,6 +45,7 @@ describe("buildProgramAccessMatrix", () => {
         status: "active",
         granted_at: "2026-04-01T00:00:00Z",
         applied_at: "2026-04-01T00:01:00Z",
+        expires_at: null,
       },
       {
         email: "alice@aeolus.earth",
@@ -54,6 +55,7 @@ describe("buildProgramAccessMatrix", () => {
         status: "pending",
         granted_at: "2026-04-02T00:00:00Z",
         applied_at: null,
+        expires_at: "2026-07-01T00:00:00Z",
       },
     ];
 
@@ -63,6 +65,7 @@ describe("buildProgramAccessMatrix", () => {
     expect(matrix[0]?.email).toBe("alice@aeolus.earth");
     expect(matrix[0]?.activeCount).toBe(1);
     expect(matrix[0]?.pendingCount).toBe(1);
+    expect(matrix[0]?.expiredCount).toBe(0);
     expect(matrix[0]?.adminCount).toBe(1);
     expect(matrix[0]?.contributorCount).toBe(1);
     expect(matrix[0]?.cells.alpha?.role).toBe("admin");
@@ -81,6 +84,7 @@ describe("buildBulkGrantPreview", () => {
         status: "active",
         granted_at: "2026-04-01T00:00:00Z",
         applied_at: "2026-04-01T00:01:00Z",
+        expires_at: null,
       },
     ]);
 
@@ -97,5 +101,30 @@ describe("buildBulkGrantPreview", () => {
     expect(preview.programCount).toBe(2);
     expect(preview.alreadyGrantedCount).toBe(1);
     expect(preview.grantCount).toBe(3);
+  });
+
+  it("treats expired grants as grantable for FTE renewal", () => {
+    const matrix = buildProgramAccessMatrix(programs, [
+      {
+        email: "alice@aeolus.earth",
+        user_id: "user-1",
+        program: "alpha",
+        role: "contributor",
+        status: "expired",
+        granted_at: "2026-01-01T00:00:00Z",
+        applied_at: "2026-01-01T00:01:00Z",
+        expires_at: "2026-02-01T00:00:00Z",
+      },
+    ]);
+
+    const preview = buildBulkGrantPreview({
+      input: "alice@aeolus.earth",
+      programs,
+      matrix,
+    });
+
+    expect(matrix[0]?.expiredCount).toBe(1);
+    expect(preview.alreadyGrantedCount).toBe(0);
+    expect(preview.grantCount).toBe(2);
   });
 });
