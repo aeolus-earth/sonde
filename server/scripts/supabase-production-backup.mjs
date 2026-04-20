@@ -27,6 +27,8 @@ const DEFAULT_RETENTION_DAYS = 14;
 const DEFAULT_PART_SIZE_BYTES = 100 * 1024 * 1024;
 const DEFAULT_OUTPUT_DIR = "production-backup-summary";
 const DEFAULT_BACKUP_BUCKET = "sonde-production-backups";
+const DEFAULT_STORAGE_RETRY_ATTEMPTS = 5;
+const DEFAULT_STORAGE_RETRY_DELAY_MS = 1500;
 const ARTIFACT_BUCKET = "artifacts";
 const BACKUP_FORMAT_VERSION = 1;
 
@@ -43,6 +45,10 @@ function parseBooleanFlag(value, fallback = false) {
 function parsePositiveInt(value, fallback) {
   const parsed = Number.parseInt(trim(value), 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function requireEnv(env, name) {
@@ -187,6 +193,14 @@ function readBackupConfig(env = process.env) {
       env.SONDE_BACKUP_PART_SIZE_BYTES,
       DEFAULT_PART_SIZE_BYTES,
     ),
+    storageRetryAttempts: parsePositiveInt(
+      env.SONDE_BACKUP_STORAGE_RETRY_ATTEMPTS,
+      DEFAULT_STORAGE_RETRY_ATTEMPTS,
+    ),
+    storageRetryDelayMs: parsePositiveInt(
+      env.SONDE_BACKUP_STORAGE_RETRY_DELAY_MS,
+      DEFAULT_STORAGE_RETRY_DELAY_MS,
+    ),
     outputDir: trim(env.SONDE_BACKUP_OUTPUT_DIR) || DEFAULT_OUTPUT_DIR,
     skipLink: parseBooleanFlag(env.SONDE_BACKUP_SKIP_LINK),
     keepTemp: parseBooleanFlag(env.SONDE_BACKUP_KEEP_TEMP),
@@ -212,11 +226,81 @@ function readRestoreConfig(env = process.env) {
       supabaseUrlFromProjectRef(requireEnv(env, "SONDE_RESTORE_TARGET_PROJECT_REF")),
     targetServiceRoleKey: requireEnv(env, "SONDE_RESTORE_TARGET_SERVICE_ROLE_KEY"),
     targetDatabaseUrl: requireEnv(env, "SONDE_RESTORE_TARGET_DB_URL"),
+    storageRetryAttempts: parsePositiveInt(
+      env.SONDE_BACKUP_STORAGE_RETRY_ATTEMPTS,
+      DEFAULT_STORAGE_RETRY_ATTEMPTS,
+    ),
+    storageRetryDelayMs: parsePositiveInt(
+      env.SONDE_BACKUP_STORAGE_RETRY_DELAY_MS,
+      DEFAULT_STORAGE_RETRY_DELAY_MS,
+    ),
     allowSourceOverwrite: parseBooleanFlag(env.SONDE_RESTORE_ALLOW_SOURCE_OVERWRITE),
     apply: parseBooleanFlag(env.SONDE_RESTORE_APPLY),
     outputDir: trim(env.SONDE_RESTORE_OUTPUT_DIR) || "production-backup-restore",
     keepTemp: parseBooleanFlag(env.SONDE_BACKUP_KEEP_TEMP),
   };
+}
+
+function storageErrorMessage(error) {
+  if (!error) return "";
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  return String(error.message ?? error.error ?? error.statusCode ?? error.status ?? error);
+}
+
+export function isRetryableStorageError(error) {
+  const status = Number(error?.statusCode ?? error?.status ?? 0);
+  if ([408, 425, 429, 500, 502, 503, 504].includes(status)) return true;
+  const message = storageErrorMessage(error).toLowerCase();
+  return [
+    "timeout",
+    "timed out",
+    "gateway",
+    "temporarily",
+    "rate limit",
+    "too many requests",
+    "econnreset",
+    "etimedout",
+    "fetch failed",
+    "network",
+  ].some((fragment) => message.includes(fragment));
+}
+
+export async function withStorageRetry(operation, description, options = {}) {
+  const attempts = Math.max(1, options.attempts ?? DEFAULT_STORAGE_RETRY_ATTEMPTS);
+  const delayMs = Math.max(0, options.delayMs ?? DEFAULT_STORAGE_RETRY_DELAY_MS);
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      if (attempt >= attempts || !isRetryableStorageError(error)) {
+        throw error;
+      }
+
+      const waitMs = delayMs * 2 ** (attempt - 1);
+      console.warn(
+        `${description} failed transiently (${attempt}/${attempts}): ${storageErrorMessage(error)}. Retrying in ${waitMs}ms.`,
+      );
+      if (waitMs > 0) {
+        await sleep(waitMs);
+      }
+    }
+  }
+
+  throw lastError;
+}
+
+async function storageRequest(request, description, options) {
+  return withStorageRetry(async () => {
+    const { data, error } = await request();
+    if (error) {
+      throw error;
+    }
+    return data;
+  }, description, options);
 }
 
 function ensureLinkedProject(config) {
@@ -265,20 +349,22 @@ function dumpProductionDatabase(config, bundleDir) {
   return { rolesPath, schemaPath, dataPath };
 }
 
-async function listStorageObjects(client, bucketName) {
+async function listStorageObjects(client, bucketName, retryOptions) {
   const objects = [];
 
   async function visit(prefix = "") {
     let offset = 0;
     while (true) {
-      const { data, error } = await client.storage.from(bucketName).list(prefix, {
-        limit: 1000,
-        offset,
-        sortBy: { column: "name", order: "asc" },
-      });
-      if (error) {
-        throw new Error(`Could not list ${bucketName}/${prefix}: ${error.message}`);
-      }
+      const data = await storageRequest(
+        () =>
+          client.storage.from(bucketName).list(prefix, {
+            limit: 1000,
+            offset,
+            sortBy: { column: "name", order: "asc" },
+          }),
+        `List ${bucketName}/${prefix || "(root)"}`,
+        retryOptions,
+      );
       if (!Array.isArray(data) || data.length === 0) {
         return;
       }
@@ -311,13 +397,18 @@ async function downloadArtifactBucket(config, bundleDir) {
   });
   const storageRoot = path.join(bundleDir, "storage", ARTIFACT_BUCKET);
   mkdirSync(storageRoot, { recursive: true });
-  const objects = await listStorageObjects(client, ARTIFACT_BUCKET);
+  const retryOptions = {
+    attempts: config.storageRetryAttempts,
+    delayMs: config.storageRetryDelayMs,
+  };
+  const objects = await listStorageObjects(client, ARTIFACT_BUCKET, retryOptions);
 
   for (const object of objects) {
-    const { data, error } = await client.storage.from(ARTIFACT_BUCKET).download(object.path);
-    if (error) {
-      throw new Error(`Could not download artifact ${object.path}: ${error.message}`);
-    }
+    const data = await storageRequest(
+      () => client.storage.from(ARTIFACT_BUCKET).download(object.path),
+      `Download artifact ${object.path}`,
+      retryOptions,
+    );
     const destination = path.join(storageRoot, object.path);
     mkdirSync(path.dirname(destination), { recursive: true });
     writeFileSync(destination, Buffer.from(await data.arrayBuffer()));
@@ -450,24 +541,26 @@ export function splitFile(filePath, partsDir, snapshotId, partSizeBytes) {
 }
 
 async function uploadFile(client, bucketName, objectPath, localPath, contentType) {
-  const { error } = await client.storage.from(bucketName).upload(objectPath, createReadStream(localPath), {
-    contentType,
-    upsert: false,
-    duplex: "half",
-  });
-  if (error) {
-    throw new Error(`Could not upload ${objectPath}: ${error.message}`);
-  }
+  await storageRequest(
+    () =>
+      client.storage.from(bucketName).upload(objectPath, createReadStream(localPath), {
+        contentType,
+        upsert: false,
+        duplex: "half",
+      }),
+    `Upload ${objectPath}`,
+  );
 }
 
 async function uploadText(client, bucketName, objectPath, text, contentType, upsert = false) {
-  const { error } = await client.storage.from(bucketName).upload(objectPath, text, {
-    contentType,
-    upsert,
-  });
-  if (error) {
-    throw new Error(`Could not upload ${objectPath}: ${error.message}`);
-  }
+  await storageRequest(
+    () =>
+      client.storage.from(bucketName).upload(objectPath, text, {
+        contentType,
+        upsert,
+      }),
+    `Upload ${objectPath}`,
+  );
 }
 
 async function uploadBackupArchive(config, manifest, partFiles, outputDir) {
@@ -517,22 +610,28 @@ async function uploadBackupArchive(config, manifest, partFiles, outputDir) {
 }
 
 async function listBackupSnapshots(client, bucketName, environmentName) {
-  const { data, error } = await client.storage.from(bucketName).list(environmentName, {
-    limit: 1000,
-    sortBy: { column: "name", order: "asc" },
-  });
-  if (error) {
-    throw new Error(`Could not list backup snapshots: ${error.message}`);
-  }
+  const data = await storageRequest(
+    () =>
+      client.storage.from(bucketName).list(environmentName, {
+        limit: 1000,
+        sortBy: { column: "name", order: "asc" },
+      }),
+    "List backup snapshots",
+  );
 
   const snapshots = [];
   for (const item of data ?? []) {
     if (item.name === "latest.json" || item.metadata !== null) continue;
     const manifestPath = `${environmentName}/${item.name}/manifest.json`;
-    const { data: manifestBlob, error: manifestError } = await client.storage
-      .from(bucketName)
-      .download(manifestPath);
-    if (manifestError) continue;
+    let manifestBlob = null;
+    try {
+      manifestBlob = await storageRequest(
+        () => client.storage.from(bucketName).download(manifestPath),
+        `Download backup manifest ${manifestPath}`,
+      );
+    } catch {
+      continue;
+    }
     const manifest = JSON.parse(await manifestBlob.text());
     snapshots.push({
       snapshotId: item.name,
@@ -556,26 +655,50 @@ async function pruneExpiredSnapshots(config) {
 
   for (const snapshotId of pruneIds) {
     const prefix = `${config.environmentName}/${snapshotId}`;
-    const { data, error } = await client.storage.from(config.backupBucket).list(prefix, {
-      limit: 1000,
-      sortBy: { column: "name", order: "asc" },
-    });
-    if (error) {
-      throw new Error(`Could not list expired backup ${prefix}: ${error.message}`);
-    }
+    const data = await storageRequest(
+      () =>
+        client.storage.from(config.backupBucket).list(prefix, {
+          limit: 1000,
+          sortBy: { column: "name", order: "asc" },
+        }),
+      `List expired backup ${prefix}`,
+    );
     const paths = (data ?? [])
       .filter((item) => item.metadata !== null)
       .map((item) => `${prefix}/${item.name}`);
     if (paths.length > 0) {
-      const { error: removeError } = await client.storage.from(config.backupBucket).remove(paths);
-      if (removeError) {
-        throw new Error(`Could not prune expired backup ${prefix}: ${removeError.message}`);
-      }
+      await storageRequest(
+        () => client.storage.from(config.backupBucket).remove(paths),
+        `Prune expired backup ${prefix}`,
+      );
     }
     pruned.push(snapshotId);
   }
 
   return pruned;
+}
+
+function writeFailureSummary(outputDir, error, snapshotId) {
+  mkdirSync(outputDir, { recursive: true });
+  const message = error instanceof Error ? error.message : String(error);
+  const summary = [
+    `# Production Backup Failed${snapshotId ? `: ${snapshotId}` : ""}`,
+    "",
+    `Failed at: \`${new Date().toISOString()}\``,
+    "",
+    "The workflow did not complete a restorable backup snapshot.",
+    "",
+    "## Error",
+    "",
+    "```text",
+    message,
+    "```",
+    "",
+  ].join("\n");
+  writeFileSync(path.join(outputDir, "failure.md"), summary);
+  if (process.env.GITHUB_STEP_SUMMARY) {
+    appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary);
+  }
 }
 
 function writeSummary(outputDir, manifest, prunedSnapshots) {
@@ -651,6 +774,9 @@ async function runBackup() {
     writeSummary(config.outputDir, manifest, prunedSnapshots);
     console.log(`Uploaded production backup snapshot ${config.snapshotId}`);
     console.log(`Backup prefix: ${manifest.backup.prefix}`);
+  } catch (error) {
+    writeFailureSummary(config.outputDir, error, config.snapshotId);
+    throw error;
   } finally {
     if (!config.keepTemp && existsSync(tempRoot)) {
       rmSync(tempRoot, { recursive: true, force: true });
@@ -659,10 +785,10 @@ async function runBackup() {
 }
 
 async function downloadObjectText(client, bucketName, objectPath) {
-  const { data, error } = await client.storage.from(bucketName).download(objectPath);
-  if (error) {
-    throw new Error(`Could not download ${objectPath}: ${error.message}`);
-  }
+  const data = await storageRequest(
+    () => client.storage.from(bucketName).download(objectPath),
+    `Download ${objectPath}`,
+  );
   return data.text();
 }
 
@@ -699,11 +825,16 @@ async function downloadSnapshot(config, tempRoot) {
 
   const encryptedArchivePath = path.join(tempRoot, `${snapshotId}.tar.gz.age`);
   const writeStream = createWriteStream(encryptedArchivePath);
+  const retryOptions = {
+    attempts: config.storageRetryAttempts,
+    delayMs: config.storageRetryDelayMs,
+  };
   for (const part of manifest.archive.encrypted.parts) {
-    const { data, error } = await client.storage.from(config.backupBucket).download(part.path);
-    if (error) {
-      throw new Error(`Could not download ${part.path}: ${error.message}`);
-    }
+    const data = await storageRequest(
+      () => client.storage.from(config.backupBucket).download(part.path),
+      `Download ${part.path}`,
+      retryOptions,
+    );
     writeStream.write(Buffer.from(await data.arrayBuffer()));
   }
   await new Promise((resolve, reject) => {
@@ -775,12 +906,21 @@ function restoreDatabase(config, extractDir) {
 }
 
 async function ensureBucket(client, bucketName, options) {
-  const { error } = await client.storage.getBucket(bucketName);
-  if (!error) return;
-  const { error: createError } = await client.storage.createBucket(bucketName, options);
-  if (createError) {
-    throw new Error(`Could not create bucket ${bucketName}: ${createError.message}`);
+  try {
+    await storageRequest(() => client.storage.getBucket(bucketName), `Read bucket ${bucketName}`);
+    return;
+  } catch (error) {
+    const status = Number(error?.statusCode ?? error?.status ?? 0);
+    const message = storageErrorMessage(error).toLowerCase();
+    const missing = status === 404 || message.includes("not found");
+    if (!missing) {
+      throw error;
+    }
   }
+  await storageRequest(
+    () => client.storage.createBucket(bucketName, options),
+    `Create bucket ${bucketName}`,
+  );
 }
 
 function collectFiles(rootDir) {
@@ -811,16 +951,22 @@ async function restoreArtifactStorage(config, extractDir) {
   });
   const storageRoot = path.join(extractDir, "storage", ARTIFACT_BUCKET);
   const files = collectFiles(storageRoot);
+  const retryOptions = {
+    attempts: config.storageRetryAttempts,
+    delayMs: config.storageRetryDelayMs,
+  };
   for (const filePath of files) {
     const objectPath = path.relative(storageRoot, filePath).split(path.sep).join("/");
-    const { error } = await client.storage.from(ARTIFACT_BUCKET).upload(
-      objectPath,
-      createReadStream(filePath),
-      { upsert: true, duplex: "half" },
+    await storageRequest(
+      () =>
+        client.storage.from(ARTIFACT_BUCKET).upload(
+          objectPath,
+          createReadStream(filePath),
+          { upsert: true, duplex: "half" },
+        ),
+      `Upload restored artifact ${objectPath}`,
+      retryOptions,
     );
-    if (error) {
-      throw new Error(`Could not upload restored artifact ${objectPath}: ${error.message}`);
-    }
   }
   return `applied ${files.length} artifact object(s)`;
 }
