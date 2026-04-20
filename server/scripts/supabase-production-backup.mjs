@@ -1002,11 +1002,52 @@ async function runRestore() {
 }
 
 function printUsage() {
-  console.error("Usage: node server/scripts/supabase-production-backup.mjs <backup|restore>");
+  console.error(`
+Usage:
+  node server/scripts/supabase-production-backup.mjs backup
+  node server/scripts/supabase-production-backup.mjs restore
+
+Backup:
+  Creates an encrypted production backup archive and uploads it to the separate
+  backup Supabase project. The GitHub workflow "Production Backup Archive" runs
+  this automatically from main.
+
+  Required environment:
+    SUPABASE_ACCESS_TOKEN
+    SUPABASE_PROJECT_REF
+    SUPABASE_SERVICE_ROLE_KEY
+    SUPABASE_BACKUP_PROJECT_REF
+    SUPABASE_BACKUP_SERVICE_ROLE_KEY
+    SONDE_BACKUP_AGE_RECIPIENT
+
+Restore:
+  Downloads, decrypts, and prepares a backup snapshot. Restore is dry-run by
+  default. It applies database and storage restore only when SONDE_RESTORE_APPLY=1.
+
+  Required environment:
+    SUPABASE_BACKUP_PROJECT_REF
+    SUPABASE_BACKUP_SERVICE_ROLE_KEY
+    SONDE_RESTORE_TARGET_PROJECT_REF
+    SONDE_RESTORE_TARGET_SERVICE_ROLE_KEY
+    SONDE_RESTORE_TARGET_DB_URL
+    SONDE_BACKUP_AGE_IDENTITY or SONDE_BACKUP_AGE_IDENTITY_FILE
+
+Safety:
+  Restore into a fresh recovery project first. The script refuses to restore over
+  the source production project unless SONDE_RESTORE_ALLOW_SOURCE_OVERWRITE=1 is
+  explicitly set.
+
+Runbook:
+  docs/ops/production-backup-recovery.md
+`.trim());
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   const command = process.argv[2] ?? "backup";
+  if (command === "--help" || command === "-h" || command === "help") {
+    printUsage();
+    process.exit(0);
+  }
   const run =
     command === "backup" ? runBackup : command === "restore" ? runRestore : null;
 
