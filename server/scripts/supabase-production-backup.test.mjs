@@ -5,11 +5,13 @@ import path from "node:path";
 import { describe, it } from "node:test";
 import {
   buildLatestPointer,
+  isRetryableStorageError,
   partObjectName,
   snapshotPrefix,
   snapshotsToPrune,
   splitFile,
   validateProjectSeparation,
+  withStorageRetry,
 } from "./supabase-production-backup.mjs";
 
 describe("supabase production backup helpers", () => {
@@ -80,6 +82,52 @@ describe("supabase production backup helpers", () => {
         },
       ],
     });
+  });
+
+  it("classifies transient storage failures as retryable", () => {
+    assert.equal(isRetryableStorageError({ message: "Gateway Timeout" }), true);
+    assert.equal(isRetryableStorageError({ statusCode: 504, message: "upstream" }), true);
+    assert.equal(isRetryableStorageError({ status: 429, message: "rate limited" }), true);
+    assert.equal(isRetryableStorageError({ statusCode: 404, message: "not found" }), false);
+    assert.equal(isRetryableStorageError({ message: "row already exists" }), false);
+  });
+
+  it("retries transient storage operations with bounded attempts", async () => {
+    let attempts = 0;
+
+    const value = await withStorageRetry(
+      async () => {
+        attempts += 1;
+        if (attempts < 3) {
+          throw new Error("Gateway Timeout");
+        }
+        return "ok";
+      },
+      "test storage operation",
+      { attempts: 4, delayMs: 0 },
+    );
+
+    assert.equal(value, "ok");
+    assert.equal(attempts, 3);
+  });
+
+  it("does not retry non-transient storage failures", async () => {
+    let attempts = 0;
+
+    await assert.rejects(
+      () =>
+        withStorageRetry(
+          async () => {
+            attempts += 1;
+            throw Object.assign(new Error("not found"), { statusCode: 404 });
+          },
+          "test missing object",
+          { attempts: 4, delayMs: 0 },
+        ),
+      /not found/,
+    );
+
+    assert.equal(attempts, 1);
   });
 
   it("splits an encrypted archive into deterministic bounded parts", () => {
