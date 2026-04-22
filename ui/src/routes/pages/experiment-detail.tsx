@@ -276,8 +276,8 @@ export default function ExperimentDetailPage() {
             >
               <div className="space-y-3">
                 {review.status === "resolved" && (
-                  <div className="rounded-[5.5px] border border-border-subtle bg-surface-raised px-2.5 py-2">
-                    <p className="text-[11px] font-medium uppercase tracking-wide text-text-quaternary">
+                  <div className="rounded-[5.5px] border border-review-border bg-review-muted px-2.5 py-2">
+                    <p className="text-[11px] font-medium uppercase tracking-wide text-review">
                       Resolved
                     </p>
                     {review.resolution && (
@@ -290,11 +290,11 @@ export default function ExperimentDetailPage() {
                 {review.entries.map((entry) => (
                   <div
                     key={entry.id}
-                    className="border-b border-border-subtle pb-3 last:border-0 last:pb-0"
+                    className="rounded-[5.5px] border border-l-2 border-review-border border-l-review bg-review-muted px-2.5 py-2"
                   >
                     <div className="mb-1.5 flex items-center gap-2">
-                      <MessagesSquare className="h-3 w-3 text-accent" />
-                      <span className="text-[11px] font-medium text-text-secondary">
+                      <MessagesSquare className="h-3 w-3 text-review" />
+                      <span className="text-[11px] font-medium text-review">
                         {entry.source}
                       </span>
                       <span

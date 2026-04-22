@@ -16,6 +16,9 @@
   --palette-accent: #d97c5d;
   --palette-accent-hover: #c96a4f;
   --palette-accent-muted: color-mix(in srgb, #d97c5d 19%, transparent);
+  --palette-review: #b85f2a;
+  --palette-review-border: color-mix(in srgb, #b85f2a 34%, var(--palette-border-subtle));
+  --palette-review-muted: color-mix(in srgb, #b85f2a 12%, transparent);
   --palette-on-accent: #fafaf8;
   --palette-scrim: color-mix(in srgb, #1b1a18 45%, transparent);
   --palette-scrim-strong: color-mix(in srgb, #1b1a18 72%, transparent);
@@ -50,6 +53,9 @@ html.dark {
   --palette-accent: #b86548;
   --palette-accent-hover: #c97a5c;
   --palette-accent-muted: color-mix(in srgb, #b86548 22%, transparent);
+  --palette-review: #d0895f;
+  --palette-review-border: color-mix(in srgb, #d0895f 30%, var(--palette-border-subtle));
+  --palette-review-muted: color-mix(in srgb, #d0895f 14%, transparent);
   --palette-on-accent: #fafaf8;
   --palette-scrim: color-mix(in srgb, #000000 58%, transparent);
   --palette-scrim-strong: color-mix(in srgb, #000000 82%, transparent);
@@ -83,6 +89,9 @@ html.dark {
   --color-accent: var(--palette-accent);
   --color-accent-hover: var(--palette-accent-hover);
   --color-accent-muted: var(--palette-accent-muted);
+  --color-review: var(--palette-review);
+  --color-review-border: var(--palette-review-border);
+  --color-review-muted: var(--palette-review-muted);
   --color-on-accent: var(--palette-on-accent);
   --color-scrim: var(--palette-scrim);
   --color-scrim-strong: var(--palette-scrim-strong);
