@@ -10,23 +10,13 @@ from sonde.db import rows as to_rows
 
 def grant_creator(email: str) -> dict[str, Any]:
     """Grant program creation access to one Aeolus-managed account."""
-    data = (
-        db_client.get_client()
-        .rpc("grant_program_creator", {"p_email": email})
-        .execute()
-        .data
-    )
+    data = db_client.get_client().rpc("grant_program_creator", {"p_email": email}).execute().data
     return _result_dict(data)
 
 
 def revoke_creator(email: str) -> dict[str, Any]:
     """Revoke program creation access for one account."""
-    data = (
-        db_client.get_client()
-        .rpc("revoke_program_creator", {"p_email": email})
-        .execute()
-        .data
-    )
+    data = db_client.get_client().rpc("revoke_program_creator", {"p_email": email}).execute().data
     return _result_dict(data)
 
 
