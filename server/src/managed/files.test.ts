@@ -4,6 +4,7 @@ import {
   addManagedSessionFileResource,
   buildAttachmentMountPath,
   uploadManagedFile,
+  validateChatAttachmentUpload,
 } from "./files.js";
 
 const originalEnv = { ...process.env };
@@ -134,6 +135,22 @@ describe("managed file helpers", () => {
     assert.equal(uploaded.id, "file_test_png");
     assert.equal(uploaded.filename, "diagram.png");
     assert.equal(uploaded.size_bytes, 4);
+  });
+
+  it("rejects oversized PDFs before upload with a size-specific message", () => {
+    const rejection = validateChatAttachmentUpload(
+      new File([new Uint8Array([1, 2, 3])], "report.pdf", {
+        type: "application/pdf",
+      }),
+      { pdfMaxBytes: 2, maxBytes: 10 }
+    );
+
+    assert.ok(rejection);
+    assert.equal(rejection.status, 413);
+    assert.equal(rejection.code, "attachment_pdf_too_large");
+    assert.match(rejection.message, /report\.pdf/);
+    assert.match(rejection.message, /3 B/);
+    assert.match(rejection.message, /2 B/);
   });
 
   it("mounts uploaded files into managed sessions", async () => {

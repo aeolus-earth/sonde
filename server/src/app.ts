@@ -12,11 +12,15 @@ import { handleSondeMcpRequest } from "./mcp/http-server.js";
 import { getAgentBackend } from "./runtime-mode.js";
 import { reconcileManagedCostBuckets } from "./managed/cost-reconcile.js";
 import {
+  describeChatAttachmentUploadFailure,
+  validateChatAttachmentUpload,
+  uploadManagedFile,
+} from "./managed/files.js";
+import {
   fetchManagedCostSummary,
   fetchManagedSessionDetail,
   fetchManagedSessions,
 } from "./admin-managed-costs.js";
-import { uploadManagedFile } from "./managed/files.js";
 import {
   constantTimeSecretEquals,
   getInternalAdminToken,
@@ -82,7 +86,7 @@ function parseIntegerQuery(
 
 function errorResponse(
   c: Context,
-  status: 400 | 401 | 403 | 404 | 500 | 503,
+  status: 400 | 401 | 403 | 404 | 413 | 500 | 503,
   type: string,
   message: string,
 ): Response {
@@ -863,15 +867,27 @@ export function createApp(): Hono {
       return user;
     }
 
+    let file: File | null = null;
     try {
       const form = await c.req.formData();
-      const file = form.get("file");
+      const formFile = form.get("file");
+      file = formFile instanceof File ? formFile : null;
       if (!(file instanceof File)) {
         return errorResponse(
           c,
           400,
           "attachment_missing_file",
           "Chat attachment upload requires a file."
+        );
+      }
+
+      const validationError = validateChatAttachmentUpload(file);
+      if (validationError) {
+        return errorResponse(
+          c,
+          validationError.status,
+          validationError.code,
+          validationError.message
         );
       }
 
@@ -884,6 +900,15 @@ export function createApp(): Hono {
         status: "uploaded",
       });
     } catch (error) {
+      if (file) {
+        const uploadFailure = describeChatAttachmentUploadFailure(file, error);
+        return errorResponse(
+          c,
+          uploadFailure.status,
+          uploadFailure.code,
+          uploadFailure.message
+        );
+      }
       return errorResponse(
         c,
         isManagedConfigError(error) ? 503 : 500,
