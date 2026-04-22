@@ -67,7 +67,9 @@ def ensure_runtime_asset_ignore(project_root: Path) -> bool:
         entries=[
             ".claude/skills/",
             ".claude/agents/",
+            ".claude/scheduled_tasks.lock",
             ".cursor/rules/",
             ".agents/skills/",
+            ".codex/config.toml",
         ],
     )
