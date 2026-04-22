@@ -28,4 +28,5 @@ vendor/stac-db/
 .claude/scheduled_tasks.lock
 .cursor/rules/
 .agents/skills/
+.codex/config.toml
 # --- /sonde managed: runtime-assets ---

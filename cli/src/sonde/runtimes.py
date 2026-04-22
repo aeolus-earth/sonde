@@ -8,6 +8,7 @@ to the RUNTIMES dict.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import tomllib
@@ -73,10 +74,27 @@ def detect_runtimes(project_root: Path) -> list[RuntimeSpec]:
             candidates.add(spec.mcp_config.split("/")[0])
         if any((project_root / candidate).exists() for candidate in candidates):
             found.append(spec)
+
+    if _is_codex_environment() and all(spec.name != "codex" for spec in found):
+        found.append(RUNTIMES["codex"])
+
     # Always include claude-code as default
     if not found:
         found.append(RUNTIMES["claude-code"])
     return found
+
+
+def _is_codex_environment() -> bool:
+    """Return True when setup is being run from a Codex-managed process."""
+    return any(
+        os.environ.get(name)
+        for name in (
+            "CODEX_CI",
+            "CODEX_HOME",
+            "CODEX_MANAGED_BY_NPM",
+            "CODEX_THREAD_ID",
+        )
+    )
 
 
 def resolve_runtimes(project_root: Path, names: str | None) -> list[RuntimeSpec]:
