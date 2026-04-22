@@ -876,6 +876,7 @@ See `aeolus-conventions` for S3 paths, STAC collections, naming patterns.
 Top-level namespace for research.
 
 ```bash
+# Create program (requires creator access or Sonde admin)
 sonde program create weather-intervention --name "Weather Intervention"
 sonde program create ccn-study --name "CCN Study" -d "Cloud condensation nuclei research"
 sonde program list                    # active programs with stats

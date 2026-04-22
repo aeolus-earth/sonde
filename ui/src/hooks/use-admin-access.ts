@@ -25,7 +25,16 @@ const adminAccessKeys = {
   }) => ["admin", "access", "events", program ?? "all", action ?? "all", limit] as const,
 };
 
+const creatorAccessKeys = {
+  all: ["admin", "creator-access"] as const,
+  list: ["admin", "creator-access", "list"] as const,
+  eventsBase: ["admin", "creator-access", "events"] as const,
+  events: (limit: number) =>
+    ["admin", "creator-access", "events", limit] as const,
+};
+
 const DEFAULT_ACCESS_EVENT_LIMIT = 25;
+const DEFAULT_CREATOR_EVENT_LIMIT = 25;
 
 export type ProgramAccessEventAction = "grant" | "revoke" | "apply_pending";
 
@@ -114,6 +123,57 @@ export interface BulkGrantProgramAccessResult {
   failures: Array<{ email: string; program: string; message: string }>;
 }
 
+export interface ProgramCreatorRow {
+  email: string;
+  granted_by_email: string | null;
+  granted_at: string;
+}
+
+interface RawProgramCreatorRow {
+  email: string;
+  granted_by_email: string | null;
+  granted_at: string;
+}
+
+interface RawProgramCreatorEventRow {
+  id: number;
+  action: string;
+  actor_email: string | null;
+  target_email: string;
+  details: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export interface ProgramCreatorEventRow {
+  id: number;
+  action: "grant" | "revoke";
+  actor_email: string | null;
+  target_email: string;
+  details: Record<string, unknown>;
+  created_at: string;
+}
+
+interface GrantProgramCreatorInput {
+  email: string;
+}
+
+interface RevokeProgramCreatorInput {
+  email: string;
+}
+
+interface BulkGrantProgramCreatorInput {
+  emails: string[];
+  creators: ProgramCreatorRow[];
+}
+
+export interface BulkGrantProgramCreatorResult {
+  requested: number;
+  granted: number;
+  skipped: number;
+  failed: number;
+  failures: Array<{ email: string; message: string }>;
+}
+
 function normalizeAccessRow(row: RawProgramAccessRow): ProgramAccessRow {
   return {
     email: row.email,
@@ -155,6 +215,59 @@ function normalizeAccessEventRow(row: RawProgramAccessEventRow): ProgramAccessEv
     details: row.details ?? {},
     created_at: row.created_at,
   };
+}
+
+function normalizeProgramCreatorRow(row: RawProgramCreatorRow): ProgramCreatorRow {
+  return {
+    email: row.email,
+    granted_by_email: row.granted_by_email,
+    granted_at: row.granted_at,
+  };
+}
+
+function normalizeProgramCreatorEventAction(action: string): "grant" | "revoke" {
+  return action === "revoke" ? "revoke" : "grant";
+}
+
+function normalizeProgramCreatorEventRow(
+  row: RawProgramCreatorEventRow,
+): ProgramCreatorEventRow {
+  return {
+    id: row.id,
+    action: normalizeProgramCreatorEventAction(row.action),
+    actor_email: row.actor_email,
+    target_email: row.target_email,
+    details: row.details ?? {},
+    created_at: row.created_at,
+  };
+}
+
+async function grantProgramCreator({
+  email,
+}: GrantProgramCreatorInput): Promise<ProgramCreatorRow> {
+  const { data, error } = await supabase.rpc("grant_program_creator", {
+    p_email: email,
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  return data as ProgramCreatorRow;
+}
+
+async function revokeProgramCreator({
+  email,
+}: RevokeProgramCreatorInput): Promise<{ email: string; revoked: boolean }> {
+  const { data, error } = await supabase.rpc("revoke_program_creator", {
+    p_email: email,
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  return data as { email: string; revoked: boolean };
 }
 
 async function grantProgramAccess({
@@ -267,6 +380,42 @@ export function useProgramAccessEvents({
         throw error;
       }
       return ((data ?? []) as RawProgramAccessEventRow[]).map(normalizeAccessEventRow);
+    },
+    staleTime: 30_000,
+  });
+}
+
+export function useProgramCreators() {
+  return useQuery({
+    queryKey: creatorAccessKeys.list,
+    queryFn: async (): Promise<ProgramCreatorRow[]> => {
+      const { data, error } = await supabase.rpc("list_program_creators");
+      if (error) {
+        throw error;
+      }
+      return ((data ?? []) as RawProgramCreatorRow[]).map(normalizeProgramCreatorRow);
+    },
+    staleTime: 60_000,
+  });
+}
+
+export function useProgramCreatorEvents({ limit = DEFAULT_CREATOR_EVENT_LIMIT }: { limit?: number } = {}) {
+  return useQuery({
+    queryKey: creatorAccessKeys.events(limit),
+    queryFn: async (): Promise<ProgramCreatorEventRow[]> => {
+      const { data, error } = await supabase
+        .from("program_creator_events")
+        .select("id,action,actor_email,target_email,details,created_at")
+        .order("created_at", { ascending: false })
+        .limit(limit);
+
+      if (error) {
+        throw error;
+      }
+
+      return ((data ?? []) as RawProgramCreatorEventRow[]).map(
+        normalizeProgramCreatorEventRow,
+      );
     },
     staleTime: 30_000,
   });
@@ -452,6 +601,140 @@ export function useBulkGrantProgramAccess() {
     onError: (error: Error) => {
       addToast({
         title: "Failed to apply bulk grants",
+        description: error.message,
+        variant: "error",
+      });
+    },
+  });
+}
+
+export function useGrantProgramCreator() {
+  const queryClient = useQueryClient();
+  const addToast = useAddToast();
+
+  return useMutation({
+    mutationFn: grantProgramCreator,
+    onSuccess: async (_, variables) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: creatorAccessKeys.all }),
+        queryClient.invalidateQueries({ queryKey: creatorAccessKeys.eventsBase }),
+      ]);
+      addToast({
+        title: "Program creator granted",
+        description: `${variables.email} can now create new programs.`,
+        variant: "success",
+      });
+    },
+    onError: (error: Error) => {
+      addToast({
+        title: "Failed to grant program creator access",
+        description: error.message,
+        variant: "error",
+      });
+    },
+  });
+}
+
+export function useRevokeProgramCreator() {
+  const queryClient = useQueryClient();
+  const addToast = useAddToast();
+
+  return useMutation({
+    mutationFn: revokeProgramCreator,
+    onSuccess: async (_, variables) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: creatorAccessKeys.all }),
+        queryClient.invalidateQueries({ queryKey: creatorAccessKeys.eventsBase }),
+      ]);
+      addToast({
+        title: "Program creator revoked",
+        description: `${variables.email} can no longer create new programs.`,
+        variant: "success",
+      });
+    },
+    onError: (error: Error) => {
+      addToast({
+        title: "Failed to revoke program creator access",
+        description: error.message,
+        variant: "error",
+      });
+    },
+  });
+}
+
+export function useBulkGrantProgramCreators() {
+  const queryClient = useQueryClient();
+  const addToast = useAddToast();
+
+  return useMutation({
+    mutationFn: async ({
+      emails,
+      creators,
+    }: BulkGrantProgramCreatorInput): Promise<BulkGrantProgramCreatorResult> => {
+      const creatorsByEmail = new Set(creators.map((creator) => creator.email));
+      const tasks: Array<Promise<void>> = [];
+      const taskMeta: Array<{ email: string }> = [];
+      let skipped = 0;
+
+      for (const email of emails) {
+        if (creatorsByEmail.has(email)) {
+          skipped += 1;
+          continue;
+        }
+
+        taskMeta.push({ email });
+        tasks.push(grantProgramCreator({ email }).then(() => undefined));
+      }
+
+      const settled = await Promise.allSettled(tasks);
+      const failures: BulkGrantProgramCreatorResult["failures"] = [];
+      let granted = 0;
+
+      settled.forEach((result, index) => {
+        const meta = taskMeta[index];
+        if (!meta) {
+          return;
+        }
+
+        if (result.status === "fulfilled") {
+          granted += 1;
+        } else {
+          failures.push({
+            email: meta.email,
+            message: errorMessage(result.reason),
+          });
+        }
+      });
+
+      return {
+        requested: taskMeta.length,
+        granted,
+        skipped,
+        failed: failures.length,
+        failures,
+      };
+    },
+    onSuccess: async (result) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: creatorAccessKeys.all }),
+        queryClient.invalidateQueries({ queryKey: creatorAccessKeys.eventsBase }),
+      ]);
+      addToast({
+        title:
+          result.failed > 0
+            ? "Creator allowlist partially applied"
+            : "Creator allowlist complete",
+        description:
+          result.failed > 0
+            ? `${result.granted} granted, ${result.skipped} already had access, ${result.failed} failed.`
+            : `${result.granted} grants applied; ${result.skipped} already had access.`,
+        variant: result.failed > 0 ? "error" : "success",
+        duration: result.failed > 0 ? 8000 : undefined,
+      });
+    },
+    onError: (error: Error) => {
+      addToast({
+        title: "Failed to apply creator allowlist",
         description: error.message,
         variant: "error",
       });

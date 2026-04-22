@@ -1,4 +1,4 @@
-"""Admin commands — manage agent tokens and user access."""
+"""Admin commands — manage agent tokens, user access, and program creators."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from sonde.cli_options import pass_output_options
 from sonde.db import admin_access as access_db
 from sonde.db import admin_tokens as db
 from sonde.db import artifacts as artifact_db
+from sonde.db import program_creators as creator_db
 from sonde.db.client import get_client, has_service_role_key
 from sonde.output import err, print_error, print_json, print_success, print_table
 
@@ -432,6 +433,120 @@ def user_access(ctx: click.Context, email: str) -> None:
     )
 
 
+@admin.command("grant-program-creator")
+@click.argument("email")
+@pass_output_options
+@click.pass_context
+def grant_program_creator(ctx: click.Context, email: str) -> None:
+    """Grant program creation access to one Aeolus-managed account.
+
+    \b
+    Examples:
+      sonde admin grant-program-creator lead@aeolus.earth
+    """
+    try:
+        grant = creator_db.grant_creator(email=email)
+    except APIError as e:
+        _print_creator_api_error(e, action="grant program creator")
+        raise SystemExit(1) from None
+    except Exception as e:
+        print_error(
+            "Failed to grant program creator access",
+            str(e),
+            "Check your Sonde admin permissions and retry.",
+        )
+        raise SystemExit(1) from None
+
+    if ctx.obj.get("json"):
+        print_json(grant)
+        return
+
+    print_success(f"Granted program creation access to {grant['email']}")
+    err.print(f"  Granted by: {grant.get('granted_by_email') or 'unknown'}")
+    err.print(f"  Granted at: {str(grant.get('granted_at') or '')[:10]}")
+    err.print(
+        "  The user can now create new programs from the CLI, while "
+        "Sonde admins keep break-glass access."
+    )
+
+
+@admin.command("revoke-program-creator")
+@click.argument("email")
+@click.option("--force", "-f", is_flag=True, help="Skip confirmation")
+@pass_output_options
+@click.pass_context
+def revoke_program_creator(ctx: click.Context, email: str, force: bool) -> None:
+    """Revoke program creation access for one account.
+
+    \b
+    Examples:
+      sonde admin revoke-program-creator lead@aeolus.earth
+    """
+    if not force:
+        click.confirm(f"Revoke program creation access for {email}?", abort=True)
+
+    try:
+        result = creator_db.revoke_creator(email=email)
+    except APIError as e:
+        _print_creator_api_error(e, action="revoke program creator")
+        raise SystemExit(1) from None
+    except Exception as e:
+        print_error(
+            "Failed to revoke program creator access",
+            str(e),
+            "Check your Sonde admin permissions and retry.",
+        )
+        raise SystemExit(1) from None
+
+    if ctx.obj.get("json"):
+        print_json(result)
+        return
+
+    if result.get("revoked"):
+        print_success(f"Revoked program creation access for {result['email']}")
+    else:
+        err.print(f"[yellow]No program creator access found for {email}.[/yellow]")
+
+
+@admin.command("list-program-creators")
+@pass_output_options
+@click.pass_context
+def list_program_creators(ctx: click.Context) -> None:
+    """List the current program creator allowlist.
+
+    \b
+    Examples:
+      sonde admin list-program-creators
+    """
+    try:
+        rows = creator_db.list_creators()
+    except APIError as e:
+        _print_creator_api_error(e, action="list program creators")
+        raise SystemExit(1) from None
+    except Exception as e:
+        print_error(
+            "Failed to list program creators",
+            str(e),
+            "Check your Sonde admin permissions and retry.",
+        )
+        raise SystemExit(1) from None
+
+    if ctx.obj.get("json"):
+        print_json(rows)
+        return
+
+    if not rows:
+        err.print("[dim]No program creators found.[/dim]")
+        err.print("  Sonde admins can still create programs without an allowlist entry.")
+        return
+
+    print_table(
+        ["email", "granted_by", "granted"],
+        [_format_creator_table_row(row) for row in rows],
+        title="Program Creators",
+    )
+
+
 @admin.command("reconcile-artifacts")
 @click.option(
     "--limit",
@@ -587,6 +702,15 @@ def _format_access_table_row(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _format_creator_table_row(row: dict[str, Any]) -> dict[str, Any]:
+    granted_at = str(row.get("granted_at") or "")
+    return {
+        "email": row.get("email", ""),
+        "granted_by": row.get("granted_by_email", ""),
+        "granted": granted_at[:10],
+    }
+
+
 def _resolve_access_expiry(
     *,
     contractor: bool,
@@ -657,4 +781,25 @@ def _print_access_api_error(
         from sonde.db import classify_api_error
 
         what, why, fix = classify_api_error(error, table="user_programs", action=action)
+        print_error(what, why, fix)
+
+
+def _print_creator_api_error(error: APIError, *, action: str) -> None:
+    msg = error.message or ""
+    if error.code == "42501" or "sonde admins" in msg.lower():
+        print_error(
+            "Permission denied",
+            "Only Sonde admins can manage program creator access.",
+            "Open the /admin dashboard to grant or revoke creator access.",
+        )
+    elif error.code == "22023" or "@aeolus.earth" in msg:
+        print_error(
+            "Invalid user",
+            msg or "Only Aeolus-managed Google accounts can receive creator access.",
+            "Use an @aeolus.earth Google account.",
+        )
+    else:
+        from sonde.db import classify_api_error
+
+        what, why, fix = classify_api_error(error, table="program_creators", action=action)
         print_error(what, why, fix)
