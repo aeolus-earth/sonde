@@ -16,6 +16,7 @@ import {
   fetchManagedSessionDetail,
   fetchManagedSessions,
 } from "./admin-managed-costs.js";
+import { uploadManagedFile } from "./managed/files.js";
 import {
   constantTimeSecretEquals,
   getInternalAdminToken,
@@ -81,7 +82,7 @@ function parseIntegerQuery(
 
 function errorResponse(
   c: Context,
-  status: 401 | 403 | 404 | 500 | 503,
+  status: 400 | 401 | 403 | 404 | 500 | 503,
   type: string,
   message: string,
 ): Response {
@@ -852,6 +853,42 @@ export function createApp(): Hono {
         isManagedConfigError(error) ? 503 : 500,
         isManagedConfigError(error) ? "chat_runtime_unavailable" : "chat_prewarm_failed",
         error instanceof Error ? error.message : "Failed to prepare chat runtime.",
+      );
+    }
+  });
+
+  app.post("/chat/attachments", async (c) => {
+    const user = await requireVerifiedUser(c);
+    if (user instanceof Response) {
+      return user;
+    }
+
+    try {
+      const form = await c.req.formData();
+      const file = form.get("file");
+      if (!(file instanceof File)) {
+        return errorResponse(
+          c,
+          400,
+          "attachment_missing_file",
+          "Chat attachment upload requires a file."
+        );
+      }
+
+      const uploaded = await uploadManagedFile(file);
+      return c.json({
+        name: uploaded.filename,
+        mimeType: uploaded.mime_type,
+        fileId: uploaded.id,
+        sizeBytes: uploaded.size_bytes,
+        status: "uploaded",
+      });
+    } catch (error) {
+      return errorResponse(
+        c,
+        isManagedConfigError(error) ? 503 : 500,
+        isManagedConfigError(error) ? "chat_runtime_unavailable" : "chat_attachment_upload_failed",
+        error instanceof Error ? error.message : "Failed to upload chat attachment.",
       );
     }
   });

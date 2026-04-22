@@ -1,47 +1,66 @@
+import { getAgentHttpBase } from "@/lib/agent-http";
+import { SessionReauthRequiredError } from "@/lib/session-auth";
 import type { ChatAttachmentPayload } from "@/types/chat";
 
-/** Max size (bytes) to embed as base64 for text-like files in the agent prompt. */
-const MAX_EMBED_BYTES = 150_000;
+const CHAT_ATTACHMENT_REAUTH_MESSAGE =
+  "Session expired. Sign in again to upload files.";
 
-const TEXT_LIKE =
-  /^text\/|^application\/(json|xml|x-yaml|yaml|javascript|typescript|x-httpd-php)|^application\/.*\+xml$/;
-
-function isProbablyTextFile(file: File): boolean {
-  const t = file.type || "";
-  if (t && TEXT_LIKE.test(t)) return true;
-  const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
-  return ["md", "txt", "csv", "json", "yaml", "yml", "xml", "log", "ts", "tsx", "js", "jsx", "py", "rs", "sql", "env"].includes(ext);
-}
-
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
-  let binary = "";
-  for (let i = 0; i < bytes.byteLength; i++) {
-    binary += String.fromCharCode(bytes[i]!);
+function parseAttachmentError(status: number, body: string): string {
+  const trimmed = body.trim();
+  if (!trimmed) {
+    return `Attachment upload failed (${status}).`;
   }
-  return btoa(binary);
+
+  try {
+    const parsed = JSON.parse(trimmed) as {
+      error?: { message?: string; type?: string };
+    };
+    return parsed.error?.message?.trim() || `Attachment upload failed (${status}).`;
+  } catch {
+    return trimmed.slice(0, 240);
+  }
 }
 
-export async function filesToAttachmentPayloads(
-  files: File[]
+export async function uploadChatAttachment(
+  file: File,
+  accessToken: string
+): Promise<ChatAttachmentPayload> {
+  const form = new FormData();
+  form.append("file", file, file.name);
+
+  const response = await fetch(`${getAgentHttpBase()}/chat/attachments`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: form,
+  });
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      throw new SessionReauthRequiredError(CHAT_ATTACHMENT_REAUTH_MESSAGE);
+    }
+    const message = parseAttachmentError(
+      response.status,
+      await response.text()
+    );
+    throw new Error(message);
+  }
+
+  const payload = (await response.json()) as ChatAttachmentPayload;
+  return {
+    ...payload,
+    status: payload.status ?? "uploaded",
+  };
+}
+
+export async function uploadChatAttachments(
+  files: File[],
+  accessToken: string
 ): Promise<ChatAttachmentPayload[]> {
-  const results: ChatAttachmentPayload[] = [];
+  const attachments: ChatAttachmentPayload[] = [];
   for (const file of files) {
-    const mime = file.type || "application/octet-stream";
-    if (file.size > MAX_EMBED_BYTES || !isProbablyTextFile(file)) {
-      results.push({ name: file.name, mimeType: mime });
-      continue;
-    }
-    const buf = await file.arrayBuffer();
-    if (buf.byteLength > MAX_EMBED_BYTES) {
-      results.push({ name: file.name, mimeType: mime });
-      continue;
-    }
-    results.push({
-      name: file.name,
-      mimeType: mime,
-      dataBase64: arrayBufferToBase64(buf),
-    });
+    attachments.push(await uploadChatAttachment(file, accessToken));
   }
-  return results;
+  return attachments;
 }

@@ -59,6 +59,11 @@ export interface ChatState {
   setTabAgentSessionId: (tabId: string, id: string | null) => void;
 
   addMessage: (tabId: string, msg: ChatMessageData) => void;
+  updateMessageAttachments: (
+    tabId: string,
+    messageId: string,
+    attachments: ChatMessageData["attachments"]
+  ) => void;
   appendToLastMessage: (tabId: string, text: string) => void;
   appendThinkingToLastMessage: (tabId: string, text: string) => void;
   addToolUseToLastMessage: (tabId: string, toolUse: ToolUseData) => void;
@@ -143,6 +148,19 @@ const chatStateCreator: StateCreator<ChatState, [], [], ChatState> = (set) => ({
       addMessage: (tabId, msg) =>
         set((s) => ({
           tabs: mapTabsMessages(s.tabs, tabId, (msgs) => [...msgs, msg]),
+        })),
+
+      updateMessageAttachments: (tabId, messageId, attachments) =>
+        set((s) => ({
+          tabs: s.tabs.map((t) => {
+            if (t.id !== tabId) return t;
+            return {
+              ...t,
+              messages: t.messages.map((m) =>
+                m.id === messageId ? { ...m, attachments } : m
+              ),
+            };
+          }),
         })),
 
       appendToLastMessage: (tabId, text) =>

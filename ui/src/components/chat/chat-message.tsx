@@ -8,6 +8,7 @@ import {
 import type { ChatMessageData, MentionRef } from "@/types/chat";
 import { isDefendExistenceCommand } from "@/lib/defend-existence";
 import { cn } from "@/lib/utils";
+import { Check, Loader2, TriangleAlert } from "lucide-react";
 
 const AssistantMarkdown = lazy(() =>
   import("./assistant-markdown").then((m) => ({ default: m.AssistantMarkdown }))
@@ -47,10 +48,31 @@ export const ChatMessage = memo(function ChatMessage({
               {message.attachments.map((a, i) => (
                 <span
                   key={`${a.name}-${i}`}
-                  className="max-w-[220px] truncate rounded-full border border-border-subtle bg-surface px-2 py-0.5 text-[10px] text-text-secondary"
+                  className={cn(
+                    "inline-flex max-w-[220px] items-center gap-1 rounded-full border px-2 py-0.5 text-[10px]",
+                    a.status === "failed"
+                      ? "border-status-failed/25 bg-status-failed/10 text-status-failed"
+                      : a.status === "attached"
+                        ? "border-accent/25 bg-accent/10 text-accent"
+                        : "border-border-subtle bg-surface text-text-secondary",
+                  )}
                   title={a.mimeType ? `${a.name} (${a.mimeType})` : a.name}
                 >
-                  {a.name}
+                  {a.status === "failed" ? (
+                    <TriangleAlert className="h-3 w-3 shrink-0" />
+                  ) : a.status === "attached" ? (
+                    <Check className="h-3 w-3 shrink-0" />
+                  ) : a.status === "uploaded" ? (
+                    <Check className="h-3 w-3 shrink-0" />
+                  ) : a.status === "uploading" ? (
+                    <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+                  ) : null}
+                  <span className="max-w-full truncate">{a.name}</span>
+                  {a.status && a.status !== "attached" && (
+                    <span className="shrink-0 uppercase tracking-[0.08em] text-current/70">
+                      {a.status}
+                    </span>
+                  )}
                 </span>
               ))}
             </div>

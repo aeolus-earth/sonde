@@ -53,6 +53,7 @@ describe("normalizeManagedSessionEvent", () => {
     process.env.SONDE_GITHUB_TOKEN = "github-test-token";
     process.env.SONDE_MANAGED_DEFAULT_GITHUB_REPO_URL = "https://github.com/aeolus-earth/sonde";
 
+    const agentBodies: Array<Record<string, unknown>> = [];
     const sessionBodies: Array<Record<string, unknown>> = [];
     globalThis.fetch = async (input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === "string"
@@ -62,6 +63,7 @@ describe("normalizeManagedSessionEvent", () => {
           : new URL(input.url);
 
       if (url.pathname === "/v1/agents") {
+        agentBodies.push(JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>);
         return new Response(JSON.stringify({ id: "agent_test_managed" }), {
           status: 200,
           headers: { "content-type": "application/json" },
@@ -105,6 +107,12 @@ describe("normalizeManagedSessionEvent", () => {
     });
 
     assert.equal(sessionId, "sesn_test_retry_without_repo");
+    assert.equal(agentBodies.length, 1);
+    assert.equal(Array.isArray(agentBodies[0]?.skills), true);
+    assert.deepEqual(
+      (agentBodies[0]?.skills as Array<{ skill_id?: string }>).map((skill) => skill.skill_id),
+      ["pdf", "pptx", "xlsx"]
+    );
     assert.equal(sessionBodies.length, 2);
     assert.equal(Array.isArray(sessionBodies[0]?.resources), true);
     assert.equal("resources" in sessionBodies[1]!, false);
