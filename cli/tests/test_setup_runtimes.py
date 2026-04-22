@@ -33,6 +33,11 @@ from sonde.skills import (
 
 
 class TestDetectRuntimes:
+    @pytest.fixture(autouse=True)
+    def clear_codex_env(self, monkeypatch: pytest.MonkeyPatch):
+        for name in ("CODEX_CI", "CODEX_HOME", "CODEX_MANAGED_BY_NPM", "CODEX_THREAD_ID"):
+            monkeypatch.delenv(name, raising=False)
+
     def test_claude_only(self, tmp_path: Path):
         (tmp_path / ".claude").mkdir()
         found = detect_runtimes(tmp_path)
@@ -53,6 +58,14 @@ class TestDetectRuntimes:
         found = detect_runtimes(tmp_path)
         assert len(found) == 1
         assert found[0].name == "claude-code"
+
+    def test_codex_environment_detected_without_project_files(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.setenv("CODEX_THREAD_ID", "thread-123")
+        found = detect_runtimes(tmp_path)
+        names = {rt.name for rt in found}
+        assert names == {"codex"}
 
 
 class TestResolveRuntimes:
@@ -412,6 +425,10 @@ class TestSetupCommand:
         skill_files = list(codex_dir.glob("*/SKILL.md"))
         assert len(skill_files) >= 1
         assert ".agents/skills/" in (tmp_path / ".gitignore").read_text(encoding="utf-8")
+        assert ".claude/scheduled_tasks.lock" in (tmp_path / ".gitignore").read_text(
+            encoding="utf-8"
+        )
+        assert ".codex/config.toml" in (tmp_path / ".gitignore").read_text(encoding="utf-8")
         codex_config = (tmp_path / ".codex" / "config.toml").read_text(encoding="utf-8")
         assert "[mcp_servers.sonde]" in codex_config
         assert 'command = "sonde"' in codex_config

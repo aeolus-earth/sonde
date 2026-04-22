@@ -20,6 +20,7 @@ import {
   ResearchTree,
   type TreeNavigateTarget,
 } from "@/components/visualizations/research-tree";
+import { buildTimelineVisibleTreeData } from "@/lib/tree-timeline-visibility";
 import { formatDateTimeShort } from "@/lib/utils";
 import { Pause, Play } from "lucide-react";
 import type {
@@ -72,11 +73,6 @@ function buildTimelineEvents(
     .sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
 
   return all.map((at) => ({ at, label: formatDateTimeShort(at) }));
-}
-
-function isVisibleAt(createdAt: string, cutoff: string | null): boolean {
-  if (!cutoff) return true;
-  return new Date(createdAt).getTime() <= new Date(cutoff).getTime();
 }
 
 export default function TreePage() {
@@ -146,41 +142,24 @@ export default function TreePage() {
   const timelineSpeed =
     TIMELINE_SPEEDS[timelineSpeedIndex] ?? TIMELINE_SPEEDS[1];
 
-  const visibleProjects = useMemo(
+  const visibleTreeData = useMemo(
     () =>
-      (projects ?? []).filter((item) =>
-        isVisibleAt(item.created_at, timelineCutoff),
-      ),
-    [projects, timelineCutoff],
+      buildTimelineVisibleTreeData({
+        projects: projects ?? [],
+        directions: directions ?? [],
+        questions: questions ?? [],
+        experiments: experiments ?? [],
+        findings: findings ?? [],
+        cutoff: timelineCutoff,
+      }),
+    [projects, directions, questions, experiments, findings, timelineCutoff],
   );
-  const visibleDirections = useMemo(
-    () =>
-      (directions ?? []).filter((item) =>
-        isVisibleAt(item.created_at, timelineCutoff),
-      ),
-    [directions, timelineCutoff],
-  );
-  const visibleExperiments = useMemo(
-    () =>
-      (experiments ?? []).filter((item) =>
-        isVisibleAt(item.created_at, timelineCutoff),
-      ),
-    [experiments, timelineCutoff],
-  );
-  const visibleQuestions = useMemo(
-    () =>
-      (questions ?? []).filter((item) =>
-        isVisibleAt(item.created_at, timelineCutoff),
-      ),
-    [questions, timelineCutoff],
-  );
-  const visibleFindings = useMemo(
-    () =>
-      (findings ?? []).filter((item) =>
-        isVisibleAt(item.created_at, timelineCutoff),
-      ),
-    [findings, timelineCutoff],
-  );
+
+  const visibleProjects = visibleTreeData.projects;
+  const visibleDirections = visibleTreeData.directions;
+  const visibleQuestions = visibleTreeData.questions;
+  const visibleExperiments = visibleTreeData.experiments;
+  const visibleFindings = visibleTreeData.findings;
 
   const handleNodeClick = useCallback(
     (id: string) => {
@@ -395,7 +374,7 @@ export default function TreePage() {
               projects={visibleProjects}
               findings={visibleFindings}
               questions={visibleQuestions}
-              expansionResetKey={timelineCutoff}
+              expansionResetKey={activeProgram}
               onNavigate={handleTreeNavigate}
             />
           ) : (

@@ -21,12 +21,15 @@ export interface CanvasLayerFrame {
   height: number;
 }
 
+export type CanvasSlotKind = "experiment" | "project" | "any";
+
 export interface AssistantCanvasCardPlacement {
   left: number;
   top: number;
   width: number;
   rotate: number;
   z: number;
+  preferredKind: CanvasSlotKind;
 }
 
 interface HierarchyLevels {
@@ -46,6 +49,7 @@ interface SlotBlueprint {
   width: WidthSpec;
   rotate: number;
   z: number;
+  preferredKind: CanvasSlotKind;
   place: (ctx: PlacementContext, width: number, height: number) => { x: number; y: number };
   fallback: "above" | "below";
 }
@@ -139,6 +143,80 @@ function applyFallbackY(
   return clampRectToViewport(x, rawY, width, height, ctx.viewport, ctx.insetX, ctx.insetY);
 }
 
+interface PlacedRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+function intersectsAny(
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  placed: readonly PlacedRect[],
+  pad: number,
+): boolean {
+  for (const r of placed) {
+    if (
+      x < r.x + r.width + pad &&
+      x + width + pad > r.x &&
+      y < r.y + r.height + pad &&
+      y + height + pad > r.y
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Try to find a non-overlapping position near `start` by nudging in widening
+ * rings. Respects the viewport inset and the bubble collision. Returns the
+ * first position that doesn't overlap any already-placed card, or `start` if
+ * no clearance found within the search budget.
+ */
+function avoidCardCollisions(
+  start: { x: number; y: number },
+  ctx: PlacementContext,
+  width: number,
+  height: number,
+  placed: readonly PlacedRect[],
+  pad: number,
+): { x: number; y: number } {
+  if (placed.length === 0) return start;
+  if (!intersectsAny(start.x, start.y, width, height, placed, pad)) return start;
+
+  // Widening ring search: try offsets in 8 directions at increasing radii.
+  const step = Math.max(24, Math.min(width, height) * 0.3);
+  const directions: Array<[number, number]> = [
+    [0, -1], [0, 1], [-1, 0], [1, 0],
+    [-1, -1], [1, -1], [-1, 1], [1, 1],
+  ];
+
+  for (let ring = 1; ring <= 6; ring++) {
+    for (const [dx, dy] of directions) {
+      const candidate = clampRectToViewport(
+        start.x + dx * step * ring,
+        start.y + dy * step * ring,
+        width,
+        height,
+        ctx.viewport,
+        ctx.insetX,
+        ctx.insetY,
+      );
+      if (intersectsBubble(candidate.x, candidate.y, width, height, ctx.bubble, ctx.bubblePad)) {
+        continue;
+      }
+      if (!intersectsAny(candidate.x, candidate.y, width, height, placed, pad)) {
+        return candidate;
+      }
+    }
+  }
+  return start;
+}
+
 function avoidBubbleCollision(
   next: { x: number; y: number },
   ctx: PlacementContext,
@@ -185,105 +263,145 @@ function avoidBubbleCollision(
   return candidate;
 }
 
+/**
+ * Slot layout: 16 cards arranged in concentric rings around the chat bubble.
+ *
+ *   - Inner ring (experiments): top band (4), bottom band (4), left column (2),
+ *     right column (2).
+ *   - Outer corners (projects): 4 cards in the far corners.
+ *
+ * All cards are similar-sized (170–210px). Rotation is capped at ±1.5°.
+ * Overlap between slots is resolved by a separate pass in
+ * `computeAssistantCanvasCardPlacements` below — blueprints only declare
+ * the *preferred* placement; the algorithm nudges late-added cards that
+ * collide with earlier ones.
+ */
+const EXP_WIDTH: WidthSpec = { min: 160, preferredVw: 0.14, max: 205 };
+const PROJ_WIDTH: WidthSpec = { min: 175, preferredVw: 0.15, max: 225 };
+
 const SLOT_BLUEPRINTS: readonly SlotBlueprint[] = [
+  // ── Top band above bubble: 4 cards spaced across ──
   {
-    width: { min: 130, preferredVw: 0.16, max: 220 },
-    rotate: -3.2,
-    z: 2,
-    fallback: "above",
-    place: ({ bubble, sideGap, topGap }, width, height) => ({
-      x: bubble.left - width * 0.72 - sideGap,
-      y: bubble.top - height - topGap * 1.3,
-    }),
-  },
-  {
-    width: { min: 110, preferredVw: 0.12, max: 175 },
-    rotate: 1.8,
-    z: 1,
-    fallback: "above",
+    width: EXP_WIDTH, rotate: -1.3, z: 2, preferredKind: "experiment", fallback: "above",
     place: ({ bubble, topGap }, width, height) => ({
-      x: bubble.left + bubble.width * 0.14 - width * 0.18,
-      y: bubble.top - height - topGap * 0.9,
+      x: bubble.left + bubble.width * 0.05 - width * 0.45,
+      y: bubble.top - height - topGap * 1.2,
     }),
   },
   {
-    width: { min: 115, preferredVw: 0.13, max: 185 },
-    rotate: -1.4,
-    z: 1,
-    fallback: "above",
-    place: ({ bubble, topGap }, _width, height) => ({
-      x: bubble.right - bubble.width * 0.42,
+    width: EXP_WIDTH, rotate: 1.1, z: 2, preferredKind: "experiment", fallback: "above",
+    place: ({ bubble, topGap }, width, height) => ({
+      x: bubble.left + bubble.width * 0.32 - width * 0.5,
       y: bubble.top - height - topGap * 1.1,
     }),
   },
   {
-    width: { min: 135, preferredVw: 0.17, max: 230 },
-    rotate: 2.4,
-    z: 2,
-    fallback: "above",
-    place: ({ bubble, sideGap, topGap }, _width, height) => ({
-      x: bubble.right + sideGap * 0.9,
-      y: bubble.top - height - topGap,
+    width: EXP_WIDTH, rotate: -1.0, z: 2, preferredKind: "experiment", fallback: "above",
+    place: ({ bubble, topGap }, width, height) => ({
+      x: bubble.left + bubble.width * 0.62 - width * 0.5,
+      y: bubble.top - height - topGap * 1.1,
     }),
   },
   {
-    width: { min: 125, preferredVw: 0.15, max: 210 },
-    rotate: 2.1,
-    z: 3,
-    fallback: "above",
-    place: ({ bubble, sideFarGap }, width, height) => ({
-      x: bubble.left - width - sideFarGap,
-      y: bubble.top + bubble.height * 0.12 - height * 0.4,
+    width: EXP_WIDTH, rotate: 1.4, z: 2, preferredKind: "experiment", fallback: "above",
+    place: ({ bubble, topGap }, width, height) => ({
+      x: bubble.left + bubble.width * 0.92 - width * 0.55,
+      y: bubble.top - height - topGap * 1.2,
+    }),
+  },
+
+  // ── Bottom band below bubble: 4 cards spaced across ──
+  {
+    width: EXP_WIDTH, rotate: 1.2, z: 2, preferredKind: "experiment", fallback: "below",
+    place: ({ bubble, bottomGap }, width) => ({
+      x: bubble.left + bubble.width * 0.05 - width * 0.45,
+      y: bubble.bottom + bottomGap * 1.1,
     }),
   },
   {
-    width: { min: 120, preferredVw: 0.14, max: 195 },
-    rotate: -1.5,
-    z: 1,
-    fallback: "below",
+    width: EXP_WIDTH, rotate: -1.4, z: 2, preferredKind: "experiment", fallback: "below",
+    place: ({ bubble, bottomGap }, width) => ({
+      x: bubble.left + bubble.width * 0.32 - width * 0.5,
+      y: bubble.bottom + bottomGap * 1.2,
+    }),
+  },
+  {
+    width: EXP_WIDTH, rotate: 1.0, z: 2, preferredKind: "experiment", fallback: "below",
+    place: ({ bubble, bottomGap }, width) => ({
+      x: bubble.left + bubble.width * 0.62 - width * 0.5,
+      y: bubble.bottom + bottomGap * 1.2,
+    }),
+  },
+  {
+    width: EXP_WIDTH, rotate: -1.1, z: 2, preferredKind: "experiment", fallback: "below",
+    place: ({ bubble, bottomGap }, width) => ({
+      x: bubble.left + bubble.width * 0.92 - width * 0.55,
+      y: bubble.bottom + bottomGap * 1.1,
+    }),
+  },
+
+  // ── Left column: 2 cards stacked at left of bubble ──
+  {
+    width: EXP_WIDTH, rotate: -1.2, z: 2, preferredKind: "experiment", fallback: "above",
+    place: ({ bubble, sideGap }, width) => ({
+      x: bubble.left - width - sideGap,
+      y: bubble.top + bubble.height * 0.05,
+    }),
+  },
+  {
+    width: EXP_WIDTH, rotate: 1.3, z: 2, preferredKind: "experiment", fallback: "below",
     place: ({ bubble, sideGap }, width, height) => ({
-      x: bubble.left - width - sideGap * 1.1,
-      y: bubble.top + bubble.height * 0.62 - height * 0.45,
+      x: bubble.left - width - sideGap,
+      y: bubble.bottom - height - bubble.height * 0.05,
+    }),
+  },
+
+  // ── Right column: 2 cards stacked at right of bubble ──
+  {
+    width: EXP_WIDTH, rotate: 1.1, z: 2, preferredKind: "experiment", fallback: "above",
+    place: ({ bubble, sideGap }) => ({
+      x: bubble.right + sideGap,
+      y: bubble.top + bubble.height * 0.05,
     }),
   },
   {
-    width: { min: 140, preferredVw: 0.18, max: 245 },
-    rotate: -2.8,
-    z: 2,
-    fallback: "above",
-    place: ({ bubble, sideFarGap }, _width, height) => ({
-      x: bubble.right + sideFarGap,
-      y: bubble.top + bubble.height * 0.1 - height * 0.35,
-    }),
-  },
-  {
-    width: { min: 118, preferredVw: 0.13, max: 190 },
-    rotate: 3,
-    z: 4,
-    fallback: "below",
+    width: EXP_WIDTH, rotate: -1.4, z: 2, preferredKind: "experiment", fallback: "below",
     place: ({ bubble, sideGap }, _width, height) => ({
       x: bubble.right + sideGap,
-      y: bubble.top + bubble.height * 0.58 - height * 0.35,
+      y: bubble.bottom - height - bubble.height * 0.05,
     }),
   },
+
+  // ── Outer corner: upper-left (project) ──
   {
-    width: { min: 128, preferredVw: 0.15, max: 215 },
-    rotate: 2.6,
-    z: 2,
-    fallback: "below",
-    place: ({ bubble, bottomGap }, width) => ({
-      x: bubble.left + bubble.width * 0.06 - width * 0.08,
-      y: bubble.bottom + bottomGap,
+    width: PROJ_WIDTH, rotate: -1.5, z: 1, preferredKind: "project", fallback: "above",
+    place: ({ bubble, sideFarGap, topGap }, width, height) => ({
+      x: bubble.left - width * 1.4 - sideFarGap,
+      y: bubble.top - height - topGap * 1.6,
     }),
   },
+  // ── Outer corner: upper-right (project) ──
   {
-    width: { min: 122, preferredVw: 0.14, max: 200 },
-    rotate: -2.2,
-    z: 1,
-    fallback: "below",
-    place: ({ bubble, bottomGap }) => ({
-      x: bubble.right - bubble.width * 0.52,
-      y: bubble.bottom + bottomGap * 1.15,
+    width: PROJ_WIDTH, rotate: 1.5, z: 1, preferredKind: "project", fallback: "above",
+    place: ({ bubble, sideFarGap, topGap }, _width, height) => ({
+      x: bubble.right + bubble.width * 0.4 + sideFarGap,
+      y: bubble.top - height - topGap * 1.6,
+    }),
+  },
+  // ── Outer corner: lower-left (project) ──
+  {
+    width: PROJ_WIDTH, rotate: 1.2, z: 1, preferredKind: "project", fallback: "below",
+    place: ({ bubble, sideFarGap, bottomGap }, width) => ({
+      x: bubble.left - width * 1.4 - sideFarGap,
+      y: bubble.bottom + bottomGap * 1.6,
+    }),
+  },
+  // ── Outer corner: lower-right (project) ──
+  {
+    width: PROJ_WIDTH, rotate: -1.3, z: 1, preferredKind: "project", fallback: "below",
+    place: ({ bubble, sideFarGap, bottomGap }) => ({
+      x: bubble.right + bubble.width * 0.4 + sideFarGap,
+      y: bubble.bottom + bottomGap * 1.6,
     }),
   },
 ] as const;
@@ -357,6 +475,9 @@ export function computeAssistantCanvasCardPlacements({
     bubblePad: clamp(viewport.w * 0.012, 12, 18),
   };
 
+  const placed: PlacedRect[] = [];
+  const cardPad = clamp(viewport.w * 0.006, 6, 12);
+
   return SLOT_BLUEPRINTS.map((slot) => {
     const width = Math.round(widthFromSpec(slot.width, viewport.w));
     const height = cardHeight(width);
@@ -375,6 +496,9 @@ export function computeAssistantCanvasCardPlacements({
       next = applyFallbackY(slot.fallback, ctx, width, height, next.x);
     }
     next = avoidBubbleCollision(next, ctx, width, height);
+    next = avoidCardCollisions(next, ctx, width, height, placed, cardPad);
+
+    placed.push({ x: next.x, y: next.y, width, height });
 
     return {
       left: Math.round(next.x - frame.left),
@@ -382,6 +506,7 @@ export function computeAssistantCanvasCardPlacements({
       width,
       rotate: slot.rotate,
       z: slot.z,
+      preferredKind: slot.preferredKind,
     };
   });
 }
