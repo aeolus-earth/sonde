@@ -959,6 +959,7 @@ describe("createApp", () => {
   });
 
   it("uploads PNG chat attachments through the Anthropic Files API", async () => {
+    process.env.ANTHROPIC_API_KEY = "sk-ant-api03-test-key";
     const seenFileNames: string[] = [];
     globalThis.fetch = async (input: string | URL | Request, init?: RequestInit) => {
       const url = input instanceof Request
