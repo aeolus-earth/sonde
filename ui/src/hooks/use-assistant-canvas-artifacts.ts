@@ -3,11 +3,17 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { queryKeys } from "@/lib/query-keys";
 import { usePrograms } from "@/hooks/use-programs";
+import { useExperiments } from "@/hooks/use-experiments";
+import { useProjects } from "@/hooks/use-projects";
 import { isImage, isVideo } from "@/lib/artifact-kind";
-import type { Artifact } from "@/types/sonde";
+import type {
+  Artifact,
+  ExperimentSummary,
+  ProjectSummary,
+} from "@/types/sonde";
 
 const FETCH_LIMIT_PER_SOURCE = 90;
-export const ASSISTANT_CANVAS_CARD_COUNT = 10;
+export const ASSISTANT_CANVAS_CARD_COUNT = 16;
 
 const STALE_MS = 2 * 60_000;
 
@@ -221,4 +227,84 @@ export function useAssistantCanvasArtifacts() {
     staleTime: STALE_MS,
     gcTime: 5 * 60_000,
   });
+}
+
+// ── Canvas feed: experiments + projects ─────────────────────────────────
+
+export type AssistantCanvasFeedRow =
+  | { kind: "experiment"; experiment: ExperimentSummary }
+  | { kind: "project"; project: ProjectSummary };
+
+/**
+ * Feed used by ResearchCanvasBackground. Returns up to
+ * ASSISTANT_CANVAS_CARD_COUNT rows: experiments fill the inner ring
+ * around the chat bubble (indices 0–11), projects fill the outer corners
+ * (indices 12–15). If one source runs dry, the other backfills.
+ */
+export function useAssistantCanvasFeed() {
+  const experimentsQ = useExperiments();
+  const projectsQ = useProjects();
+
+  const feed = useMemo<AssistantCanvasFeedRow[]>(() => {
+    const experiments = experimentsQ.data ?? [];
+    const projects = projectsQ.data ?? [];
+
+    if (experiments.length === 0 && projects.length === 0) return [];
+
+    // Prefer experiments with a hypothesis for the inner ring; fall back to
+    // any experiment if we don't have 12 with hypotheses.
+    const withHypothesis = experiments.filter(
+      (e) => (e.hypothesis ?? "").trim().length > 0,
+    );
+    const withoutHypothesis = experiments.filter(
+      (e) => !((e.hypothesis ?? "").trim().length > 0),
+    );
+    const orderedExperiments = [...withHypothesis, ...withoutHypothesis];
+
+    const innerCount = 12;
+    const outerCount = 4;
+    const inner = orderedExperiments.slice(0, innerCount);
+    const outer = projects.slice(0, outerCount);
+
+    // Backfill: if we have fewer projects than outer slots, use more
+    // experiments; if fewer experiments than inner slots, use more projects.
+    const rows: AssistantCanvasFeedRow[] = [
+      ...inner.map(
+        (e): AssistantCanvasFeedRow => ({ kind: "experiment", experiment: e }),
+      ),
+      ...outer.map(
+        (p): AssistantCanvasFeedRow => ({ kind: "project", project: p }),
+      ),
+    ];
+
+    if (rows.length < ASSISTANT_CANVAS_CARD_COUNT) {
+      const usedExpIds = new Set(inner.map((e) => e.id));
+      const usedProjIds = new Set(outer.map((p) => p.id));
+      const extraExperiments = orderedExperiments.filter(
+        (e) => !usedExpIds.has(e.id),
+      );
+      const extraProjects = projects.filter((p) => !usedProjIds.has(p.id));
+      while (
+        rows.length < ASSISTANT_CANVAS_CARD_COUNT &&
+        (extraExperiments.length > 0 || extraProjects.length > 0)
+      ) {
+        if (extraExperiments.length > 0) {
+          rows.push({ kind: "experiment", experiment: extraExperiments.shift()! });
+          if (rows.length >= ASSISTANT_CANVAS_CARD_COUNT) break;
+        }
+        if (extraProjects.length > 0) {
+          rows.push({ kind: "project", project: extraProjects.shift()! });
+        }
+      }
+    }
+
+    return rows.slice(0, ASSISTANT_CANVAS_CARD_COUNT);
+  }, [experimentsQ.data, projectsQ.data]);
+
+  return {
+    data: feed,
+    isLoading: experimentsQ.isLoading || projectsQ.isLoading,
+    isSuccess: experimentsQ.isSuccess && projectsQ.isSuccess,
+    isError: experimentsQ.isError || projectsQ.isError,
+  };
 }

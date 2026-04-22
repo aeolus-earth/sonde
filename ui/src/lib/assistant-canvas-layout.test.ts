@@ -46,7 +46,7 @@ describe("assistant canvas layout", () => {
       bubbleRect: bubble,
     });
 
-    expect(placements).toHaveLength(10);
+    expect(placements).toHaveLength(16);
 
     for (const placement of placements) {
       const rect = cardViewportRect(placement, viewport);
@@ -77,7 +77,7 @@ describe("assistant canvas layout", () => {
     const viewport = { w: 960, h: 640 };
     const placements = computeAssistantCanvasCardPlacements({ viewport });
 
-    expect(placements).toHaveLength(10);
+    expect(placements).toHaveLength(16);
     for (const placement of placements) {
       const rect = cardViewportRect(placement, viewport);
       expect(rect.top).toBeGreaterThanOrEqual(16);
