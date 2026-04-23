@@ -888,6 +888,146 @@ describe("createApp", () => {
     assert.ok(body.expires_at.length > 0);
   });
 
+  it("uploads chat attachments through the Anthropic Files API", async () => {
+    process.env.ANTHROPIC_API_KEY = "sk-ant-api03-test-key";
+    const seenFileNames: string[] = [];
+    globalThis.fetch = async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === "string"
+        ? new URL(input)
+        : input instanceof URL
+          ? input
+          : new URL(input.url);
+
+      if (url.pathname === "/v1/files") {
+        assert.equal((init?.body as FormData | undefined) instanceof FormData, true);
+        const body = init?.body as FormData;
+        const file = body.get("file");
+        assert.ok(file instanceof File);
+        seenFileNames.push(file.name);
+        return new Response(
+          JSON.stringify({
+            id: "file_test_123",
+            type: "file",
+            filename: file.name,
+            mime_type: file.type,
+            size_bytes: file.size,
+            created_at: "2026-04-22T00:00:00.000Z",
+            downloadable: true,
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }
+        );
+      }
+
+      throw new Error(`Unexpected fetch: ${url.toString()}`);
+    };
+
+    const form = new FormData();
+    form.append(
+      "file",
+      new File([new Uint8Array([1, 2, 3])], "report.pdf", {
+        type: "application/pdf",
+      }),
+      "report.pdf"
+    );
+
+    const app = createApp();
+    const response = await app.request("http://localhost/chat/attachments", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${authToken}`,
+      },
+      body: form,
+    });
+
+    assert.equal(response.status, 200);
+    const body = (await response.json()) as {
+      name: string;
+      mimeType: string;
+      fileId: string;
+      sizeBytes: number;
+      status: string;
+    };
+    assert.equal(body.fileId, "file_test_123");
+    assert.equal(body.name, "report.pdf");
+    assert.equal(body.mimeType, "application/pdf");
+    assert.equal(body.sizeBytes, 3);
+    assert.equal(body.status, "uploaded");
+    assert.deepEqual(seenFileNames, ["report.pdf"]);
+  });
+
+  it("uploads PNG chat attachments through the Anthropic Files API", async () => {
+    process.env.ANTHROPIC_API_KEY = "sk-ant-api03-test-key";
+    const seenFileNames: string[] = [];
+    globalThis.fetch = async (input: string | URL | Request, init?: RequestInit) => {
+      const url = input instanceof Request
+        ? new URL(input.url)
+        : typeof input === "string"
+          ? new URL(input)
+          : new URL(input.toString());
+
+      if (url.pathname === "/v1/files") {
+        assert.equal((init?.body as FormData | undefined) instanceof FormData, true);
+        const body = init?.body as FormData;
+        const file = body.get("file");
+        assert.ok(file instanceof File);
+        seenFileNames.push(file.name);
+        return new Response(
+          JSON.stringify({
+            id: "file_test_png",
+            type: "file",
+            filename: file.name,
+            mime_type: file.type,
+            size_bytes: file.size,
+            created_at: "2026-04-22T00:00:00.000Z",
+            downloadable: true,
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }
+        );
+      }
+
+      throw new Error(`Unexpected fetch: ${url.toString()}`);
+    };
+
+    const form = new FormData();
+    form.append(
+      "file",
+      new File([new Uint8Array([5, 6, 7, 8])], "diagram.png", {
+        type: "image/png",
+      }),
+      "diagram.png"
+    );
+
+    const app = createApp();
+    const response = await app.request("http://localhost/chat/attachments", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${authToken}`,
+      },
+      body: form,
+    });
+
+    assert.equal(response.status, 200);
+    const body = (await response.json()) as {
+      name: string;
+      mimeType: string;
+      fileId: string;
+      sizeBytes: number;
+      status: string;
+    };
+    assert.equal(body.fileId, "file_test_png");
+    assert.equal(body.name, "diagram.png");
+    assert.equal(body.mimeType, "image/png");
+    assert.equal(body.sizeBytes, 4);
+    assert.equal(body.status, "uploaded");
+    assert.deepEqual(seenFileNames, ["diagram.png"]);
+  });
+
   it("ignores frame-auth websocket bypass in production", async () => {
     process.env.SONDE_ENVIRONMENT = "production";
     process.env.SONDE_CHAT_ALLOW_FRAME_AUTH = "1";

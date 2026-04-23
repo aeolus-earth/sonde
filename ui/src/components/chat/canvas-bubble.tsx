@@ -1,6 +1,11 @@
 import { memo, useCallback, useLayoutEffect, useRef } from "react";
 import { FlaskConical, BookOpen, HelpCircle } from "lucide-react";
-import type { ConnectionStatus, MentionRef, PageContext } from "@/types/chat";
+import type {
+  AttachmentTurnStatus,
+  ConnectionStatus,
+  MentionRef,
+  PageContext,
+} from "@/types/chat";
 import { cn } from "@/lib/utils";
 import { toCanvasRect } from "@/lib/assistant-canvas-layout";
 import { useSetCanvasBubbleRect } from "@/stores/assistant-canvas-layout";
@@ -33,12 +38,13 @@ type CanvasBubbleProps = {
     content: string,
     mentions: MentionRef[],
     files: File[],
-  ) => void | Promise<void>;
+  ) => boolean | void | Promise<boolean | void>;
   onCancel: () => void;
   isStreaming: boolean;
   disabled: boolean;
   agentModel: string | null;
   connectionStatus: ConnectionStatus;
+  attachmentStatus?: AttachmentTurnStatus | null;
 };
 
 export const CanvasBubble = memo(function CanvasBubble({
@@ -49,6 +55,7 @@ export const CanvasBubble = memo(function CanvasBubble({
   disabled,
   agentModel,
   connectionStatus,
+  attachmentStatus,
 }: CanvasBubbleProps) {
   const bubbleFrameRef = useRef<HTMLDivElement>(null);
   const setBubbleRect = useSetCanvasBubbleRect();
@@ -127,6 +134,7 @@ export const CanvasBubble = memo(function CanvasBubble({
             disabled={disabled}
             connectionStatus={connectionStatus}
             agentModel={modelLabel}
+            attachmentStatus={attachmentStatus}
           />
         </div>
 

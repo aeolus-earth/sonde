@@ -68,6 +68,8 @@ def program_list(ctx: click.Context, show_all: bool = False) -> None:
 def program_create(ctx: click.Context, id: str, name: str, description: str | None) -> None:
     """Create a new program.
 
+    Requires creator access or Sonde admin privileges.
+
     \b
     Examples:
       sonde program create weather-intervention --name "Weather Intervention"

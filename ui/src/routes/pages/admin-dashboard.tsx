@@ -20,6 +20,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { AdminAccessManagement } from "@/components/admin/access-management";
+import { ProgramCreatorAccess } from "@/components/admin/program-creator-access";
 import { RecordLink } from "@/components/shared/record-link";
 import { UsageChart } from "@/components/visualizations/usage-chart";
 import {
@@ -284,6 +285,8 @@ export default function AdminDashboard() {
       </div>
 
       <AdminAccessManagement />
+
+      <ProgramCreatorAccess />
 
       {/* Managed cost hygiene */}
       <section className="space-y-3">

@@ -34,6 +34,12 @@ def classify_api_error(
     verb = action or "perform this action"
 
     if code == "42501" or "permission denied" in msg.lower():
+        if table == "programs" and "create" in action.lower():
+            return (
+                "Program creation denied",
+                "Your account is not on the creator allowlist for new programs.",
+                "Ask a Sonde admin to grant creator access in the Admin dashboard.",
+            )
         return (
             f"Permission denied{context}",
             f"Your account cannot {verb}{context}. "

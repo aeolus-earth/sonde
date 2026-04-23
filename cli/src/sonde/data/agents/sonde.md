@@ -30,7 +30,7 @@ Knowledge flows up. Work flows down.
 ### Setting up the hierarchy
 
 ```bash
-# Create program (top level)
+# Create program (requires creator access or Sonde admin)
 sonde program create weather-intervention --name "Weather Intervention"
 
 # Create project within program

@@ -32,15 +32,27 @@ export interface ClientMessageAuth {
   token: string;
 }
 
+export type ChatAttachmentStatus =
+  | "uploading"
+  | "uploaded"
+  | "attached"
+  | "failed";
+
 export interface ChatAttachmentPayload {
   name: string;
   mimeType: string;
-  dataBase64?: string;
+  fileId: string;
+  sizeBytes: number;
+  mountPath?: string;
+  resourceId?: string;
+  status?: ChatAttachmentStatus;
+  error?: string;
 }
 
 export interface ClientMessageChat {
   type: "message";
   content: string;
+  messageId?: string;
   mentions?: MentionRef[];
   sessionId?: string;
   pageContext?: PageContext;
@@ -123,6 +135,12 @@ export interface ServerThinkingDelta {
   content: string;
 }
 
+export interface ServerAttachmentsAttached {
+  type: "attachments_attached";
+  messageId: string;
+  attachments: ChatAttachmentPayload[];
+}
+
 export interface ServerTextDone {
   type: "text_done";
   content: string;
@@ -197,6 +215,7 @@ export type ServerMessage =
   | ServerRuntimeInfo
   | ServerTextDelta
   | ServerThinkingDelta
+  | ServerAttachmentsAttached
   | ServerTextDone
   | ServerToolUseStart
   | ServerToolUseEnd
@@ -215,6 +234,11 @@ export type AgentEvent =
   | { type: "model_info"; model: string }
   | { type: "text_delta"; content: string }
   | { type: "thinking_delta"; content: string }
+  | {
+      type: "attachments_attached";
+      messageId: string;
+      attachments: ChatAttachmentPayload[];
+    }
   | { type: "text_done"; content: string; messageId: string }
   | { type: "tool_use_start"; id: string; tool: string; input: Record<string, unknown> }
   | { type: "tool_use_end"; id: string; output: string }

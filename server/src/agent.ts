@@ -1,4 +1,5 @@
 import type { HookCallbackMatcher } from "@anthropic-ai/claude-agent-sdk";
+import type { ChatAttachmentPayload } from "./types.js";
 import type { AgentEvent } from "./types.js";
 
 export const SYSTEM_PROMPT = `You are a Sonde research assistant for the Aeolus atmospheric science team. You help scientists inspect, log, and manage experiments, findings, directions, and questions using the Sonde tools.
@@ -43,7 +44,13 @@ export interface AgentSession {
   sessionId: string;
   query(
     prompt: string,
-    options?: { resumeSessionId?: string }
+    options?: {
+      resumeSessionId?: string;
+      pageContext?: import("./types.js").PageContext;
+      mentions?: import("./types.js").MentionRef[];
+      attachments?: ChatAttachmentPayload[];
+      messageId?: string;
+    }
   ): AsyncIterable<AgentEvent>;
   recover?: (resumeSessionId: string) => AsyncIterable<AgentEvent>;
   abort(): void;

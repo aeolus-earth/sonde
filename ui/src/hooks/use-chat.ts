@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuthStore } from "@/stores/auth";
 import {
   useChatStoreApi,
@@ -6,7 +6,7 @@ import {
   type ChatStoreApi,
 } from "@/contexts/chat-store-context";
 import { useChatPageContext } from "@/contexts/chat-page-context";
-import { filesToAttachmentPayloads } from "@/lib/chat-attachments";
+import { uploadChatAttachment } from "@/lib/chat-attachments";
 import {
   getAgentHttpBase,
   getAgentWsBase,
@@ -17,9 +17,11 @@ import {
   SessionReauthRequiredError,
 } from "@/lib/session-auth";
 import type {
+  AttachmentTurnStatus,
   MentionRef,
   ServerMessage,
   ClientMessage,
+  ChatAttachmentPayload,
 } from "@/types/chat";
 import { expandDefendExistenceCommand } from "@/lib/defend-existence";
 
@@ -161,6 +163,12 @@ function handleServerMessage(msg: ServerMessage, storeApi: ChatStoreApi) {
         s.setStreaming(true);
       }
       s.appendThinkingToLastMessage(tabId, msg.content);
+      break;
+    }
+
+    case "attachments_attached": {
+      const tabId = resolveTargetTabId(storeApi);
+      s.updateMessageAttachments(tabId, msg.messageId, msg.attachments);
       break;
     }
 
@@ -312,7 +320,11 @@ export function useChat() {
   const agentRuntime = useScopedChatStore((s) => s.agentRuntime);
   const isStreaming = useScopedChatStore((s) => s.isStreaming);
   const connectionStatus = useScopedChatStore((s) => s.connectionStatus);
-  const clearConversation = useScopedChatStore((s) => s.clearConversation);
+  const clearConversationAction = useScopedChatStore((s) => s.clearConversation);
+  const [attachmentStatus, setAttachmentStatus] =
+    useState<AttachmentTurnStatus | null>(null);
+  const attachmentStatusRef = useRef<AttachmentTurnStatus | null>(null);
+  attachmentStatusRef.current = attachmentStatus;
 
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -321,6 +333,40 @@ export function useChat() {
   const connectionIssueRef = useRef<string | null>(null);
   const recoveringSessionIdRef = useRef<string | null>(null);
   const connectRef = useRef<() => Promise<void>>(async () => {});
+  const attachmentStatusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
+  const pendingAttachmentMessageIdRef = useRef<string | null>(null);
+  const pendingAttachmentTabIdRef = useRef<string | null>(null);
+
+  const clearAttachmentStatusTimer = useCallback(() => {
+    if (attachmentStatusTimerRef.current) {
+      clearTimeout(attachmentStatusTimerRef.current);
+      attachmentStatusTimerRef.current = null;
+    }
+  }, []);
+
+  const setTransientAttachmentStatus = useCallback(
+    (status: AttachmentTurnStatus | null, autoClearMs?: number) => {
+      clearAttachmentStatusTimer();
+      setAttachmentStatus(status);
+      if (status && autoClearMs && autoClearMs > 0) {
+        attachmentStatusTimerRef.current = setTimeout(() => {
+          attachmentStatusTimerRef.current = null;
+          setAttachmentStatus(null);
+        }, autoClearMs);
+      }
+    },
+    [clearAttachmentStatusTimer]
+  );
+
+  const clearConversation = useCallback(() => {
+    clearAttachmentStatusTimer();
+    pendingAttachmentMessageIdRef.current = null;
+    pendingAttachmentTabIdRef.current = null;
+    setAttachmentStatus(null);
+    clearConversationAction();
+  }, [clearAttachmentStatusTimer, clearConversationAction]);
 
   const clearReconnectTimer = useCallback(() => {
     if (reconnectTimer.current) {
@@ -333,11 +379,15 @@ export function useChat() {
     authFailureRef.current = true;
     connectionIssueRef.current = null;
     clearReconnectTimer();
+    clearAttachmentStatusTimer();
+    pendingAttachmentMessageIdRef.current = null;
+    pendingAttachmentTabIdRef.current = null;
+    setAttachmentStatus(null);
     const store = chatStoreApiRef.current.getState();
     store.setConnectionStatus("auth_required");
     store.setStreaming(false);
     store.setStreamingTabId(null);
-  }, [clearReconnectTimer]);
+  }, [clearAttachmentStatusTimer, clearReconnectTimer]);
 
   const scheduleReconnect = useCallback(() => {
     if (authFailureRef.current) return;
@@ -505,6 +555,48 @@ export function useChat() {
         chatDebug("ws:done");
       }
       handleServerMessage(msg, chatStoreApiRef.current);
+
+      if (msg.type === "attachments_attached") {
+        pendingAttachmentMessageIdRef.current = null;
+        pendingAttachmentTabIdRef.current = null;
+        const attachmentCount = msg.attachments.length;
+        setTransientAttachmentStatus(
+          {
+            phase: "attached",
+            total: attachmentCount,
+            completed: attachmentCount,
+            message:
+              attachmentCount === 1
+                ? `${msg.attachments[0]?.name ?? "File"} attached to Claude.`
+                : `${attachmentCount} files attached to Claude.`,
+          },
+          1600
+        );
+      } else if (msg.type === "error") {
+        if (pendingAttachmentMessageIdRef.current) {
+          const currentAttachmentStatus = attachmentStatusRef.current;
+          const pendingCount = currentAttachmentStatus?.total ?? 0;
+          setTransientAttachmentStatus(
+            {
+              phase: "failed",
+              total: pendingCount,
+              completed: currentAttachmentStatus?.completed ?? 0,
+              message: msg.message,
+            },
+            3200
+          );
+        } else {
+          clearAttachmentStatusTimer();
+          setAttachmentStatus(null);
+        }
+      } else if (msg.type === "done") {
+        pendingAttachmentMessageIdRef.current = null;
+        pendingAttachmentTabIdRef.current = null;
+        if (attachmentStatusRef.current?.phase !== "attached") {
+          clearAttachmentStatusTimer();
+          setAttachmentStatus(null);
+        }
+      }
     };
 
     ws.onclose = (ev) => {
@@ -513,6 +605,10 @@ export function useChat() {
         reason: ev.reason,
       });
       wsRef.current = null;
+      clearAttachmentStatusTimer();
+      pendingAttachmentMessageIdRef.current = null;
+      pendingAttachmentTabIdRef.current = null;
+      setAttachmentStatus(null);
       const st = chatStoreApiRef.current.getState();
       st.setConnectionStatus(authFailureRef.current ? "disconnected" : "reconnecting");
       st.setStreaming(false);
@@ -534,7 +630,12 @@ export function useChat() {
       chatDebug("ws:error-event");
       ws.close();
     };
-  }, [scheduleReconnect, setAuthRequiredState]);
+  }, [
+    clearAttachmentStatusTimer,
+    scheduleReconnect,
+    setAuthRequiredState,
+    setTransientAttachmentStatus,
+  ]);
 
   connectRef.current = connect;
 
@@ -596,7 +697,11 @@ export function useChat() {
   }, [setAuthRequiredState]);
 
   const send = useCallback(
-    async (content: string, mentions: MentionRef[] = [], files: File[] = []) => {
+    async (
+      content: string,
+      mentions: MentionRef[] = [],
+      files: File[] = []
+    ): Promise<boolean> => {
       const preflightState = chatStoreApiRef.current.getState();
       const activeTabId = preflightState.activeTabId;
       let ws = wsRef.current;
@@ -630,55 +735,170 @@ export function useChat() {
               "Chat is still connecting to the agent. Please try again in a moment.",
             timestamp: Date.now(),
           });
-          return;
+          return false;
         }
       }
 
+      const wireContent = expandDefendExistenceCommand(content) ?? content;
       const s0 = chatStoreApiRef.current.getState();
       s0.setStreamingTabId(activeTabId);
+      const tab = s0.tabs.find((t) => t.id === activeTabId);
+      const resumeSessionId = tab?.agentSessionId ?? undefined;
+      const userMessageId = crypto.randomUUID();
+      const hasAttachments = files.length > 0;
 
-      const attachmentPayload =
-        files.length > 0 ? await filesToAttachmentPayloads(files) : undefined;
+      let attachmentPayload: ChatAttachmentPayload[] | undefined;
+      if (hasAttachments) {
+        if (!accessToken) {
+          setAuthRequiredState();
+          return false;
+        }
 
-      const attachmentMeta = files.map((f) => ({
-        name: f.name,
-        mimeType: f.type || undefined,
-      }));
+        setTransientAttachmentStatus({
+          phase: "uploading",
+          total: files.length,
+          completed: 0,
+          currentFileName: files[0]?.name,
+          message:
+            files.length === 1
+              ? `Uploading ${files[0]?.name ?? "file"} to Claude...`
+              : `Uploading ${files.length} files to Claude...`,
+        });
 
-      const wireContent = expandDefendExistenceCommand(content) ?? content;
+        try {
+          const uploadedAttachments: ChatAttachmentPayload[] = [];
+          for (let index = 0; index < files.length; index += 1) {
+            const file = files[index];
+            if (!file) continue;
+            setTransientAttachmentStatus({
+              phase: "uploading",
+              total: files.length,
+              completed: index,
+              currentFileName: file.name,
+              message:
+                files.length === 1
+                  ? `Uploading ${file.name} to Claude...`
+                  : `Uploading ${index + 1}/${files.length}: ${file.name}`,
+            });
+            const uploaded = await uploadChatAttachment(file, accessToken);
+            uploadedAttachments.push({
+              ...uploaded,
+              status: "uploaded",
+            });
+          }
+          attachmentPayload = uploadedAttachments;
+        } catch (error) {
+          if (error instanceof SessionReauthRequiredError) {
+            setAuthRequiredState();
+            return false;
+          }
+
+          const message =
+            error instanceof Error ? error.message : "Attachment upload failed.";
+          setTransientAttachmentStatus(
+            {
+              phase: "failed",
+              total: files.length,
+              completed: 0,
+              currentFileName: files[0]?.name,
+              message,
+            },
+            3200
+          );
+          const s = chatStoreApiRef.current.getState();
+          s.setStreaming(false);
+          s.setStreamingTabId(null);
+          s.addMessage(activeTabId, {
+            id: crypto.randomUUID(),
+            role: "system",
+            content: message,
+            timestamp: Date.now(),
+          });
+          return false;
+        }
+
+        setTransientAttachmentStatus({
+          phase: "mounting",
+          total: attachmentPayload.length,
+          completed: attachmentPayload.length,
+          currentFileName:
+            attachmentPayload[attachmentPayload.length - 1]?.name,
+          message:
+            attachmentPayload.length === 1
+              ? `Mounting ${attachmentPayload[0]?.name ?? "file"} in Claude...`
+              : `Mounting ${attachmentPayload.length} files in Claude...`,
+        });
+      }
+
+      ws = wsRef.current;
+      connection = chatStoreApiRef.current.getState().connectionStatus;
+      if (!ws || ws.readyState !== WebSocket.OPEN || connection !== "connected") {
+        const s = chatStoreApiRef.current.getState();
+        s.setStreaming(false);
+        s.setStreamingTabId(null);
+        pendingAttachmentMessageIdRef.current = null;
+        pendingAttachmentTabIdRef.current = null;
+        setTransientAttachmentStatus(
+          hasAttachments
+            ? {
+                phase: "failed",
+                total: files.length,
+                completed: attachmentPayload?.length ?? 0,
+                currentFileName:
+                  attachmentPayload?.[attachmentPayload.length - 1]?.name ??
+                  files[files.length - 1]?.name,
+                message:
+                  "Chat disconnected before the files could be mounted. Please try again.",
+              }
+            : null,
+          hasAttachments ? 3200 : undefined
+        );
+        return false;
+      }
 
       const s1 = chatStoreApiRef.current.getState();
       s1.addMessage(activeTabId, {
-        id: crypto.randomUUID(),
+        id: userMessageId,
         role: "user",
         content,
         mentions: mentions.length > 0 ? mentions : undefined,
-        attachments: attachmentMeta.length > 0 ? attachmentMeta : undefined,
+        attachments:
+          attachmentPayload?.map((attachment) => ({
+            ...attachment,
+            status: "uploaded",
+          })) ?? undefined,
         timestamp: Date.now(),
       });
       s1.setStreaming(true);
-
-      const s2 = chatStoreApiRef.current.getState();
-      const tab = s2.tabs.find((t) => t.id === activeTabId);
+      pendingAttachmentMessageIdRef.current = hasAttachments ? userMessageId : null;
+      pendingAttachmentTabIdRef.current = hasAttachments ? activeTabId : null;
 
       const payload: ClientMessage = {
         type: "message",
         content: wireContent,
+        messageId: userMessageId,
         mentions,
-        sessionId: tab?.agentSessionId ?? undefined,
+        sessionId: resumeSessionId,
         pageContext: pageContext ?? undefined,
         attachments: attachmentPayload,
       };
       chatDebug("send", {
         activeTabId,
-        resumeSessionId: tab?.agentSessionId ?? null,
+        resumeSessionId: resumeSessionId ?? null,
         mentionCount: mentions.length,
         attachmentCount: attachmentPayload?.length ?? 0,
         contentPreview: wireContent.slice(0, 80),
       });
       ws.send(JSON.stringify(payload));
+      return true;
     },
-    [pageContext, waitForConnected]
+    [
+      accessToken,
+      pageContext,
+      setAuthRequiredState,
+      setTransientAttachmentStatus,
+      waitForConnected,
+    ]
   );
 
   const cancel = useCallback(() => {
@@ -724,6 +944,7 @@ export function useChat() {
     agentModel,
     agentRuntime,
     isStreaming,
+    attachmentStatus,
     isConnected: connectionStatus === "connected",
     connectionStatus,
     clearConversation,
