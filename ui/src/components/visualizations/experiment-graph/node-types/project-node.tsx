@@ -9,6 +9,7 @@ export type ProjectNodeData = {
   count: number;
   expanded: boolean;
   directionCount: number;
+  muted?: boolean;
   onToggle?: NodeAction;
   onOpen?: NodeAction;
 };
@@ -16,7 +17,13 @@ export type ProjectNodeData = {
 export function ProjectNode({ data }: NodeProps) {
   const d = data as unknown as ProjectNodeData;
   return (
-    <div className="relative w-[280px] rounded-[8px] border-2 border-border bg-bg px-3 py-2.5 shadow-sm transition-colors hover:border-border-subtle">
+    <div
+      className={
+        d.muted
+          ? "relative w-[280px] rounded-[8px] border-2 border-border bg-bg px-3 py-2.5 opacity-60 shadow-sm transition-colors hover:border-border-subtle"
+          : "relative w-[280px] rounded-[8px] border-2 border-border bg-bg px-3 py-2.5 shadow-sm transition-colors hover:border-border-subtle"
+      }
+    >
       <Handle
         type="target"
         position={Position.Top}

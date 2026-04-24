@@ -19,6 +19,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { emptyFocusReasonMaps } from "@/lib/focus-mode";
 
 import type {
   DirectionSummary,
@@ -53,6 +54,9 @@ function makeStableHandlers(): HandlerFactories {
     direction: new Map<string, () => void>(),
     finding: new Map<string, () => void>(),
     project: new Map<string, () => void>(),
+    selectExperiment: new Map<string, () => void>(),
+    selectQuestion: new Map<string, () => void>(),
+    selectFinding: new Map<string, () => void>(),
   };
   const factory = (cache: Map<string, () => void>) => (id: string) => {
     const cached = cache.get(id);
@@ -68,6 +72,9 @@ function makeStableHandlers(): HandlerFactories {
     openDirectionFor: factory(caches.direction),
     openFindingFor: factory(caches.finding),
     openProjectFor: factory(caches.project),
+    selectExperimentFor: factory(caches.selectExperiment),
+    selectQuestionFor: factory(caches.selectQuestion),
+    selectFindingFor: factory(caches.selectFinding),
   };
 }
 
@@ -305,6 +312,37 @@ describe("buildExperimentGraph: no orphan edges", () => {
       expect(nodeIds.has(edge.target)).toBe(true);
     }
     expect(out.droppedOrphanEdges).toBe(0);
+  });
+});
+
+describe("buildExperimentGraph: focus mode", () => {
+  it("marks context nodes as muted and non-selectable", () => {
+    const focusReasons = emptyFocusReasonMaps();
+    focusReasons.projects.set("proj-1", "context");
+    focusReasons.directions.set("DIR-0001", "context");
+    focusReasons.questions.set("Q-0001", "context");
+    focusReasons.experiments.set("EXP-0001", "context");
+    focusReasons.findings.set("FIND-0001", "created");
+
+    const out = buildExperimentGraph(
+      makeRealisticInput({
+        expanded: new Set(["proj-proj-1", "dir-DIR-0001", "question-Q-0001", "EXP-0001"]),
+        focusMode: true,
+        focusReasons,
+      }),
+    );
+
+    const experimentNode = out.nodes.find((node) => node.id === "EXP-0001");
+    const questionNode = out.nodes.find((node) => node.id === "question-Q-0001");
+    const projectNode = out.nodes.find((node) => node.id === "proj-proj-1");
+    const findingNode = out.nodes.find((node) =>
+      node.id.startsWith("finding-FIND-0001"),
+    );
+
+    expect(experimentNode?.data).toMatchObject({ muted: true, selectable: false });
+    expect(questionNode?.data).toMatchObject({ muted: true, selectable: false });
+    expect(projectNode?.data).toMatchObject({ muted: true });
+    expect(findingNode?.data).toMatchObject({ muted: false, selectable: true });
   });
 });
 

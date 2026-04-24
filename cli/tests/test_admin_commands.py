@@ -445,6 +445,84 @@ class TestUserAccessAdmin:
         assert "Grant another trusted user shared admin" in result.output
 
 
+class TestProgramCreatorAdmin:
+    def test_grant_program_creator_success(self, runner: CliRunner, patched_db: MagicMock):
+        with patch(
+            "sonde.commands.admin.creator_db.grant_creator",
+            return_value={
+                "email": "lead@aeolus.earth",
+                "granted_by_email": "root@aeolus.earth",
+                "granted_at": "2026-04-22T00:00:00Z",
+            },
+        ):
+            result = runner.invoke(
+                cli,
+                ["admin", "grant-program-creator", "lead@aeolus.earth"],
+            )
+
+        assert result.exit_code == 0
+        assert "Granted program creation access" in result.output
+        assert "lead@aeolus.earth" in result.output
+        assert "Granted by:" in result.output
+
+    def test_grant_program_creator_rejects_non_aeolus_email(
+        self, runner: CliRunner, patched_db: MagicMock
+    ):
+        with patch(
+            "sonde.commands.admin.creator_db.grant_creator",
+            side_effect=APIError(
+                {
+                    "message": "Only @aeolus.earth accounts can receive Sonde access",
+                    "code": "22023",
+                    "hint": None,
+                    "details": None,
+                }
+            ),
+        ):
+            result = runner.invoke(
+                cli,
+                ["admin", "grant-program-creator", "contractor@example.com"],
+            )
+
+        assert result.exit_code == 1
+        assert "Invalid user" in result.output
+        assert "@aeolus.earth" in result.output
+
+    def test_list_program_creators_table(self, runner: CliRunner, patched_db: MagicMock):
+        with patch(
+            "sonde.commands.admin.creator_db.list_creators",
+            return_value=[
+                {
+                    "email": "lead@aeolus.earth",
+                    "granted_by_email": "root@aeolus.earth",
+                    "granted_at": "2026-04-22T00:00:00Z",
+                },
+            ],
+        ):
+            result = runner.invoke(cli, ["admin", "list-program-creators"])
+
+        assert result.exit_code == 0
+        assert "Program Creators" in result.output
+        assert "lead@aeolus.earth" in result.output
+        assert "root@aeolus.earth" in result.output
+
+    def test_revoke_program_creator_force(self, runner: CliRunner, patched_db: MagicMock):
+        with patch(
+            "sonde.commands.admin.creator_db.revoke_creator",
+            return_value={
+                "email": "lead@aeolus.earth",
+                "revoked": True,
+            },
+        ):
+            result = runner.invoke(
+                cli,
+                ["admin", "revoke-program-creator", "lead@aeolus.earth", "--force"],
+            )
+
+        assert result.exit_code == 0
+        assert "Revoked program creation access" in result.output
+
+
 class TestArtifactAdmin:
     def test_reconcile_artifacts_requires_service_role(
         self, runner: CliRunner, patched_db: MagicMock

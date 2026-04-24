@@ -27,9 +27,29 @@ export interface AgentTask {
   status: "pending" | "in_progress" | "done" | "failed";
 }
 
+export type ChatAttachmentStatus =
+  | "uploading"
+  | "uploaded"
+  | "attached"
+  | "failed";
+
 export interface ChatAttachmentMeta {
   name: string;
   mimeType?: string;
+  fileId?: string;
+  sizeBytes?: number;
+  mountPath?: string;
+  resourceId?: string;
+  status?: ChatAttachmentStatus;
+  error?: string;
+}
+
+export interface AttachmentTurnStatus {
+  phase: "uploading" | "mounting" | "attached" | "failed";
+  total: number;
+  completed: number;
+  currentFileName?: string;
+  message?: string;
 }
 
 export interface ChatMessageData {
@@ -78,12 +98,18 @@ export interface ClientMessageAuth {
 export interface ChatAttachmentPayload {
   name: string;
   mimeType: string;
-  dataBase64?: string;
+  fileId: string;
+  sizeBytes: number;
+  mountPath?: string;
+  resourceId?: string;
+  status?: ChatAttachmentStatus;
+  error?: string;
 }
 
 export interface ClientMessageChat {
   type: "message";
   content: string;
+  messageId?: string;
   mentions?: MentionRef[];
   sessionId?: string;
   pageContext?: PageContext;
@@ -164,6 +190,12 @@ export interface ServerThinkingDelta {
   content: string;
 }
 
+export interface ServerAttachmentsAttached {
+  type: "attachments_attached";
+  messageId: string;
+  attachments: ChatAttachmentPayload[];
+}
+
 export interface ServerTextDone {
   type: "text_done";
   content: string;
@@ -238,6 +270,7 @@ export type ServerMessage =
   | ServerRuntimeInfo
   | ServerTextDelta
   | ServerThinkingDelta
+  | ServerAttachmentsAttached
   | ServerTextDone
   | ServerToolUseStart
   | ServerToolUseEnd

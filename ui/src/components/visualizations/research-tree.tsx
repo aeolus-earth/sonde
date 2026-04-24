@@ -9,15 +9,18 @@ import {
 } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
+  CheckSquare2,
   CircleHelp,
   ChevronDown,
   ChevronRight,
   Compass,
   FolderKanban,
   GitFork,
+  Square,
 } from "lucide-react";
 import { FindingImportanceBadge } from "@/components/shared/finding-importance-badge";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { InlineMarkdownText } from "@/components/shared/inline-markdown-text";
 import { Input } from "@/components/ui/input";
 import {
@@ -29,6 +32,10 @@ import {
   parseExperimentSearchTokens,
 } from "@/lib/experiment-search-match";
 import { sortFindingsByImportanceAndRecency } from "@/lib/finding-importance";
+import {
+  type FocusReasonMaps,
+  isDirectFocusReason,
+} from "@/lib/focus-mode";
 import { cn } from "@/lib/utils";
 import type {
   DirectionSummary,
@@ -36,6 +43,7 @@ import type {
   ExperimentSummary,
   Finding,
   FindingConfidence,
+  PruneSelection,
   ProjectSummary,
   QuestionSummary,
 } from "@/types/sonde";
@@ -799,8 +807,21 @@ export interface ResearchTreeProps {
   findings: Finding[];
   questions: QuestionSummary[];
   expansionResetKey?: string | null;
+  manageMode?: boolean;
+  selection?: PruneSelection;
+  focusMode?: boolean;
+  focusReasons?: FocusReasonMaps | null;
+  onToggleQuestionSelection?: (questionId: string) => void;
+  onToggleExperimentSelection?: (experimentId: string) => void;
+  onToggleFindingSelection?: (findingId: string) => void;
   onNavigate: (target: TreeNavigateTarget) => void;
 }
+
+const EMPTY_SELECTION: PruneSelection = {
+  questions: [],
+  findings: [],
+  experiments: [],
+};
 
 export const ResearchTree = memo(function ResearchTree({
   experiments,
@@ -809,6 +830,13 @@ export const ResearchTree = memo(function ResearchTree({
   findings,
   questions,
   expansionResetKey,
+  manageMode = false,
+  selection = EMPTY_SELECTION,
+  focusMode = false,
+  focusReasons = null,
+  onToggleQuestionSelection,
+  onToggleExperimentSelection,
+  onToggleFindingSelection,
   onNavigate,
 }: ResearchTreeProps) {
   const colors = useThemeCssColors();
@@ -827,6 +855,47 @@ export const ResearchTree = memo(function ResearchTree({
   const knownProjectIds = useMemo(
     () => new Set(projects.map((p) => p.id)),
     [projects],
+  );
+  const selectedQuestions = useMemo(
+    () => new Set(selection.questions),
+    [selection.questions],
+  );
+  const selectedFindings = useMemo(
+    () => new Set(selection.findings),
+    [selection.findings],
+  );
+  const selectedExperiments = useMemo(
+    () => new Set(selection.experiments),
+    [selection.experiments],
+  );
+  const isDirectProject = useCallback(
+    (projectId: string | null) =>
+      !focusMode ||
+      (projectId !== null &&
+        isDirectFocusReason(focusReasons?.projects.get(projectId))),
+    [focusMode, focusReasons],
+  );
+  const isDirectDirection = useCallback(
+    (directionId: string) =>
+      !focusMode ||
+      isDirectFocusReason(focusReasons?.directions.get(directionId)),
+    [focusMode, focusReasons],
+  );
+  const isDirectQuestion = useCallback(
+    (questionId: string) =>
+      !focusMode || isDirectFocusReason(focusReasons?.questions.get(questionId)),
+    [focusMode, focusReasons],
+  );
+  const isDirectExperiment = useCallback(
+    (experimentId: string) =>
+      !focusMode ||
+      isDirectFocusReason(focusReasons?.experiments.get(experimentId)),
+    [focusMode, focusReasons],
+  );
+  const isDirectFinding = useCallback(
+    (findingId: string) =>
+      !focusMode || isDirectFocusReason(focusReasons?.findings.get(findingId)),
+    [focusMode, focusReasons],
   );
 
   const isRoot = useCallback(
@@ -917,8 +986,16 @@ export const ResearchTree = memo(function ResearchTree({
     virtualizer.scrollToIndex(focusedIndex, { align: "auto" });
   }, [focusedIndex, virtualizer]);
 
-  const navigateForRow = useCallback(
+  const activateRow = useCallback(
     (row: TreeRowData) => {
+      if (manageMode && row.kind === "question" && isDirectQuestion(row.question.id)) {
+        onToggleQuestionSelection?.(row.question.id);
+        return;
+      }
+      if (manageMode && row.kind === "experiment" && isDirectExperiment(row.exp.id)) {
+        onToggleExperimentSelection?.(row.exp.id);
+        return;
+      }
       if (row.kind === "project") {
         if (row.projectId) onNavigate({ kind: "project", id: row.projectId });
       } else if (row.kind === "direction" || row.kind === "sub-direction") {
@@ -931,7 +1008,14 @@ export const ResearchTree = memo(function ResearchTree({
         onNavigate({ kind: "experiment", id: row.exp.id });
       }
     },
-    [onNavigate],
+    [
+      manageMode,
+      onNavigate,
+      onToggleExperimentSelection,
+      onToggleQuestionSelection,
+      isDirectExperiment,
+      isDirectQuestion,
+    ],
   );
 
   const onKeyDown = useCallback(
@@ -956,7 +1040,7 @@ export const ResearchTree = memo(function ResearchTree({
         setFocusedIndex((i) => Math.max((i < 0 ? 0 : i) - 1, 0));
       } else if (e.key === "Enter" && focusedIndex >= 0) {
         e.preventDefault();
-        navigateForRow(rows[focusedIndex]);
+        activateRow(rows[focusedIndex]);
       } else if (e.key === "ArrowRight" && focusedIndex >= 0) {
         e.preventDefault();
         const row = rows[focusedIndex];
@@ -993,13 +1077,29 @@ export const ResearchTree = memo(function ResearchTree({
         }
       }
     },
-    [flatRows, focusedIndex, navigateForRow],
+    [activateRow, flatRows, focusedIndex],
   );
 
   const pad = (depth: number) => ({ paddingLeft: 8 + depth * 20 });
 
   const renderRow = (row: TreeRowData, index: number) => {
     const focused = focusedIndex === index;
+    const questionSelected =
+      row.kind === "question" && selectedQuestions.has(row.question.id);
+    const experimentSelected =
+      row.kind === "experiment" && selectedExperiments.has(row.exp.id);
+    const projectContext =
+      row.kind === "project" && focusMode && !isDirectProject(row.projectId);
+    const directionContext =
+      (row.kind === "direction" || row.kind === "sub-direction") &&
+      focusMode &&
+      !isDirectDirection(row.dir.id);
+    const questionContext =
+      row.kind === "question" && focusMode && !isDirectQuestion(row.question.id);
+    const experimentContext =
+      row.kind === "experiment" &&
+      focusMode &&
+      !isDirectExperiment(row.exp.id);
 
     if (row.kind === "project") {
       const expanded = !collapsed.has(row.toggleKey);
@@ -1028,6 +1128,7 @@ export const ResearchTree = memo(function ResearchTree({
             focused
               ? "bg-surface-hover ring-1 ring-inset ring-accent"
               : "hover:bg-surface-hover/80",
+            projectContext && "opacity-60",
           )}
           style={{ ...pad(row.depth), minHeight: ROW_H }}
         >
@@ -1086,6 +1187,7 @@ export const ResearchTree = memo(function ResearchTree({
             focused
               ? "bg-surface-hover ring-1 ring-inset ring-accent"
               : "hover:bg-surface-hover/80",
+            directionContext && "opacity-60",
           )}
           style={{ ...pad(row.depth), minHeight: ROW_H }}
         >
@@ -1153,6 +1255,7 @@ export const ResearchTree = memo(function ResearchTree({
             focused
               ? "bg-surface-hover ring-1 ring-inset ring-accent"
               : "hover:bg-surface-hover/80",
+            directionContext && "opacity-60",
           )}
           style={{ ...pad(row.depth), minHeight: ROW_H }}
         >
@@ -1208,6 +1311,11 @@ export const ResearchTree = memo(function ResearchTree({
           tabIndex={0}
           onClick={() => {
             setFocusedIndex(index);
+            if (manageMode) {
+              if (questionContext) return;
+              onToggleQuestionSelection?.(row.question.id);
+              return;
+            }
             toggle(row.toggleKey);
           }}
           onDoubleClick={(event) => {
@@ -1215,6 +1323,12 @@ export const ResearchTree = memo(function ResearchTree({
             onNavigate({ kind: "question", id: row.question.id });
           }}
           onKeyDown={(event) => {
+            if (manageMode && (event.key === " " || event.key === "Enter")) {
+              event.preventDefault();
+              if (questionContext) return;
+              onToggleQuestionSelection?.(row.question.id);
+              return;
+            }
             if (event.key === " ") {
               event.preventDefault();
               toggle(row.toggleKey);
@@ -1222,19 +1336,38 @@ export const ResearchTree = memo(function ResearchTree({
           }}
           className={cn(
             "flex cursor-pointer items-center gap-2 border-b border-border-subtle pr-2 text-left transition-colors",
-            focused
+            questionSelected
+              ? "bg-accent/10 ring-1 ring-inset ring-accent"
+              : focused
               ? "bg-surface-hover ring-1 ring-inset ring-accent"
               : "hover:bg-surface-hover/80",
+            questionContext && "opacity-60",
           )}
           style={{ ...pad(row.depth), minHeight: ROW_H }}
         >
-          <span className="text-text-tertiary">
+          <button
+            type="button"
+            className="shrink-0 rounded p-0.5 text-text-tertiary hover:bg-surface-raised hover:text-text-secondary"
+            aria-label={expanded ? "Collapse question" : "Expand question"}
+            onClick={(event) => {
+              event.stopPropagation();
+              setFocusedIndex(index);
+              toggle(row.toggleKey);
+            }}
+          >
             {expanded ? (
               <ChevronDown className="h-3.5 w-3.5" />
             ) : (
               <ChevronRight className="h-3.5 w-3.5" />
             )}
-          </span>
+          </button>
+          {manageMode && !questionContext ? (
+            questionSelected ? (
+              <CheckSquare2 className="h-3.5 w-3.5 shrink-0 text-accent" />
+            ) : (
+              <Square className="h-3.5 w-3.5 shrink-0 text-text-tertiary" />
+            )
+          ) : null}
           <CircleHelp className="h-3.5 w-3.5 shrink-0 text-text-tertiary" />
           <div className="min-w-0 flex-1">
             <div className="truncate text-[12px] font-medium text-text">
@@ -1250,6 +1383,20 @@ export const ResearchTree = memo(function ResearchTree({
               </span>
             </div>
           </div>
+          {manageMode ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="shrink-0"
+              onClick={(event) => {
+                event.stopPropagation();
+                onNavigate({ kind: "question", id: row.question.id });
+              }}
+            >
+              Open
+            </Button>
+          ) : null}
         </div>
       );
     }
@@ -1276,6 +1423,7 @@ export const ResearchTree = memo(function ResearchTree({
             focused
               ? "bg-surface-hover ring-1 ring-inset ring-accent"
               : "hover:bg-surface-hover/80",
+            focusMode && "opacity-60",
           )}
           style={{ ...pad(row.depth), minHeight: ROW_H }}
         >
@@ -1329,20 +1477,33 @@ export const ResearchTree = memo(function ResearchTree({
             toggle(row.toggleKey);
             return;
           }
+          if (manageMode) {
+            if (experimentContext) return;
+            onToggleExperimentSelection?.(exp.id);
+            return;
+          }
           onNavigate({ kind: "experiment", id: exp.id });
         }}
         onDoubleClick={() => onNavigate({ kind: "experiment", id: exp.id })}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
+            if (manageMode) {
+              if (experimentContext) return;
+              onToggleExperimentSelection?.(exp.id);
+              return;
+            }
             onNavigate({ kind: "experiment", id: exp.id });
           }
         }}
         className={cn(
           "flex cursor-pointer items-center gap-1.5 border-b border-border-subtle pr-2 text-left transition-colors",
-          focused
+          experimentSelected
+            ? "bg-accent/10 ring-1 ring-inset ring-accent"
+            : focused
             ? "bg-surface-hover ring-1 ring-inset ring-accent"
             : "hover:bg-surface-hover/80",
+          experimentContext && "opacity-60",
         )}
         style={{
           ...pad(row.depth),
@@ -1375,6 +1536,13 @@ export const ResearchTree = memo(function ResearchTree({
           ) : (
             <span className="w-4 shrink-0" />
           )}
+          {manageMode && !experimentContext ? (
+            experimentSelected ? (
+              <CheckSquare2 className="h-3.5 w-3.5 shrink-0 text-accent" />
+            ) : (
+              <Square className="h-3.5 w-3.5 shrink-0 text-text-tertiary" />
+            )
+          ) : null}
           <span className="shrink-0 font-mono text-[11px] font-medium text-text">
             {exp.id}
           </span>
@@ -1395,30 +1563,78 @@ export const ResearchTree = memo(function ResearchTree({
           {row.findings.length > 0 && (
             <div className="flex shrink-0 flex-wrap items-center gap-1">
               {row.findings.map((f) => (
-                <button
+                <div
                   key={f.id}
-                  type="button"
-                  className="inline-flex items-center gap-1 rounded border border-border-subtle bg-surface-raised px-1 py-0.5 text-[10px] text-text-secondary hover:border-accent/40"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onNavigate({ kind: "finding", id: f.id });
-                  }}
+                  className={cn(
+                    "inline-flex items-center gap-1 rounded border px-1 py-0.5 text-[10px]",
+                    manageMode && selectedFindings.has(f.id)
+                      ? "border-accent bg-accent/10 text-accent"
+                      : "border-border-subtle bg-surface-raised text-text-secondary",
+                    focusMode && !isDirectFinding(f.id) && "opacity-60",
+                  )}
                 >
-                  <Badge
-                    variant={confidenceVariant(f.confidence)}
-                    className="text-[9px]"
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (manageMode) {
+                        if (!isDirectFinding(f.id)) return;
+                        onToggleFindingSelection?.(f.id);
+                        return;
+                      }
+                      onNavigate({ kind: "finding", id: f.id });
+                    }}
                   >
-                    {f.id}
-                  </Badge>
-                  <FindingImportanceBadge
-                    importance={f.importance}
-                    className="px-1.5 py-0.5 text-[9px]"
-                  />
-                </button>
+                    {manageMode && isDirectFinding(f.id) ? (
+                      selectedFindings.has(f.id) ? (
+                        <CheckSquare2 className="h-3 w-3 shrink-0 text-accent" />
+                      ) : (
+                        <Square className="h-3 w-3 shrink-0 text-text-tertiary" />
+                      )
+                    ) : null}
+                    <Badge
+                      variant={confidenceVariant(f.confidence)}
+                      className="text-[9px]"
+                    >
+                      {f.id}
+                    </Badge>
+                    <FindingImportanceBadge
+                      importance={f.importance}
+                      className="px-1.5 py-0.5 text-[9px]"
+                    />
+                  </button>
+                  {manageMode ? (
+                    <button
+                      type="button"
+                      className="rounded px-1 text-[9px] text-text-tertiary hover:bg-surface hover:text-text-secondary"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onNavigate({ kind: "finding", id: f.id });
+                      }}
+                    >
+                      Open
+                    </button>
+                  ) : null}
+                </div>
               ))}
             </div>
           )}
         </div>
+        {manageMode ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="shrink-0"
+            onClick={(event) => {
+              event.stopPropagation();
+              onNavigate({ kind: "experiment", id: exp.id });
+            }}
+          >
+            Open
+          </Button>
+        ) : null}
         {!expChildrenExpanded && row.childCount > 0 && (
           <span className="shrink-0 text-[9px] text-text-quaternary">
             +{row.childCount}

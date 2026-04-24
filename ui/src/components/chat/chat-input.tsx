@@ -4,11 +4,14 @@ import {
   FlaskConical,
   Folder,
   Lightbulb,
+  Loader2,
   Plus,
   ArrowUp,
   Square,
   X,
   Boxes,
+  Check,
+  TriangleAlert,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -20,6 +23,7 @@ import {
 import { useChatMentions } from "@/hooks/use-chat-mentions";
 import { ChatMentionPopover } from "./chat-mention-popover";
 import type { ConnectionStatus, MentionRef, PageContext } from "@/types/chat";
+import type { AttachmentTurnStatus } from "@/types/chat";
 import { ChatConnectionBanner } from "./chat-connection-banner";
 import {
   DEFEND_MY_EXISTENCE_COMMAND,
@@ -89,7 +93,7 @@ interface ChatInputProps {
     content: string,
     mentions: MentionRef[],
     files: File[]
-  ) => void | Promise<void>;
+  ) => boolean | void | Promise<boolean | void>;
   onCancel: () => void;
   isStreaming: boolean;
   disabled: boolean;
@@ -97,6 +101,7 @@ interface ChatInputProps {
   connectionStatus?: ConnectionStatus;
   /** Shown under connection warning when present. */
   agentModel?: string | null;
+  attachmentStatus?: AttachmentTurnStatus | null;
 }
 
 export const ChatInput = memo(function ChatInput({
@@ -110,6 +115,7 @@ export const ChatInput = memo(function ChatInput({
   disabled,
   connectionStatus = "connected",
   agentModel = null,
+  attachmentStatus = null,
 }: ChatInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -117,6 +123,7 @@ export const ChatInput = memo(function ChatInput({
   const [cursorPos, setCursorPos] = useState(0);
   const [mentions, setMentions] = useState<MentionRef[]>([]);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [fileDragActive, setFileDragActive] = useState(false);
   const [composerFocused, setComposerFocused] = useState(false);
   const fileDragDepthRef = useRef(0);
@@ -247,14 +254,35 @@ export const ChatInput = memo(function ChatInput({
 
   const handleSend = useCallback(async () => {
     const trimmed = value.trim();
-    if ((!trimmed && pendingFiles.length === 0) || disabled) return;
+    if ((!trimmed && pendingFiles.length === 0) || disabled || isSubmitting) {
+      return;
+    }
     const text = trimmed || "See attached files.";
-    await onSend(text, activeMentions, pendingFiles);
-    setValue("");
-    setPendingFiles([]);
-    setMentions([]);
-    mentionState.close();
-  }, [value, activeMentions, pendingFiles, disabled, onSend, mentionState]);
+    setIsSubmitting(true);
+    try {
+      try {
+        const sent = await onSend(text, activeMentions, pendingFiles);
+        if (sent !== false) {
+          setValue("");
+          setPendingFiles([]);
+          setMentions([]);
+          mentionState.close();
+        }
+      } catch {
+        // Keep the draft in place so the user can retry the send.
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [
+    value,
+    activeMentions,
+    pendingFiles,
+    disabled,
+    isSubmitting,
+    onSend,
+    mentionState,
+  ]);
 
   const insertMention = useCallback(
     (ref: MentionRef) => {
@@ -455,13 +483,16 @@ export const ChatInput = memo(function ChatInput({
   }, [value]);
 
   const canSend =
-    !disabled && (value.trim().length > 0 || pendingFiles.length > 0);
+    !disabled &&
+    !isSubmitting &&
+    (value.trim().length > 0 || pendingFiles.length > 0);
 
-  const showFileDropChrome = fileDragActive && !disabled;
+  const showFileDropChrome = fileDragActive && !disabled && !isSubmitting;
 
   const showRotatingPlaceholder =
     !embedded &&
     !disabled &&
+    !isSubmitting &&
     value.length === 0 &&
     !showFileDropChrome &&
     !composerFocused;
@@ -503,6 +534,7 @@ export const ChatInput = memo(function ChatInput({
         multiple
         tabIndex={-1}
         onChange={handleFileChange}
+        disabled={disabled || isSubmitting}
       />
 
       {mentionState.isOpen && (
@@ -546,6 +578,7 @@ export const ChatInput = memo(function ChatInput({
                 </span>
                 <button
                   type="button"
+                  disabled={disabled || isSubmitting}
                   onClick={() => removeMention(m)}
                   className="shrink-0 rounded-full p-0.5 text-text-quaternary transition-colors hover:bg-surface-hover hover:text-text-secondary"
                   aria-label={`Remove ${m.id} mention`}
@@ -579,6 +612,7 @@ export const ChatInput = memo(function ChatInput({
               <span className="min-w-0 truncate">{f.name}</span>
               <button
                 type="button"
+                disabled={disabled || isSubmitting}
                 onClick={() => removeFile(i)}
                 className="shrink-0 rounded-full p-0.5 text-text-quaternary transition-colors hover:bg-surface-hover hover:text-text-secondary"
                 aria-label={`Remove ${f.name}`}
@@ -587,6 +621,50 @@ export const ChatInput = memo(function ChatInput({
               </button>
             </span>
           ))}
+        </div>
+      )}
+
+      {attachmentStatus && (
+        <div
+          className={cn(
+            "mb-2 flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] leading-none shadow-sm",
+            bubbleShell
+              ? attachmentStatus.phase === "failed"
+                ? "border-status-failed/30 bg-status-failed/10 text-status-failed dark:border-status-failed/25 dark:bg-status-failed/10"
+                : attachmentStatus.phase === "attached"
+                  ? "border-accent/25 bg-accent/10 text-accent dark:border-accent/25 dark:bg-accent/10"
+                  : "border-accent/25 bg-accent/10 text-accent dark:border-accent/25 dark:bg-accent/10"
+              : attachmentStatus.phase === "failed"
+                ? "border-status-failed/25 bg-status-failed/10 text-status-failed"
+                : attachmentStatus.phase === "attached"
+                  ? "border-accent/25 bg-accent/10 text-accent"
+                  : "border-accent/25 bg-accent/10 text-accent",
+          )}
+        >
+          {attachmentStatus.phase === "failed" ? (
+            <TriangleAlert className="h-3.5 w-3.5 shrink-0" />
+          ) : attachmentStatus.phase === "attached" ? (
+            <Check className="h-3.5 w-3.5 shrink-0" />
+          ) : (
+            <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+          )}
+          <span className="min-w-0 truncate">
+            {attachmentStatus.message ??
+              (attachmentStatus.phase === "uploading"
+                ? `Uploading ${attachmentStatus.total} file${
+                    attachmentStatus.total === 1 ? "" : "s"
+                  }`
+                : attachmentStatus.phase === "mounting"
+                  ? "Mounting files in Claude"
+                  : attachmentStatus.phase === "attached"
+                    ? "Files attached to Claude"
+                    : "Attachment upload failed")}
+          </span>
+          {attachmentStatus.total > 0 && attachmentStatus.phase !== "failed" && (
+            <span className="shrink-0 tabular-nums text-current/70">
+              {attachmentStatus.completed}/{attachmentStatus.total}
+            </span>
+          )}
         </div>
       )}
 
@@ -703,7 +781,7 @@ export const ChatInput = memo(function ChatInput({
           >
           <button
             type="button"
-            disabled={disabled}
+            disabled={disabled || isSubmitting}
             onClick={() => fileInputRef.current?.click()}
             className={cn(
               "flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-text-tertiary transition-colors",
@@ -749,7 +827,7 @@ export const ChatInput = memo(function ChatInput({
                     ? ""
                     : "What sparks your curiosity?"
               }
-              disabled={disabled}
+              disabled={disabled || isSubmitting}
               rows={1}
               aria-label="Chat message"
               className={cn(
@@ -797,7 +875,11 @@ export const ChatInput = memo(function ChatInput({
               title="Send"
               aria-label="Send"
             >
-              <ArrowUp className="h-5 w-5 stroke-[2.25] text-current" />
+              {isSubmitting ? (
+                <Loader2 className="h-5 w-5 animate-spin stroke-[2.25] text-current" />
+              ) : (
+                <ArrowUp className="h-5 w-5 stroke-[2.25] text-current" />
+              )}
             </button>
           )}
           </div>

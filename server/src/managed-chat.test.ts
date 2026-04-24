@@ -19,6 +19,7 @@ interface ManagedMockScenario {
   invalidSessionIds?: string[];
   onEvents?: (events: Array<Record<string, unknown>>) => void;
   onEventPost?: (events: Array<Record<string, unknown>>) => Response | null | undefined;
+  onResourcePost?: (body: Record<string, unknown>) => Response | null | undefined;
 }
 
 function jsonResponse(body: unknown): Response {
@@ -121,6 +122,27 @@ function createManagedMockFetch(scenario: ManagedMockScenario) {
         return override;
       }
       return jsonResponse({});
+    }
+
+    const resourceMatch = url.pathname.match(/^\/v1\/sessions\/([^/]+)\/resources$/);
+    if (resourceMatch && (init?.method ?? "POST").toUpperCase() === "POST") {
+      const rawBody = typeof init?.body === "string" ? init.body : "{}";
+      const parsed = JSON.parse(rawBody) as Record<string, unknown>;
+      const override = scenario.onResourcePost?.(parsed);
+      if (override) {
+        return override;
+      }
+      return jsonResponse({
+        id: `res_${resourceMatch[1]}`,
+        type: "file",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        file_id: typeof parsed.file_id === "string" ? parsed.file_id : "file_unknown",
+        mount_path:
+          typeof parsed.mount_path === "string"
+            ? parsed.mount_path
+            : "/mnt/session/uploads/attachment",
+      });
     }
 
     if (url.pathname === `/v1/sessions/${scenario.sessionId}/stream`) {
@@ -290,6 +312,117 @@ describe("managed chat websocket", () => {
       agentMessages.length > 0,
       `expected at least one agent content message; got types=${messages.map((m) => m.type).join(",")}`,
     );
+  });
+
+  it("mounts uploaded files before the managed agent responds", async () => {
+    const sessionId = "sesn_test_attachment_mount";
+    const postedEvents: Array<Array<Record<string, unknown>>> = [];
+    const postedResources: Array<Record<string, unknown>> = [];
+    globalThis.fetch = createManagedMockFetch({
+      sessionId,
+      streamBodies: [
+        sseBody([
+          {
+            id: "msg-final",
+            type: "agent.message",
+            content: [{ type: "text", text: "The attachment is available." }],
+          },
+          {
+            id: "idle-final",
+            type: "session.status_idle",
+            stop_reason: { type: "end_turn" },
+          },
+          "[DONE]",
+        ]),
+      ],
+      onEvents(events) {
+        postedEvents.push(events);
+      },
+      onResourcePost(body) {
+        postedResources.push(body);
+        return null;
+      },
+    });
+
+    const server = createWebSocketServer();
+    await once(server, "listening");
+    const address = server.address();
+    assert.ok(address && typeof address === "object");
+
+    const messages: Array<Record<string, unknown>> = [];
+    await new Promise<void>((resolve, reject) => {
+      const wsToken = issueWsSessionToken("playwright-smoke-token", {
+        id: "e2e-user",
+        email: "ci-smoke@aeolus.earth",
+        name: "CI Smoke",
+      });
+      const ws = new WebSocket(
+        `ws://127.0.0.1:${address.port}/chat?ws_token=${encodeURIComponent(wsToken)}`
+      );
+      const timeout = setTimeout(() => {
+        ws.close();
+        reject(new Error("Timed out waiting for attachment confirmation"));
+      }, 10_000);
+
+      ws.on("open", () => {
+        ws.send(
+          JSON.stringify({
+            type: "message",
+            messageId: "msg_attachment_1",
+            content: "Summarize the attached PDF.",
+            attachments: [
+              {
+                name: "report.pdf",
+                mimeType: "application/pdf",
+                fileId: "file_test_123",
+                sizeBytes: 3,
+              },
+            ],
+          })
+        );
+      });
+
+      ws.on("message", (data) => {
+        const message = JSON.parse(String(data)) as Record<string, unknown>;
+        messages.push(message);
+        if (message.type === "done") {
+          clearTimeout(timeout);
+          ws.close();
+          resolve();
+        }
+      });
+
+      ws.on("error", (error) => {
+        clearTimeout(timeout);
+        reject(error);
+      });
+    }).finally(() => {
+      server.close();
+    });
+
+    const attachmentEvent = messages.find(
+      (message) => message.type === "attachments_attached"
+    ) as Record<string, unknown> | undefined;
+    assert.ok(attachmentEvent, "expected attachment confirmation event");
+    assert.equal(attachmentEvent?.messageId, "msg_attachment_1");
+    const attachment = (
+      attachmentEvent?.attachments as Array<Record<string, unknown>> | undefined
+    )?.[0];
+    assert.equal(attachment?.mountPath, "/mnt/session/uploads/report.pdf");
+    assert.equal(attachment?.status, "attached");
+
+    const userMessage = postedEvents
+      .flat()
+      .find((event) => event.type === "user.message") as
+      | Record<string, unknown>
+      | undefined;
+    assert.ok(userMessage);
+    const content = (userMessage?.content as Array<Record<string, unknown>> | undefined)?.[0];
+    assert.match(String(content?.text ?? ""), /\/mnt\/session\/uploads\/report\.pdf/);
+    assert.match(String(content?.text ?? ""), /report\.pdf/);
+    assert.equal(postedResources.length, 1);
+    assert.equal(postedResources[0]?.mount_path, "/mnt/session/uploads/report.pdf");
+    assert.equal(postedResources[0]?.file_id, "file_test_123");
   });
 
   it("auto-allows read-only managed bash actions and continues streaming", async () => {

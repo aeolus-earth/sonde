@@ -55,6 +55,12 @@ export type RecordType =
   | "direction"
   | "project";
 
+export type PruneableRecordKind = "question" | "finding" | "experiment";
+
+export type ExperimentPruneAction = "complete" | "failed" | "superseded";
+
+export type PruneAction = "delete" | ExperimentPruneAction;
+
 export interface RepoSnapshot {
   name: string;
   remote: string;
@@ -296,6 +302,56 @@ export interface ActivityLogEntry {
   actor_name: string | null;
   details: Record<string, unknown>;
   created_at: string;
+}
+
+export interface PruneSelection {
+  questions: string[];
+  findings: string[];
+  experiments: string[];
+}
+
+export interface BulkActionSkip {
+  id: string;
+  reason: string;
+  message: string;
+  current_status?: ExperimentStatus | null;
+}
+
+export interface BulkActionSummary {
+  requested: number;
+  applied: number;
+  skipped: number;
+}
+
+export interface BulkActionResult<TApplied> {
+  applied: TApplied[];
+  skipped: BulkActionSkip[];
+  summary: BulkActionSummary;
+}
+
+export interface BulkDeleteQuestionApplied {
+  id: string;
+}
+
+export interface BulkDeleteFindingApplied {
+  id: string;
+  artifact_count: number;
+  supersedes: string | null;
+  superseded_by: string | null;
+}
+
+export interface BulkTransitionExperimentApplied {
+  id: string;
+  from: ExperimentStatus;
+  to: ExperimentStatus;
+}
+
+export interface BulkActionPreview {
+  kind: PruneableRecordKind;
+  action: PruneAction;
+  eligibleIds: string[];
+  sampleIds: string[];
+  skipped: BulkActionSkip[];
 }
 
 export interface ExperimentReview {

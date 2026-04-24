@@ -14,6 +14,11 @@ const ANTHROPIC_API_BASE = "https://api.anthropic.com";
 const ANTHROPIC_VERSION = "2023-06-01";
 const MANAGED_AGENTS_BETA = "managed-agents-2026-04-01";
 const AGENT_API_BETA = "agent-api-2026-03-01";
+const DEFAULT_MANAGED_FILE_SKILLS = [
+  { type: "anthropic" as const, skill_id: "pdf" },
+  { type: "anthropic" as const, skill_id: "pptx" },
+  { type: "anthropic" as const, skill_id: "xlsx" },
+];
 
 export interface ManagedSessionEvent {
   id?: string;
@@ -296,6 +301,7 @@ async function createEphemeralAgent(): Promise<string> {
       name: process.env.SONDE_MANAGED_AGENT_NAME?.trim() || "Sonde Managed Chat",
       model: resolveAgentModel(),
       system: SYSTEM_PROMPT,
+      skills: DEFAULT_MANAGED_FILE_SKILLS,
       tools: [
         {
           type: "agent_toolset_20260401",

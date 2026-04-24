@@ -57,6 +57,7 @@ function ChatPanelInner({ glass }: { glass: boolean }) {
     agentModel,
     agentRuntime,
     isStreaming,
+    attachmentStatus,
     isConnected,
     connectionStatus,
     clearConversation,
@@ -140,6 +141,7 @@ function ChatPanelInner({ glass }: { glass: boolean }) {
         disabled={!isConnected}
         connectionStatus={connectionStatus}
         agentModel={modelLabel}
+        attachmentStatus={attachmentStatus}
       />
     </div>
   );
@@ -166,6 +168,7 @@ function ChatPanelInner({ glass }: { glass: boolean }) {
           disabled={!isConnected}
           agentModel={agentModel}
           connectionStatus={connectionStatus}
+          attachmentStatus={attachmentStatus}
         />
       </div>
       <div

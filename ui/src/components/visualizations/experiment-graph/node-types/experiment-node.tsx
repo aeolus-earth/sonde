@@ -1,8 +1,15 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { ChevronDown, ChevronRight, GitFork } from "lucide-react";
+import {
+  CheckSquare2,
+  ChevronDown,
+  ChevronRight,
+  GitFork,
+  Square,
+} from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { InlineMarkdownText } from "@/components/shared/inline-markdown-text";
+import { cn } from "@/lib/utils";
 import type { ExperimentSummary } from "@/types/sonde";
 
 import type { StatusColorMap } from "../graph-builder";
@@ -14,15 +21,26 @@ export type ExperimentNodeData = ExperimentSummary & {
   childCount: number;
   isExpanded: boolean;
   depth: number;
+  manageMode?: boolean;
+  muted?: boolean;
+  selectable?: boolean;
+  selected?: boolean;
   onToggle?: NodeAction;
   onOpen?: NodeAction;
+  onSelect?: NodeAction;
 };
 
 export function ExperimentNode({ data }: NodeProps) {
   const d = data as unknown as ExperimentNodeData;
   return (
     <div
-      className="w-[220px] rounded-[8px] border border-border bg-surface transition-shadow hover:shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-accent)_30%,transparent)]"
+      className={cn(
+        "w-[220px] rounded-[8px] border bg-surface transition-shadow hover:shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-accent)_30%,transparent)]",
+        d.selected
+          ? "border-accent shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-accent)_35%,transparent)]"
+          : "border-border",
+        d.muted && "opacity-60",
+      )}
       style={{ borderLeftWidth: 3, borderLeftColor: d.statusColors[d.status] }}
     >
       <Handle
@@ -55,12 +73,24 @@ export function ExperimentNode({ data }: NodeProps) {
             type="button"
             onClick={(event) => {
               event.stopPropagation();
+              if (d.manageMode) {
+                if (d.selectable === false) return;
+                d.onSelect?.();
+                return;
+              }
               d.onOpen?.();
             }}
             className="min-w-0 flex-1 text-left"
           >
             <div className="flex items-center justify-between gap-1">
               <div className="min-w-0 flex items-center gap-1.5">
+                {d.manageMode && d.selectable !== false ? (
+                  d.selected ? (
+                    <CheckSquare2 className="h-3.5 w-3.5 shrink-0 text-accent" />
+                  ) : (
+                    <Square className="h-3.5 w-3.5 shrink-0 text-text-tertiary" />
+                  )
+                ) : null}
                 <span className="truncate font-mono text-[11px] font-medium text-text">
                   {d.id}
                 </span>
@@ -85,6 +115,18 @@ export function ExperimentNode({ data }: NodeProps) {
               </p>
             )}
           </button>
+          {d.manageMode ? (
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                d.onOpen?.();
+              }}
+              className="rounded-[4px] px-1.5 py-1 text-[10px] text-text-tertiary transition-colors hover:bg-surface-raised hover:text-text-secondary"
+            >
+              Open
+            </button>
+          ) : null}
         </div>
       </div>
       <Handle

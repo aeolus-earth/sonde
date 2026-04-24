@@ -4,12 +4,19 @@ import { useExperiments } from "@/hooks/use-experiments";
 import { useDirections } from "@/hooks/use-directions";
 import { useCurrentFindings } from "@/hooks/use-findings";
 import { useGlobalActivity } from "@/hooks/use-activity";
+import { useFocusMode } from "@/hooks/use-focus";
 import { useRealtimeInvalidation } from "@/hooks/use-realtime";
+import { FocusToggle } from "@/components/shared/focus-toggle";
 import { FindingConfidenceBadge } from "@/components/shared/finding-confidence-badge";
 import { FindingImportanceBadge } from "@/components/shared/finding-importance-badge";
 import { Badge } from "@/components/ui/badge";
 import { StatBlockSkeleton, Skeleton } from "@/components/ui/skeleton";
 import { RecordLink } from "@/components/shared/record-link";
+import {
+  buildDirectFocusReasonMaps,
+  filterActivityForFocus,
+  isDirectFocusReason,
+} from "@/lib/focus-mode";
 import { sortFindingsByImportanceAndRecency } from "@/lib/finding-importance";
 import { formatDateTimeShort, formatDateTime, cn } from "@/lib/utils";
 import type { ExperimentsSearch } from "@/routes/pages/experiments-list";
@@ -69,6 +76,15 @@ export default function DashboardPage() {
   const { data: directions, isLoading: loadingDir } = useDirections();
   const { data: findings, isLoading: loadingFind } = useCurrentFindings();
   const { data: activity } = useGlobalActivity(20);
+  const {
+    enabled: focusEnabled,
+    setEnabled: setFocusEnabled,
+    actorSource,
+    canFocus,
+    description: focusDescription,
+    disabledReason,
+    touchedRecordIds,
+  } = useFocusMode();
 
   useRealtimeInvalidation("experiments", ["experiments"]);
 
@@ -118,9 +134,37 @@ export default function DashboardPage() {
     );
   }
 
-  const exps = experiments ?? [];
-  const dirs = directions ?? [];
-  const finds = sortFindingsByImportanceAndRecency(findings ?? []);
+  const directFocusReasons = buildDirectFocusReasonMaps({
+    projects: [],
+    directions: directions ?? [],
+    questions: [],
+    experiments: experiments ?? [],
+    findings: findings ?? [],
+    actorSource: actorSource ?? "",
+    touchedRecordIds,
+  });
+  const focusActive = focusEnabled && canFocus;
+  const exps = focusActive
+    ? (experiments ?? []).filter((experiment) =>
+        isDirectFocusReason(directFocusReasons.experiments.get(experiment.id)),
+      )
+    : (experiments ?? []);
+  const dirs = focusActive
+    ? (directions ?? []).filter((direction) =>
+        isDirectFocusReason(directFocusReasons.directions.get(direction.id)),
+      )
+    : (directions ?? []);
+  const finds = sortFindingsByImportanceAndRecency(
+    focusActive
+      ? (findings ?? []).filter((finding) =>
+          isDirectFocusReason(directFocusReasons.findings.get(finding.id)),
+        )
+      : (findings ?? []),
+  );
+  const activityItems =
+    focusActive && actorSource
+      ? filterActivityForFocus(activity ?? [], actorSource, directFocusReasons)
+      : (activity ?? []);
 
   const running = exps.filter((e) => e.status === "running").length;
   const complete = exps.filter((e) => e.status === "complete").length;
@@ -128,9 +172,25 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-5">
-      <h1 className="text-[15px] font-semibold tracking-[-0.015em] text-text">
-        Dashboard
-      </h1>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-[15px] font-semibold tracking-[-0.015em] text-text">
+            Dashboard
+          </h1>
+          {focusActive ? (
+            <p className="mt-0.5 text-[11px] text-text-quaternary">
+              Showing only the material you created or touched recently.
+            </p>
+          ) : null}
+        </div>
+        <FocusToggle
+          enabled={focusEnabled}
+          canFocus={canFocus}
+          description={focusDescription}
+          disabledReason={disabledReason}
+          onToggle={() => setFocusEnabled(!focusEnabled)}
+        />
+      </div>
 
       <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
         <StatBlock
@@ -229,6 +289,11 @@ export default function DashboardPage() {
                 </div>
               </Link>
             ))}
+            {dirs.length === 0 && (
+              <div className="px-3 py-6 text-center text-[12px] text-text-quaternary">
+                {focusActive ? "No focused directions yet." : "No directions yet."}
+              </div>
+            )}
           </div>
         </div>
 
@@ -272,6 +337,11 @@ export default function DashboardPage() {
                 </div>
               </Link>
             ))}
+            {finds.length === 0 && (
+              <div className="px-3 py-6 text-center text-[12px] text-text-quaternary">
+                {focusActive ? "No focused findings yet." : "No findings yet."}
+              </div>
+            )}
           </div>
         </div>
 
@@ -288,7 +358,7 @@ export default function DashboardPage() {
             </Link>
           </div>
           <div>
-            {activity?.slice(0, 8).map((a) => (
+            {activityItems.slice(0, 8).map((a) => (
               <div
                 key={a.id}
                 className="flex items-start justify-between gap-2 border-b border-border-subtle px-3 py-2 transition-colors last:border-0 hover:bg-surface-hover/80"
@@ -315,9 +385,9 @@ export default function DashboardPage() {
                 </span>
               </div>
             ))}
-            {(!activity || activity.length === 0) && (
+            {activityItems.length === 0 && (
               <div className="py-6 text-center text-[12px] text-text-quaternary">
-                No activity yet
+                {focusActive ? "No focused activity yet" : "No activity yet"}
               </div>
             )}
           </div>

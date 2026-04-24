@@ -1,19 +1,16 @@
-export const SONDE_CLI_GIT_REF = "main";
+export const SONDE_CLI_GIT_URL = "https://github.com/aeolus-earth/sonde.git";
 
-export function sondeGitInstallCommand(ref = SONDE_CLI_GIT_REF): string {
-  return `uv tool install --force "git+https://github.com/aeolus-earth/sonde.git@${ref}#subdirectory=cli"`;
+export function sondeGitInstallCommand(ref?: string): string {
+  const trimmedRef = ref?.trim();
+  const refSegment = trimmedRef ? `@${trimmedRef}` : "";
+  return `uv tool install --force git+${SONDE_CLI_GIT_URL}${refSegment}#subdirectory=cli`;
 }
 
 export const CHAT_INSTALL_STEPS = [
   {
-    label: "Install uv",
-    command: "curl -LsSf https://astral.sh/uv/install.sh | sh",
-    hint: "Installs Astral's Python tool runner.",
-  },
-  {
     label: "Install Sonde from GitHub",
     command: sondeGitInstallCommand(),
-    hint: "Tracks the current Sonde main branch from the private repo.",
+    hint: "Reinstalls the CLI from the Sonde repository so your shell has the latest command surface.",
   },
   {
     label: "Authenticate",
@@ -23,7 +20,7 @@ export const CHAT_INSTALL_STEPS = [
   {
     label: "Set up runtimes",
     command: "sonde setup",
-    hint: "Configures IDE integration, skills, and MCP wiring.",
+    hint: "Configures runtime integrations, bundled skills, and MCP wiring.",
   },
 ] as const;
 

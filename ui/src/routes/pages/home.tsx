@@ -1,4 +1,5 @@
 import { ChatPanel } from "@/components/chat/chat-panel";
+import { ChatInstallCta } from "@/components/chat/chat-install-cta";
 import { WorkspacePanel } from "@/components/chat/workspace-panel";
 import { WorkspaceChatSplit } from "@/components/home/workspace-chat-split";
 import { useChatStore } from "@/stores/chat";
@@ -18,6 +19,11 @@ export default function HomePage() {
           <h1 className="pointer-events-auto mb-4 shrink-0 font-display text-[clamp(1.65rem,3.8vw,2.25rem)] font-normal leading-[1.12] tracking-[0.03em] text-text">
             What should we <em className="italic text-text-secondary">explore?</em>
           </h1>
+        )}
+        {!expanded && (
+          <div className="pointer-events-auto absolute left-4 right-4 top-4 z-20 sm:left-auto sm:right-6 sm:top-5 sm:w-[26rem]">
+            <ChatInstallCta compact />
+          </div>
         )}
         <WorkspaceChatSplit
           expanded={expanded}

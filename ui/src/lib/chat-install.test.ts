@@ -2,31 +2,30 @@ import { describe, expect, it } from "vitest";
 import {
   CHAT_INSTALL_STEPS,
   CHAT_INSTALL_VERIFY_COMMANDS,
-  SONDE_CLI_GIT_REF,
   sondeGitInstallCommand,
 } from "./chat-install";
 
 describe("sondeGitInstallCommand", () => {
-  it("installs the CLI from the GitHub repo subdirectory on main", () => {
+  it("installs the CLI from the GitHub repo subdirectory", () => {
     expect(sondeGitInstallCommand()).toBe(
-      'uv tool install --force "git+https://github.com/aeolus-earth/sonde.git@main#subdirectory=cli"',
+      "uv tool install --force git+https://github.com/aeolus-earth/sonde.git#subdirectory=cli",
     );
   });
 
   it("supports a caller-provided git ref", () => {
     expect(sondeGitInstallCommand("feature/test")).toBe(
-      'uv tool install --force "git+https://github.com/aeolus-earth/sonde.git@feature/test#subdirectory=cli"',
+      "uv tool install --force git+https://github.com/aeolus-earth/sonde.git@feature/test#subdirectory=cli",
     );
   });
 });
 
 describe("CHAT_INSTALL_STEPS", () => {
-  it("uses the shared git ref in the install step", () => {
-    const installStep = CHAT_INSTALL_STEPS.find(
-      (step) => step.label === "Install Sonde from GitHub",
-    );
-
-    expect(installStep?.command).toContain(`@${SONDE_CLI_GIT_REF}#subdirectory=cli`);
+  it("copies the required setup commands in order", () => {
+    expect(CHAT_INSTALL_STEPS.map((step) => step.command)).toEqual([
+      "uv tool install --force git+https://github.com/aeolus-earth/sonde.git#subdirectory=cli",
+      "sonde login",
+      "sonde setup",
+    ]);
   });
 
   it("includes remote login guidance", () => {

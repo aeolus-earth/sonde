@@ -12,6 +12,11 @@ import { handleSondeMcpRequest } from "./mcp/http-server.js";
 import { getAgentBackend } from "./runtime-mode.js";
 import { reconcileManagedCostBuckets } from "./managed/cost-reconcile.js";
 import {
+  describeChatAttachmentUploadFailure,
+  validateChatAttachmentUpload,
+  uploadManagedFile,
+} from "./managed/files.js";
+import {
   fetchManagedCostSummary,
   fetchManagedSessionDetail,
   fetchManagedSessions,
@@ -81,7 +86,7 @@ function parseIntegerQuery(
 
 function errorResponse(
   c: Context,
-  status: 401 | 403 | 404 | 500 | 503,
+  status: 400 | 401 | 403 | 404 | 413 | 500 | 503,
   type: string,
   message: string,
 ): Response {
@@ -852,6 +857,63 @@ export function createApp(): Hono {
         isManagedConfigError(error) ? 503 : 500,
         isManagedConfigError(error) ? "chat_runtime_unavailable" : "chat_prewarm_failed",
         error instanceof Error ? error.message : "Failed to prepare chat runtime.",
+      );
+    }
+  });
+
+  app.post("/chat/attachments", async (c) => {
+    const user = await requireVerifiedUser(c);
+    if (user instanceof Response) {
+      return user;
+    }
+
+    let file: File | null = null;
+    try {
+      const form = await c.req.formData();
+      const formFile = form.get("file");
+      file = formFile instanceof File ? formFile : null;
+      if (!(file instanceof File)) {
+        return errorResponse(
+          c,
+          400,
+          "attachment_missing_file",
+          "Chat attachment upload requires a file."
+        );
+      }
+
+      const validationError = validateChatAttachmentUpload(file);
+      if (validationError) {
+        return errorResponse(
+          c,
+          validationError.status,
+          validationError.code,
+          validationError.message
+        );
+      }
+
+      const uploaded = await uploadManagedFile(file);
+      return c.json({
+        name: uploaded.filename,
+        mimeType: uploaded.mime_type,
+        fileId: uploaded.id,
+        sizeBytes: uploaded.size_bytes,
+        status: "uploaded",
+      });
+    } catch (error) {
+      if (file) {
+        const uploadFailure = describeChatAttachmentUploadFailure(file, error);
+        return errorResponse(
+          c,
+          uploadFailure.status,
+          uploadFailure.code,
+          uploadFailure.message
+        );
+      }
+      return errorResponse(
+        c,
+        isManagedConfigError(error) ? 503 : 500,
+        isManagedConfigError(error) ? "chat_runtime_unavailable" : "chat_attachment_upload_failed",
+        error instanceof Error ? error.message : "Failed to upload chat attachment.",
       );
     }
   });
