@@ -14,19 +14,44 @@ import { useQuestions } from "@/hooks/use-questions";
 import { useProjects } from "@/hooks/use-projects";
 import { usePrograms } from "@/hooks/use-programs";
 import { useFindings } from "@/hooks/use-findings";
+import { useFocusMode } from "@/hooks/use-focus";
+import { FocusToggle } from "@/components/shared/focus-toggle";
+import {
+  useDeleteFindings,
+  useDeleteQuestions,
+  useTransitionExperiments,
+} from "@/hooks/use-prune-mutations";
 import { useActiveProgram } from "@/stores/program";
+import { PruneActionBar } from "@/components/prune/prune-action-bar";
+import { PruneConfirmDialog } from "@/components/prune/prune-confirm-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   ResearchTree,
   type TreeNavigateTarget,
 } from "@/components/visualizations/research-tree";
+import {
+  buildBulkActionPreview,
+  emptyPruneSelection,
+  experimentActionConfirmLabel,
+  intersectPruneSelection,
+  isExperimentActionEligible,
+  removeAppliedFromSelection,
+  samePruneSelection,
+  togglePruneSelection,
+  type BulkActionIntent,
+} from "@/lib/prune-actions";
+import {
+  buildFocusedWorkspaceData,
+  isDirectFocusReason,
+} from "@/lib/focus-mode";
 import { buildTimelineVisibleTreeData } from "@/lib/tree-timeline-visibility";
 import { formatDateTimeShort } from "@/lib/utils";
-import { Pause, Play } from "lucide-react";
+import { CheckSquare2, Pause, Play } from "lucide-react";
 import type {
   DirectionSummary,
   ExperimentSummary,
   Finding,
+  PruneSelection,
   ProjectSummary,
   QuestionSummary,
 } from "@/types/sonde";
@@ -83,12 +108,31 @@ export default function TreePage() {
   const { data: projects, isLoading: loadingProj } = useProjects();
   const { data: findings, isLoading: loadingFindings } = useFindings();
   const { data: programs } = usePrograms();
+  const {
+    enabled: focusEnabled,
+    setEnabled: setFocusEnabled,
+    actorSource,
+    canFocus,
+    description: focusDescription,
+    disabledReason,
+    touchedRecordIds,
+  } = useFocusMode();
   const activeProgram = useActiveProgram();
   const navigate = routeApi.useNavigate();
   const [viewMode, setViewMode] = useState<"tree" | "map">("tree");
   const [timelineIndex, setTimelineIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [timelineSpeedIndex, setTimelineSpeedIndex] = useState(1);
+  const [manageMode, setManageMode] = useState(false);
+  const [selection, setSelection] = useState<PruneSelection>(
+    emptyPruneSelection(),
+  );
+  const [pendingAction, setPendingAction] = useState<BulkActionIntent | null>(
+    null,
+  );
+  const deleteQuestions = useDeleteQuestions();
+  const deleteFindings = useDeleteFindings();
+  const transitionExperiments = useTransitionExperiments();
 
   const programLabel =
     programs?.find((p) => p.id === activeProgram)?.name ?? activeProgram;
@@ -155,11 +199,117 @@ export default function TreePage() {
     [projects, directions, questions, experiments, findings, timelineCutoff],
   );
 
-  const visibleProjects = visibleTreeData.projects;
-  const visibleDirections = visibleTreeData.directions;
-  const visibleQuestions = visibleTreeData.questions;
-  const visibleExperiments = visibleTreeData.experiments;
-  const visibleFindings = visibleTreeData.findings;
+  const focusActive = focusEnabled && canFocus && !!actorSource;
+  const focusedTreeData = useMemo(
+    () =>
+      focusActive
+        ? buildFocusedWorkspaceData({
+            projects: visibleTreeData.projects,
+            directions: visibleTreeData.directions,
+            questions: visibleTreeData.questions,
+            experiments: visibleTreeData.experiments,
+            findings: visibleTreeData.findings,
+            actorSource,
+            touchedRecordIds,
+          })
+        : null,
+    [actorSource, focusActive, touchedRecordIds, visibleTreeData],
+  );
+
+  const visibleProjects = focusedTreeData?.projects ?? visibleTreeData.projects;
+  const visibleDirections =
+    focusedTreeData?.directions ?? visibleTreeData.directions;
+  const visibleQuestions =
+    focusedTreeData?.questions ?? visibleTreeData.questions;
+  const visibleExperiments =
+    focusedTreeData?.experiments ?? visibleTreeData.experiments;
+  const visibleFindings = focusedTreeData?.findings ?? visibleTreeData.findings;
+  const focusReasons = focusedTreeData?.reasons ?? null;
+  const visibleExperimentIds = useMemo(
+    () => new Set(visibleExperiments.map((item) => item.id)),
+    [visibleExperiments],
+  );
+  const visibleQuestionIds = useMemo(
+    () => new Set(visibleQuestions.map((item) => item.id)),
+    [visibleQuestions],
+  );
+  const visibleFindingIds = useMemo(
+    () => new Set(visibleFindings.map((item) => item.id)),
+    [visibleFindings],
+  );
+  const selectableExperimentIds = useMemo(
+    () =>
+      focusActive && focusReasons
+        ? new Set(
+            visibleExperiments
+              .filter((item) =>
+                isDirectFocusReason(focusReasons.experiments.get(item.id)),
+              )
+              .map((item) => item.id),
+          )
+        : visibleExperimentIds,
+    [focusActive, focusReasons, visibleExperimentIds, visibleExperiments],
+  );
+  const selectableQuestionIds = useMemo(
+    () =>
+      focusActive && focusReasons
+        ? new Set(
+            visibleQuestions
+              .filter((item) =>
+                isDirectFocusReason(focusReasons.questions.get(item.id)),
+              )
+              .map((item) => item.id),
+          )
+        : visibleQuestionIds,
+    [focusActive, focusReasons, visibleQuestionIds, visibleQuestions],
+  );
+  const selectableFindingIds = useMemo(
+    () =>
+      focusActive && focusReasons
+        ? new Set(
+            visibleFindings
+              .filter((item) =>
+                isDirectFocusReason(focusReasons.findings.get(item.id)),
+              )
+              .map((item) => item.id),
+          )
+        : visibleFindingIds,
+    [focusActive, focusReasons, visibleFindingIds, visibleFindings],
+  );
+  const visibleExperimentsById = useMemo(
+    () => new Map(visibleExperiments.map((item) => [item.id, item])),
+    [visibleExperiments],
+  );
+  const experimentSelectionEligibility = useMemo(
+    () => ({
+      complete: selection.experiments.filter((id) => {
+        const experiment = visibleExperimentsById.get(id);
+        return experiment
+          ? isExperimentActionEligible(experiment.status, "complete")
+          : false;
+      }).length,
+      failed: selection.experiments.filter((id) => {
+        const experiment = visibleExperimentsById.get(id);
+        return experiment
+          ? isExperimentActionEligible(experiment.status, "failed")
+          : false;
+      }).length,
+      superseded: selection.experiments.filter((id) => {
+        const experiment = visibleExperimentsById.get(id);
+        return experiment
+          ? isExperimentActionEligible(experiment.status, "superseded")
+          : false;
+      }).length,
+    }),
+    [selection.experiments, visibleExperimentsById],
+  );
+  const pendingPreview = useMemo(
+    () =>
+      pendingAction
+        ? buildBulkActionPreview(pendingAction, selection, visibleExperimentsById)
+        : null,
+    [pendingAction, selection, visibleExperimentsById],
+  );
 
   const handleNodeClick = useCallback(
     (id: string) => {
@@ -213,6 +363,129 @@ export default function TreePage() {
     [navigate],
   );
 
+  const toggleQuestionSelection = useCallback((questionId: string) => {
+    if (
+      focusActive &&
+      focusReasons &&
+      !isDirectFocusReason(focusReasons.questions.get(questionId))
+    ) {
+      return;
+    }
+    setSelection((prev) =>
+      togglePruneSelection(prev, "question", questionId),
+    );
+  }, [focusActive, focusReasons]);
+
+  const toggleExperimentSelection = useCallback((experimentId: string) => {
+    if (
+      focusActive &&
+      focusReasons &&
+      !isDirectFocusReason(focusReasons.experiments.get(experimentId))
+    ) {
+      return;
+    }
+    setSelection((prev) =>
+      togglePruneSelection(prev, "experiment", experimentId),
+    );
+  }, [focusActive, focusReasons]);
+
+  const toggleFindingSelection = useCallback((findingId: string) => {
+    if (
+      focusActive &&
+      focusReasons &&
+      !isDirectFocusReason(focusReasons.findings.get(findingId))
+    ) {
+      return;
+    }
+    setSelection((prev) => togglePruneSelection(prev, "finding", findingId));
+  }, [focusActive, focusReasons]);
+
+  useEffect(() => {
+    setSelection(emptyPruneSelection());
+    setPendingAction(null);
+    setManageMode(false);
+  }, [activeProgram]);
+
+  useEffect(() => {
+    if (manageMode) return;
+    setPendingAction(null);
+    setSelection((prev) =>
+      samePruneSelection(prev, emptyPruneSelection())
+        ? prev
+        : emptyPruneSelection(),
+    );
+  }, [manageMode]);
+
+  useEffect(() => {
+    if (!manageMode) return;
+    setSelection((prev) => {
+      const next = intersectPruneSelection(prev, {
+        questions: selectableQuestionIds,
+        findings: selectableFindingIds,
+        experiments: selectableExperimentIds,
+      });
+      return samePruneSelection(prev, next) ? prev : next;
+    });
+  }, [
+    manageMode,
+    selectableExperimentIds,
+    selectableFindingIds,
+    selectableQuestionIds,
+  ]);
+
+  const handleConfirmAction = useCallback(async () => {
+    if (!pendingAction || !pendingPreview) return;
+
+    if (pendingAction.kind === "question") {
+      const result = await deleteQuestions.mutateAsync({
+        ids: pendingPreview.eligibleIds,
+      });
+      setSelection((prev) =>
+        removeAppliedFromSelection(
+          prev,
+          "question",
+          result.applied.map((item) => item.id),
+        ),
+      );
+      setPendingAction(null);
+      return;
+    }
+
+    if (pendingAction.kind === "finding") {
+      const result = await deleteFindings.mutateAsync({
+        ids: pendingPreview.eligibleIds,
+      });
+      setSelection((prev) =>
+        removeAppliedFromSelection(
+          prev,
+          "finding",
+          result.applied.map((item) => item.id),
+        ),
+      );
+      setPendingAction(null);
+      return;
+    }
+
+    const result = await transitionExperiments.mutateAsync({
+      ids: pendingPreview.eligibleIds,
+      status: pendingAction.action,
+    });
+    setSelection((prev) =>
+      removeAppliedFromSelection(
+        prev,
+        "experiment",
+        result.applied.map((item) => item.id),
+      ),
+    );
+    setPendingAction(null);
+  }, [
+    deleteFindings,
+    deleteQuestions,
+    pendingAction,
+    pendingPreview,
+    transitionExperiments,
+  ]);
+
   const isLoading =
     loadingExp ||
     loadingDir ||
@@ -232,43 +505,78 @@ export default function TreePage() {
           <h1 className="text-[15px] font-semibold tracking-[-0.015em] text-text">
             Research tree
           </h1>
-          <div
-            className="flex shrink-0 rounded-[6px] border border-border bg-surface p-0.5"
-            role="tablist"
-            aria-label="View mode"
-          >
+          <div className="flex flex-wrap items-center gap-2">
+            <FocusToggle
+              enabled={focusEnabled}
+              canFocus={canFocus}
+              description={focusDescription}
+              disabledReason={disabledReason}
+              onToggle={() => setFocusEnabled(!focusEnabled)}
+              compact
+            />
             <button
               type="button"
-              role="tab"
-              aria-selected={viewMode === "tree"}
               className={
-                viewMode === "tree"
-                  ? "rounded-[4px] bg-surface-raised px-2.5 py-1 text-[11px] font-medium text-text shadow-sm"
-                  : "rounded-[4px] px-2.5 py-1 text-[11px] font-medium text-text-tertiary hover:text-text-secondary"
+                manageMode
+                  ? "inline-flex items-center gap-1.5 rounded-[6px] border border-accent/30 bg-accent/10 px-2.5 py-1 text-[11px] font-medium text-accent"
+                  : "inline-flex items-center gap-1.5 rounded-[6px] border border-border bg-surface-raised px-2.5 py-1 text-[11px] font-medium text-text-secondary hover:bg-surface-hover"
               }
-              onClick={() => setViewMode("tree")}
+              onClick={() => setManageMode((prev) => !prev)}
             >
-              Tree
+              <CheckSquare2 className="h-3.5 w-3.5" />
+              {manageMode ? "Manage on" : "Manage"}
             </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={viewMode === "map"}
-              className={
-                viewMode === "map"
-                  ? "rounded-[4px] bg-surface-raised px-2.5 py-1 text-[11px] font-medium text-text shadow-sm"
-                  : "rounded-[4px] px-2.5 py-1 text-[11px] font-medium text-text-tertiary hover:text-text-secondary"
-              }
-              onClick={() => setViewMode("map")}
+            <div
+              className="flex shrink-0 rounded-[6px] border border-border bg-surface p-0.5"
+              role="tablist"
+              aria-label="View mode"
             >
-              Map
-            </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={viewMode === "tree"}
+                className={
+                  viewMode === "tree"
+                    ? "rounded-[4px] bg-surface-raised px-2.5 py-1 text-[11px] font-medium text-text shadow-sm"
+                    : "rounded-[4px] px-2.5 py-1 text-[11px] font-medium text-text-tertiary hover:text-text-secondary"
+                }
+                onClick={() => setViewMode("tree")}
+              >
+                Tree
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={viewMode === "map"}
+                className={
+                  viewMode === "map"
+                    ? "rounded-[4px] bg-surface-raised px-2.5 py-1 text-[11px] font-medium text-text shadow-sm"
+                    : "rounded-[4px] px-2.5 py-1 text-[11px] font-medium text-text-tertiary hover:text-text-secondary"
+                }
+                onClick={() => setViewMode("map")}
+              >
+                Map
+              </button>
+            </div>
           </div>
         </div>
         <p className="mt-1 text-[12px] text-text-secondary">
           Program → project → direction → question → experiment. Findings stay
           attached to the experiments that support them.
         </p>
+        {focusActive ? (
+          <p className="mt-1 text-[11px] text-text-quaternary">
+            Focus mode keeps direct matches bright and shows container context
+            in a muted style so the structure still makes sense.
+          </p>
+        ) : null}
+        {manageMode ? (
+          <p className="mt-1 text-[11px] text-accent">
+            Manage mode is on. Click questions, experiments, and finding
+            chips/nodes to select them. Use the inline Open buttons to inspect a
+            record without leaving selection mode.
+          </p>
+        ) : null}
         <p className="mt-1 text-[11px] text-text-quaternary">
           Program:{" "}
           <span className="font-medium text-text-secondary">
@@ -375,6 +683,13 @@ export default function TreePage() {
               findings={visibleFindings}
               questions={visibleQuestions}
               expansionResetKey={activeProgram}
+              manageMode={manageMode}
+              selection={selection}
+              focusMode={focusActive}
+              focusReasons={focusReasons}
+              onToggleQuestionSelection={toggleQuestionSelection}
+              onToggleExperimentSelection={toggleExperimentSelection}
+              onToggleFindingSelection={toggleFindingSelection}
               onNavigate={handleTreeNavigate}
             />
           ) : (
@@ -396,6 +711,13 @@ export default function TreePage() {
                 onProjectNavigate={handleProjectNavigate}
                 onDirectionNavigate={handleDirectionNavigate}
                 onFindingNavigate={handleFindingNavigate}
+                manageMode={manageMode}
+                selection={selection}
+                focusMode={focusActive}
+                focusReasons={focusReasons}
+                onToggleQuestionSelection={toggleQuestionSelection}
+                onToggleExperimentSelection={toggleExperimentSelection}
+                onToggleFindingSelection={toggleFindingSelection}
               />
             </Suspense>
           )
@@ -405,6 +727,50 @@ export default function TreePage() {
           </div>
         )}
       </div>
+
+      {manageMode ? (
+        <PruneActionBar
+          selection={selection}
+          eligibleExperimentCounts={experimentSelectionEligibility}
+          onAction={setPendingAction}
+          onClear={() => setSelection(emptyPruneSelection())}
+          onExit={() => setManageMode(false)}
+        />
+      ) : null}
+
+      {pendingAction && pendingPreview ? (
+        <PruneConfirmDialog
+          open
+          kind={pendingAction.kind}
+          action={pendingAction.action}
+          title={
+            pendingAction.kind === "question"
+              ? "Delete selected questions?"
+              : pendingAction.kind === "finding"
+                ? "Delete selected findings?"
+                : pendingAction.action === "superseded"
+                  ? "Archive selected experiments?"
+                  : `${experimentActionConfirmLabel(pendingAction.action)}?`
+          }
+          description={
+            pendingAction.kind === "question"
+              ? "Questions will be removed from the question inbox and linked tree/map views."
+              : pendingAction.kind === "finding"
+                ? "Findings will be removed, supersession links will be repaired, and linked artifacts will be queued for cleanup."
+                : pendingAction.action === "superseded"
+                  ? "Only complete or failed experiments can be archived in this pass."
+                  : "Only open or running experiments are eligible for close-out from this bulk workflow."
+          }
+          preview={pendingPreview}
+          isPending={
+            deleteQuestions.isPending ||
+            deleteFindings.isPending ||
+            transitionExperiments.isPending
+          }
+          onClose={() => setPendingAction(null)}
+          onConfirm={handleConfirmAction}
+        />
+      ) : null}
     </div>
   );
 }

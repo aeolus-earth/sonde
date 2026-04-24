@@ -1,15 +1,20 @@
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getRouteApi, Link } from "@tanstack/react-router";
 import { ROUTE_API } from "../route-ids";
+import { displaySourceLabel } from "@/lib/actor-source";
 import { supabase } from "@/lib/supabase";
+import { useFocusMode } from "@/hooks/use-focus";
+import { useDeleteQuestions } from "@/hooks/use-prune-mutations";
 import { useQuestion } from "@/hooks/use-questions";
 import { useDirection } from "@/hooks/use-directions";
 import { useRecordActivity } from "@/hooks/use-activity";
 import { useHotkey } from "@/hooks/use-keyboard";
+import { PruneConfirmDialog } from "@/components/prune/prune-confirm-dialog";
 import { FindingConfidenceBadge } from "@/components/shared/finding-confidence-badge";
 import { FindingImportanceBadge } from "@/components/shared/finding-importance-badge";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Skeleton,
   DetailSectionSkeleton,
@@ -19,10 +24,11 @@ import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { Section, DetailRow } from "@/components/shared/detail-layout";
 import { RecordUnavailable } from "@/components/shared/record-unavailable";
 import { RecordLink } from "@/components/shared/record-link";
+import { buildBulkActionPreview } from "@/lib/prune-actions";
 import { sortFindingsByImportanceAndRecency } from "@/lib/finding-importance";
 import { formatDateTime, formatDateTimeShort } from "@/lib/utils";
 import type { ExperimentSummary, Finding } from "@/types/sonde";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Trash2 } from "lucide-react";
 
 const routeApi = getRouteApi(ROUTE_API.authQuestionDetail);
 
@@ -35,9 +41,12 @@ function statusVariant(status: string): "complete" | "running" | "default" {
 export default function QuestionDetailPage() {
   const { id } = routeApi.useParams();
   const navigate = routeApi.useNavigate();
+  const { actorSource } = useFocusMode();
   const { data: question, isLoading } = useQuestion(id);
   const { data: direction } = useDirection(question?.direction_id ?? "");
   const { data: activity } = useRecordActivity(id);
+  const deleteQuestions = useDeleteQuestions();
+  const [deleteOpen, setDeleteOpen] = useState(false);
   useHotkey(
     "Escape",
     useCallback(() => navigate({ to: "/questions" }), [navigate]),
@@ -156,10 +165,21 @@ export default function QuestionDetailPage() {
             {question.status}
           </Badge>
         </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="ml-auto"
+          onClick={() => setDeleteOpen(true)}
+        >
+          <Trash2 className="h-4 w-4" />
+          Delete
+        </Button>
         <span
           className="text-[12px] text-text-quaternary"
           title={formatDateTime(question.created_at)}
         >
+          Created by {displaySourceLabel(question.source, actorSource)} ·{" "}
           {formatDateTimeShort(question.created_at)}
         </span>
       </div>
@@ -218,7 +238,11 @@ export default function QuestionDetailPage() {
                   "—"
                 )}
               </DetailRow>
-              <DetailRow label="Source">{question.source}</DetailRow>
+              <DetailRow label="Created by">
+                <span title={question.source}>
+                  {displaySourceLabel(question.source, actorSource)}
+                </span>
+              </DetailRow>
               <DetailRow label="Experiments">
                 {question.linked_experiment_count}
               </DetailRow>
@@ -249,6 +273,33 @@ export default function QuestionDetailPage() {
           )}
         </div>
       </div>
+
+      <PruneConfirmDialog
+        open={deleteOpen}
+        kind="question"
+        action="delete"
+        title={`Delete ${question.id}?`}
+        description="This removes the question from the question inbox and linked question views. Experiments and findings remain available."
+        preview={buildBulkActionPreview(
+          { kind: "question", action: "delete" },
+          {
+            questions: [question.id],
+            findings: [],
+            experiments: [],
+          },
+          new Map(),
+        )}
+        isPending={deleteQuestions.isPending}
+        onClose={() => setDeleteOpen(false)}
+        onConfirm={async () => {
+          const result = await deleteQuestions.mutateAsync({
+            ids: [question.id],
+          });
+          if (result.summary.applied > 0) {
+            navigate({ to: "/questions" });
+          }
+        }}
+      />
     </div>
   );
 }

@@ -11,13 +11,20 @@ export type UngroupedNodeData = {
   expanded: boolean;
   statusCounts: Record<string, number>;
   statusColors: StatusColorMap;
+  muted?: boolean;
   onToggle?: NodeAction;
 };
 
 export function UngroupedNode({ data }: NodeProps) {
   const d = data as unknown as UngroupedNodeData;
   return (
-    <div className="flex w-[260px] items-center gap-2.5 rounded-[8px] border border-border-subtle bg-surface-raised px-3 py-2.5 transition-colors hover:border-border">
+    <div
+      className={
+        d.muted
+          ? "flex w-[260px] items-center gap-2.5 rounded-[8px] border border-border-subtle bg-surface-raised px-3 py-2.5 opacity-60 transition-colors hover:border-border"
+          : "flex w-[260px] items-center gap-2.5 rounded-[8px] border border-border-subtle bg-surface-raised px-3 py-2.5 transition-colors hover:border-border"
+      }
+    >
       <Handle
         type="target"
         position={Position.Top}

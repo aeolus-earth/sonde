@@ -13,9 +13,11 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowDown, ChevronRight } from "lucide-react";
 import { ROUTE_API } from "../route-ids";
 import { useExperiments, useExperimentSearch } from "@/hooks/use-experiments";
+import { useFocusMode } from "@/hooks/use-focus";
 import { useProjects } from "@/hooks/use-projects";
 import { useDirections } from "@/hooks/use-directions";
 import { useListKeyboardNav } from "@/hooks/use-keyboard";
+import { FocusToggle } from "@/components/shared/focus-toggle";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { ExperimentRowSkeleton } from "@/components/ui/skeleton";
@@ -34,6 +36,10 @@ import {
 import { useActiveProgram } from "@/stores/program";
 import type { ArtifactType, ExperimentSummary } from "@/types/sonde";
 import { experimentMatchesSearchQuery } from "@/lib/experiment-search-match";
+import {
+  buildDirectFocusReasonMaps,
+  isDirectFocusReason,
+} from "@/lib/focus-mode";
 import {
   buildTimePoints,
   isTimestampInTimeRange,
@@ -212,6 +218,15 @@ export default function ExperimentsListPage() {
   const { data: experiments, isLoading } = useExperiments();
   const { data: projects } = useProjects();
   const { data: directions } = useDirections();
+  const {
+    enabled: focusEnabled,
+    setEnabled: setFocusEnabled,
+    actorSource,
+    canFocus,
+    description: focusDescription,
+    disabledReason,
+    touchedRecordIds,
+  } = useFocusMode();
   const activeProgram = useActiveProgram();
   const navigate = routeApi.useNavigate();
   const { q, status, artifact, view, day, sort, order, from, to } =
@@ -229,13 +244,38 @@ export default function ExperimentsListPage() {
 
   const [projOpen, setProjOpen] = useState<Record<string, boolean>>({});
   const [dirOpen, setDirOpen] = useState<Record<string, boolean>>({});
+  const directFocusReasons = useMemo(
+    () =>
+      buildDirectFocusReasonMaps({
+        projects: [],
+        directions: [],
+        questions: [],
+        experiments: experiments ?? [],
+        findings: [],
+        actorSource: actorSource ?? "",
+        touchedRecordIds,
+      }),
+    [actorSource, experiments, touchedRecordIds]
+  );
+  const focusActive = focusEnabled && canFocus;
+  const baseExperiments = useMemo(
+    () =>
+      focusActive
+        ? (experiments ?? []).filter((experiment) =>
+            isDirectFocusReason(
+              directFocusReasons.experiments.get(experiment.id)
+            )
+          )
+        : (experiments ?? []),
+    [directFocusReasons.experiments, experiments, focusActive]
+  );
 
   const timePoints = useMemo(
     () =>
-      buildTimePoints(experiments ?? [], (exp) =>
+      buildTimePoints(baseExperiments, (exp) =>
         timestampFromIso(exp.created_at)
       ),
-    [experiments]
+    [baseExperiments]
   );
   const activeTimeRange = useMemo(
     () => resolveTimeRangeSelection(timePoints, from, to),
@@ -243,8 +283,7 @@ export default function ExperimentsListPage() {
   );
 
   const filtered = useMemo(() => {
-    if (!experiments) return [];
-    let result = experiments;
+    let result = baseExperiments;
     if (statusFilter !== "all") {
       result = result.filter((e) => e.status === statusFilter);
     }
@@ -270,7 +309,7 @@ export default function ExperimentsListPage() {
     }
     return result;
   }, [
-    experiments,
+    baseExperiments,
     deferredFilter,
     statusFilter,
     artifactFilter,
@@ -469,6 +508,7 @@ export default function ExperimentsListPage() {
         </div>
         <span className="text-[12px] text-text-quaternary sm:shrink-0">
           {filtered.length} result{filtered.length !== 1 ? "s" : ""}
+          {focusActive ? " in focus" : ""}
         </span>
       </div>
 
@@ -510,6 +550,14 @@ export default function ExperimentsListPage() {
             })
           }
           className="max-w-[280px]"
+        />
+        <FocusToggle
+          enabled={focusEnabled}
+          canFocus={canFocus}
+          description={focusDescription}
+          disabledReason={disabledReason}
+          onToggle={() => setFocusEnabled(!focusEnabled)}
+          compact
         />
         {timePoints.length > 0 && (
           <TimeRangeBar
@@ -637,7 +685,9 @@ export default function ExperimentsListPage() {
               <div className="space-y-4">
                 {projectTree.length === 0 ? (
                   <div className="py-10 text-center text-[13px] text-text-quaternary">
-                    No experiments match your filters.
+                    {focusActive
+                      ? "No focused experiments match your filters."
+                      : "No experiments match your filters."}
                   </div>
                 ) : (
                   projectTree.map((pg) => (
@@ -775,7 +825,9 @@ export default function ExperimentsListPage() {
           )}
           {viewMode === "list" && sortedFiltered.length === 0 && (
             <div className="py-10 text-center text-[13px] text-text-quaternary">
-              No experiments match your filters.
+              {focusActive
+                ? "No focused experiments match your filters."
+                : "No experiments match your filters."}
             </div>
           )}
       </div>

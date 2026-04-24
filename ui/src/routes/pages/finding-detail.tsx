@@ -1,4 +1,4 @@
-import { useCallback, useMemo, type ReactNode } from "react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getRouteApi, Link } from "@tanstack/react-router";
 import { ROUTE_API } from "../route-ids";
@@ -7,21 +7,27 @@ import {
   useUpdateFindingConfidence,
   useUpdateFindingImportance,
 } from "@/hooks/use-findings";
+import { useFocusMode } from "@/hooks/use-focus";
+import { useDeleteFindings } from "@/hooks/use-prune-mutations";
 import { useQuestionsByFinding } from "@/hooks/use-questions";
 import { useDirections } from "@/hooks/use-directions";
 import { useProjects } from "@/hooks/use-projects";
 import { useRecordActivity } from "@/hooks/use-activity";
 import { useHotkey } from "@/hooks/use-keyboard";
+import { PruneConfirmDialog } from "@/components/prune/prune-confirm-dialog";
 import { FindingConfidenceBadge } from "@/components/shared/finding-confidence-badge";
 import { FindingImportanceBadge } from "@/components/shared/finding-importance-badge";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Skeleton, DetailSectionSkeleton } from "@/components/ui/skeleton";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { MarkdownView } from "@/components/ui/markdown-view";
 import { Section, DetailRow } from "@/components/shared/detail-layout";
+import { displaySourceLabel } from "@/lib/actor-source";
 import { RecordUnavailable } from "@/components/shared/record-unavailable";
 import { RecordLink } from "@/components/shared/record-link";
 import { InlineMarkdownText } from "@/components/shared/inline-markdown-text";
+import { buildBulkActionPreview } from "@/lib/prune-actions";
 import {
   FINDING_CONFIDENCE_LEVELS,
   findingConfidenceLabel,
@@ -32,7 +38,7 @@ import {
 } from "@/lib/finding-importance";
 import { supabase } from "@/lib/supabase";
 import { cn, formatDateTime, formatDateTimeShort } from "@/lib/utils";
-import { ArrowLeft, Check } from "lucide-react";
+import { ArrowLeft, Check, Trash2 } from "lucide-react";
 import type {
   DirectionSummary,
   ExperimentSummary,
@@ -68,13 +74,16 @@ const importanceButtonStyles: Record<FindingImportance, string> = {
 export default function FindingDetailPage() {
   const { id } = routeApi.useParams();
   const nav = routeApi.useNavigate();
+  const { actorSource } = useFocusMode();
   const { data: finding, isLoading } = useFinding(id);
+  const deleteFindings = useDeleteFindings();
   const { data: linkedQuestions } = useQuestionsByFinding(id);
   const { data: projects } = useProjects();
   const { data: directions } = useDirections();
   const { data: activity } = useRecordActivity(id);
   const updateConfidence = useUpdateFindingConfidence(id);
   const updateImportance = useUpdateFindingImportance(id);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const evidenceIds = finding?.evidence ?? [];
   const { data: evidenceExperiments } = useQuery({
     queryKey: ["findings", "detail", id, "evidence-experiments", evidenceIds] as const,
@@ -151,11 +160,22 @@ export default function FindingDetailPage() {
           <FindingConfidenceBadge confidence={finding.confidence} />
           <FindingImportanceBadge importance={finding.importance} />
         </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="ml-auto"
+          onClick={() => setDeleteOpen(true)}
+        >
+          <Trash2 className="h-4 w-4" />
+          Delete
+        </Button>
         <span
           className="text-[12px] text-text-quaternary"
           title={formatDateTime(finding.valid_from)}
         >
-          {finding.source} · {formatDateTimeShort(finding.valid_from)}
+          Created by {displaySourceLabel(finding.source, actorSource)} ·{" "}
+          {formatDateTimeShort(finding.valid_from)}
         </span>
       </div>
 
@@ -225,7 +245,11 @@ export default function FindingDetailPage() {
           <Section title="Details">
             <div className="divide-y divide-border-subtle">
               <DetailRow label="Program">{finding.program}</DetailRow>
-              <DetailRow label="Source">{finding.source}</DetailRow>
+              <DetailRow label="Created by">
+                <span title={finding.source}>
+                  {displaySourceLabel(finding.source, actorSource)}
+                </span>
+              </DetailRow>
               <FindingAxisEditor
                 label="Confidence"
                 valueBadge={
@@ -322,6 +346,33 @@ export default function FindingDetailPage() {
           )}
         </div>
       </div>
+
+      <PruneConfirmDialog
+        open={deleteOpen}
+        kind="finding"
+        action="delete"
+        title={`Delete ${finding.id}?`}
+        description="This removes the finding, repairs any supersession links that depend on it, and queues linked artifacts for cleanup."
+        preview={buildBulkActionPreview(
+          { kind: "finding", action: "delete" },
+          {
+            questions: [],
+            findings: [finding.id],
+            experiments: [],
+          },
+          new Map(),
+        )}
+        isPending={deleteFindings.isPending}
+        onClose={() => setDeleteOpen(false)}
+        onConfirm={async () => {
+          const result = await deleteFindings.mutateAsync({
+            ids: [finding.id],
+          });
+          if (result.summary.applied > 0) {
+            nav({ to: "/findings" });
+          }
+        }}
+      />
     </div>
   );
 }

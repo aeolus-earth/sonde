@@ -16,6 +16,7 @@ import type {
   DirectionSummary,
   ExperimentSummary,
   Finding,
+  PruneSelection,
   ProjectSummary,
   QuestionSummary,
 } from "@/types/sonde";
@@ -29,6 +30,7 @@ import {
   type HandlerFactories,
 } from "./experiment-graph/graph-builder";
 import { nodeTypes } from "./experiment-graph/node-types";
+import type { FocusReasonMaps } from "@/lib/focus-mode";
 
 /**
  * MiniMap iterates every node on every viewport change and renders a
@@ -81,6 +83,13 @@ interface ExperimentGraphProps {
   onProjectNavigate?: (projectId: string) => void;
   onDirectionNavigate?: (directionId: string) => void;
   onFindingNavigate?: (findingId: string) => void;
+  manageMode?: boolean;
+  selection?: PruneSelection;
+  focusMode?: boolean;
+  focusReasons?: FocusReasonMaps | null;
+  onToggleQuestionSelection?: (questionId: string) => void;
+  onToggleExperimentSelection?: (experimentId: string) => void;
+  onToggleFindingSelection?: (findingId: string) => void;
 }
 
 export const ExperimentGraph = memo(function ExperimentGraph({
@@ -94,6 +103,13 @@ export const ExperimentGraph = memo(function ExperimentGraph({
   onProjectNavigate,
   onDirectionNavigate,
   onFindingNavigate,
+  manageMode = false,
+  selection = { questions: [], findings: [], experiments: [] },
+  focusMode = false,
+  focusReasons = null,
+  onToggleQuestionSelection,
+  onToggleExperimentSelection,
+  onToggleFindingSelection,
 }: ExperimentGraphProps) {
   const colors = useThemeCssColors();
   const statusColor = useStatusChartColors();
@@ -185,6 +201,9 @@ export const ExperimentGraph = memo(function ExperimentGraph({
   const openDirectionFor = useIdKeyedCallback(onDirectionNavigate);
   const openFindingFor = useIdKeyedCallback(onFindingNavigate);
   const openProjectFor = useIdKeyedCallback(onProjectNavigate);
+  const selectQuestionFor = useIdKeyedCallback(onToggleQuestionSelection);
+  const selectExperimentFor = useIdKeyedCallback(onToggleExperimentSelection);
+  const selectFindingFor = useIdKeyedCallback(onToggleFindingSelection);
 
   const handlers = useMemo<HandlerFactories>(
     () => ({
@@ -194,6 +213,9 @@ export const ExperimentGraph = memo(function ExperimentGraph({
       openDirectionFor,
       openFindingFor,
       openProjectFor,
+      selectExperimentFor,
+      selectQuestionFor,
+      selectFindingFor,
     }),
     [
       toggleFor,
@@ -202,6 +224,9 @@ export const ExperimentGraph = memo(function ExperimentGraph({
       openDirectionFor,
       openFindingFor,
       openProjectFor,
+      selectExperimentFor,
+      selectQuestionFor,
+      selectFindingFor,
     ],
   );
 
@@ -224,6 +249,12 @@ export const ExperimentGraph = memo(function ExperimentGraph({
           borderColor: colors.border,
           projectEdgeColor: colors.textTertiary,
           knownProjectIds,
+          manageMode,
+          focusMode,
+          focusReasons,
+          selectedExperimentIds: new Set(selection.experiments),
+          selectedQuestionIds: new Set(selection.questions),
+          selectedFindingIds: new Set(selection.findings),
         }),
       [
         projects,
@@ -237,6 +268,12 @@ export const ExperimentGraph = memo(function ExperimentGraph({
         colors.border,
         colors.textTertiary,
         handlers,
+        manageMode,
+        focusMode,
+        focusReasons,
+        selection.experiments,
+        selection.findings,
+        selection.questions,
       ],
     );
 
