@@ -39,6 +39,10 @@
 import dagre from "@dagrejs/dagre";
 import type { Edge, Node } from "@xyflow/react";
 
+import {
+  type FocusReasonMaps,
+  isDirectFocusReason,
+} from "@/lib/focus-mode";
 import { sortFindingsByImportanceAndRecency } from "@/lib/finding-importance";
 import type {
   DirectionSummary,
@@ -122,6 +126,9 @@ export interface HandlerFactories {
   openDirectionFor: (id: string) => () => void;
   openFindingFor: (id: string) => () => void;
   openProjectFor: (id: string) => () => void;
+  selectExperimentFor: (id: string) => () => void;
+  selectQuestionFor: (id: string) => () => void;
+  selectFindingFor: (id: string) => () => void;
 }
 
 export interface BuildGraphInput {
@@ -136,6 +143,12 @@ export interface BuildGraphInput {
   borderColor: string;
   projectEdgeColor: string;
   knownProjectIds: Set<string>;
+  manageMode?: boolean;
+  focusMode?: boolean;
+  focusReasons?: FocusReasonMaps | null;
+  selectedExperimentIds?: Set<string>;
+  selectedQuestionIds?: Set<string>;
+  selectedFindingIds?: Set<string>;
 }
 
 export interface BuildGraphOutput {
@@ -501,6 +514,12 @@ interface BuildContext {
   handlers: HandlerFactories;
   statusColor: StatusColorMap;
   borderColor: string;
+  manageMode: boolean;
+  focusMode: boolean;
+  focusReasons: FocusReasonMaps | null;
+  selectedExperimentIds: Set<string>;
+  selectedQuestionIds: Set<string>;
+  selectedFindingIds: Set<string>;
 }
 
 function addExperimentSubtree(
@@ -524,6 +543,9 @@ function addExperimentSubtree(
   const hasChildren =
     children.length > 0 || spawnedDirections.length > 0 || findings.length > 0;
   const isExpanded = ctx.expanded.has(exp.id);
+  const selectable =
+    !ctx.focusMode ||
+    isDirectFocusReason(ctx.focusReasons?.experiments.get(exp.id));
 
   nodes.push({
     id: exp.id,
@@ -543,8 +565,13 @@ function addExperimentSubtree(
         findings.length,
       isExpanded,
       depth,
+      manageMode: ctx.manageMode,
+      muted: ctx.focusMode && !selectable,
+      selectable,
+      selected: ctx.selectedExperimentIds.has(exp.id),
       onToggle: hasChildren ? ctx.handlers.toggleFor(exp.id) : undefined,
       onOpen: ctx.handlers.openExperimentFor(exp.id),
+      onSelect: ctx.handlers.selectExperimentFor(exp.id),
     } as Record<string, unknown>,
     draggable: true,
   });
@@ -562,13 +589,21 @@ function addExperimentSubtree(
 
   for (const finding of findings) {
     const findingNodeId = `finding-${finding.id}-for-${exp.id}`;
+    const findingSelectable =
+      !ctx.focusMode ||
+      isDirectFocusReason(ctx.focusReasons?.findings.get(finding.id));
     nodes.push({
       id: findingNodeId,
       type: "finding",
       position: { x: 0, y: 0 },
       data: {
         ...finding,
+        manageMode: ctx.manageMode,
+        muted: ctx.focusMode && !findingSelectable,
+        selectable: findingSelectable,
+        selected: ctx.selectedFindingIds.has(finding.id),
         onOpen: ctx.handlers.openFindingFor(finding.id),
+        onSelect: ctx.handlers.selectFindingFor(finding.id),
       } as Record<string, unknown>,
       draggable: true,
     });
@@ -610,6 +645,9 @@ function addQuestionSubtree(
   const questionExperiments = ctx.experimentsByQuestion.get(question.id) ?? [];
   const questionRoots = rootExperimentsForGroup(questionExperiments);
   const findingCount = question.linked_finding_count ?? 0;
+  const selectable =
+    !ctx.focusMode ||
+    isDirectFocusReason(ctx.focusReasons?.questions.get(question.id));
 
   nodes.push({
     id: headerId,
@@ -621,8 +659,13 @@ function addQuestionSubtree(
       count: questionExperiments.length,
       findingCount,
       expanded: isExpanded,
+      manageMode: ctx.manageMode,
+      muted: ctx.focusMode && !selectable,
+      selectable,
+      selected: ctx.selectedQuestionIds.has(question.id),
       onToggle: ctx.handlers.toggleFor(headerId),
       onOpen: ctx.handlers.openQuestionFor(question.id),
+      onSelect: ctx.handlers.selectQuestionFor(question.id),
     } as Record<string, unknown>,
     draggable: true,
   });
@@ -659,6 +702,9 @@ function addDirectionSubtree(
   const directionQuestions = ctx.questionsByDirection.get(direction.id) ?? [];
   const directionRoots =
     rootUnlinkedExperimentsForDirection(directionExperiments);
+  const muted =
+    ctx.focusMode &&
+    !isDirectFocusReason(ctx.focusReasons?.directions.get(direction.id));
 
   nodes.push({
     id: headerId,
@@ -671,6 +717,7 @@ function addDirectionSubtree(
       expanded: isExpanded,
       statusCounts: countStatuses(directionExperiments),
       statusColors: ctx.statusColor,
+      muted,
       onToggle: ctx.handlers.toggleFor(headerId),
       onOpen: ctx.handlers.openDirectionFor(direction.id),
     } as Record<string, unknown>,
@@ -735,6 +782,12 @@ function buildExperimentGraphImpl(input: BuildGraphInput): BuildGraphOutput {
     borderColor,
     projectEdgeColor,
     knownProjectIds,
+    manageMode = false,
+    focusMode = false,
+    focusReasons = null,
+    selectedExperimentIds = new Set<string>(),
+    selectedQuestionIds = new Set<string>(),
+    selectedFindingIds = new Set<string>(),
   } = input;
 
   // Derive all the lookup indexes in one place, then bundle them into
@@ -764,6 +817,12 @@ function buildExperimentGraphImpl(input: BuildGraphInput): BuildGraphOutput {
     handlers,
     statusColor,
     borderColor,
+    manageMode,
+    focusMode,
+    focusReasons,
+    selectedExperimentIds,
+    selectedQuestionIds,
+    selectedFindingIds,
   };
 
   const isRoot = (e: ExperimentSummary): boolean =>
@@ -824,6 +883,12 @@ function buildExperimentGraphImpl(input: BuildGraphInput): BuildGraphOutput {
         count: allInProject.length,
         directionCount: dirsInProj.length,
         expanded: isProjExpanded,
+        muted:
+          focusMode &&
+          !(
+            p.id !== null &&
+            isDirectFocusReason(focusReasons?.projects.get(p.id))
+          ),
         onToggle: handlers.toggleFor(pid),
         onOpen: p.id === null ? undefined : handlers.openProjectFor(p.id),
       } as Record<string, unknown>,
@@ -857,6 +922,7 @@ function buildExperimentGraphImpl(input: BuildGraphInput): BuildGraphOutput {
         expanded: isNodirExpanded,
         statusCounts: countStatuses(noDirExps),
         statusColors: statusColor,
+        muted: focusMode,
         onToggle: handlers.toggleFor(nodirId),
       } as Record<string, unknown>,
       draggable: true,

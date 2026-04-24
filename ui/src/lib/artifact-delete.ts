@@ -1,3 +1,5 @@
+import { actorSourceFromEmail } from "./actor-source";
+
 export type ArtifactParentRecordType = "experiment" | "finding" | "direction" | "project";
 
 export interface ArtifactDeletedActivityRow {
@@ -20,8 +22,7 @@ export function artifactParentRecordType(parentId: string): ArtifactParentRecord
 }
 
 export function activityActorForEmail(email: string | undefined): string {
-  const handle = email?.split("@")[0]?.trim();
-  return `human/${handle || "unknown"}`;
+  return actorSourceFromEmail(email) ?? "human/unknown";
 }
 
 export function artifactDeletedActivityRow({
