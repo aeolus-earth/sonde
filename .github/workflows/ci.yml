@@ -578,7 +578,7 @@ jobs:
           python-version: "3.12"
 
       - if: steps.gate.outputs.run == 'true'
-        uses: supabase/setup-cli@v1
+        uses: supabase/setup-cli@v2
         with:
           version: latest
 
@@ -612,7 +612,7 @@ jobs:
         uses: actions/checkout@v6
 
       - if: steps.gate.outputs.run == 'true'
-        uses: supabase/setup-cli@v1
+        uses: supabase/setup-cli@v2
         with:
           version: latest
 
