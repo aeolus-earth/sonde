@@ -91,7 +91,7 @@ jobs:
           google-client-id: ${{ secrets.SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID }}
           google-client-secret: ${{ secrets.SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET }}
 
-      - uses: supabase/setup-cli@v1
+      - uses: supabase/setup-cli@v2
         with:
           version: latest
 
